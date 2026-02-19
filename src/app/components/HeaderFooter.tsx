@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router";
-import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useAuth } from "../context/AuthContext";
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 // Custom TikTok Icon
@@ -21,7 +22,14 @@ const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: 
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -70,6 +78,53 @@ export function Header() {
               {link.name}
             </Link>
           ))}
+          
+          {/* Auth Section */}
+          {user ? (
+            <div className="flex items-center gap-3">
+              <Link 
+                to={user.role === 'admin' ? '/admin' : '/'}
+                className="flex items-center gap-2"
+              >
+                {user.avatar ? (
+                  <img 
+                    src={user.avatar} 
+                    alt={user.name} 
+                    className="w-8 h-8 rounded-full border-2 border-emerald-500"
+                  />
+                ) : (
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    isScrolled ? 'bg-emerald-100 text-emerald-700' : 'bg-white/20 text-white'
+                  }`}>
+                    <User size={16} />
+                  </div>
+                )}
+                <span className={`text-sm font-medium ${isScrolled ? 'text-gray-700' : 'text-white'}`}>
+                  {user.name}
+                </span>
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="p-2 rounded-full hover:bg-red-100 text-red-500 transition-colors"
+                title="Déconnexion"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+          ) : (
+            <Link
+              to="/login"
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                isScrolled 
+                  ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
+                  : "text-white hover:bg-white/20 border border-white/30"
+              }`}
+            >
+              <User size={16} />
+              <span>Connexion</span>
+            </Link>
+          )}
+          
           <a
             href="https://wa.me/21652080695"
             target="_blank"
@@ -117,6 +172,47 @@ export function Header() {
                   {link.name}
                 </Link>
               ))}
+              
+              {/* Mobile Auth Section */}
+              {user ? (
+                <div className="flex flex-col items-center gap-4 mt-4">
+                  <div className="flex items-center gap-3">
+                    {user.avatar ? (
+                      <img 
+                        src={user.avatar} 
+                        alt={user.name} 
+                        className="w-10 h-10 rounded-full border-2 border-emerald-500"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+                        <User size={20} />
+                      </div>
+                    )}
+                    <span className="text-xl font-semibold text-gray-800">{user.name}</span>
+                  </div>
+                  <Link 
+                    to={user.role === 'admin' ? '/admin' : '/'}
+                    className="text-lg text-emerald-600 hover:text-emerald-700"
+                  >
+                    Mon espace
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 px-6 py-2 bg-red-100 text-red-600 rounded-full font-medium hover:bg-red-200 transition-colors"
+                  >
+                    <LogOut size={18} />
+                    <span>Déconnexion</span>
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  to="/login"
+                  className="text-2xl font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-2"
+                >
+                  <User size={24} />
+                  <span>Connexion</span>
+                </Link>
+              )}
               
               <div className="mt-8 flex gap-6">
                 <a href="https://www.facebook.com/dwiraimmo2" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-blue-600">
