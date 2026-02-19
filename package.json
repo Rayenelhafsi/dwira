@@ -1,4 +1,5 @@
 {
+  "homepage": "https://Rayenelhafsi.github.io/dwira",
   "name": "@figma/my-make-file",
   "private": true,
   "version": "0.0.1",
@@ -6,6 +7,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
+    "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
