@@ -1,5 +1,5 @@
 import { useParams, Link, useSearchParams } from "react-router";
-import { properties } from "../data/properties";
+import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -9,6 +9,9 @@ import { fr } from "date-fns/locale";
 import { toast } from "sonner";
 
 export default function PropertyDetailsPage() {
+  // Use shared context for properties
+  const { properties } = useProperties();
+  
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => p.slug === slug);
@@ -79,7 +82,7 @@ export default function PropertyDetailsPage() {
       if (a.isFeatured === b.isFeatured) return 0;
       return a.isFeatured ? -1 : 1;
     });
-  }, [property?.id, filterLocation, filterCategories, filterAmenities, filterFeatured, minPrice, maxPrice]);
+  }, [property?.id, filterLocation, filterCategories, filterAmenities, filterFeatured, minPrice, maxPrice, properties]);
 
   const openLightbox = (index: number) => {
     setCurrentImageIndex(index);

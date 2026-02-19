@@ -26,7 +26,7 @@ import {
   Save
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { mockBiens, mockZones, mockProprietaires } from '../data/mockData';
+import { mockZones, mockProprietaires } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { 
@@ -46,6 +46,7 @@ import {
   startOfDay
 } from "date-fns";
 import { fr } from "date-fns/locale";
+import { useProperties } from '../../context/PropertiesContext';
 
 // Status color mapping
 const statusColors = {
@@ -84,7 +85,9 @@ const calendarColors = [
 ];
 
 export default function BiensPage() {
-  const [biens, setBiens] = useState<Bien[]>(mockBiens);
+  // Use shared context instead of local state
+  const { biens, addBien, updateBien, deleteBien } = useProperties();
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<BienStatut | 'all'>('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -102,17 +105,18 @@ export default function BiensPage() {
 
   const handleDelete = (id: string) => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce bien ?')) {
-      setBiens(biens.filter(b => b.id !== id));
+      deleteBien(id);
       toast.success('Bien supprimé avec succès');
     }
   };
 
   const handleSave = (bien: Bien) => {
     if (editingBien) {
-      setBiens(biens.map(b => b.id === bien.id ? bien : b));
+      updateBien(bien);
       toast.success('Bien modifié avec succès');
     } else {
-      setBiens([...biens, { ...bien, id: Math.random().toString(36).substr(2, 9), created_at: new Date().toISOString() }]);
+      const { id, created_at, updated_at, ...bienData } = bien;
+      addBien(bienData);
       toast.success('Bien ajouté avec succès');
     }
     setIsAddOpen(false);

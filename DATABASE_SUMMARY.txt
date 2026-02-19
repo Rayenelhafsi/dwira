@@ -1,0 +1,358 @@
+================================================================================
+                    DWIRA PROJECT - DATABASE SCHEMA SUMMARY
+                         For MySQL Database Creation
+================================================================================
+
+PROJECT OVERVIEW
+----------------
+This is a property rental management application (Dwira) built with React/TypeScript.
+The application manages rental properties, owners, tenants, contracts, payments, 
+and maintenance requests for a real estate management system in Tunisia.
+
+================================================================================
+                              DATABASE TABLES
+================================================================================
+
+================================================================================
+1. UTILISATEURS (Users/Administrators)
+================================================================================
+Description: System users (administrators and agents)
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- nom             VARCHAR(100) NOT NULL      - Full name
+- email           VARCHAR(100) NOT NULL UNIQUE- Email address
+- role            ENUM('admin','user')      - User role
+- avatar          VARCHAR(255)               - Profile image URL (optional)
+- created_at      DATE                       - Account creation date
+
+Sample Data:
+| id | nom             | email                | role  | created_at |
+|----|-----------------|---------------------|-------|------------|
+| 1  | Admin Ghaith    | admin@dwira.com     | admin | 2023-01-01 |
+| 2  | Agent Immo      | agent@dwira.com     | user  | 2023-02-15 |
+
+================================================================================
+2. ZONES (Locations/Zones)
+================================================================================
+Description: Geographic zones/areas where properties are located
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- nom             VARCHAR(100) NOT NULL      - Zone name
+- description     TEXT                     - Zone description
+
+Sample Data:
+| id | nom             | description                    |
+|----|-----------------|--------------------------------|
+| z1 | Kélibia Centre  | Zone urbaine dynamique         |
+| z2 | El Mansoura     | Zone touristique balnéaire     |
+| z3 | Petit Paris     | Quartier résidentiel calme    |
+
+================================================================================
+3. PROPRIETAIRES (Property Owners)
+================================================================================
+Description: Owners of rental properties
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier (e.g., 'p1', 'p2')
+- nom             VARCHAR(100) NOT NULL      - Owner full name
+- telephone       VARCHAR(20) NOT NULL       - Phone number (Tunisian format)
+- email           VARCHAR(100) NOT NULL UNIQUE- Email address (UNIQUE)
+- cin             VARCHAR(20) NOT NULL UNIQUE - National ID number (UNIQUE)
+
+Sample Data:
+| id | nom                        | telephone        | email                    | cin       |
+|----|----------------------------|------------------|--------------------------|-----------|
+| p1 | Ahmed Ben Ali              | +216 55 123 456  | ahmed@gmail.com          | 09876543  |
+| p2 | Fatma Zahra               | +216 22 987 654  | fatma@yahoo.fr           | 01234567  |
+| p3 | Société Immobilière du Cap| +216 71 111 222  | contact@sicap.tn         | 12345678  |
+
+================================================================================
+4. BIENS (Properties)
+================================================================================
+Description: 
+- statut: Current state of the property today (disponible/loue/reserve/maintenance)
+- unavailableDates: Calendar for blocked/pending/booked dates (not available for rental)
+- type: Property type (S1/S2/S3/S4 = bedrooms count, villa, studio, local)
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- reference       VARCHAR(50) NOT NULL UNIQUE- Property reference code (e.g., REF-001)
+- titre           VARCHAR(200) NOT NULL      - Property title
+- description     TEXT                     - Full description
+- type            ENUM('S1','S2','S3','S4','villa','studio','local') - Property type
+- nb_chambres     INT              NOT NULL - Number of bedrooms
+- nb_salle_bain   INT              NOT NULL - Number of bathrooms
+- prix_nuitee     DECIMAL(10,2)    NOT NULL - Price per night (in TND)
+- avance          DECIMAL(10,2)    NOT NULL - Advance payment amount (in TND)
+- statut          ENUM('disponible','loue','reserve','maintenance') - Current property status
+- menage_en_cours BOOLEAN          NOT NULL - Is cleaning in progress (true/false)
+- zone_id         VARCHAR(50)     FOREIGN KEY - Reference to ZONES table
+- proprietaire_id VARCHAR(50)     FOREIGN KEY - Reference to PROPRIETAIRES table
+- date_ajout      DATE             NOT NULL - Date property was added
+- created_at      DATETIME         NOT NULL - Record creation timestamp
+- updated_at      DATETIME         NOT NULL - Last update timestamp
+
+Sample Data:
+| id | reference | titre                          | type   | nb_chambres | nb_salle_bain | prix_nuitee | avance  | statut      | menage_en_cours | zone_id | proprietaire_id |
+|----|-----------|--------------------------------|--------|-------------|---------------|-------------|---------|-------------|-----------------|---------|-----------------|
+| b1 | REF-001   | Villa de Luxe avec Piscine     | villa  | 4           | 3             | 450         | 200     | disponible  | false           | z2      | p1              |
+| b2 | REF-002   | Appartement S+2 Vue Mer        | S2     | 2           | 1             | 120         | 50      | loue        | false           | z2      | p2              |
+| b3 | REF-003   | Studio Centre Ville            | studio | 1           | 1             | 60          | 30      | disponible  | true            | z1      | p3              |
+| b4 | REF-004   | Local Commercial               | local  | 0           | 1             | 250         | 500     | maintenance | false           | z1      | p3              |
+
+Property Categories Mapping:
+- S+1    → S1 (1 bedroom)
+- S+2    → S2 (2 bedrooms)  
+- S+3    → S3 (3 bedrooms)
+- S+4    → S4 (4 bedrooms)
+- Villa  → villa
+- Studio → studio
+
+================================================================================
+5. MEDIA (Property Images/Videos)
+================================================================================
+Description: Images and videos associated with properties
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- bien_id         VARCHAR(50)  FOREIGN KEY - Reference to BIENS table
+- type            ENUM('image','video')    - Media type
+- url             VARCHAR(500) NOT NULL     - Media URL
+
+Sample Data:
+| id  | bien_id | type  | url                                                                                   |
+|-----|---------|-------|--------------------------------------------------------------------------------------|
+| m1  | b1      | image | https://images.unsplash.com/photo-1613490493576-7fde63acd811...                    |
+| m2  | b1      | image | https://images.unsplash.com/photo-1600596542815-ffad4c1539a9...                    |
+| m5  | b2      | image | https://images.unsplash.com/photo-1502672260266-1c1ef2d93688...                    |
+
+================================================================================
+6. LOCATAIRES (Tenants)
+================================================================================
+Description: Tenants/Renters information
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- nom             VARCHAR(100) NOT NULL      - Tenant full name
+- telephone       VARCHAR(20) NOT NULL       - Phone number
+- email           VARCHAR(100) NOT NULL UNIQUE- Email address (UNIQUE)
+- cin             VARCHAR(20) NOT NULL UNIQUE - National ID/Passport number (UNIQUE)
+- score_fiabilite INT              NOT NULL  - Reliability score (1-10)
+- created_at      DATE             NOT NULL  - Record creation date
+
+Sample Data:
+| id | nom           | telephone     | email              | cin        | score_fiabilite | created_at |
+|----|---------------|---------------|--------------------|------------|-----------------|------------|
+| l1 | Sami Tounsi   | 20 111 222    | sami@gmail.com     | 05555555   | 9               | 2023-03-10 |
+| l2 | Amel Karoui   | 50 333 444    | amel@yahoo.com     | 06666666   | 7               | 2023-04-05 |
+| l3 | Jean Dupont   | 98 777 888    | jean@france.fr     | P1234567   | 10              | 2023-06-01 |
+
+================================================================================
+7. CONTRATS (Rental Contracts)
+================================================================================
+Description: 
+- Rental agreements linked to bien (property), locataire (tenant), and reservation period
+- date_debut/date_fin = start_date/end_date (same period as unavailableDates)
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- bien_id         VARCHAR(50)  FOREIGN KEY - Reference to BIENS table
+- locataire_id    VARCHAR(50)  FOREIGN KEY - Reference to LOCATAIRES table
+- date_debut      DATE         NOT NULL     - Contract/Reservation start date
+- date_fin        DATE         NOT NULL     - Contract/Reservation end date
+- montant_recu    DECIMAL(10,2) NOT NULL    - Amount received (in TND) - Same as Paiements.montant
+- url_pdf         VARCHAR(500)              - URL to PDF contract document
+- statut          ENUM('actif','termine','resilie') - Contract status
+- created_at      DATETIME     NOT NULL     - Record creation timestamp
+
+Sample Data:
+| id | bien_id | locataire_id | date_debut | date_fin   | montant_recu | url_pdf                    | statut | created_at   |
+|----|---------|--------------|------------|------------|--------------|----------------------------|--------|--------------|
+| c1 | b2      | l1           | 2023-05-01 | 2024-04-30 | 2400         | /contracts/contract-001.pdf | actif  | 2023-04-28   |
+
+================================================================================
+8. PAIEMENTS (Payments)
+================================================================================
+Description: Rent payments linked to contracts (montant = montant_recu from CONTRATS)
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- contrat_id      VARCHAR(50)  FOREIGN KEY - Reference to CONTRATS table
+- montant         DECIMAL(10,2) NOT NULL    - Payment amount (Same as Contrat.montant_recu in TND)
+- date_paiement   DATE         NOT NULL     - Payment date
+- statut          ENUM('paye','en_attente','retard') - Payment status
+- methode         ENUM('virement','especes','cheque') - Payment method
+
+Sample Data:
+| id   | contrat_id | montant | date_paiement | statut     | methode  |
+|------|------------|---------|---------------|------------|----------|
+| pay1 | c1         | 2400    | 2023-05-01     | paye       | virement |
+| pay2 | c1         | 2400    | 2023-06-01     | paye       | virement |
+| pay3 | c1         | 2400    | 2023-07-01     | en_attente | virement |
+
+================================================================================
+9. MAINTENANCE (Maintenance Requests)
+================================================================================
+Description: Property maintenance and repair requests
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- bien_id         VARCHAR(50)  FOREIGN KEY - Reference to BIENS table
+- description     TEXT         NOT NULL     - Maintenance description
+- cout            DECIMAL(10,2) NOT NULL    - Cost of maintenance
+- statut          ENUM('en_cours','termine','annule') - Status
+- created_at      DATETIME     NOT NULL     - Record creation timestamp
+
+Sample Data:
+| id     | bien_id | description                      | cout   | statut   | created_at |
+|--------|---------|----------------------------------|--------|----------|------------|
+| maint1 | b4      | Peinture façade et réparation porte | 1500 | en_cours | 2023-07-01 |
+
+================================================================================
+10. NOTIFICATIONS (System Notifications)
+================================================================================
+Description: User notifications and alerts
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- utilisateur_id  VARCHAR(50)  FOREIGN KEY - Reference to UTILISATEURS table
+- type            ENUM('info','warning','success','error') - Notification type
+- message         TEXT         NOT NULL     - Notification message
+- lu              BOOLEAN      NOT NULL     - Read status (true/false)
+- created_at      DATETIME     NOT NULL     - Notification timestamp
+
+Sample Data:
+| id  | utilisateur_id | type    | message                                   | lu    | created_at              |
+|-----|----------------|---------|-------------------------------------------|-------|-------------------------|
+| n1  | 1              | info    | Nouveau contrat signé pour REF-002        | false | 2023-07-05T10:30:00    |
+| n2  | 1              | warning | Retard de paiement pour contrat C1       | false | 2023-07-06T09:15:00    |
+
+================================================================================
+11. UNAVAILABLE_DATES (Property Availability Calendar)
+================================================================================
+Description: 
+- Dates when properties are unavailable for rental
+- Same period as Contrat.date_debut to Contrat.date_fin
+
+Fields:
+- id              VARCHAR(50)  PRIMARY KEY  - Unique identifier
+- bien_id         VARCHAR(50)  FOREIGN KEY - Reference to BIENS table
+- start_date      DATE         NOT NULL     - Unavailable/Reservation start date
+- end_date        DATE         NOT NULL     - Unavailable/Reservation end date
+- status          ENUM('blocked','pending','booked') - Status type
+- color           VARCHAR(20)               - Display color (hex)
+- payment_deadline DATE                     - Payment deadline (for pending status)
+
+Sample Data:
+| id  | bien_id | start_date  | end_date    | status   | color   | payment_deadline |
+|-----|---------|-------------|-------------|----------|---------|------------------|
+| ud1 | b1      | 2024-12-20  | 2024-12-31  | booked   | #ef4444 | NULL             |
+| ud2 | b1      | 2025-01-05  | 2025-01-10  | pending  | #f97316 | 2025-01-03       |
+| ud3 | b1      | 2025-02-01  | 2025-02-07  | blocked  | #111827 | NULL             |
+
+================================================================================
+                        RELATIONSHIPS DIAGRAM
+================================================================================
+
+                    UTILISATEURS (1)
+                         |
+                    (1/N)
+                    NOTIFICATIONS
+
+                         |
+                    ZONES (1)
+                         |
+                    (1/N)
+                      BIENS
+
+                    PROPRIETAIRES (1)    LOCATAIRES (1)
+                         |                      |
+                    (1/N)                  (1/N)
+                      BIENS                   |
+                         |                  (1/N)
+                    (1/N)                  CONTRATS
+                   MEDIA                      |
+                         |                  (1/N)
+                    UNAVAILABLE_DATES       PAIEMENTS
+
+                                              |
+                                            (1/N)
+                                           MAINTENANCE
+
+
+================================================================================
+                         INDEX RECOMMENDATIONS
+================================================================================
+
+1. BIENS table:
+   - idx_proprietaire_id ON proprietaire_id
+   - idx_zone_id ON zone_id
+   - idx_statut ON statut
+   - idx_type ON type
+
+2. CONTRATS table:
+   - idx_bien_id ON bien_id
+   - idx_locataire_id ON locataire_id
+   - idx_statut ON statut
+   - idx_date_debut ON date_debut
+   - idx_date_fin ON date_fin
+
+3. PAIEMENTS table:
+   - idx_contrat_id ON contrat_id
+   - idx_date_paiement ON date_paiement
+
+4. LOCATAIRES table:
+   - idx_email ON email (UNIQUE)
+   - idx_cin ON cin (UNIQUE)
+
+5. PROPRIETAIRES table:
+   - idx_email ON email (UNIQUE)
+   - idx_cin ON cin (UNIQUE)
+
+================================================================================
+                         ENUM VALUES REFERENCE
+================================================================================
+
+UserRole:           ['admin', 'user']
+BienType:           ['S1', 'S2', 'S3', 'S4', 'villa', 'studio', 'local']
+BienStatut:         ['disponible', 'loue', 'reserve', 'maintenance']
+ContratStatut:      ['actif', 'termine', 'resilie']
+PaiementStatut:     ['paye', 'en_attente', 'retard']
+PaiementMethode:    ['virement', 'especes', 'cheque']
+MaintenanceStatut:  ['en_cours', 'termine', 'annule']
+NotificationType:   ['info', 'warning', 'success', 'error']
+DateStatus:         ['blocked', 'pending', 'booked']
+
+================================================================================
+                         ADDITIONAL NOTES
+================================================================================
+
+1. Currency: All prices are in Tunisian Dinars (TND)
+
+2. Date Format: YYYY-MM-DD (ISO 8601)
+
+3. Key Relationships:
+   - BIENS.statut = Current state today (disponible/loue/reserve/maintenance)
+   - UNAVAILABLE_DATES = Calendar of blocked/pending/booked dates (same as Contrat period)
+   - CONTRATS.date_debut/end = Same as UNAVAILABLE_DATES.start_date/end_date
+   - PAIEMENTS.montant = Same as CONTRATS.montant_recu
+
+4. UNIQUE Constraints:
+   - LOCATAIRES.email (UNIQUE)
+   - LOCATAIRES.cin (UNIQUE)
+   - PROPRIETAIRES.email (UNIQUE)
+   - PROPRIETAIRES.cin (UNIQUE)
+
+5. One PROPRIETAIRE can own multiple BIENS
+   - One ZONE contains multiple BIENS
+   - One LOCATAIRE can have multiple CONTRATS
+   - One BIEN can have multiple CONTRATS (over time)
+   - One CONTRAT can have multiple PAIEMENTS
+   - One BIEN can have multiple MAINTENANCE records
+   - One BIEN can have multiple UNAVAILABLE_DATES
+
+================================================================================
+                         END OF DATABASE SUMMARY
+================================================================================

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router";
-import { properties } from "../data/properties";
+import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Search, SlidersHorizontal, MapPin, Calendar, Check, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -9,6 +9,9 @@ const AMENITIES_LIST = ["Piscine", "Garage", "Climatisation", "Vue sur mer", "Ja
 const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
 
 export default function PropertiesPage() {
+  // Use shared context for properties
+  const { properties } = useProperties();
+  
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   
@@ -49,7 +52,7 @@ export default function PropertiesPage() {
   // Derived Data
   const uniqueLocations = useMemo(() => {
     return Array.from(new Set(properties.map(p => p.location))).sort();
-  }, []);
+  }, [properties]);
 
   // Toggle helpers
   const toggleCategory = (cat: string) => {
