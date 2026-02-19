@@ -25,6 +25,8 @@ export interface Property {
   unavailableDates?: DateStatus[];
   cleaningFee?: number;
   serviceFee?: number;
+  // Owner information
+  proprietaire_id: string;
 }
 
 export const properties: Property[] = [
@@ -54,7 +56,8 @@ export const properties: Property[] = [
       { start: "2026-05-01", end: "2026-05-05", status: "blocked" }
     ],
     cleaningFee: 80,
-    serviceFee: 50
+    serviceFee: 50,
+    proprietaire_id: 'p1'
   },
   {
     id: "2",
@@ -80,7 +83,8 @@ export const properties: Property[] = [
       { start: "2026-03-01", end: "2026-03-08", status: "booked" },
       { start: "2026-04-20", end: "2026-04-27", status: "pending", paymentDeadline: "2026-02-25" }
     ],
-    cleaningFee: 40
+    cleaningFee: 40,
+    proprietaire_id: 'p2'
   },
   {
     id: "3",
@@ -105,7 +109,8 @@ export const properties: Property[] = [
       { start: "2026-03-10", end: "2026-03-15", status: "blocked" },
       { start: "2026-03-25", end: "2026-03-30", status: "booked" }
     ],
-    serviceFee: 20
+    serviceFee: 20,
+    proprietaire_id: 'p3'
   },
   {
     id: "4",
@@ -129,7 +134,8 @@ export const properties: Property[] = [
     unavailableDates: [
       { start: "2026-04-05", end: "2026-04-12", status: "pending", paymentDeadline: "2026-02-28" },
       { start: "2026-05-15", end: "2026-05-20", status: "booked" }
-    ]
+    ],
+    proprietaire_id: 'p1'
   },
   {
     id: "5",
@@ -152,7 +158,8 @@ export const properties: Property[] = [
     isFeatured: false,
     unavailableDates: [
       { start: "2026-03-18", end: "2026-03-25", status: "blocked" }
-    ]
+    ],
+    proprietaire_id: 'p2'
   },
     {
     id: "6",
@@ -177,6 +184,7 @@ export const properties: Property[] = [
       { start: "2026-03-05", end: "2026-03-12", status: "booked" },
       { start: "2026-04-15", end: "2026-04-22", status: "pending", paymentDeadline: "2026-03-01" },
       { start: "2026-05-10", end: "2026-05-14", status: "blocked" }
-    ]
+    ],
+    proprietaire_id: 'p3'
   }
 ];

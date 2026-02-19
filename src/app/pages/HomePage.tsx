@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router";
 import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check } from "lucide-react";
-import { properties } from "../data/properties";
+import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -26,6 +26,9 @@ const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
 const LOCATIONS_LIST = ["Kélibia", "Plage El Mansoura", "Petit Paris", "Front de mer"];
 
 export default function HomePage() {
+  // Use shared context for properties
+  const { properties } = useProperties();
+  
   const navigate = useNavigate();
   const resultsRef = useRef<HTMLDivElement>(null);
   
@@ -125,7 +128,7 @@ export default function HomePage() {
       const matchCategory = selectedCategories.length === 0 || selectedCategories.includes(property.category);
       return matchLocation && matchCategory;
     });
-  }, [hasSearched, location, selectedCategories]);
+  }, [hasSearched, location, selectedCategories, properties]);
 
   const dateRangeText = () => {
     if (checkIn && checkOut) {
