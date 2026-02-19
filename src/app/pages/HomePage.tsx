@@ -178,7 +178,7 @@ export default function HomePage() {
           </motion.p>
 
           {/* Filter Bar */}
-          <div className="bg-white rounded-3xl shadow-2xl overflow-hidden pointer-events-auto">
+          <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto">
             {/* Selected Filters Display - Green Boxes */}
             {(location || selectedCategories.length > 0 || (checkIn && checkOut)) && (
               <div className="bg-emerald-50 px-6 py-3 border-b border-emerald-100">

@@ -130,7 +130,7 @@ export default function PropertiesPage() {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="bg-white p-6 md:p-8 rounded-2xl shadow-lg mb-10 overflow-hidden border border-gray-100"
+              className="bg-white p-6 md:p-8 rounded-2xl shadow-lg mb-10 border border-gray-100"
             >
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                 
@@ -240,14 +240,14 @@ export default function PropertiesPage() {
                   </div>
 
                   <div className="pt-4 border-t border-gray-100">
-                    <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 transition-colors">
+                    <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors">
                       <input 
                         type="checkbox" 
                         checked={isFeaturedOnly}
                         onChange={() => setIsFeaturedOnly(!isFeaturedOnly)}
-                        className="w-5 h-5 text-amber-500 rounded focus:ring-amber-500 border-gray-300"
+                        className="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300"
                       />
-                      <span className="font-bold text-amber-900">Biens en Vedette ⭐</span>
+                      <span className="font-bold text-emerald-900">Biens en Vedette ⭐</span>
                     </label>
                   </div>
                   

@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import { format, differenceInDays, isWithinInterval, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
+import { toast } from "sonner";
 
 export default function PropertyDetailsPage() {
   const { slug } = useParams();
@@ -32,6 +33,15 @@ export default function PropertyDetailsPage() {
   const [includeServiceFee, setIncludeServiceFee] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isSaved, setIsSaved] = useState(false);
+
+  // Load saved state from localStorage on mount
+  useEffect(() => {
+    if (property) {
+      const savedProperties = JSON.parse(localStorage.getItem('savedProperties') || '[]');
+      setIsSaved(savedProperties.includes(property.id));
+    }
+  }, [property]);
 
   // Carousel for other properties
   const [otherPropertiesRef, otherPropertiesApi] = useEmblaCarousel({ 
@@ -164,6 +174,54 @@ export default function PropertyDetailsPage() {
     return format(parseISO(pendingDateInfo.paymentDeadline), "d MMMM yyyy", { locale: fr });
   };
 
+  // Handle share functionality
+  const handleShare = async () => {
+    const shareUrl = window.location.href;
+    
+    // Try Web Share API first (mobile devices)
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: property?.title || 'Logement',
+          text: `Découvrez ce logement: ${property?.title}`,
+          url: shareUrl,
+        });
+        return;
+      } catch (err) {
+        // User cancelled or share failed, fallback to clipboard
+      }
+    }
+    
+    // Fallback to clipboard copy
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Lien copié dans le presse-papiers !");
+    } catch (err) {
+      toast.error("Impossible de copier le lien");
+    }
+  };
+
+  // Handle save/favorite functionality
+  const handleSave = () => {
+    if (!property) return;
+    
+    const savedProperties = JSON.parse(localStorage.getItem('savedProperties') || '[]');
+    
+    if (isSaved) {
+      // Remove from saved
+      const updated = savedProperties.filter((id: number) => id !== property.id);
+      localStorage.setItem('savedProperties', JSON.stringify(updated));
+      setIsSaved(false);
+      toast.success("Retiré des favoris");
+    } else {
+      // Add to saved
+      savedProperties.push(property.id);
+      localStorage.setItem('savedProperties', JSON.stringify(savedProperties));
+      setIsSaved(true);
+      toast.success("Ajouté aux favoris");
+    }
+  };
+
   // Auto-play for embla carousel
   useEffect(() => {
     if (emblaApi) {
@@ -215,13 +273,23 @@ export default function PropertyDetailsPage() {
             </div>
           </div>
           <div className="flex gap-2 mt-4 md:mt-0">
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            <button 
+              onClick={handleShare}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
               <Share2 size={18} />
               <span className="hidden sm:inline">Partager</span>
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <Heart size={18} />
-              <span className="hidden sm:inline">Sauvegarder</span>
+            <button 
+              onClick={handleSave}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
+                isSaved 
+                  ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100' 
+                  : 'border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <Heart size={18} className={isSaved ? 'fill-current' : ''} />
+              <span className="hidden sm:inline">{isSaved ? 'Sauvegardé' : 'Sauvegarder'}</span>
             </button>
           </div>
         </div>
