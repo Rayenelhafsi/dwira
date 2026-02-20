@@ -19,23 +19,18 @@ import {
   Maximize,
   Sofa,
   ArrowLeft,
-  Upload,
-  Palette,
   Trash,
-  GripVertical,
   Save
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { 
   startOfMonth, 
   endOfMonth, 
   eachDayOfInterval, 
   format, 
-  isSameMonth,
-  isSameDay,
   addMonths,
   subMonths,
   startOfWeek,
@@ -63,10 +58,11 @@ const statusLabels = {
   maintenance: "Maintenance",
 };
 
-const typeLabels: Record<string, string> = {
+const typeLabels: Record<BienType, string> = {
   S1: "S+1",
-  S2: "S+2",
+  S2: "S+2", 
   S3: "S+3",
+  S4: "S+4",
   villa: "Villa",
   studio: "Studio",
   local: "Local",
@@ -86,7 +82,7 @@ const calendarColors = [
 
 export default function BiensPage() {
   // Use shared context instead of local state
-  const { biens, addBien, updateBien, deleteBien } = useProperties();
+  const { biens, addBien, updateBien, deleteBien, isLoading } = useProperties();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<BienStatut | 'all'>('all');
@@ -103,24 +99,32 @@ export default function BiensPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce bien ?')) {
-      deleteBien(id);
-      toast.success('Bien supprimé avec succès');
+      try {
+        await deleteBien(id);
+        toast.success('Bien supprimé avec succès');
+      } catch (error) {
+        toast.error('Erreur lors de la suppression');
+      }
     }
   };
 
-  const handleSave = (bien: Bien) => {
-    if (editingBien) {
-      updateBien(bien);
-      toast.success('Bien modifié avec succès');
-    } else {
-      const { id, created_at, updated_at, ...bienData } = bien;
-      addBien(bienData);
-      toast.success('Bien ajouté avec succès');
+  const handleSave = async (bien: Bien) => {
+    try {
+      if (editingBien) {
+        await updateBien(bien);
+        toast.success('Bien modifié avec succès');
+      } else {
+        const { id, created_at, updated_at, media, unavailableDates, ...bienData } = bien;
+        await addBien(bienData as any);
+        toast.success('Bien ajouté avec succès');
+      }
+      setIsAddOpen(false);
+      setEditingBien(null);
+    } catch (error) {
+      toast.error('Erreur lors de la sauvegarde');
     }
-    setIsAddOpen(false);
-    setEditingBien(null);
   };
 
   const openEdit = (bien: Bien) => {
@@ -131,6 +135,14 @@ export default function BiensPage() {
   const openView = (bien: Bien) => {
     setViewingBien(bien);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -167,7 +179,7 @@ export default function BiensPage() {
           <select
             className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm rounded-md border"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
+            onChange={(e) => setStatusFilter(e.target.value as BienStatut | 'all')}
           >
             <option value="all">Tous les statuts</option>
             <option value="disponible">Disponible</option>
@@ -320,7 +332,7 @@ function BienCard({ bien, onEdit, onDelete, onView }: {
           </button>
         </div>
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-          <p className="text-white font-bold text-lg">{bien.prix_loyer} DT<span className="text-xs font-normal text-white/80">/mois</span></p>
+          <p className="text-white font-bold text-lg">{bien.prix_nuitee} DT<span className="text-xs font-normal text-white/80">/nuit</span></p>
         </div>
       </div>
       
@@ -335,16 +347,16 @@ function BienCard({ bien, onEdit, onDelete, onView }: {
         
         <div className="grid grid-cols-3 gap-2 text-xs text-gray-600 mb-4">
           <div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 rounded">
-            <Maximize className="h-3 w-3 text-gray-400" />
-            <span>{bien.surface} m²</span>
-          </div>
-          <div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 rounded">
             <Bed className="h-3 w-3 text-gray-400" />
             <span>{bien.nb_chambres} Ch.</span>
           </div>
           <div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 rounded">
             <Bath className="h-3 w-3 text-gray-400" />
             <span>{bien.nb_salle_bain} SdB</span>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 rounded">
+            <DollarSign className="h-3 w-3 text-gray-400" />
+            <span>{bien.avance} DT</span>
           </div>
         </div>
 
@@ -380,16 +392,14 @@ function BienEditor({ initialData, onSubmit }: {
     reference: '',
     titre: '',
     description: '',
-    type: 'S1',
-    surface: 0,
+    type: 'S1' as BienType,
     nb_chambres: 0,
     nb_salle_bain: 0,
-    meuble: false,
-    prix_loyer: 0,
-    charges: 0,
+    prix_nuitee: 0,
+    avance: 0,
     caution: 0,
-    mode_location: 'annuelle',
-    statut: 'disponible',
+    statut: 'disponible' as BienStatut,
+    menage_en_cours: false,
     zone_id: mockZones[0]?.id || '',
     proprietaire_id: mockProprietaires[0]?.id || '',
   });
@@ -465,16 +475,16 @@ function BienEditor({ initialData, onSubmit }: {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Titre *</label>
-                  <input required name="titre" value={formData.titre} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" placeholder="Ex: Villa de luxe" />
+                  <input required name="titre" value={formData.titre || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" placeholder="Ex: Villa de luxe" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Référence *</label>
-                  <input required name="reference" value={formData.reference} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" placeholder="Ex: REF-001" />
+                  <input required name="reference" value={formData.reference || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" placeholder="Ex: REF-001" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea name="description" value={formData.description} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" placeholder="Décrivez le bien..." />
+                <textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" placeholder="Décrivez le bien..." />
               </div>
             </div>
 
@@ -485,30 +495,31 @@ function BienEditor({ initialData, onSubmit }: {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                  <select name="type" value={formData.type} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
-                    <option value="S1">S+1</option><option value="S2">S+2</option><option value="S3">S+3</option>
-                    <option value="villa">Villa</option><option value="studio">Studio</option><option value="local">Local</option>
+                  <select name="type" value={formData.type || 'S1'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
+                    <option value="S1">S+1</option>
+                    <option value="S2">S+2</option>
+                    <option value="S3">S+3</option>
+                    <option value="S4">S+4</option>
+                    <option value="villa">Villa</option>
+                    <option value="studio">Studio</option>
+                    <option value="local">Local</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-                  <select name="statut" value={formData.statut} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
-                    <option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option>
+                  <select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
+                    <option value="disponible">Disponible</option>
+                    <option value="loue">Loué</option>
+                    <option value="reserve">Réservé</option>
+                    <option value="maintenance">Maintenance</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Mode location</label>
-                  <select name="mode_location" value={formData.mode_location} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
-                    <option value="annuelle">Annuelle</option><option value="saisonniere">Saisonnière</option>
-                  </select>
+                <div className="flex items-center gap-2 mt-6">
+                  <input type="checkbox" id="menage_en_cours" name="menage_en_cours" checked={formData.menage_en_cours || false} onChange={handleCheckboxChange} className="rounded border-gray-300 text-emerald-600 h-4 w-4" />
+                  <label htmlFor="menage_en_cours" className="text-sm text-gray-700">Ménage en cours</label>
                 </div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface (m²)</label><input type="number" name="surface" value={formData.surface} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="meuble" name="meuble" checked={formData.meuble} onChange={handleCheckboxChange} className="rounded border-gray-300 text-emerald-600 h-4 w-4" />
-                <label htmlFor="meuble" className="text-sm text-gray-700 flex items-center gap-1"><Sofa className="h-4 w-4" /> Logement meublé</label>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
               </div>
             </div>
 
@@ -517,9 +528,9 @@ function BienEditor({ initialData, onSubmit }: {
                 <DollarSign className="h-5 w-5 text-emerald-600" /> Tarification
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Loyer (DT)</label><input type="number" name="prix_loyer" value={formData.prix_loyer} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Charges (DT)</label><input type="number" name="charges" value={formData.charges} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3" /></div>
               </div>
             </div>
 
@@ -530,13 +541,13 @@ function BienEditor({ initialData, onSubmit }: {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
-                  <select name="zone_id" value={formData.zone_id} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
+                  <select name="zone_id" value={formData.zone_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
                     {mockZones.map(z => <option key={z.id} value={z.id}>{z.nom}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Propriétaire</label>
-                  <select name="proprietaire_id" value={formData.proprietaire_id} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
+                  <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2.5 px-3">
                     {mockProprietaires.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
                   </select>
                 </div>
@@ -586,8 +597,6 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectionStart, setSelectionStart] = useState<Date | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<Date | null>(null);
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [selectedColor, setSelectedColor] = useState('#ef4444');
   const [selectedStatus, setSelectedStatus] = useState<'blocked' | 'booked' | 'pending'>('blocked');
 
   const monthStart = startOfMonth(currentMonth);
@@ -623,6 +632,8 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
   const handleAddPeriod = () => {
     if (!selectionStart || !selectionEnd) return;
     
+    const selectedColor = selectedStatus === 'booked' ? '#ef4444' : selectedStatus === 'pending' ? '#f97316' : '#111827';
+    
     const newDate: DateStatus = {
       start: format(selectionStart < selectionEnd ? selectionStart : selectionEnd, 'yyyy-MM-dd'),
       end: format(selectionStart < selectionEnd ? selectionEnd : selectionStart, 'yyyy-MM-dd'),
@@ -645,7 +656,7 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
   const getDayClassName = (date: Date) => {
     const status = getDateStatus(date);
     const isPast = isBefore(date, today);
-    const isSelected = selectionStart && isSameDay(date, selectionStart) || selectionEnd && isSameDay(date, selectionEnd);
+    const isSelected = selectionStart && date.getTime() === selectionStart.getTime() || selectionEnd && date.getTime() === selectionEnd.getTime();
     const inSelectionRange = selectionStart && selectionEnd && isWithinInterval(date, { start: selectionStart < selectionEnd ? selectionStart : selectionEnd, end: selectionStart < selectionEnd ? selectionEnd : selectionStart });
     
     let base = "w-full aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all ";
@@ -678,7 +689,7 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-gray-500 mb-1">Statut</label>
-            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value as any)} className="w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2 px-3">
+            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value as 'blocked' | 'booked' | 'pending')} className="w-full rounded-lg border-gray-300 border shadow-sm focus:border-emerald-500 py-2 px-3">
               <option value="blocked">Bloqué</option>
               <option value="booked">Réservé</option>
               <option value="pending">En attente</option>
@@ -688,7 +699,7 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
             <label className="block text-xs font-medium text-gray-500 mb-1">Couleur</label>
             <div className="flex gap-2">
               {calendarColors.map(color => (
-                <button key={color.value} type="button" onClick={() => setSelectedColor(color.value)} className={`w-8 h-8 rounded-full ${color.class} ${selectedColor === color.value ? 'ring-2 ring-offset-2 ring-emerald-500' : ''}`} title={color.name} />
+                <button key={color.value} type="button" onClick={() => {}} className={`w-8 h-8 rounded-full ${color.class}`} title={color.name} />
               ))}
             </div>
           </div>
@@ -793,11 +804,6 @@ function BienPreview({ bien }: { bien: Bien }) {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-gray-50 rounded-lg p-4 text-center">
-            <Maximize className="h-5 w-5 mx-auto text-gray-400 mb-1" />
-            <span className="font-semibold">{bien.surface}</span>
-            <span className="text-xs text-gray-500 block">m²</span>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4 text-center">
             <Bed className="h-5 w-5 mx-auto text-gray-400 mb-1" />
             <span className="font-semibold">{bien.nb_chambres}</span>
             <span className="text-xs text-gray-500 block">Chambres</span>
@@ -808,9 +814,14 @@ function BienPreview({ bien }: { bien: Bien }) {
             <span className="text-xs text-gray-500 block">Salles de bain</span>
           </div>
           <div className="bg-gray-50 rounded-lg p-4 text-center">
+            <DollarSign className="h-5 w-5 mx-auto text-gray-400 mb-1" />
+            <span className="font-semibold">{bien.avance} DT</span>
+            <span className="text-xs text-gray-500 block">Avance</span>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 text-center">
             <Sofa className="h-5 w-5 mx-auto text-gray-400 mb-1" />
-            <span className="font-semibold">{bien.meuble ? 'Oui' : 'Non'}</span>
-            <span className="text-xs text-gray-500 block">Meublé</span>
+            <span className="font-semibold">{bien.menage_en_cours ? 'Oui' : 'Non'}</span>
+            <span className="text-xs text-gray-500 block">Ménage</span>
           </div>
         </div>
 
@@ -824,11 +835,11 @@ function BienPreview({ bien }: { bien: Bien }) {
         <div className="bg-emerald-50 rounded-xl p-6">
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-bold text-emerald-600">{bien.prix_loyer} DT</span>
-              <span className="text-gray-500">/mois</span>
+              <span className="text-3xl font-bold text-emerald-600">{bien.prix_nuitee} DT</span>
+              <span className="text-gray-500">/nuit</span>
             </div>
             <div className="text-right text-sm text-gray-500">
-              <div>Charges: {bien.charges} DT</div>
+              <div>Avance: {bien.avance} DT</div>
               <div>Caution: {bien.caution} DT</div>
             </div>
           </div>

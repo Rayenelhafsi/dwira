@@ -23,8 +23,7 @@ export interface Proprietaire {
   cin: string;
 }
 
-export type BienType = 'S1' | 'S2' | 'S3' | 'villa' | 'studio' | 'local';
-export type ModeLocation = 'annuelle' | 'saisonniere';
+export type BienType = 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'studio' | 'local';
 export type BienStatut = 'disponible' | 'loue' | 'reserve' | 'maintenance';
 
 export interface DateStatus {
@@ -41,21 +40,20 @@ export interface Bien {
   titre: string;
   description?: string;
   type: BienType;
-  surface: number;
+  surface?: number;
   nb_chambres: number;
   nb_salle_bain: number;
-  meuble: boolean;
-  prix_loyer: number;
-  charges: number;
+  prix_nuitee: number;
+  avance: number;
   caution: number;
-  mode_location: ModeLocation;
+  charges?: number;
   statut: BienStatut;
-  zone_id: string;
-  proprietaire_id: string;
+  menage_en_cours: boolean;
+  zone_id?: string;
+  proprietaire_id?: string;
   date_ajout: string;
   created_at: string;
   updated_at: string;
-  // Additional fields for frontend display
   media?: Media[];
   unavailableDates?: DateStatus[];
 }
@@ -73,7 +71,7 @@ export interface Locataire {
   telephone: string;
   email: string;
   cin: string;
-  score_fiabilite: number; // 1-10
+  score_fiabilite: number;
   created_at: string;
 }
 
@@ -85,7 +83,8 @@ export interface Contrat {
   locataire_id: string;
   date_debut: string;
   date_fin: string;
-  depot_garantie: number;
+  montant_recu: number;
+  url_pdf?: string;
   statut: ContratStatut;
   created_at: string;
 }

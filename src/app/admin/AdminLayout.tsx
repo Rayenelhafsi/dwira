@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { AdminSidebar } from './components/AdminSidebar';
 import { Menu, X } from 'lucide-react';
+import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 export function AdminLayout() {
   const { user, isLoading } = useAuth();
@@ -32,7 +33,7 @@ export function AdminLayout() {
       {/* Mobile header with hamburger */}
       <div className="fixed top-0 left-0 right-0 bg-emerald-950 text-white p-4 flex items-center justify-between lg:hidden z-50">
         <div className="flex items-center gap-2">
-          <img src="../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png" alt="Dwira" className="h-6 w-auto brightness-0 invert" />
+          <img src={logo} alt="Dwira" className="h-6 w-auto brightness-0 invert" />
           <h1 className="font-bold">Dwira Admin</h1>
         </div>
         <button
