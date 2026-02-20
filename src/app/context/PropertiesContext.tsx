@@ -1,18 +1,50 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Bien, BienStatut, Media, DateStatus } from '../admin/types';
+import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire } from '../admin/types';
 import { Property } from '../data/properties';
 
-// Import existing data sources
-import { mockBiens } from '../admin/data/mockData';
-import { properties as siteProperties } from '../data/properties';
+// API Base URL
+const API_URL = 'http://localhost:3001/api';
 
 // ============================================
 // CONVERSION UTILITIES
 // ============================================
 
+// Convert DB row to Bien format
+function dbRowToBien(row: any): Bien {
+  // Helper to convert string/number to number
+  const toNumber = (val: any): number => {
+    if (val === null || val === undefined) return 0;
+    if (typeof val === 'number') return val;
+    return parseFloat(val) || 0;
+  };
+
+  return {
+    id: row.id,
+    reference: row.reference,
+    titre: row.titre,
+    description: row.description,
+    type: row.type as BienType,
+    surface: toNumber(row.surface),
+    nb_chambres: toNumber(row.nb_chambres),
+    nb_salle_bain: toNumber(row.nb_salle_bain),
+    prix_nuitee: toNumber(row.prix_nuitee),
+    avance: toNumber(row.avance),
+    caution: toNumber(row.caution),
+    charges: toNumber(row.charges),
+    statut: row.statut as BienStatut,
+    menage_en_cours: row.menage_en_cours === 1 || row.menage_en_cours === true || row.menage_en_cours === '1',
+    zone_id: row.zone_id,
+    proprietaire_id: row.proprietaire_id,
+    date_ajout: row.date_ajout,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    media: [],
+    unavailableDates: []
+  };
+}
+
 // Convert Bien (Admin format) to Property (Site format)
 function bienToProperty(bien: Bien): Property {
-  // Get zone name as location
   const zoneNames: Record<string, string> = {
     'z1': 'Kélibia Centre',
     'z2': 'El Mansoura',
@@ -23,97 +55,39 @@ function bienToProperty(bien: Bien): Property {
     'S1': 'S+1',
     'S2': 'S+2',
     'S3': 'S+3',
+    'S4': 'S+4',
     'villa': 'Villa',
-    'studio': 'Studio'
+    'studio': 'Studio',
+    'local': 'S+1'
   };
-
-  // Convert media to images array
-  const images = bien.media?.map(m => m.url) || [];
-  
-  // If no images from media, use placeholder
-  const propertyImages = images.length > 0 ? images : [
-    'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'
-  ];
-
-  // Determine if featured based on price (simple heuristic)
-  const isFeatured = bien.prix_loyer > 300 || bien.statut === 'disponible';
 
   return {
     id: bien.id,
     title: bien.titre,
     slug: bien.titre.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    location: zoneNames[bien.zone_id] || 'Kélibia',
-    pricePerNight: Math.round(bien.prix_loyer / 30), // Convert monthly to nightly
-    rating: 4.5 + Math.random() * 0.5, // Mock rating
+    location: zoneNames[bien.zone_id || ''] || 'Kélibia',
+    pricePerNight: bien.prix_nuitee,
+    rating: 4.5 + Math.random() * 0.5,
     reviews: Math.floor(Math.random() * 30) + 5,
     guests: bien.nb_chambres + 1,
     bedrooms: bien.nb_chambres,
     bathrooms: bien.nb_salle_bain,
-    images: propertyImages,
-    description: bien.description || `Superbe ${bien.type} de ${bien.surface}m²`,
-    amenities: getAmenitiesFromType(bien.type, bien.meuble),
+    images: [
+      'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'
+    ],
+    description: bien.description || `Superbe ${bien.type}`,
+    amenities: getAmenitiesFromType(bien.type),
     category: typeToCategory[bien.type] || 'S+1',
-    isFeatured,
+    isFeatured: bien.prix_nuitee > 300 || bien.statut === 'disponible',
     unavailableDates: bien.unavailableDates || [],
-    cleaningFee: bien.charges || 0,
-    serviceFee: Math.round(bien.prix_loyer * 0.1),
-    proprietaire_id: bien.proprietaire_id
+    cleaningFee: bien.avance || 0,
+    serviceFee: Math.round(bien.prix_nuitee * 0.1),
+    proprietaire_id: bien.proprietaire_id || ''
   };
 }
 
-// Convert Property (Site format) to Bien (Admin format)
-function propertyToBien(property: Property): Bien {
-  const categoryToType: Record<Property['category'], string> = {
-    'S+1': 'S1',
-    'S+2': 'S2',
-    'S+3': 'S3',
-    'S+4': 'S3',
-    'Villa': 'villa',
-    'Studio': 'studio'
-  };
-
-  const zoneIds: Record<string, string> = {
-    'Kélibia Centre': 'z1',
-    'El Mansoura': 'z2',
-    'Petit Paris': 'z3',
-    'Kélibia': 'z1',
-    'Front de mer': 'z2'
-  };
-
-  return {
-    id: property.id,
-    reference: `REF-${property.id.padStart(3, '0')}`,
-    titre: property.title,
-    description: property.description,
-    type: categoryToType[property.category] as any || 'S1',
-    surface: property.bedrooms * 30 + 20, // Estimate
-    nb_chambres: property.bedrooms,
-    nb_salle_bain: property.bathrooms,
-    meuble: true,
-    prix_loyer: property.pricePerNight * 30, // Convert nightly to monthly
-    charges: property.cleaningFee || 0,
-    caution: property.pricePerNight * 60,
-    mode_location: 'saisonniere',
-    statut: 'disponible' as BienStatut,
-    zone_id: zoneIds[property.location] || 'z1',
-    proprietaire_id: property.proprietaire_id,
-    date_ajout: new Date().toISOString().split('T')[0],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    media: property.images.map((url, idx) => ({
-      id: `m${idx}`,
-      bien_id: property.id,
-      type: 'image' as const,
-      url
-    })),
-    unavailableDates: property.unavailableDates
-  };
-}
-
-// Helper function to get amenities based on property type
-function getAmenitiesFromType(type: string, meuble: boolean): string[] {
+function getAmenitiesFromType(type: BienType): string[] {
   const baseAmenities = ['Wifi', 'Climatisation'];
-  
   if (type === 'villa') {
     return [...baseAmenities, 'Piscine', 'Jardin', 'Garage', 'Parking'];
   }
@@ -128,19 +102,18 @@ function getAmenitiesFromType(type: string, meuble: boolean): string[] {
 // ============================================
 
 interface PropertiesContextType {
-  // Properties in admin format (Bien)
   biens: Bien[];
-  // Properties in site format (Property)
   properties: Property[];
-  // CRUD operations
-  addBien: (bien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => void;
-  updateBien: (bien: Bien) => void;
-  deleteBien: (id: string) => void;
-  // Get single property
+  zones: Zone[];
+  proprietaires: Proprietaire[];
+  loading: boolean;
+  error: string | null;
+  addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
+  updateBien: (updatedBien: Bien) => Promise<void>;
+  deleteBien: (id: string) => Promise<void>;
   getBienById: (id: string) => Bien | undefined;
   getPropertyById: (id: string) => Property | undefined;
-  // Refresh data from both sources
-  refreshData: () => void;
+  refreshData: () => Promise<void>;
 }
 
 const PropertiesContext = createContext<PropertiesContextType | undefined>(undefined);
@@ -152,50 +125,98 @@ const PropertiesContext = createContext<PropertiesContextType | undefined>(undef
 export function PropertiesProvider({ children }: { children: ReactNode }) {
   const [biens, setBiens] = useState<Bien[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [proprietaires, setProprietaires] = useState<Proprietaire[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Initialize data from both sources
-  const initializeData = () => {
-    // First, use mockBiens as the primary source (from admin)
-    // This ensures the admin data is preserved
-    const initialBiens = mockBiens.length > 0 ? mockBiens : siteProperties.map(propertyToBien);
-    
-    setBiens(initialBiens);
-    
-    // Convert to site format
-    const initialProperties = initialBiens.map(bienToProperty);
-    setProperties(initialProperties);
+  // Fetch data from API
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Fetch biens
+      const biensResponse = await fetch(`${API_URL}/biens`);
+      if (!biensResponse.ok) throw new Error('Failed to fetch biens');
+      const biensData = await biensResponse.json();
+      const mappedBiens = biensData.map(dbRowToBien);
+      
+      setBiens(mappedBiens);
+      setProperties(mappedBiens.map(bienToProperty));
+
+      // Fetch zones
+      const zonesResponse = await fetch(`${API_URL}/zones`);
+      if (zonesResponse.ok) {
+        const zonesData = await zonesResponse.json();
+        setZones(zonesData);
+      }
+
+      // Fetch proprietaires
+      const propsResponse = await fetch(`${API_URL}/proprietaires`);
+      if (propsResponse.ok) {
+        const propsData = await propsResponse.json();
+        setProprietaires(propsData);
+      }
+    } catch (err: any) {
+      console.error('Error fetching data:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    initializeData();
+    fetchData();
   }, []);
 
   // CRUD Operations
-  const addBien = (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => {
-    const bien: Bien = {
-      ...newBien,
-      id: Math.random().toString(36).substr(2, 9),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    
-    setBiens(prev => [...prev, bien]);
-    setProperties(prev => [...prev, bienToProperty(bien)]);
+  const addBien = async (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => {
+    try {
+      const response = await fetch(`${API_URL}/biens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBien)
+      });
+      
+      if (!response.ok) throw new Error('Failed to create bien');
+      
+      await fetchData(); // Refresh data
+    } catch (err: any) {
+      console.error('Error creating bien:', err);
+      throw err;
+    }
   };
 
-  const updateBien = (updatedBien: Bien) => {
-    const bienWithTimestamp = {
-      ...updatedBien,
-      updated_at: new Date().toISOString()
-    };
-    
-    setBiens(prev => prev.map(b => b.id === bienWithTimestamp.id ? bienWithTimestamp : b));
-    setProperties(prev => prev.map(p => p.id === bienWithTimestamp.id ? bienToProperty(bienWithTimestamp) : p));
+  const updateBien = async (updatedBien: Bien) => {
+    try {
+      const response = await fetch(`${API_URL}/biens/${updatedBien.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedBien)
+      });
+      
+      if (!response.ok) throw new Error('Failed to update bien');
+      
+      await fetchData(); // Refresh data
+    } catch (err: any) {
+      console.error('Error updating bien:', err);
+      throw err;
+    }
   };
 
-  const deleteBien = (id: string) => {
-    setBiens(prev => prev.filter(b => b.id !== id));
-    setProperties(prev => prev.filter(p => p.id !== id));
+  const deleteBien = async (id: string) => {
+    try {
+      const response = await fetch(`${API_URL}/biens/${id}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete bien');
+      
+      await fetchData(); // Refresh data
+    } catch (err: any) {
+      console.error('Error deleting bien:', err);
+      throw err;
+    }
   };
 
   const getBienById = (id: string) => {
@@ -206,13 +227,17 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     return properties.find(p => p.id === id);
   };
 
-  const refreshData = () => {
-    initializeData();
+  const refreshData = async () => {
+    await fetchData();
   };
 
   const value: PropertiesContextType = {
     biens,
     properties,
+    zones,
+    proprietaires,
+    loading,
+    error,
     addBien,
     updateBien,
     deleteBien,
@@ -240,5 +265,4 @@ export function useProperties() {
   return context;
 }
 
-// Export conversion utilities for external use
-export { bienToProperty, propertyToBien };
+export { bienToProperty };
