@@ -9,8 +9,8 @@ const API_URL = 'http://localhost:3001/api';
 // CONVERSION UTILITIES
 // ============================================
 
-// Convert DB row to Bien format
-function dbRowToBien(row: any): Bien {
+// Convert DB row to Bien format (without unavailable dates - fetched separately)
+function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []): Bien {
   // Helper to convert string/number to number
   const toNumber = (val: any): number => {
     if (val === null || val === undefined) return 0;
@@ -38,8 +38,22 @@ function dbRowToBien(row: any): Bien {
     date_ajout: row.date_ajout,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    media: [],
-    unavailableDates: []
+    media: (Array.isArray(media) ? media : [])
+      .map(m => ({
+        id: m.id,
+        bien_id: m.bien_id,
+        type: m.type,
+        url: m.url,
+        position: m.position || 0
+      }))
+      .sort((a, b) => (a.position || 0) - (b.position || 0)),
+
+    unavailableDates: (Array.isArray(unavailableDates) ? unavailableDates : []).map(ud => ({
+      start: ud.start_date,
+      end: ud.end_date,
+      status: ud.status,
+      color: ud.color || (ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827')
+    }))
   };
 }
 
@@ -72,9 +86,9 @@ function bienToProperty(bien: Bien): Property {
     guests: bien.nb_chambres + 1,
     bedrooms: bien.nb_chambres,
     bathrooms: bien.nb_salle_bain,
-    images: [
-      'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'
-    ],
+    images: bien.media && bien.media.length > 0 
+      ? bien.media.map((m: any) => m.url) 
+      : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'],
     description: bien.description || `Superbe ${bien.type}`,
     amenities: getAmenitiesFromType(bien.type),
     category: typeToCategory[bien.type] || 'S+1',
@@ -107,6 +121,7 @@ interface PropertiesContextType {
   zones: Zone[];
   proprietaires: Proprietaire[];
   loading: boolean;
+  isLoading: boolean;
   error: string | null;
   addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
   updateBien: (updatedBien: Bien) => Promise<void>;
@@ -139,7 +154,33 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       const biensResponse = await fetch(`${API_URL}/biens`);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
-      const mappedBiens = biensData.map(dbRowToBien);
+      
+      // Fetch media and unavailable dates for each bien
+      const mappedBiens = await Promise.all(biensData.map(async (bien: any) => {
+        // Fetch media for this bien
+        let media: any[] = [];
+        try {
+          const mediaResponse = await fetch(`${API_URL}/media/${bien.id}`);
+          if (mediaResponse.ok) {
+            media = await mediaResponse.json();
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch media for bien ${bien.id}`);
+        }
+        
+        // Fetch unavailable dates for this bien
+        let unavailableDates: any[] = [];
+        try {
+          const datesResponse = await fetch(`${API_URL}/unavailable-dates/${bien.id}`);
+          if (datesResponse.ok) {
+            unavailableDates = await datesResponse.json();
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch unavailable dates for bien ${bien.id}`);
+        }
+        
+        return dbRowToBien(bien, media, unavailableDates);
+      }));
       
       setBiens(mappedBiens);
       setProperties(mappedBiens.map(bienToProperty));
@@ -158,8 +199,54 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         setProprietaires(propsData);
       }
     } catch (err: any) {
-      console.error('Error fetching data:', err);
-      setError(err.message);
+      console.warn('API unavailable, using local mock data:', err.message);
+      // Fall back to local mock data when API is unavailable
+      const localModule = await import('../data/properties');
+      const localProperties = localModule.properties;
+      
+      // Convert local properties to bienes format
+      const localBiens: Bien[] = localProperties.map((p: Property) => ({
+        id: p.id,
+        reference: p.id,
+        titre: p.title,
+        description: p.description,
+        type: p.category as BienType,
+        surface: 0,
+        nb_chambres: p.bedrooms,
+        nb_salle_bain: p.bathrooms,
+        prix_nuitee: p.pricePerNight,
+        avance: p.cleaningFee || 0,
+        caution: 0,
+        charges: 0,
+        statut: 'disponible' as BienStatut,
+        menage_en_cours: false,
+        zone_id: 'z1',
+        proprietaire_id: p.proprietaire_id || '',
+        date_ajout: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        media: [],
+        unavailableDates: p.unavailableDates?.map(ud => ({
+          start: ud.start,
+          end: ud.end,
+          status: ud.status,
+          color: ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827'
+        })) || []
+      }));
+
+      setBiens(localBiens);
+      setProperties(localProperties);
+      setZones([
+        { id: 'z1', nom: 'Kélibia Centre', description: 'Centre ville de Kélibia' },
+        { id: 'z2', nom: 'El Mansoura', description: 'Quartier El Mansoura' },
+        { id: 'z3', nom: 'Petit Paris', description: 'Quartier Petit Paris' }
+      ]);
+      setProprietaires([
+        { id: 'p1', nom: 'Propriétaire 1', telephone: '', email: '', cin: '' },
+        { id: 'p2', nom: 'Propriétaire 2', telephone: '', email: '', cin: '' },
+        { id: 'p3', nom: 'Propriétaire 3', telephone: '', email: '', cin: '' }
+      ]);
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -237,6 +324,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     zones,
     proprietaires,
     loading,
+    isLoading: loading,
     error,
     addBien,
     updateBien,

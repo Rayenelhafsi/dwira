@@ -1,7 +1,11 @@
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -9,6 +13,38 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'image-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    if (extname && mimetype) {
+      return cb(null, true);
+    }
+    cb(new Error('Only image files are allowed'));
+  }
+});
+
 
 // Database configuration
 const dbConfig = {
@@ -72,8 +108,8 @@ app.get('/api/biens/:id', async (req, res) => {
 app.post('/api/biens', async (req, res) => {
   try {
     const {
-      reference, titre, description, type, surface, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, charges, statut, menage_en_cours, zone_id, proprietaire_id
+      reference, titre, description, type, nb_chambres, nb_salle_bain,
+      prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id
     } = req.body;
 
     const id = 'b' + Date.now();
@@ -81,12 +117,12 @@ app.post('/api/biens', async (req, res) => {
     const updated_at = created_at;
 
     await pool.query(
-      `INSERT INTO biens (id, reference, titre, description, type, surface, nb_chambres, nb_salle_bain, 
-        prix_nuitee, avance, caution, charges, statut, menage_en_cours, zone_id, proprietaire_id, 
+      `INSERT INTO biens (id, reference, titre, description, type, nb_chambres, nb_salle_bain, 
+        prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, reference, titre, description || null, type, surface || 0, nb_chambres, nb_salle_bain,
-       prix_nuitee, avance || 0, caution || 0, charges || 0, statut || 'disponible', 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, reference, titre, description || null, type, nb_chambres, nb_salle_bain,
+       prix_nuitee, avance || 0, statut || 'disponible', 
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
     );
@@ -99,24 +135,25 @@ app.post('/api/biens', async (req, res) => {
   }
 });
 
+
 // PUT update bien
 app.put('/api/biens/:id', async (req, res) => {
   try {
     const {
-      reference, titre, description, type, surface, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, charges, statut, menage_en_cours, zone_id, proprietaire_id
+      reference, titre, description, type, nb_chambres, nb_salle_bain,
+      prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id
     } = req.body;
 
     const updated_at = new Date().toISOString().split('T')[0];
 
     await pool.query(
       `UPDATE biens SET 
-        reference = ?, titre = ?, description = ?, type = ?, surface = ?, nb_chambres = ?, 
-        nb_salle_bain = ?, prix_nuitee = ?, avance = ?, caution = ?, charges = ?, 
+        reference = ?, titre = ?, description = ?, type = ?, nb_chambres = ?, 
+        nb_salle_bain = ?, prix_nuitee = ?, avance = ?, 
         statut = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
-      [reference, titre, description || null, type, surface || 0, nb_chambres, nb_salle_bain,
-       prix_nuitee, avance || 0, caution || 0, charges || 0, statut || 'disponible',
+      [reference, titre, description || null, type, nb_chambres, nb_salle_bain,
+       prix_nuitee, avance || 0, statut || 'disponible',
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, req.params.id]
     );
@@ -128,6 +165,7 @@ app.put('/api/biens/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to update bien' });
   }
 });
+
 
 // DELETE bien
 app.delete('/api/biens/:id', async (req, res) => {
@@ -398,24 +436,86 @@ app.put('/api/notifications/:id/lu', async (req, res) => {
 
 app.get('/api/media/:bien_id', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM media WHERE bien_id = ?', [req.params.bien_id]);
+    const [rows] = await pool.query('SELECT * FROM media WHERE bien_id = ? ORDER BY position ASC, id ASC', [req.params.bien_id]);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch media' });
   }
 });
 
+// Upload image endpoint
+app.post('/api/upload', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    const imageUrl = `http://localhost:${PORT}/uploads/${req.file.filename}`;
+    res.json({ 
+      success: true, 
+      url: imageUrl,
+      filename: req.file.filename
+    });
+  } catch (error) {
+    console.error('Error uploading image:', error);
+    res.status(500).json({ error: 'Failed to upload image' });
+  }
+});
+
 app.post('/api/media', async (req, res) => {
   try {
-    const { bien_id, type, url } = req.body;
+    const { bien_id, type, url, position } = req.body;
     const id = 'm' + Date.now();
-    await pool.query('INSERT INTO media (id, bien_id, type, url) VALUES (?, ?, ?, ?)',
-      [id, bien_id, type || 'image', url]);
+    
+    // Calculate the next position if not provided (max existing position + 1)
+    let mediaPosition = position;
+    if (mediaPosition === undefined || mediaPosition === null) {
+      const [maxPosResult] = await pool.query(
+        'SELECT MAX(position) as maxPos FROM media WHERE bien_id = ?',
+        [bien_id]
+      );
+      mediaPosition = (maxPosResult[0]?.maxPos ?? -1) + 1;
+    }
+    
+    await pool.query('INSERT INTO media (id, bien_id, type, url, position) VALUES (?, ?, ?, ?, ?)',
+      [id, bien_id, type || 'image', url, mediaPosition]);
     const [newMedia] = await pool.query('SELECT * FROM media WHERE id = ?', [id]);
     res.status(201).json(newMedia[0]);
   } catch (error) {
     console.error('Error creating media:', error);
     res.status(500).json({ error: 'Failed to create media' });
+  }
+});
+
+
+// Update media order
+app.put('/api/media/:id/position', async (req, res) => {
+  try {
+    const { position } = req.body;
+    await pool.query('UPDATE media SET position = ? WHERE id = ?', [position, req.params.id]);
+    res.json({ message: 'Position updated' });
+  } catch (error) {
+    console.error('Error updating media position:', error);
+    res.status(500).json({ error: 'Failed to update position' });
+  }
+});
+
+// Bulk update media positions
+app.put('/api/media/bulk/positions', async (req, res) => {
+  try {
+    const { media } = req.body;
+    if (!Array.isArray(media)) {
+      return res.status(400).json({ error: 'Media array required' });
+    }
+    
+    for (const item of media) {
+      await pool.query('UPDATE media SET position = ? WHERE id = ?', [item.position, item.id]);
+    }
+    
+    res.json({ message: 'Positions updated' });
+  } catch (error) {
+    console.error('Error updating media positions:', error);
+    res.status(500).json({ error: 'Failed to update positions' });
   }
 });
 
@@ -427,6 +527,7 @@ app.delete('/api/media/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete media' });
   }
 });
+
 
 // ============================================
 // UNAVAILABLE DATES API

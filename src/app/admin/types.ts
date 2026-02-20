@@ -63,6 +63,7 @@ export interface Media {
   bien_id: string;
   type: 'image' | 'video';
   url: string;
+  position?: number;
 }
 
 export interface Locataire {
