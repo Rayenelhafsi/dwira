@@ -17,3 +17,4 @@ Thumbs.db
 .env
 .env.*
 database.sql
+add-position-column.sql

@@ -47,7 +47,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
   return (
     <aside className="w-64 bg-emerald-950 text-white flex flex-col h-screen overflow-y-auto">
       <div className="p-6 border-b border-emerald-900 flex items-center gap-3 lg:block hidden">
-        <img src={logo} alt="Dwira" className="h-8 w-auto brightness-0 invert" />
+        <img src={logo} alt="Dwira" className="h-8 w-auto" />
         <div>
           <h2 className="font-bold text-lg leading-tight">Dwira Admin</h2>
           <p className="text-emerald-400 text-xs">Gestion immobilière</p>
