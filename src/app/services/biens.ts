@@ -17,6 +17,29 @@ export interface CreateBienInput {
   prix_nuitee: number;
   avance: number;
   caution?: number;
+  type_rue?: 'piste' | 'route_goudronnee' | 'rue_residentielle' | null;
+  type_papier?: 'titre_foncier_individuel' | 'titre_foncier_collectif' | 'contrat_seulement' | 'sans_papier' | null;
+  superficie_m2?: number | null;
+  etage?: number | null;
+  configuration?: string | null;
+  annee_construction?: number | null;
+  distance_plage_m?: number | null;
+  proche_plage?: boolean;
+  chauffage_central?: boolean;
+  climatisation?: boolean;
+  balcon?: boolean;
+  terrasse?: boolean;
+  ascenseur?: boolean;
+  vue_mer?: boolean;
+  gaz_ville?: boolean;
+  cuisine_equipee?: boolean;
+  place_parking?: boolean;
+  syndic?: boolean;
+  meuble?: boolean;
+  independant?: boolean;
+  eau_puits?: boolean;
+  eau_sonede?: boolean;
+  electricite_steg?: boolean;
   statut?: 'disponible' | 'loue' | 'reserve' | 'maintenance';
   menage_en_cours?: boolean;
   zone_id?: string;
@@ -38,6 +61,29 @@ export interface UpdateBienInput {
   prix_nuitee?: number;
   avance?: number;
   caution?: number;
+  type_rue?: 'piste' | 'route_goudronnee' | 'rue_residentielle' | null;
+  type_papier?: 'titre_foncier_individuel' | 'titre_foncier_collectif' | 'contrat_seulement' | 'sans_papier' | null;
+  superficie_m2?: number | null;
+  etage?: number | null;
+  configuration?: string | null;
+  annee_construction?: number | null;
+  distance_plage_m?: number | null;
+  proche_plage?: boolean;
+  chauffage_central?: boolean;
+  climatisation?: boolean;
+  balcon?: boolean;
+  terrasse?: boolean;
+  ascenseur?: boolean;
+  vue_mer?: boolean;
+  gaz_ville?: boolean;
+  cuisine_equipee?: boolean;
+  place_parking?: boolean;
+  syndic?: boolean;
+  meuble?: boolean;
+  independant?: boolean;
+  eau_puits?: boolean;
+  eau_sonede?: boolean;
+  electricite_steg?: boolean;
   statut?: 'disponible' | 'loue' | 'reserve' | 'maintenance';
   menage_en_cours?: boolean;
   zone_id?: string;
@@ -114,8 +160,10 @@ export async function getAvailableBiens(): Promise<Bien[]> {
 export async function createBien(data: CreateBienInput): Promise<number> {
   const sql = `
     INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
-      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, date_ajout, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
+      proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
+      syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, statut, menage_en_cours, zone_id, proprietaire_id, date_ajout, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const result = await execute(sql, [
     data.id,
@@ -129,6 +177,29 @@ export async function createBien(data: CreateBienInput): Promise<number> {
     data.prix_nuitee,
     data.avance,
     data.caution || 0,
+    data.type_rue || null,
+    data.type_papier || null,
+    data.superficie_m2 ?? null,
+    data.etage ?? null,
+    data.configuration ?? null,
+    data.annee_construction ?? null,
+    data.distance_plage_m ?? null,
+    data.proche_plage ? 1 : 0,
+    data.chauffage_central ? 1 : 0,
+    data.climatisation ? 1 : 0,
+    data.balcon ? 1 : 0,
+    data.terrasse ? 1 : 0,
+    data.ascenseur ? 1 : 0,
+    data.vue_mer ? 1 : 0,
+    data.gaz_ville ? 1 : 0,
+    data.cuisine_equipee ? 1 : 0,
+    data.place_parking ? 1 : 0,
+    data.syndic ? 1 : 0,
+    data.meuble ? 1 : 0,
+    data.independant ? 1 : 0,
+    data.eau_puits ? 1 : 0,
+    data.eau_sonede ? 1 : 0,
+    data.electricite_steg ? 1 : 0,
     data.statut || 'disponible',
     data.menage_en_cours || false,
     data.zone_id || null,
@@ -145,7 +216,7 @@ export async function createBien(data: CreateBienInput): Promise<number> {
  */
 export async function updateBien(id: string, data: UpdateBienInput): Promise<number> {
   const fields: string[] = [];
-  const values: (string | number | boolean | undefined)[] = [];
+  const values: (string | number | boolean | null | undefined)[] = [];
 
   if (data.reference !== undefined) {
     fields.push('reference = ?');
@@ -186,6 +257,98 @@ export async function updateBien(id: string, data: UpdateBienInput): Promise<num
   if (data.caution !== undefined) {
     fields.push('caution = ?');
     values.push(data.caution);
+  }
+  if (data.type_rue !== undefined) {
+    fields.push('type_rue = ?');
+    values.push(data.type_rue);
+  }
+  if (data.type_papier !== undefined) {
+    fields.push('type_papier = ?');
+    values.push(data.type_papier);
+  }
+  if (data.superficie_m2 !== undefined) {
+    fields.push('superficie_m2 = ?');
+    values.push(data.superficie_m2);
+  }
+  if (data.etage !== undefined) {
+    fields.push('etage = ?');
+    values.push(data.etage);
+  }
+  if (data.configuration !== undefined) {
+    fields.push('configuration = ?');
+    values.push(data.configuration);
+  }
+  if (data.annee_construction !== undefined) {
+    fields.push('annee_construction = ?');
+    values.push(data.annee_construction);
+  }
+  if (data.distance_plage_m !== undefined) {
+    fields.push('distance_plage_m = ?');
+    values.push(data.distance_plage_m);
+  }
+  if (data.proche_plage !== undefined) {
+    fields.push('proche_plage = ?');
+    values.push(data.proche_plage ? 1 : 0);
+  }
+  if (data.chauffage_central !== undefined) {
+    fields.push('chauffage_central = ?');
+    values.push(data.chauffage_central ? 1 : 0);
+  }
+  if (data.climatisation !== undefined) {
+    fields.push('climatisation = ?');
+    values.push(data.climatisation ? 1 : 0);
+  }
+  if (data.balcon !== undefined) {
+    fields.push('balcon = ?');
+    values.push(data.balcon ? 1 : 0);
+  }
+  if (data.terrasse !== undefined) {
+    fields.push('terrasse = ?');
+    values.push(data.terrasse ? 1 : 0);
+  }
+  if (data.ascenseur !== undefined) {
+    fields.push('ascenseur = ?');
+    values.push(data.ascenseur ? 1 : 0);
+  }
+  if (data.vue_mer !== undefined) {
+    fields.push('vue_mer = ?');
+    values.push(data.vue_mer ? 1 : 0);
+  }
+  if (data.gaz_ville !== undefined) {
+    fields.push('gaz_ville = ?');
+    values.push(data.gaz_ville ? 1 : 0);
+  }
+  if (data.cuisine_equipee !== undefined) {
+    fields.push('cuisine_equipee = ?');
+    values.push(data.cuisine_equipee ? 1 : 0);
+  }
+  if (data.place_parking !== undefined) {
+    fields.push('place_parking = ?');
+    values.push(data.place_parking ? 1 : 0);
+  }
+  if (data.syndic !== undefined) {
+    fields.push('syndic = ?');
+    values.push(data.syndic ? 1 : 0);
+  }
+  if (data.meuble !== undefined) {
+    fields.push('meuble = ?');
+    values.push(data.meuble ? 1 : 0);
+  }
+  if (data.independant !== undefined) {
+    fields.push('independant = ?');
+    values.push(data.independant ? 1 : 0);
+  }
+  if (data.eau_puits !== undefined) {
+    fields.push('eau_puits = ?');
+    values.push(data.eau_puits ? 1 : 0);
+  }
+  if (data.eau_sonede !== undefined) {
+    fields.push('eau_sonede = ?');
+    values.push(data.eau_sonede ? 1 : 0);
+  }
+  if (data.electricite_steg !== undefined) {
+    fields.push('electricite_steg = ?');
+    values.push(data.electricite_steg ? 1 : 0);
   }
   if (data.statut !== undefined) {
     fields.push('statut = ?');

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode } from '../admin/types';
+import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente } from '../admin/types';
 import { Property } from '../data/properties';
 
 // API Base URL
@@ -51,6 +51,13 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     if (typeof val === 'number') return val;
     return parseFloat(val) || 0;
   };
+  const toNullableNumber = (val: any): number | null => {
+    if (val === null || val === undefined || val === '') return null;
+    if (typeof val === 'number') return Number.isFinite(val) ? val : null;
+    const parsed = parseFloat(val);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const toBoolean = (val: any): boolean => val === 1 || val === true || val === '1';
 
   const parsedDescription = parseDescriptionAndCharacteristics(row.description);
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
@@ -74,6 +81,29 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     prix_nuitee: toNumber(row.prix_nuitee),
     avance: toNumber(row.avance),
     caution: toNumber((row as any).caution),
+    type_rue: ((row as any).type_rue || null) as TypeRueAppartementVente | null,
+    type_papier: ((row as any).type_papier || null) as TypePapierAppartementVente | null,
+    superficie_m2: toNullableNumber((row as any).superficie_m2),
+    etage: toNullableNumber((row as any).etage),
+    configuration: ((row as any).configuration || null) as string | null,
+    annee_construction: toNullableNumber((row as any).annee_construction),
+    distance_plage_m: toNullableNumber((row as any).distance_plage_m),
+    proche_plage: toBoolean((row as any).proche_plage),
+    chauffage_central: toBoolean((row as any).chauffage_central),
+    climatisation: toBoolean((row as any).climatisation),
+    balcon: toBoolean((row as any).balcon),
+    terrasse: toBoolean((row as any).terrasse),
+    ascenseur: toBoolean((row as any).ascenseur),
+    vue_mer: toBoolean((row as any).vue_mer),
+    gaz_ville: toBoolean((row as any).gaz_ville),
+    cuisine_equipee: toBoolean((row as any).cuisine_equipee),
+    place_parking: toBoolean((row as any).place_parking),
+    syndic: toBoolean((row as any).syndic),
+    meuble: toBoolean((row as any).meuble),
+    independant: toBoolean((row as any).independant),
+    eau_puits: toBoolean((row as any).eau_puits),
+    eau_sonede: toBoolean((row as any).eau_sonede),
+    electricite_steg: toBoolean((row as any).electricite_steg),
     statut: row.statut as BienStatut,
     menage_en_cours: row.menage_en_cours === 1 || row.menage_en_cours === true || row.menage_en_cours === '1',
     zone_id: row.zone_id,
@@ -261,6 +291,29 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         prix_nuitee: p.pricePerNight,
         avance: p.cleaningFee || 0,
         caution: 0,
+        type_rue: null,
+        type_papier: null,
+        superficie_m2: null,
+        etage: null,
+        configuration: null,
+        annee_construction: null,
+        distance_plage_m: null,
+        proche_plage: false,
+        chauffage_central: false,
+        climatisation: false,
+        balcon: false,
+        terrasse: false,
+        ascenseur: false,
+        vue_mer: false,
+        gaz_ville: false,
+        cuisine_equipee: false,
+        place_parking: false,
+        syndic: false,
+        meuble: false,
+        independant: false,
+        eau_puits: false,
+        eau_sonede: false,
+        electricite_steg: false,
         statut: 'disponible' as BienStatut,
         menage_en_cours: false,
         zone_id: 'z1',

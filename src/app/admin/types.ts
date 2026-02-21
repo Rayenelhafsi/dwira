@@ -40,6 +40,12 @@ export type BienType =
   | 'villa'
   | 'local';
 export type BienStatut = 'disponible' | 'loue' | 'reserve' | 'maintenance' | 'bloque';
+export type TypeRueAppartementVente = 'piste' | 'route_goudronnee' | 'rue_residentielle';
+export type TypePapierAppartementVente =
+  | 'titre_foncier_individuel'
+  | 'titre_foncier_collectif'
+  | 'contrat_seulement'
+  | 'sans_papier';
 
 export interface DateStatus {
   start: string;
@@ -62,6 +68,29 @@ export interface Bien {
   prix_nuitee: number;
   avance: number;
   caution: number;
+  type_rue?: TypeRueAppartementVente | null;
+  type_papier?: TypePapierAppartementVente | null;
+  superficie_m2?: number | null;
+  etage?: number | null;
+  configuration?: string | null;
+  annee_construction?: number | null;
+  distance_plage_m?: number | null;
+  proche_plage?: boolean;
+  chauffage_central?: boolean;
+  climatisation?: boolean;
+  balcon?: boolean;
+  terrasse?: boolean;
+  ascenseur?: boolean;
+  vue_mer?: boolean;
+  gaz_ville?: boolean;
+  cuisine_equipee?: boolean;
+  place_parking?: boolean;
+  syndic?: boolean;
+  meuble?: boolean;
+  independant?: boolean;
+  eau_puits?: boolean;
+  eau_sonede?: boolean;
+  electricite_steg?: boolean;
   charges?: number;
   statut: BienStatut;
   menage_en_cours: boolean;
