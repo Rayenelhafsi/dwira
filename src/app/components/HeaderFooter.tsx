@@ -25,6 +25,8 @@ export function Header() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
+  const isHomePage = location.pathname === "/";
+  const useLightText = isHomePage && !isScrolled && !isOpen;
 
   const handleLogout = () => {
     logout();
@@ -59,7 +61,7 @@ export function Header() {
       <div className="container mx-auto px-4 md:px-6 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-3 z-50">
            <img src={logo} alt="Dwira Immobilier" className="h-12 w-auto object-contain" />
-           <div className={`hidden sm:block font-bold leading-tight ${isScrolled || isOpen ? "text-emerald-900" : "text-white drop-shadow-md"}`}>
+           <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-emerald-900"}`}>
              <span className="block text-lg">Dwira</span>
              <span className="block text-xs uppercase tracking-widest text-amber-500">Immobilier</span>
            </div>
@@ -72,7 +74,7 @@ export function Header() {
               key={link.path}
               to={link.path}
               className={`text-sm font-medium transition-colors hover:text-emerald-500 ${
-                isScrolled ? "text-gray-700" : "text-white/90 drop-shadow-sm"
+                useLightText ? "text-white/90 drop-shadow-sm" : "text-gray-700"
               } ${location.pathname === link.path ? "text-emerald-500 font-bold" : ""}`}
             >
               {link.name}
@@ -94,12 +96,12 @@ export function Header() {
                   />
                 ) : (
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    isScrolled ? 'bg-emerald-100 text-emerald-700' : 'bg-white/20 text-white'
+                    useLightText ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'
                   }`}>
                     <User size={16} />
                   </div>
                 )}
-                <span className={`text-sm font-medium ${isScrolled ? 'text-gray-700' : 'text-white'}`}>
+                <span className={`text-sm font-medium ${useLightText ? 'text-white' : 'text-gray-700'}`}>
                   {user.name}
                 </span>
               </Link>
@@ -115,7 +117,7 @@ export function Header() {
             <Link
               to="/login"
               className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                isScrolled 
+                !useLightText
                   ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
                   : "text-white hover:bg-white/20 border border-white/30"
               }`}
@@ -142,9 +144,9 @@ export function Header() {
           onClick={() => setIsOpen(!isOpen)}
         >
           {isOpen ? (
-            <X className={isScrolled || isOpen ? "text-gray-900" : "text-white"} />
+            <X className={!useLightText || isOpen ? "text-gray-900" : "text-white"} />
           ) : (
-            <Menu className={isScrolled ? "text-gray-900" : "text-white"} />
+            <Menu className={useLightText ? "text-white" : "text-gray-900"} />
           )}
         </button>
 
@@ -265,7 +267,9 @@ export function Footer() {
               <li><Link to="/" className="text-emerald-100/70 hover:text-white transition-colors">Accueil</Link></li>
               <li><Link to="/logements" className="text-emerald-100/70 hover:text-white transition-colors">Nos Logements</Link></li>
               <li><Link to="/contact" className="text-emerald-100/70 hover:text-white transition-colors">Contactez-nous</Link></li>
-              <li><a href="#" className="text-emerald-100/70 hover:text-white transition-colors">Mentions Légales</a></li>
+              <li><a href="/privacy-policy.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Politique de confidentialite</a></li>
+              <li><a href="/terms-of-service.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Conditions d'utilisation</a></li>
+              <li><a href="/data-deletion.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Suppression des donnees</a></li>
             </ul>
           </div>
 

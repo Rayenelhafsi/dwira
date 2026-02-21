@@ -10,8 +10,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    navigate(user.role === 'admin' ? '/admin' : '/', { replace: true });
+  }, [user, authLoading, navigate]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -61,7 +66,7 @@ export default function LoginPage() {
         role: 'admin',
       });
       toast.success('Connexion administrateur reussie');
-      navigate('/admin');
+      navigate('/admin', { replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Connexion administrateur echouee');
     } finally {
