@@ -4,17 +4,30 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/contracts', express.static(path.join(__dirname, 'contracts')));
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'dwira-api',
+    authAdminRoute: '/api/auth/admin/login',
+    version: 'auth-v2',
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -60,12 +73,145 @@ const dbConfig = {
 
 const pool = mysql.createPool(dbConfig);
 let mediaHasPositionColumn = true;
+const socialAuthSessions = new Map();
+
+const createTemporarySocialToken = (user) => {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  socialAuthSessions.set(token, { user, expiresAt });
+  return token;
+};
+
+const consumeTemporarySocialToken = (token) => {
+  const entry = socialAuthSessions.get(token);
+  if (!entry) return null;
+
+  socialAuthSessions.delete(token);
+  if (entry.expiresAt < Date.now()) return null;
+  return entry.user;
+};
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of socialAuthSessions.entries()) {
+    if (entry.expiresAt < now) {
+      socialAuthSessions.delete(token);
+    }
+  }
+}, 60 * 1000);
+
+async function ensureAuthSchema() {
+  const columnExists = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND COLUMN_NAME = ?`,
+      [tableName, columnName]
+    );
+    return Number(rows[0]?.total || 0) > 0;
+  };
+
+  const indexExists = async (tableName, indexName) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND INDEX_NAME = ?`,
+      [tableName, indexName]
+    );
+    return Number(rows[0]?.total || 0) > 0;
+  };
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS administrateurs (
+      id VARCHAR(50) PRIMARY KEY,
+      nom VARCHAR(100) NOT NULL,
+      email VARCHAR(100) NOT NULL UNIQUE,
+      mot_de_passe_hash VARCHAR(255) NOT NULL,
+      actif BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      INDEX idx_admin_email (email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  if (!(await columnExists('utilisateurs', 'auth_provider'))) {
+    await pool.query(
+      "ALTER TABLE utilisateurs ADD COLUMN auth_provider ENUM('local', 'google', 'facebook') NOT NULL DEFAULT 'local'"
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'provider_user_id'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN provider_user_id VARCHAR(150) NULL'
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'last_login_at'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN last_login_at DATETIME NULL'
+    );
+  }
+
+  if (!(await indexExists('utilisateurs', 'uq_provider_user'))) {
+    await pool.query(
+      'CREATE UNIQUE INDEX uq_provider_user ON utilisateurs (auth_provider, provider_user_id)'
+    );
+  }
+
+  const seedEmail = process.env.ADMIN_SEED_EMAIL;
+  const seedPassword = process.env.ADMIN_SEED_PASSWORD;
+  if (seedEmail && seedPassword) {
+    const hashedPassword = await bcrypt.hash(seedPassword, 10);
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    await pool.query(
+      `INSERT INTO administrateurs (id, nom, email, mot_de_passe_hash, actif, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?) AS new_admin
+       ON DUPLICATE KEY UPDATE
+         nom = new_admin.nom,
+         mot_de_passe_hash = new_admin.mot_de_passe_hash,
+         actif = 1,
+         updated_at = new_admin.updated_at`,
+      ['admin-seed', process.env.ADMIN_SEED_NAME || 'Administrateur', seedEmail.toLowerCase(), hashedPassword, now, now]
+    );
+  }
+}
+
+async function upsertSocialUser({ email, name, avatar, provider, providerUserId }) {
+  const userId = `u${Date.now()}`;
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+  await pool.query(
+    `INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at)
+     VALUES (?, ?, ?, 'user', ?, CURDATE(), ?, ?, ?) AS new_user
+     ON DUPLICATE KEY UPDATE
+       nom = new_user.nom,
+       avatar = new_user.avatar,
+       auth_provider = new_user.auth_provider,
+       provider_user_id = new_user.provider_user_id,
+       last_login_at = new_user.last_login_at`,
+    [userId, name, email.toLowerCase(), avatar || null, provider, providerUserId || null, now]
+  );
+
+  const [rows] = await pool.query(
+    'SELECT id, nom, email, role, avatar FROM utilisateurs WHERE email = ? LIMIT 1',
+    [email.toLowerCase()]
+  );
+  return rows[0] || null;
+}
 
 console.log('🔄 Connecting to database...');
 pool.getConnection()
   .then(conn => {
     console.log('✅ Database connected successfully');
     conn.release();
+    return ensureAuthSchema();
+  })
+  .then(() => {
+    console.log('✅ Auth schema ready');
   })
   .catch(err => {
     console.error('❌ Database connection failed:', err.message);
@@ -462,6 +608,16 @@ app.get('/api/media/:bien_id', async (req, res) => {
   }
 });
 
+app.delete('/api/contrats/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM contrats WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Contrat deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting contrat:', error);
+    res.status(500).json({ error: 'Failed to delete contrat' });
+  }
+});
+
 app.put('/api/contrats/:id', async (req, res) => {
   try {
     const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut } = req.body;
@@ -707,6 +863,219 @@ app.delete('/api/unavailable-dates/:id', async (req, res) => {
 // ============================================
 // UTILISATEURS API
 // ============================================
+
+// ============================================
+// AUTH API
+// ============================================
+
+app.post('/api/auth/admin/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email et mot de passe obligatoires' });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT id, nom, email, mot_de_passe_hash, actif FROM administrateurs WHERE email = ? LIMIT 1',
+      [String(email).toLowerCase()]
+    );
+    const admin = rows[0];
+    if (!admin || !admin.actif) {
+      return res.status(401).json({ error: 'Identifiants administrateur invalides' });
+    }
+
+    const isPasswordValid = await bcrypt.compare(String(password), admin.mot_de_passe_hash);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Identifiants administrateur invalides' });
+    }
+
+    res.json({
+      user: {
+        id: admin.id,
+        email: admin.email,
+        name: admin.nom,
+        role: 'admin',
+      },
+    });
+  } catch (error) {
+    console.error('Error during admin login:', error);
+    res.status(500).json({ error: 'Erreur de connexion administrateur' });
+  }
+});
+
+app.get('/api/auth/google/start', async (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
+
+  if (!clientId) {
+    return res.status(500).json({ error: 'GOOGLE_CLIENT_ID manquant' });
+  }
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    access_type: 'offline',
+    prompt: 'select_account',
+  });
+
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  try {
+    const code = req.query.code;
+    if (!code) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_code_missing`);
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
+
+    if (!clientId || !clientSecret) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_config_missing`);
+    }
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_token_exchange_failed`);
+    }
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenData.access_token) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_access_token_missing`);
+    }
+
+    const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+      },
+    });
+
+    if (!profileResponse.ok) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_profile_fetch_failed`);
+    }
+
+    const profile = await profileResponse.json();
+    if (!profile.email) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_email_missing`);
+    }
+
+    const user = await upsertSocialUser({
+      email: profile.email,
+      name: profile.name || profile.email.split('@')[0],
+      avatar: profile.picture || null,
+      provider: 'google',
+      providerUserId: profile.sub || null,
+    });
+
+    const socialToken = createTemporarySocialToken(user);
+    res.redirect(`${FRONTEND_URL}/login?social_token=${socialToken}`);
+  } catch (error) {
+    console.error('Google callback error:', error);
+    res.redirect(`${FRONTEND_URL}/login?oauth_error=google_callback_failed`);
+  }
+});
+
+app.get('/api/auth/facebook/start', async (req, res) => {
+  const clientId = process.env.FACEBOOK_CLIENT_ID;
+  const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
+
+  if (!clientId) {
+    return res.status(500).json({ error: 'FACEBOOK_CLIENT_ID manquant' });
+  }
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'email,public_profile',
+  });
+
+  res.redirect(`https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`);
+});
+
+app.get('/api/auth/facebook/callback', async (req, res) => {
+  try {
+    const code = req.query.code;
+    if (!code) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_code_missing`);
+    }
+
+    const clientId = process.env.FACEBOOK_CLIENT_ID;
+    const clientSecret = process.env.FACEBOOK_CLIENT_SECRET;
+    const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
+
+    if (!clientId || !clientSecret) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
+    }
+
+    const tokenUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
+    tokenUrl.searchParams.set('client_id', clientId);
+    tokenUrl.searchParams.set('client_secret', clientSecret);
+    tokenUrl.searchParams.set('redirect_uri', redirectUri);
+    tokenUrl.searchParams.set('code', String(code));
+
+    const tokenResponse = await fetch(tokenUrl);
+    if (!tokenResponse.ok) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_token_exchange_failed`);
+    }
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenData.access_token) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_access_token_missing`);
+    }
+
+    const profileUrl = new URL('https://graph.facebook.com/me');
+    profileUrl.searchParams.set('fields', 'id,name,email,picture.type(large)');
+    profileUrl.searchParams.set('access_token', tokenData.access_token);
+
+    const profileResponse = await fetch(profileUrl);
+    if (!profileResponse.ok) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_profile_fetch_failed`);
+    }
+
+    const profile = await profileResponse.json();
+    if (!profile.email) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_email_missing`);
+    }
+
+    const user = await upsertSocialUser({
+      email: profile.email,
+      name: profile.name || profile.email.split('@')[0],
+      avatar: profile.picture?.data?.url || null,
+      provider: 'facebook',
+      providerUserId: profile.id || null,
+    });
+
+    const socialToken = createTemporarySocialToken(user);
+    res.redirect(`${FRONTEND_URL}/login?social_token=${socialToken}`);
+  } catch (error) {
+    console.error('Facebook callback error:', error);
+    res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_callback_failed`);
+  }
+});
+
+app.get('/api/auth/social/session/:token', (req, res) => {
+  const user = consumeTemporarySocialToken(req.params.token);
+  if (!user) {
+    return res.status(404).json({ error: 'Session sociale invalide ou expirée' });
+  }
+  res.json({ user });
+});
 
 app.get('/api/utilisateurs', async (req, res) => {
   try {
