@@ -2,7 +2,7 @@
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -35,6 +35,46 @@ const BIEN_TYPES_BY_MODE: Record<BienMode, BienType[]> = {
   location_saisonniere: ['appartement', 'villa_maison', 'bungalow', 'studio'],
   location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
 };
+const TYPE_RUE_LABELS: Record<TypeRueAppartementVente, string> = {
+  piste: 'Piste',
+  route_goudronnee: 'Route goudronnee',
+  rue_residentielle: 'Rue residentielle',
+};
+const TYPE_PAPIER_LABELS: Record<TypePapierAppartementVente, string> = {
+  titre_foncier_individuel: 'Titre foncier individuel',
+  titre_foncier_collectif: 'Titre foncier collectif',
+  contrat_seulement: 'Contrat seulement',
+  sans_papier: 'Sans papier',
+};
+const APPARTEMENT_VENTE_BOOLEAN_FIELDS = [
+  'proche_plage', 'chauffage_central', 'climatisation', 'balcon', 'terrasse', 'ascenseur', 'vue_mer',
+  'gaz_ville', 'cuisine_equipee', 'place_parking', 'syndic', 'meuble', 'independant', 'eau_puits',
+  'eau_sonede', 'electricite_steg'
+] as const;
+const APPARTEMENT_VENTE_BOOLEAN_LABELS: Record<(typeof APPARTEMENT_VENTE_BOOLEAN_FIELDS)[number], string> = {
+  proche_plage: 'Proche de la plage',
+  chauffage_central: 'Chauffage central',
+  climatisation: 'Climatisation',
+  balcon: 'Balcon',
+  terrasse: 'Terrasse',
+  ascenseur: 'Ascenseur',
+  vue_mer: 'Vue mer',
+  gaz_ville: 'Gaz de ville',
+  cuisine_equipee: 'Cuisine equipee',
+  place_parking: 'Place parking',
+  syndic: 'Syndic',
+  meuble: 'Meuble',
+  independant: 'Independant',
+  eau_puits: 'Eau puits',
+  eau_sonede: 'Eau Sonede',
+  electricite_steg: 'Electricite STEG',
+};
+const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+const APPARTEMENT_VENTE_DETAIL_FEATURES = new Set(
+  Object.values(APPARTEMENT_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
+);
+APPARTEMENT_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Parking'));
+APPARTEMENT_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Vue sur mer'));
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
 
 export default function BiensPage() {
@@ -121,7 +161,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; onSubmit: (data: Bien) => void; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, avance: 0, caution: 0, statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
@@ -189,6 +229,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
+    const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
     if (!selectedMode || !selectedType) {
       setAvailableFeatures([]);
       return;
@@ -199,7 +240,17 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         const response = await fetch(`http://localhost:3001/api/caracteristiques?mode_bien=${selectedMode}&type_bien=${selectedType}`);
         if (!response.ok) throw new Error('Failed to fetch features');
         const rows = await response.json();
-        const nextFeatures = Array.isArray(rows) ? rows : [];
+        const nextFeaturesRaw = Array.isArray(rows) ? rows : [];
+        const seenNames = new Set<string>();
+        const dedupedFeatures = nextFeaturesRaw.filter((f: Caracteristique) => {
+          const normalizedName = normalizeFeatureName(f.nom || '');
+          if (seenNames.has(normalizedName)) return false;
+          seenNames.add(normalizedName);
+          return true;
+        });
+        const nextFeatures = isAppartementVente
+          ? dedupedFeatures.filter((f: Caracteristique) => !APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+          : dedupedFeatures;
         setAvailableFeatures(nextFeatures);
         const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
         setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
@@ -230,21 +281,71 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
+    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m'];
     if (name === 'mode') {
       const nextMode = value as BienMode;
       const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
       setFormData((prev) => {
         const currentType = normalizeLegacyType(prev.type as BienType);
-        return {
+        const nextType = allowedTypes.includes(currentType) ? currentType : allowedTypes[0];
+        const keepAppartementVenteDetails = nextMode === 'vente' && nextType === 'appartement';
+        const next = {
           ...prev,
           mode: nextMode,
-          type: allowedTypes.includes(currentType) ? currentType : allowedTypes[0],
+          type: nextType,
+          type_rue: keepAppartementVenteDetails ? prev.type_rue || null : null,
+          type_papier: keepAppartementVenteDetails ? prev.type_papier || null : null,
         };
+        return keepAppartementVenteDetails ? next : resetAppartementVenteFields(next);
       });
+      return;
+    }
+    if (name === 'type') {
+      const nextType = normalizeLegacyType(value as BienType);
+      setFormData((prev) => {
+        const keepAppartementVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'appartement';
+        const next = {
+          ...prev,
+          type: nextType,
+          type_rue: keepAppartementVenteDetails ? prev.type_rue || null : null,
+          type_papier: keepAppartementVenteDetails ? prev.type_papier || null : null,
+        };
+        return keepAppartementVenteDetails ? next : resetAppartementVenteFields(next);
+      });
+      return;
+    }
+    if (optionalNumericFields.includes(name)) {
+      setFormData(prev => ({ ...prev, [name]: value === '' ? null : Number(value) }));
       return;
     }
     setFormData(prev => ({ ...prev, [name]: type === 'number' ? Number(value) : value }));
   };
+  const resetAppartementVenteFields = (current: Partial<Bien>): Partial<Bien> => ({
+    ...current,
+    type_rue: null,
+    type_papier: null,
+    superficie_m2: null,
+    etage: null,
+    configuration: null,
+    annee_construction: null,
+    distance_plage_m: null,
+    proche_plage: false,
+    chauffage_central: false,
+    climatisation: false,
+    balcon: false,
+    terrasse: false,
+    ascenseur: false,
+    vue_mer: false,
+    gaz_ville: false,
+    cuisine_equipee: false,
+    place_parking: false,
+    syndic: false,
+    meuble: false,
+    independant: false,
+    eau_puits: false,
+    eau_sonede: false,
+    electricite_steg: false,
+  });
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
 
   const handleAddImage = () => {
@@ -301,7 +402,10 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const handleAddFeature = () => {
     const value = newFeature.trim();
     if (!value) return;
-    if (customFeatures.includes(value)) return;
+    const normalizedValue = normalizeFeatureName(value);
+    if (APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
+    if (availableFeatures.some((feature) => normalizeFeatureName(feature.nom || '') === normalizedValue)) return;
+    if (customFeatures.some((item) => normalizeFeatureName(item) === normalizedValue)) return;
     setCustomFeatures([...customFeatures, value]);
     setNewFeature('');
   };
@@ -359,6 +463,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
     const allowedTypes = BIEN_TYPES_BY_MODE[selectedMode] || [];
+    const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
 
     if (!formData.titre?.trim()) {
       setGeneralStep(1);
@@ -376,10 +481,82 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       setGeneralStep(2);
       return toast.error('Type invalide pour ce mode');
     }
+    if (isAppartementVente && !formData.type_rue) {
+      setGeneralStep(3);
+      return toast.error('Type de rue obligatoire pour Appartement en vente');
+    }
+    if (isAppartementVente && !formData.type_papier) {
+      setGeneralStep(3);
+      return toast.error('Type de papier obligatoire pour Appartement en vente');
+    }
+    if (isAppartementVente && !String(formData.configuration || '').trim()) {
+      setGeneralStep(3);
+      return toast.error('Configuration obligatoire pour Appartement en vente');
+    }
 
     const imagesWithPositions = images.map((img, idx) => ({ ...img, position: idx }));
     const descriptionWithFeatures = customFeatures.length > 0 ? `${(formData.description || '').trim()}\n\n${CHARACTERISTICS_MARKER}${JSON.stringify(customFeatures)}` : (formData.description || '');
-    const finalData: Bien = { ...formData, mode: selectedMode, type: selectedType, description: descriptionWithFeatures, caracteristiques: customFeatures, caracteristique_ids: selectedFeatureIds, id: initialData?.id || Math.random().toString(36).substr(2, 9), media: imagesWithPositions, unavailableDates: unavailableDates, created_at: initialData?.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0] } as Bien;
+    const deriveBedroomsFromConfiguration = (configuration?: string | null): number => {
+      if (!configuration) return 0;
+      const match = configuration.match(/S\s*\+\s*(\d+)/i);
+      if (!match) return 0;
+      return Number(match[1]) || 0;
+    };
+    const resolvedNbChambres = isAppartementVente
+      ? deriveBedroomsFromConfiguration(formData.configuration || null)
+      : Number(formData.nb_chambres || 0);
+    const appartementVenteData = isAppartementVente
+      ? {
+          type_rue: formData.type_rue || null,
+          type_papier: formData.type_papier || null,
+          superficie_m2: formData.superficie_m2 ?? null,
+          etage: formData.etage ?? null,
+          configuration: formData.configuration || null,
+          annee_construction: formData.annee_construction ?? null,
+          distance_plage_m: formData.distance_plage_m ?? null,
+          proche_plage: !!formData.proche_plage,
+          chauffage_central: !!formData.chauffage_central,
+          climatisation: !!formData.climatisation,
+          balcon: !!formData.balcon,
+          terrasse: !!formData.terrasse,
+          ascenseur: !!formData.ascenseur,
+          vue_mer: !!formData.vue_mer,
+          gaz_ville: !!formData.gaz_ville,
+          cuisine_equipee: !!formData.cuisine_equipee,
+          place_parking: !!formData.place_parking,
+          syndic: !!formData.syndic,
+          meuble: !!formData.meuble,
+          independant: !!formData.independant,
+          eau_puits: !!formData.eau_puits,
+          eau_sonede: !!formData.eau_sonede,
+          electricite_steg: !!formData.electricite_steg,
+        }
+      : {
+          type_rue: null,
+          type_papier: null,
+          superficie_m2: null,
+          etage: null,
+          configuration: null,
+          annee_construction: null,
+          distance_plage_m: null,
+          proche_plage: false,
+          chauffage_central: false,
+          climatisation: false,
+          balcon: false,
+          terrasse: false,
+          ascenseur: false,
+          vue_mer: false,
+          gaz_ville: false,
+          cuisine_equipee: false,
+          place_parking: false,
+          syndic: false,
+          meuble: false,
+          independant: false,
+          eau_puits: false,
+          eau_sonede: false,
+          electricite_steg: false,
+        };
+    const finalData: Bien = { ...formData, mode: selectedMode, type: selectedType, nb_chambres: resolvedNbChambres, ...appartementVenteData, description: descriptionWithFeatures, caracteristiques: customFeatures, caracteristique_ids: selectedFeatureIds, id: initialData?.id || Math.random().toString(36).substr(2, 9), media: imagesWithPositions, unavailableDates: unavailableDates, created_at: initialData?.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0] } as Bien;
     
     // Save media positions to database
     if (finalData.id && imagesWithPositions.length > 0) {
@@ -448,6 +625,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     onSubmit(finalData);
   };
   const selectedProprietaire = proprietaireOptions.find((p) => p.id === (formData.proprietaire_id || ''));
+  const isAppartementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement';
 
   return (
     <form id="bien-editor-form" onSubmit={handleSubmit} className="flex flex-col h-full">
@@ -555,9 +733,71 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                   </div>
                 </div>
               )}
+              {isAppartementVente && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Details Appartement (Vente)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Superficie (m2)</label>
+                      <input type="number" min={0} step="0.01" name="superficie_m2" value={formData.superficie_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Etage</label>
+                      <input type="number" min={0} name="etage" value={formData.etage ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Configuration</label>
+                      <input name="configuration" value={formData.configuration || ''} onChange={handleChange} placeholder="S+2, S+3..." className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de SDB</label>
+                      <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Annee construction</label>
+                      <input type="number" min={1800} max={3000} name="annee_construction" value={formData.annee_construction ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de rue *</label>
+                      <select name="type_rue" value={formData.type_rue || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">-- Choisir --</option>
+                        {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label>
+                      <select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">-- Choisir --</option>
+                        {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label>
+                      <input type="number" min={0} name="distance_plage_m" value={formData.distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                    {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(0, 13).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{APPARTEMENT_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caracteristiques generales</h5>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(13).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{APPARTEMENT_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                {!isAppartementVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
+                {!isAppartementVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
                 <label htmlFor="menage_en_cours" className="md:col-span-2 flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
                   <div>
                     <span className="block text-sm font-medium text-gray-800">Ménage en cours</span>

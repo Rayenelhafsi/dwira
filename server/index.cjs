@@ -80,6 +80,10 @@ const BIEN_TYPES_BY_MODE = {
   location_saisonniere: ['appartement', 'villa_maison', 'bungalow', 'studio'],
   location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
 };
+const APPARTEMENT_VENTE_RUE_TYPES = ['piste', 'route_goudronnee', 'rue_residentielle'];
+const APPARTEMENT_VENTE_PAPIER_TYPES = ['titre_foncier_individuel', 'titre_foncier_collectif', 'contrat_seulement', 'sans_papier'];
+const LOCAL_COMMERCIAL_VENTE_RUE_TYPES = APPARTEMENT_VENTE_RUE_TYPES;
+const LOCAL_COMMERCIAL_VENTE_PAPIER_TYPES = APPARTEMENT_VENTE_PAPIER_TYPES;
 const LEGACY_TYPE_MAP = {
   S1: 'appartement',
   S2: 'appartement',
@@ -109,6 +113,148 @@ function validateModeAndType(mode, type) {
     return { valid: false, error: `type "${type}" non autorise pour le mode "${mode}"` };
   }
   return { valid: true };
+}
+
+function normalizeAppartementVenteDetails(mode, type, payload = {}) {
+  const isAppartementVente = mode === 'vente' && type === 'appartement';
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toFlag = (value) => value === true || value === 1 || value === '1';
+
+  if (!isAppartementVente) {
+    return {
+      typeRue: null,
+      typePapier: null,
+      superficieM2: null,
+      etage: null,
+      configuration: null,
+      anneeConstruction: null,
+      distancePlageM: null,
+      prochePlage: false,
+      chauffageCentral: false,
+      climatisation: false,
+      balcon: false,
+      terrasse: false,
+      ascenseur: false,
+      vueMer: false,
+      gazVille: false,
+      cuisineEquipee: false,
+      placeParking: false,
+      syndic: false,
+      meuble: false,
+      independant: false,
+      eauPuits: false,
+      eauSonede: false,
+      electriciteSteg: false,
+    };
+  }
+
+  const typeRue = payload.type_rue || null;
+  const typePapier = payload.type_papier || null;
+
+  if (typeRue && !APPARTEMENT_VENTE_RUE_TYPES.includes(typeRue)) {
+    return { error: 'type_rue invalide' };
+  }
+  if (typePapier && !APPARTEMENT_VENTE_PAPIER_TYPES.includes(typePapier)) {
+    return { error: 'type_papier invalide' };
+  }
+
+  return {
+    typeRue,
+    typePapier,
+    superficieM2: toNullableNumber(payload.superficie_m2),
+    etage: toNullableNumber(payload.etage),
+    configuration: (payload.configuration !== undefined && payload.configuration !== null ? String(payload.configuration) : '').trim() || null,
+    anneeConstruction: toNullableNumber(payload.annee_construction),
+    distancePlageM: toNullableNumber(payload.distance_plage_m),
+    prochePlage: toFlag(payload.proche_plage),
+    chauffageCentral: toFlag(payload.chauffage_central),
+    climatisation: toFlag(payload.climatisation),
+    balcon: toFlag(payload.balcon),
+    terrasse: toFlag(payload.terrasse),
+    ascenseur: toFlag(payload.ascenseur),
+    vueMer: toFlag(payload.vue_mer),
+    gazVille: toFlag(payload.gaz_ville),
+    cuisineEquipee: toFlag(payload.cuisine_equipee),
+    placeParking: toFlag(payload.place_parking),
+    syndic: toFlag(payload.syndic),
+    meuble: toFlag(payload.meuble),
+    independant: toFlag(payload.independant),
+    eauPuits: toFlag(payload.eau_puits),
+    eauSonede: toFlag(payload.eau_sonede),
+    electriciteSteg: toFlag(payload.electricite_steg),
+  };
+}
+
+function normalizeLocalCommercialVenteDetails(mode, type, payload = {}) {
+  const isLocalCommercialVente = mode === 'vente' && type === 'local_commercial';
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toFlag = (value) => value === true || value === 1 || value === '1';
+
+  if (!isLocalCommercialVente) {
+    return {
+      typeRue: null,
+      typePapier: null,
+      surfaceM2: null,
+      facadeM: null,
+      hauteurPlafondM: null,
+      activiteRecommandee: null,
+      toilette: false,
+      reserveLocal: false,
+      vitrine: false,
+      coinAngle: false,
+      electricite3Phases: false,
+      gazVille: false,
+      alarme: false,
+      eauPuits: false,
+      eauSonede: false,
+      electriciteSteg: false,
+    };
+  }
+
+  const typeRue = payload.type_rue || null;
+  const typePapier = payload.type_papier || null;
+
+  if (typeRue && !LOCAL_COMMERCIAL_VENTE_RUE_TYPES.includes(typeRue)) {
+    return { error: 'type_rue invalide' };
+  }
+  if (typePapier && !LOCAL_COMMERCIAL_VENTE_PAPIER_TYPES.includes(typePapier)) {
+    return { error: 'type_papier invalide' };
+  }
+
+  return {
+    typeRue,
+    typePapier,
+    surfaceM2: toNullableNumber(payload.surface_local_m2),
+    facadeM: toNullableNumber(payload.facade_m),
+    hauteurPlafondM: toNullableNumber(payload.hauteur_plafond_m),
+    activiteRecommandee: (payload.activite_recommandee !== undefined && payload.activite_recommandee !== null ? String(payload.activite_recommandee) : '').trim() || null,
+    toilette: toFlag(payload.toilette),
+    reserveLocal: toFlag(payload.reserve_local),
+    vitrine: toFlag(payload.vitrine),
+    coinAngle: toFlag(payload.coin_angle),
+    electricite3Phases: toFlag(payload.electricite_3_phases),
+    gazVille: toFlag(payload.gaz_ville),
+    alarme: toFlag(payload.alarme),
+    eauPuits: toFlag(payload.eau_puits),
+    eauSonede: toFlag(payload.eau_sonede),
+    electriciteSteg: toFlag(payload.electricite_steg),
+  };
+}
+
+function deriveBedroomsFromConfiguration(configuration) {
+  if (!configuration) return 0;
+  const match = String(configuration).match(/S\s*\+\s*(\d+)/i);
+  if (!match) return 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 async function syncBienCaracteristiques(bienId, caracteristiqueIds) {
@@ -303,6 +449,81 @@ async function ensureBiensWorkflowSchema() {
     );
   }
 
+  if (!(await columnExists('biens', 'type_rue'))) {
+    await pool.query(
+      "ALTER TABLE biens ADD COLUMN type_rue ENUM('piste','route_goudronnee','rue_residentielle') NULL DEFAULT NULL AFTER caution"
+    );
+  }
+
+  if (!(await columnExists('biens', 'type_papier'))) {
+    await pool.query(
+      "ALTER TABLE biens ADD COLUMN type_papier ENUM('titre_foncier_individuel','titre_foncier_collectif','contrat_seulement','sans_papier') NULL DEFAULT NULL AFTER type_rue"
+    );
+  }
+  if (!(await columnExists('biens', 'superficie_m2'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN superficie_m2 DECIMAL(10,2) NULL DEFAULT NULL AFTER type_papier');
+  }
+  if (!(await columnExists('biens', 'etage'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN etage INT NULL DEFAULT NULL AFTER superficie_m2');
+  }
+  if (!(await columnExists('biens', 'configuration'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN configuration VARCHAR(50) NULL DEFAULT NULL AFTER etage');
+  }
+  if (!(await columnExists('biens', 'annee_construction'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN annee_construction INT NULL DEFAULT NULL AFTER configuration');
+  }
+  if (!(await columnExists('biens', 'distance_plage_m'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN distance_plage_m INT NULL DEFAULT NULL AFTER annee_construction');
+  }
+  if (!(await columnExists('biens', 'proche_plage'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN proche_plage TINYINT(1) NOT NULL DEFAULT 0 AFTER distance_plage_m');
+  }
+  if (!(await columnExists('biens', 'chauffage_central'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN chauffage_central TINYINT(1) NOT NULL DEFAULT 0 AFTER proche_plage');
+  }
+  if (!(await columnExists('biens', 'climatisation'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN climatisation TINYINT(1) NOT NULL DEFAULT 0 AFTER chauffage_central');
+  }
+  if (!(await columnExists('biens', 'balcon'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN balcon TINYINT(1) NOT NULL DEFAULT 0 AFTER climatisation');
+  }
+  if (!(await columnExists('biens', 'terrasse'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrasse TINYINT(1) NOT NULL DEFAULT 0 AFTER balcon');
+  }
+  if (!(await columnExists('biens', 'ascenseur'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN ascenseur TINYINT(1) NOT NULL DEFAULT 0 AFTER terrasse');
+  }
+  if (!(await columnExists('biens', 'vue_mer'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN vue_mer TINYINT(1) NOT NULL DEFAULT 0 AFTER ascenseur');
+  }
+  if (!(await columnExists('biens', 'gaz_ville'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN gaz_ville TINYINT(1) NOT NULL DEFAULT 0 AFTER vue_mer');
+  }
+  if (!(await columnExists('biens', 'cuisine_equipee'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN cuisine_equipee TINYINT(1) NOT NULL DEFAULT 0 AFTER gaz_ville');
+  }
+  if (!(await columnExists('biens', 'place_parking'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN place_parking TINYINT(1) NOT NULL DEFAULT 0 AFTER cuisine_equipee');
+  }
+  if (!(await columnExists('biens', 'syndic'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN syndic TINYINT(1) NOT NULL DEFAULT 0 AFTER place_parking');
+  }
+  if (!(await columnExists('biens', 'meuble'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN meuble TINYINT(1) NOT NULL DEFAULT 0 AFTER syndic');
+  }
+  if (!(await columnExists('biens', 'independant'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN independant TINYINT(1) NOT NULL DEFAULT 0 AFTER meuble');
+  }
+  if (!(await columnExists('biens', 'eau_puits'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN eau_puits TINYINT(1) NOT NULL DEFAULT 0 AFTER independant');
+  }
+  if (!(await columnExists('biens', 'eau_sonede'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN eau_sonede TINYINT(1) NOT NULL DEFAULT 0 AFTER eau_puits');
+  }
+  if (!(await columnExists('biens', 'electricite_steg'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN electricite_steg TINYINT(1) NOT NULL DEFAULT 0 AFTER eau_sonede');
+  }
+
   await pool.query(
     "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','villa_maison','studio','immeuble','terrain','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
   );
@@ -354,13 +575,39 @@ async function ensureBiensWorkflowSchema() {
       ('car7', 'Ascenseur'),
       ('car8', 'Parking'),
       ('car9', 'Cuisine equipee'),
-      ('car10', 'Terrasse')
+      ('car10', 'Terrasse'),
+      ('car11', 'Proche de la plage'),
+      ('car12', 'Chauffage central'),
+      ('car13', 'Balcon'),
+      ('car14', 'Gaz de ville'),
+      ('car15', 'Place parking'),
+      ('car16', 'Syndic'),
+      ('car17', 'Meuble'),
+      ('car18', 'Independant'),
+      ('car19', 'Eau puits'),
+      ('car20', 'Eau Sonede'),
+      ('car21', 'Electricite STEG')
     ON DUPLICATE KEY UPDATE nom = VALUES(nom)
   `);
 
   const contextSeeds = [
     ['ctx1', 'car6', 'vente', 'appartement'],
     ['ctx2', 'car7', 'vente', 'appartement'],
+    ['ctx13', 'car3', 'vente', 'appartement'],
+    ['ctx14', 'car4', 'vente', 'appartement'],
+    ['ctx15', 'car9', 'vente', 'appartement'],
+    ['ctx16', 'car10', 'vente', 'appartement'],
+    ['ctx17', 'car11', 'vente', 'appartement'],
+    ['ctx18', 'car12', 'vente', 'appartement'],
+    ['ctx19', 'car13', 'vente', 'appartement'],
+    ['ctx20', 'car14', 'vente', 'appartement'],
+    ['ctx21', 'car15', 'vente', 'appartement'],
+    ['ctx22', 'car16', 'vente', 'appartement'],
+    ['ctx23', 'car17', 'vente', 'appartement'],
+    ['ctx24', 'car18', 'vente', 'appartement'],
+    ['ctx25', 'car19', 'vente', 'appartement'],
+    ['ctx26', 'car20', 'vente', 'appartement'],
+    ['ctx27', 'car21', 'vente', 'appartement'],
     ['ctx3', 'car8', 'vente', 'villa_maison'],
     ['ctx4', 'car5', 'vente', 'villa_maison'],
     ['ctx5', 'car6', 'location_saisonniere', 'appartement'],
@@ -505,7 +752,10 @@ app.post('/api/biens', async (req, res) => {
     const {
       id,
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids
+      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
+      proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
+      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
     } = req.body;
 
     const resolvedMode = normalizeBienMode(mode ?? mode_bien);
@@ -514,6 +764,18 @@ app.post('/api/biens', async (req, res) => {
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
+    const details = normalizeAppartementVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
+      proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
+      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
+    });
+    if (details.error) {
+      return res.status(400).json({ error: details.error });
+    }
+
+    const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
+      ? deriveBedroomsFromConfiguration(details.configuration)
+      : Number(nb_chambres || 0);
 
     const bienId = id || ('b' + Date.now());
     const created_at = new Date().toISOString().split('T')[0];
@@ -521,11 +783,15 @@ app.post('/api/biens', async (req, res) => {
 
     await pool.query(
       `INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
-        prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, 
+        prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
+        proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
+        syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, statut, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [bienId, reference, titre, description || null, resolvedMode, resolvedType, nb_chambres, nb_salle_bain,
-       prix_nuitee, avance || 0, caution || 0, statut || 'disponible', 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [bienId, reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, nb_salle_bain,
+       prix_nuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
+       details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
+       details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0, details.eauPuits ? 1 : 0, details.eauSonede ? 1 : 0, details.electriciteSteg ? 1 : 0, statut || 'disponible', 
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
     );
@@ -551,7 +817,10 @@ app.put('/api/biens/:id', async (req, res) => {
   try {
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids
+      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
+      proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
+      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
     } = req.body;
 
     const resolvedMode = normalizeBienMode(mode ?? mode_bien);
@@ -560,17 +829,33 @@ app.put('/api/biens/:id', async (req, res) => {
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
+    const details = normalizeAppartementVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
+      proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
+      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
+    });
+    if (details.error) {
+      return res.status(400).json({ error: details.error });
+    }
+
+    const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
+      ? deriveBedroomsFromConfiguration(details.configuration)
+      : Number(nb_chambres || 0);
 
     const updated_at = new Date().toISOString().split('T')[0];
 
     await pool.query(
       `UPDATE biens SET 
         reference = ?, titre = ?, description = ?, mode = ?, type = ?, nb_chambres = ?, 
-        nb_salle_bain = ?, prix_nuitee = ?, avance = ?, caution = ?,
+        nb_salle_bain = ?, prix_nuitee = ?, avance = ?, caution = ?, type_rue = ?, type_papier = ?, superficie_m2 = ?, etage = ?, configuration = ?, annee_construction = ?, distance_plage_m = ?,
+        proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
+        syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?,
         statut = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
-      [reference, titre, description || null, resolvedMode, resolvedType, nb_chambres, nb_salle_bain,
-       prix_nuitee, avance || 0, caution || 0, statut || 'disponible',
+      [reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, nb_salle_bain,
+       prix_nuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
+       details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
+       details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0, details.eauPuits ? 1 : 0, details.eauSonede ? 1 : 0, details.electriciteSteg ? 1 : 0, statut || 'disponible',
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, req.params.id]
     );

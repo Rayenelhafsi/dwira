@@ -19,3 +19,4 @@ Thumbs.db
 database.sql
 add-position-column.sql
 add-admin-auth-table.sql
+add-bien-workflow.sql
