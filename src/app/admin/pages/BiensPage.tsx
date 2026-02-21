@@ -2,7 +2,7 @@
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -10,7 +10,31 @@ import { useProperties } from '../../context/PropertiesContext';
 
 const statusColors: Record<BienStatut, string> = { disponible: "bg-emerald-100 text-emerald-800 border-emerald-200", loue: "bg-blue-100 text-blue-800 border-blue-200", reserve: "bg-amber-100 text-amber-800 border-amber-200", maintenance: "bg-red-100 text-red-800 border-red-200", bloque: "bg-gray-200 text-gray-800 border-gray-300" };
 const statusLabels: Record<BienStatut, string> = { disponible: "Disponible", loue: "Loué", reserve: "Réservé", maintenance: "Maintenance", bloque: "Bloqué" };
-const typeLabels: Record<BienType, string> = { S1: "S+1", S2: "S+2", S3: "S+3", S4: "S+4", villa: "Villa", studio: "Studio", local: "Local" };
+const modeLabels: Record<BienMode, string> = {
+  vente: "Vente",
+  location_annuelle: "Location annuelle",
+  location_saisonniere: "Location saisonniere",
+};
+const typeLabels: Record<BienType, string> = {
+  appartement: "Appartement",
+  villa_maison: "Villa/Maison",
+  studio: "Studio",
+  immeuble: "Immeuble",
+  terrain: "Terrain",
+  local_commercial: "Local commercial",
+  bungalow: "Bungalow",
+  S1: "Appartement",
+  S2: "Appartement",
+  S3: "Appartement",
+  S4: "Appartement",
+  villa: "Villa/Maison",
+  local: "Local commercial",
+};
+const BIEN_TYPES_BY_MODE: Record<BienMode, BienType[]> = {
+  vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'local_commercial'],
+  location_saisonniere: ['appartement', 'villa_maison', 'bungalow', 'studio'],
+  location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
+};
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
 
 export default function BiensPage() {
@@ -96,7 +120,8 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 
 function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; onSubmit: (data: Bien) => void; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', type: 'S1' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, avance: 0, caution: 0, statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [generalStep, setGeneralStep] = useState<1 | 2 | 3>(1);
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, avance: 0, caution: 0, statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
@@ -107,33 +132,84 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
   const [customFeatures, setCustomFeatures] = useState<string[]>(initialData?.caracteristiques || []);
+  const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
+  const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
   const [showAddZone, setShowAddZone] = useState(false);
   const [showAddProprietaire, setShowAddProprietaire] = useState(false);
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneDescription, setNewZoneDescription] = useState('');
+  const [newZoneGoogleMapsUrl, setNewZoneGoogleMapsUrl] = useState('');
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [newOwnerCin, setNewOwnerCin] = useState('');
   const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null);
+  const normalizeLegacyType = (value?: BienType): BienType => {
+    if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
+    if (value === 'villa') return 'villa_maison';
+    if (value === 'local') return 'local_commercial';
+    return (value || 'appartement') as BienType;
+  };
+  const generateReference = () => `REF-${Date.now().toString().slice(-6)}`;
 
   useEffect(() => {
     const rawDescription = initialData?.description || '';
     const markerIndex = rawDescription.indexOf(CHARACTERISTICS_MARKER);
+    const normalizedType = normalizeLegacyType((initialData?.type || formData.type) as BienType);
+    const resolvedMode = (initialData?.mode || 'location_saisonniere') as BienMode;
+    const allowedTypes = BIEN_TYPES_BY_MODE[resolvedMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
     if (markerIndex >= 0) {
       const cleanDescription = rawDescription.slice(0, markerIndex).trim();
-      setFormData((prev) => ({ ...prev, description: cleanDescription }));
+      setFormData((prev) => ({
+        ...prev,
+        description: cleanDescription,
+        mode: resolvedMode,
+        type: allowedTypes.includes(normalizedType) ? normalizedType : allowedTypes[0],
+        reference: prev.reference || generateReference(),
+      }));
       try {
         const parsed = JSON.parse(rawDescription.slice(markerIndex + CHARACTERISTICS_MARKER.length).trim());
         if (Array.isArray(parsed)) setCustomFeatures(parsed.filter((x) => typeof x === 'string'));
       } catch {
         setCustomFeatures([]);
       }
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        mode: resolvedMode,
+        type: allowedTypes.includes(normalizedType) ? normalizedType : allowedTypes[0],
+        reference: prev.reference || generateReference(),
+      }));
     }
+    setSelectedFeatureIds(initialData?.caracteristique_ids || []);
   }, [initialData]);
 
   useEffect(() => { setZonesOptions(zones); }, [zones]);
   useEffect(() => { setProprietaireOptions(proprietaires); }, [proprietaires]);
+  useEffect(() => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType(formData.type as BienType);
+    if (!selectedMode || !selectedType) {
+      setAvailableFeatures([]);
+      return;
+    }
+
+    const fetchFeatures = async () => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/caracteristiques?mode_bien=${selectedMode}&type_bien=${selectedType}`);
+        if (!response.ok) throw new Error('Failed to fetch features');
+        const rows = await response.json();
+        const nextFeatures = Array.isArray(rows) ? rows : [];
+        setAvailableFeatures(nextFeatures);
+        const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
+        setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
+      } catch {
+        setAvailableFeatures([]);
+      }
+    };
+
+    fetchFeatures();
+  }, [formData.mode, formData.type]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -152,7 +228,23 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     finally { setUploading(false); e.target.value = ''; }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.type === 'number' ? Number(e.target.value) : e.target.value }));
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target;
+    if (name === 'mode') {
+      const nextMode = value as BienMode;
+      const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
+      setFormData((prev) => {
+        const currentType = normalizeLegacyType(prev.type as BienType);
+        return {
+          ...prev,
+          mode: nextMode,
+          type: allowedTypes.includes(currentType) ? currentType : allowedTypes[0],
+        };
+      });
+      return;
+    }
+    setFormData(prev => ({ ...prev, [name]: type === 'number' ? Number(value) : value }));
+  };
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
 
   const handleAddImage = () => {
@@ -221,7 +313,12 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const handleAddZone = async () => {
     if (!newZoneName.trim()) return toast.error('Nom de zone requis');
     try {
-      const payload = { id: `z${Date.now()}`, nom: newZoneName.trim(), description: newZoneDescription.trim() };
+      const payload = {
+        id: `z${Date.now()}`,
+        nom: newZoneName.trim(),
+        description: newZoneDescription.trim(),
+        google_maps_url: newZoneGoogleMapsUrl.trim() || null
+      };
       const response = await fetch('http://localhost:3001/api/zones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
       const createdZone = await response.json();
@@ -229,6 +326,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       setFormData(prev => ({ ...prev, zone_id: createdZone.id }));
       setNewZoneName('');
       setNewZoneDescription('');
+      setNewZoneGoogleMapsUrl('');
       setShowAddZone(false);
       toast.success('Zone ajoutée');
     } catch {
@@ -258,9 +356,30 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType(formData.type as BienType);
+    const allowedTypes = BIEN_TYPES_BY_MODE[selectedMode] || [];
+
+    if (!formData.titre?.trim()) {
+      setGeneralStep(1);
+      return toast.error('Titre obligatoire');
+    }
+    if (!formData.reference?.trim()) {
+      setGeneralStep(1);
+      return toast.error('Reference obligatoire');
+    }
+    if (!selectedMode) {
+      setGeneralStep(1);
+      return toast.error('Mode obligatoire');
+    }
+    if (!selectedType || !allowedTypes.includes(selectedType)) {
+      setGeneralStep(2);
+      return toast.error('Type invalide pour ce mode');
+    }
+
     const imagesWithPositions = images.map((img, idx) => ({ ...img, position: idx }));
     const descriptionWithFeatures = customFeatures.length > 0 ? `${(formData.description || '').trim()}\n\n${CHARACTERISTICS_MARKER}${JSON.stringify(customFeatures)}` : (formData.description || '');
-    const finalData: Bien = { ...formData, description: descriptionWithFeatures, caracteristiques: customFeatures, id: initialData?.id || Math.random().toString(36).substr(2, 9), media: imagesWithPositions, unavailableDates: unavailableDates, created_at: initialData?.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0] } as Bien;
+    const finalData: Bien = { ...formData, mode: selectedMode, type: selectedType, description: descriptionWithFeatures, caracteristiques: customFeatures, caracteristique_ids: selectedFeatureIds, id: initialData?.id || Math.random().toString(36).substr(2, 9), media: imagesWithPositions, unavailableDates: unavailableDates, created_at: initialData?.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0] } as Bien;
     
     // Save media positions to database
     if (finalData.id && imagesWithPositions.length > 0) {
@@ -328,6 +447,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     }
     onSubmit(finalData);
   };
+  const selectedProprietaire = proprietaireOptions.find((p) => p.id === (formData.proprietaire_id || ''));
 
   return (
     <form id="bien-editor-form" onSubmit={handleSubmit} className="flex flex-col h-full">
@@ -339,66 +459,34 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
         {activeTab === 'general' && (
           <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="grid grid-cols-3 gap-2 text-xs sm:text-sm">
+                <button type="button" onClick={() => setGeneralStep(1)} className={`px-3 py-2 rounded-lg border ${generalStep === 1 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 1: Base</button>
+                <button type="button" onClick={() => setGeneralStep(2)} className={`px-3 py-2 rounded-lg border ${generalStep === 2 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 2: Type</button>
+                <button type="button" onClick={() => setGeneralStep(3)} className={`px-3 py-2 rounded-lg border ${generalStep === 3 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 3: Details</button>
+              </div>
+            </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
-              <h3 className="text-lg font-semibold"><Home className="h-5 w-5 inline text-emerald-600 mr-2" />Informations de base</h3>
+              <h3 className="text-lg font-semibold"><Home className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 1 - Informations de base</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Titre *</label><input required name="titre" value={formData.titre || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Référence *</label><input required name="reference" value={formData.reference || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-              </div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Caractéristiques</h3>
-                <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Ajouter caractéristiques</button>
-              </div>
-              {showFeaturePanel && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference interne *</label>
                   <div className="flex gap-2">
-                    <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisée" className="flex-1 rounded-lg border-gray-300 border p-2 text-sm" />
-                    <button type="button" onClick={handleAddFeature} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm">Ajouter</button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {customFeatures.map((feature) => (
-                      <span key={feature} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white border border-emerald-200 rounded-full">{feature}<button type="button" onClick={() => handleRemoveFeature(feature)} className="text-red-500">×</button></span>
-                    ))}
-                    {customFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caractéristique personnalisée</span>}
+                    <input required name="reference" value={formData.reference || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    <button type="button" onClick={() => setFormData(prev => ({ ...prev, reference: generateReference() }))} className="px-3 py-2 rounded-lg border border-gray-300 text-xs">Auto</button>
                   </div>
                 </div>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Type</label><select name="type" value={formData.type || 'S1'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="S1">S+1</option><option value="S2">S+2</option><option value="S3">S+3</option><option value="S4">S+4</option><option value="villa">Villa</option><option value="studio">Studio</option><option value="local">Local</option></select></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <label htmlFor="menage_en_cours" className="md:col-span-2 flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
-                  <div>
-                    <span className="block text-sm font-medium text-gray-800">Ménage en cours</span>
-                    <span className="block text-xs text-gray-500">Indique si le bien est en préparation</span>
-                  </div>
-                  <input type="checkbox" id="menage_en_cours" name="menage_en_cours" checked={formData.menage_en_cours || false} onChange={handleCheckboxChange} className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
-                </label>
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
-              <h3 className="text-lg font-semibold"><Banknote className="h-5 w-5 inline text-emerald-600 mr-2" />Tarification</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
-              <h3 className="text-lg font-semibold"><MapPin className="h-5 w-5 inline text-emerald-600 mr-2" />Localisation</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Mode *</label><select name="mode" value={formData.mode || 'location_saisonniere'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{Object.entries(modeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Localisation (Zone)</label>
                   <select name="zone_id" value={formData.zone_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{zonesOptions.map(z => <option key={z.id} value={z.id}>{z.nom}</option>)}</select>
                   <button type="button" onClick={() => setShowAddZone(!showAddZone)} className="text-xs text-emerald-700 hover:underline">+ Ajouter une zone</button>
                   {showAddZone && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
                       <input type="text" value={newZoneName} onChange={(e) => setNewZoneName(e.target.value)} placeholder="Nom de la zone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="text" value={newZoneDescription} onChange={(e) => setNewZoneDescription(e.target.value)} placeholder="Description" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="url" value={newZoneGoogleMapsUrl} onChange={(e) => setNewZoneGoogleMapsUrl(e.target.value)} placeholder="Lien Google Maps (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <button type="button" onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer zone</button>
                     </div>
                   )}
@@ -417,8 +505,76 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                     </div>
                   )}
                 </div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propriétaire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Numéro propriétaire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
               </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+              <div className="flex justify-end"><button type="button" onClick={() => setGeneralStep(2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
             </div>
+            {generalStep >= 2 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 2 - Type de bien</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Type *</label><select name="type" value={formData.type || 'appartement'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{(BIEN_TYPES_BY_MODE[(formData.mode || 'location_saisonniere') as BienMode] || []).map((typeValue) => <option key={typeValue} value={typeValue}>{typeLabels[typeValue]}</option>)}</select></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
+              </div>
+              <div className="flex justify-between">
+                <button type="button" onClick={() => setGeneralStep(1)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
+                <button type="button" onClick={() => setGeneralStep(3)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 3</button>
+              </div>
+            </div>}
+            {generalStep >= 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 3 - Caractéristiques</h3>
+                <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Ajouter caractéristiques</button>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm text-gray-500">Caractéristiques proposées pour {modeLabels[(formData.mode || 'location_saisonniere') as BienMode]} - {typeLabels[(formData.type || 'appartement') as BienType]}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {availableFeatures.map((feature) => (
+                    <label key={feature.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200">
+                      <input type="checkbox" checked={selectedFeatureIds.includes(feature.id)} onChange={(e) => setSelectedFeatureIds((prev) => e.target.checked ? [...prev, feature.id] : prev.filter((id) => id !== feature.id))} />
+                      <span className="text-sm">{feature.nom}</span>
+                    </label>
+                  ))}
+                  {availableFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caractéristique liée a ce mode/type</span>}
+                </div>
+              </div>
+              {showFeaturePanel && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-3">
+                  <div className="flex gap-2">
+                    <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="flex-1 rounded-lg border-gray-300 border p-2 text-sm" />
+                    <button type="button" onClick={handleAddFeature} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm">Ajouter</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {customFeatures.map((feature) => (
+                      <span key={feature} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white border border-emerald-200 rounded-full">{feature}<button type="button" onClick={() => handleRemoveFeature(feature)} className="text-red-500">x</button></span>
+                    ))}
+                    {customFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caractéristique personnalisée</span>}
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                <label htmlFor="menage_en_cours" className="md:col-span-2 flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
+                  <div>
+                    <span className="block text-sm font-medium text-gray-800">Ménage en cours</span>
+                    <span className="block text-xs text-gray-500">Indique si le bien est en préparation</span>
+                  </div>
+                  <input type="checkbox" id="menage_en_cours" name="menage_en_cours" checked={formData.menage_en_cours || false} onChange={handleCheckboxChange} className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+                </label>
+              </div>
+            </div>}
+            {generalStep >= 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+              <h3 className="text-lg font-semibold"><Banknote className="h-5 w-5 inline text-emerald-600 mr-2" />Tarification</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+              </div>
+            </div>}
           </div>
         )}
         {activeTab === 'images' && (

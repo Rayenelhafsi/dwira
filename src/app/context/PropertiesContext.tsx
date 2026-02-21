@@ -1,10 +1,23 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire } from '../admin/types';
+import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode } from '../admin/types';
 import { Property } from '../data/properties';
 
 // API Base URL
 const API_URL = 'http://localhost:3001/api';
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
+const LEGACY_TYPE_MAP: Record<string, BienType> = {
+  S1: 'appartement',
+  S2: 'appartement',
+  S3: 'appartement',
+  S4: 'appartement',
+  villa: 'villa_maison',
+  local: 'local_commercial',
+};
+const DEFAULT_MODE: BienMode = 'location_saisonniere';
+
+function normalizeBienType(type: string): BienType {
+  return (LEGACY_TYPE_MAP[type] || type || 'appartement') as BienType;
+}
 
 function parseDescriptionAndCharacteristics(rawDescription?: string | null): { description: string; caracteristiques: string[] } {
   const descriptionText = rawDescription || '';
@@ -43,6 +56,9 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
+  const caracteristiqueIdsFromDb = typeof row.caracteristique_ids_list === 'string' && row.caracteristique_ids_list.trim().length > 0
+    ? row.caracteristique_ids_list.split('||').map((x: string) => x.trim()).filter(Boolean)
+    : [];
 
   return {
     id: row.id,
@@ -50,7 +66,9 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     titre: row.titre,
     description: parsedDescription.description,
     caracteristiques: caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques,
-    type: row.type as BienType,
+    caracteristique_ids: caracteristiqueIdsFromDb,
+    mode: (row.mode || row.mode_bien || DEFAULT_MODE) as BienMode,
+    type: normalizeBienType(row.type),
     nb_chambres: toNumber(row.nb_chambres),
     nb_salle_bain: toNumber(row.nb_salle_bain),
     prix_nuitee: toNumber(row.prix_nuitee),
@@ -89,9 +107,15 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     'S2': 'S+2',
     'S3': 'S+3',
     'S4': 'S+4',
-    'villa': 'Villa',
+    'appartement': 'S+2',
+    'villa_maison': 'Villa',
     'studio': 'Studio',
-    'local': 'S+1'
+    'local': 'S+1',
+    'local_commercial': 'S+1',
+    'immeuble': 'S+4',
+    'terrain': 'S+1',
+    'bungalow': 'Villa',
+    'villa': 'Villa',
   };
 
   return {
@@ -121,11 +145,14 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
 
 function getAmenitiesFromType(type: BienType): string[] {
   const baseAmenities = ['Wifi', 'Climatisation'];
-  if (type === 'villa') {
+  if (type === 'villa' || type === 'villa_maison' || type === 'bungalow') {
     return [...baseAmenities, 'Piscine', 'Jardin', 'Garage', 'Parking'];
   }
-  if (type === 'studio' || type === 'S1') {
+  if (type === 'studio' || type === 'S1' || type === 'appartement') {
     return [...baseAmenities, 'Kitchenette'];
+  }
+  if (type === 'local' || type === 'local_commercial') {
+    return [...baseAmenities, 'Parking'];
   }
   return [...baseAmenities, 'Balcon', 'Vue sur mer'];
 }
@@ -227,7 +254,8 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         reference: p.id,
         titre: p.title,
         description: p.description,
-        type: p.category as BienType,
+        mode: 'location_saisonniere',
+        type: p.category === 'Studio' ? 'studio' : p.category === 'Villa' ? 'villa_maison' : 'appartement',
         nb_chambres: p.bedrooms,
         nb_salle_bain: p.bathrooms,
         prix_nuitee: p.pricePerNight,

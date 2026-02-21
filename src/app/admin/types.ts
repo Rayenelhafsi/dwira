@@ -13,6 +13,7 @@ export interface Zone {
   id: string;
   nom: string;
   description: string;
+  google_maps_url?: string;
 }
 
 export interface Proprietaire {
@@ -23,7 +24,21 @@ export interface Proprietaire {
   cin: string;
 }
 
-export type BienType = 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'studio' | 'local';
+export type BienMode = 'vente' | 'location_annuelle' | 'location_saisonniere';
+export type BienType =
+  | 'appartement'
+  | 'villa_maison'
+  | 'studio'
+  | 'immeuble'
+  | 'terrain'
+  | 'local_commercial'
+  | 'bungalow'
+  | 'S1'
+  | 'S2'
+  | 'S3'
+  | 'S4'
+  | 'villa'
+  | 'local';
 export type BienStatut = 'disponible' | 'loue' | 'reserve' | 'maintenance' | 'bloque';
 
 export interface DateStatus {
@@ -39,6 +54,7 @@ export interface Bien {
   reference: string;
   titre: string;
   description?: string;
+  mode: BienMode;
   type: BienType;
   surface?: number;
   nb_chambres: number;
@@ -57,6 +73,12 @@ export interface Bien {
   media?: Media[];
   unavailableDates?: DateStatus[];
   caracteristiques?: string[];
+  caracteristique_ids?: string[];
+}
+
+export interface Caracteristique {
+  id: string;
+  nom: string;
 }
 
 export interface Media {
