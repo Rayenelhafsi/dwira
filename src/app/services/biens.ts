@@ -10,15 +10,18 @@ export interface CreateBienInput {
   reference: string;
   titre: string;
   description?: string;
-  type: 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'studio' | 'local';
+  mode: 'vente' | 'location_annuelle' | 'location_saisonniere';
+  type: 'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
   nb_chambres: number;
   nb_salle_bain: number;
   prix_nuitee: number;
   avance: number;
+  caution?: number;
   statut?: 'disponible' | 'loue' | 'reserve' | 'maintenance';
   menage_en_cours?: boolean;
   zone_id?: string;
   proprietaire_id?: string;
+  caracteristique_ids?: string[];
   date_ajout: string;
   created_at: string;
   updated_at: string;
@@ -28,15 +31,18 @@ export interface UpdateBienInput {
   reference?: string;
   titre?: string;
   description?: string;
-  type?: 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'studio' | 'local';
+  mode?: 'vente' | 'location_annuelle' | 'location_saisonniere';
+  type?: 'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
   nb_chambres?: number;
   nb_salle_bain?: number;
   prix_nuitee?: number;
   avance?: number;
+  caution?: number;
   statut?: 'disponible' | 'loue' | 'reserve' | 'maintenance';
   menage_en_cours?: boolean;
   zone_id?: string;
   proprietaire_id?: string;
+  caracteristique_ids?: string[];
 }
 
 /**
@@ -107,20 +113,22 @@ export async function getAvailableBiens(): Promise<Bien[]> {
  */
 export async function createBien(data: CreateBienInput): Promise<number> {
   const sql = `
-    INSERT INTO biens (id, reference, titre, description, type, nb_chambres, nb_salle_bain, 
-      prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id, date_ajout, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
+      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, date_ajout, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const result = await execute(sql, [
     data.id,
     data.reference,
     data.titre,
     data.description || null,
+    data.mode,
     data.type,
     data.nb_chambres,
     data.nb_salle_bain,
     data.prix_nuitee,
     data.avance,
+    data.caution || 0,
     data.statut || 'disponible',
     data.menage_en_cours || false,
     data.zone_id || null,
@@ -155,6 +163,10 @@ export async function updateBien(id: string, data: UpdateBienInput): Promise<num
     fields.push('type = ?');
     values.push(data.type);
   }
+  if (data.mode !== undefined) {
+    fields.push('mode = ?');
+    values.push(data.mode);
+  }
   if (data.nb_chambres !== undefined) {
     fields.push('nb_chambres = ?');
     values.push(data.nb_chambres);
@@ -170,6 +182,10 @@ export async function updateBien(id: string, data: UpdateBienInput): Promise<num
   if (data.avance !== undefined) {
     fields.push('avance = ?');
     values.push(data.avance);
+  }
+  if (data.caution !== undefined) {
+    fields.push('caution = ?');
+    values.push(data.caution);
   }
   if (data.statut !== undefined) {
     fields.push('statut = ?');

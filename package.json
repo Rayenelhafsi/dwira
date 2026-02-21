@@ -82,7 +82,7 @@
     "@vitejs/plugin-react": "4.7.0",
     "gh-pages": "^6.3.0",
     "tailwindcss": "4.1.12",
-    "vite": "^5.2.8"
+    "vite": "^6.3.5"
   },
   "peerDependencies": {
     "react": "^18.3.1",

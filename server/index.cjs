@@ -74,6 +74,76 @@ const dbConfig = {
 const pool = mysql.createPool(dbConfig);
 let mediaHasPositionColumn = true;
 const socialAuthSessions = new Map();
+const BIEN_MODES = ['vente', 'location_annuelle', 'location_saisonniere'];
+const BIEN_TYPES_BY_MODE = {
+  vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'local_commercial'],
+  location_saisonniere: ['appartement', 'villa_maison', 'bungalow', 'studio'],
+  location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
+};
+const LEGACY_TYPE_MAP = {
+  S1: 'appartement',
+  S2: 'appartement',
+  S3: 'appartement',
+  S4: 'appartement',
+  villa: 'villa_maison',
+  local: 'local_commercial',
+};
+
+function normalizeBienType(rawType) {
+  return LEGACY_TYPE_MAP[rawType] || rawType;
+}
+
+function normalizeBienMode(rawMode) {
+  if (!rawMode) return 'location_saisonniere';
+  if (rawMode === 'location annuelle') return 'location_annuelle';
+  if (rawMode === 'location saisonniere') return 'location_saisonniere';
+  return rawMode;
+}
+
+function validateModeAndType(mode, type) {
+  if (!BIEN_MODES.includes(mode)) {
+    return { valid: false, error: 'mode invalide' };
+  }
+  const allowedTypes = BIEN_TYPES_BY_MODE[mode] || [];
+  if (!allowedTypes.includes(type)) {
+    return { valid: false, error: `type "${type}" non autorise pour le mode "${mode}"` };
+  }
+  return { valid: true };
+}
+
+async function syncBienCaracteristiques(bienId, caracteristiqueIds) {
+  const [bienRows] = await pool.query('SELECT mode, type FROM biens WHERE id = ? LIMIT 1', [bienId]);
+  const bien = bienRows[0];
+  if (!bien) return;
+
+  const normalizedMode = normalizeBienMode(bien.mode);
+  const normalizedType = normalizeBienType(bien.type);
+
+  if (Array.isArray(caracteristiqueIds) && caracteristiqueIds.length > 0) {
+    const placeholders = caracteristiqueIds.map(() => '?').join(',');
+    const [allowedRows] = await pool.query(
+      `SELECT caracteristique_id
+       FROM caracteristique_contextes
+       WHERE mode_bien = ? AND type_bien = ? AND caracteristique_id IN (${placeholders})`,
+      [normalizedMode, normalizedType, ...caracteristiqueIds]
+    );
+    const allowedIds = new Set(allowedRows.map((row) => row.caracteristique_id));
+    const invalidIds = caracteristiqueIds.filter((id) => !allowedIds.has(id));
+    if (invalidIds.length > 0) {
+      throw new Error(`Invalid caracteristique_ids for mode/type: ${invalidIds.join(', ')}`);
+    }
+  }
+
+  await pool.query('DELETE FROM bien_caracteristiques WHERE bien_id = ?', [bienId]);
+  if (!Array.isArray(caracteristiqueIds) || caracteristiqueIds.length === 0) return;
+
+  for (const caracteristiqueId of caracteristiqueIds) {
+    await pool.query(
+      'INSERT IGNORE INTO bien_caracteristiques (bien_id, caracteristique_id) VALUES (?, ?)',
+      [bienId, caracteristiqueId]
+    );
+  }
+}
 
 const createTemporarySocialToken = (user) => {
   const token = crypto.randomBytes(32).toString('hex');
@@ -180,6 +250,153 @@ async function ensureAuthSchema() {
   }
 }
 
+async function ensureBiensWorkflowSchema() {
+  const columnExists = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND COLUMN_NAME = ?`,
+      [tableName, columnName]
+    );
+    return Number(rows[0]?.total || 0) > 0;
+  };
+
+  const indexExists = async (tableName, indexName) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND INDEX_NAME = ?`,
+      [tableName, indexName]
+    );
+    return Number(rows[0]?.total || 0) > 0;
+  };
+
+  const hasModeColumn = await columnExists('biens', 'mode');
+  const hasModeBienColumn = await columnExists('biens', 'mode_bien');
+
+  if (!hasModeColumn && !hasModeBienColumn) {
+    await pool.query(
+      "ALTER TABLE biens ADD COLUMN mode ENUM('vente','location_annuelle','location_saisonniere') NOT NULL DEFAULT 'location_saisonniere' AFTER titre"
+    );
+  }
+
+  if (!hasModeColumn && hasModeBienColumn) {
+    await pool.query(
+      "ALTER TABLE biens ADD COLUMN mode ENUM('vente','location_annuelle','location_saisonniere') NOT NULL DEFAULT 'location_saisonniere' AFTER titre"
+    );
+    await pool.query('UPDATE biens SET mode = mode_bien');
+  }
+
+  if (hasModeColumn) {
+    await pool.query(
+      "ALTER TABLE biens MODIFY COLUMN mode ENUM('vente','location_annuelle','location_saisonniere') NOT NULL DEFAULT 'location_saisonniere'"
+    );
+  }
+
+  if (!(await columnExists('biens', 'caution'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN caution DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER avance'
+    );
+  }
+
+  await pool.query(
+    "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','villa_maison','studio','immeuble','terrain','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
+  );
+
+  if (!(await indexExists('biens', 'idx_biens_mode_type'))) {
+    const modeColumn = (await columnExists('biens', 'mode')) ? 'mode' : 'mode_bien';
+    await pool.query(`CREATE INDEX idx_biens_mode_type ON biens (${modeColumn}, type)`);
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS caracteristiques (
+      id VARCHAR(50) PRIMARY KEY,
+      nom VARCHAR(100) NOT NULL UNIQUE,
+      INDEX idx_nom (nom)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bien_caracteristiques (
+      bien_id VARCHAR(50) NOT NULL,
+      caracteristique_id VARCHAR(50) NOT NULL,
+      PRIMARY KEY (bien_id, caracteristique_id),
+      FOREIGN KEY (bien_id) REFERENCES biens(id) ON DELETE CASCADE,
+      FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE,
+      INDEX idx_caracteristique_id (caracteristique_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS caracteristique_contextes (
+      id VARCHAR(50) PRIMARY KEY,
+      caracteristique_id VARCHAR(50) NOT NULL,
+      mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
+      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','local_commercial','bungalow') NOT NULL,
+      UNIQUE KEY uq_car_context (caracteristique_id, mode_bien, type_bien),
+      INDEX idx_mode_type (mode_bien, type_bien),
+      FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    INSERT INTO caracteristiques (id, nom) VALUES
+      ('car1', 'Piscine'),
+      ('car2', 'Garage'),
+      ('car3', 'Climatisation'),
+      ('car4', 'Vue sur mer'),
+      ('car5', 'Jardin'),
+      ('car6', 'Wifi'),
+      ('car7', 'Ascenseur'),
+      ('car8', 'Parking'),
+      ('car9', 'Cuisine equipee'),
+      ('car10', 'Terrasse')
+    ON DUPLICATE KEY UPDATE nom = VALUES(nom)
+  `);
+
+  const contextSeeds = [
+    ['ctx1', 'car6', 'vente', 'appartement'],
+    ['ctx2', 'car7', 'vente', 'appartement'],
+    ['ctx3', 'car8', 'vente', 'villa_maison'],
+    ['ctx4', 'car5', 'vente', 'villa_maison'],
+    ['ctx5', 'car6', 'location_saisonniere', 'appartement'],
+    ['ctx6', 'car3', 'location_saisonniere', 'appartement'],
+    ['ctx7', 'car1', 'location_saisonniere', 'villa_maison'],
+    ['ctx8', 'car4', 'location_saisonniere', 'villa_maison'],
+    ['ctx9', 'car10', 'location_saisonniere', 'bungalow'],
+    ['ctx10', 'car9', 'location_annuelle', 'appartement'],
+    ['ctx11', 'car8', 'location_annuelle', 'local_commercial'],
+    ['ctx12', 'car3', 'location_annuelle', 'villa_maison'],
+  ];
+
+  for (const [id, caracteristiqueId, mode, type] of contextSeeds) {
+    await pool.query(
+      `INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_bien)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE mode_bien = VALUES(mode_bien), type_bien = VALUES(type_bien)`,
+      [id, caracteristiqueId, mode, type]
+    );
+  }
+}
+
+async function ensureZonesSchema() {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'zones'
+       AND COLUMN_NAME = 'google_maps_url'`
+  );
+  const hasGoogleMapsUrl = Number(rows[0]?.total || 0) > 0;
+  if (!hasGoogleMapsUrl) {
+    await pool.query('ALTER TABLE zones ADD COLUMN google_maps_url VARCHAR(500) NULL AFTER description');
+  }
+}
+
 async function upsertSocialUser({ email, name, avatar, provider, providerUserId }) {
   const userId = `u${Date.now()}`;
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -210,8 +427,10 @@ pool.getConnection()
     conn.release();
     return ensureAuthSchema();
   })
+  .then(() => ensureZonesSchema())
+  .then(() => ensureBiensWorkflowSchema())
   .then(() => {
-    console.log('✅ Auth schema ready');
+    console.log('✅ Auth schema and bien workflow ready');
   })
   .catch(err => {
     console.error('❌ Database connection failed:', err.message);
@@ -226,6 +445,12 @@ app.get('/api/biens', async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom,
+        (
+          SELECT GROUP_CONCAT(c.id SEPARATOR '||')
+          FROM bien_caracteristiques bc
+          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
+          WHERE bc.bien_id = b.id
+        ) as caracteristique_ids_list,
         (
           SELECT GROUP_CONCAT(c.nom SEPARATOR '||')
           FROM bien_caracteristiques bc
@@ -250,6 +475,12 @@ app.get('/api/biens/:id', async (req, res) => {
     const [rows] = await pool.query(`
       SELECT b.*,
         (
+          SELECT GROUP_CONCAT(c.id SEPARATOR '||')
+          FROM bien_caracteristiques bc
+          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
+          WHERE bc.bien_id = b.id
+        ) as caracteristique_ids_list,
+        (
           SELECT GROUP_CONCAT(c.nom SEPARATOR '||')
           FROM bien_caracteristiques bc
           INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
@@ -273,29 +504,43 @@ app.post('/api/biens', async (req, res) => {
   try {
     const {
       id,
-      reference, titre, description, type, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id
+      reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
+      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids
     } = req.body;
+
+    const resolvedMode = normalizeBienMode(mode ?? mode_bien);
+    const resolvedType = normalizeBienType(type_bien ?? type);
+    const validation = validateModeAndType(resolvedMode, resolvedType);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
 
     const bienId = id || ('b' + Date.now());
     const created_at = new Date().toISOString().split('T')[0];
     const updated_at = created_at;
 
     await pool.query(
-      `INSERT INTO biens (id, reference, titre, description, type, nb_chambres, nb_salle_bain, 
-        prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id, 
+      `INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
+        prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [bienId, reference, titre, description || null, type, nb_chambres, nb_salle_bain,
-       prix_nuitee, avance || 0, statut || 'disponible', 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [bienId, reference, titre, description || null, resolvedMode, resolvedType, nb_chambres, nb_salle_bain,
+       prix_nuitee, avance || 0, caution || 0, statut || 'disponible', 
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
     );
+
+    if (Array.isArray(caracteristique_ids)) {
+      await syncBienCaracteristiques(bienId, caracteristique_ids);
+    }
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
     res.status(201).json(newBien[0]);
   } catch (error) {
     console.error('Error creating bien:', error);
+    if (String(error?.message || '').includes('Invalid caracteristique_ids')) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: 'Failed to create bien' });
   }
 });
@@ -305,28 +550,42 @@ app.post('/api/biens', async (req, res) => {
 app.put('/api/biens/:id', async (req, res) => {
   try {
     const {
-      reference, titre, description, type, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id
+      reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
+      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids
     } = req.body;
+
+    const resolvedMode = normalizeBienMode(mode ?? mode_bien);
+    const resolvedType = normalizeBienType(type_bien ?? type);
+    const validation = validateModeAndType(resolvedMode, resolvedType);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
 
     const updated_at = new Date().toISOString().split('T')[0];
 
     await pool.query(
       `UPDATE biens SET 
-        reference = ?, titre = ?, description = ?, type = ?, nb_chambres = ?, 
-        nb_salle_bain = ?, prix_nuitee = ?, avance = ?, 
+        reference = ?, titre = ?, description = ?, mode = ?, type = ?, nb_chambres = ?, 
+        nb_salle_bain = ?, prix_nuitee = ?, avance = ?, caution = ?,
         statut = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
-      [reference, titre, description || null, type, nb_chambres, nb_salle_bain,
-       prix_nuitee, avance || 0, statut || 'disponible',
+      [reference, titre, description || null, resolvedMode, resolvedType, nb_chambres, nb_salle_bain,
+       prix_nuitee, avance || 0, caution || 0, statut || 'disponible',
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, req.params.id]
     );
+
+    if (Array.isArray(caracteristique_ids)) {
+      await syncBienCaracteristiques(req.params.id, caracteristique_ids);
+    }
 
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
     res.json(updatedBien[0]);
   } catch (error) {
     console.error('Error updating bien:', error);
+    if (String(error?.message || '').includes('Invalid caracteristique_ids')) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: 'Failed to update bien' });
   }
 });
@@ -359,9 +618,9 @@ app.get('/api/zones', async (req, res) => {
 
 app.post('/api/zones', async (req, res) => {
   try {
-    const { id, nom, description } = req.body;
-    await pool.query('INSERT INTO zones (id, nom, description) VALUES (?, ?, ?)', 
-      [id, nom, description || '']);
+    const { id, nom, description, google_maps_url } = req.body;
+    await pool.query('INSERT INTO zones (id, nom, description, google_maps_url) VALUES (?, ?, ?, ?)', 
+      [id, nom, description || '', google_maps_url || null]);
     const [newZone] = await pool.query('SELECT * FROM zones WHERE id = ?', [id]);
     res.status(201).json(newZone[0]);
   } catch (error) {
@@ -676,8 +935,56 @@ const contractUpload = multer({
 // CARACTERISTIQUES API
 // ============================================
 
+app.get('/api/workflow/biens-options', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT cc.mode_bien, cc.type_bien, c.id, c.nom
+       FROM caracteristique_contextes cc
+       INNER JOIN caracteristiques c ON c.id = cc.caracteristique_id
+       ORDER BY cc.mode_bien ASC, cc.type_bien ASC, c.nom ASC`
+    );
+
+    const featuresByModeAndType = {};
+    for (const row of rows) {
+      if (!featuresByModeAndType[row.mode_bien]) featuresByModeAndType[row.mode_bien] = {};
+      if (!featuresByModeAndType[row.mode_bien][row.type_bien]) featuresByModeAndType[row.mode_bien][row.type_bien] = [];
+      featuresByModeAndType[row.mode_bien][row.type_bien].push({ id: row.id, nom: row.nom });
+    }
+
+    res.json({
+      modes: BIEN_MODES.map((mode) => ({
+        value: mode,
+        types: BIEN_TYPES_BY_MODE[mode] || [],
+      })),
+      featuresByModeAndType,
+    });
+  } catch (error) {
+    console.error('Error fetching bien workflow options:', error);
+    res.status(500).json({ error: 'Failed to fetch bien workflow options' });
+  }
+});
+
 app.get('/api/caracteristiques', async (req, res) => {
   try {
+    const mode = normalizeBienMode(req.query.mode_bien || req.query.mode);
+    const type = normalizeBienType(req.query.type_bien || req.query.type);
+
+    if ((req.query.mode_bien || req.query.mode) && (req.query.type_bien || req.query.type)) {
+      const validation = validateModeAndType(mode, type);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+      const [rows] = await pool.query(
+        `SELECT DISTINCT c.*
+         FROM caracteristiques c
+         INNER JOIN caracteristique_contextes cc ON cc.caracteristique_id = c.id
+         WHERE cc.mode_bien = ? AND cc.type_bien = ?
+         ORDER BY c.nom ASC`,
+        [mode, type]
+      );
+      return res.json(rows);
+    }
+
     const [rows] = await pool.query('SELECT * FROM caracteristiques ORDER BY nom ASC');
     res.json(rows);
   } catch (error) {
@@ -688,11 +995,39 @@ app.get('/api/caracteristiques', async (req, res) => {
 
 app.post('/api/caracteristiques', async (req, res) => {
   try {
-    const { nom } = req.body;
+    const { nom, mode_bien, mode, type_bien, type } = req.body;
+    const normalizedMode = normalizeBienMode(mode_bien ?? mode);
+    const normalizedType = normalizeBienType(type_bien ?? type);
+    const featureName = String(nom || '').trim();
+    if (!featureName) {
+      return res.status(400).json({ error: 'nom requis' });
+    }
+
     const id = 'car' + Date.now();
-    await pool.query('INSERT INTO caracteristiques (id, nom) VALUES (?, ?)', [id, nom]);
-    const [rows] = await pool.query('SELECT * FROM caracteristiques WHERE id = ?', [id]);
-    res.status(201).json(rows[0]);
+    await pool.query(
+      `INSERT INTO caracteristiques (id, nom)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE nom = VALUES(nom)`,
+      [id, featureName]
+    );
+
+    const [rows] = await pool.query('SELECT * FROM caracteristiques WHERE nom = ? LIMIT 1', [featureName]);
+    const caracteristique = rows[0];
+
+    if ((mode_bien || mode) && (type_bien || type)) {
+      const validation = validateModeAndType(normalizedMode, normalizedType);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+      await pool.query(
+        `INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_bien)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE mode_bien = VALUES(mode_bien), type_bien = VALUES(type_bien)`,
+        ['ctx' + Date.now(), caracteristique.id, normalizedMode, normalizedType]
+      );
+    }
+
+    res.status(201).json(caracteristique);
   } catch (error) {
     console.error('Error creating caracteristique:', error);
     res.status(500).json({ error: 'Failed to create caracteristique' });
@@ -706,17 +1041,14 @@ app.post('/api/biens/:id/caracteristiques', async (req, res) => {
       return res.status(400).json({ error: 'caracteristique_ids must be an array' });
     }
 
-    await pool.query('DELETE FROM bien_caracteristiques WHERE bien_id = ?', [req.params.id]);
-    for (const caracteristiqueId of caracteristique_ids) {
-      await pool.query(
-        'INSERT INTO bien_caracteristiques (bien_id, caracteristique_id) VALUES (?, ?)',
-        [req.params.id, caracteristiqueId]
-      );
-    }
+    await syncBienCaracteristiques(req.params.id, caracteristique_ids);
 
     res.json({ message: 'Caracteristiques updated' });
   } catch (error) {
     console.error('Error updating bien caracteristiques:', error);
+    if (String(error?.message || '').includes('Invalid caracteristique_ids')) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: 'Failed to update bien caracteristiques' });
   }
 });

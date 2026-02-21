@@ -8,11 +8,13 @@ export interface CreateZoneInput {
   id: string;
   nom: string;
   description?: string;
+  google_maps_url?: string;
 }
 
 export interface UpdateZoneInput {
   nom?: string;
   description?: string;
+  google_maps_url?: string;
 }
 
 /**
@@ -37,8 +39,8 @@ export async function getZoneById(id: string): Promise<Zone | undefined> {
  * Create a new zone
  */
 export async function createZone(data: CreateZoneInput): Promise<number> {
-  const sql = 'INSERT INTO zones (id, nom, description) VALUES (?, ?, ?)';
-  const result = await execute(sql, [data.id, data.nom, data.description || null]);
+  const sql = 'INSERT INTO zones (id, nom, description, google_maps_url) VALUES (?, ?, ?, ?)';
+  const result = await execute(sql, [data.id, data.nom, data.description || null, data.google_maps_url || null]);
   return result.affectedRows;
 }
 
@@ -56,6 +58,10 @@ export async function updateZone(id: string, data: UpdateZoneInput): Promise<num
   if (data.description !== undefined) {
     fields.push('description = ?');
     values.push(data.description);
+  }
+  if (data.google_maps_url !== undefined) {
+    fields.push('google_maps_url = ?');
+    values.push(data.google_maps_url);
   }
 
   if (fields.length === 0) return 0;
