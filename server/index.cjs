@@ -12,9 +12,16 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const SERVER_PUBLIC_URL = process.env.SERVER_PUBLIC_URL || `http://localhost:${PORT}`;
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 // Middleware
-app.use(cors());
+if (CORS_ORIGIN === '*') {
+  app.use(cors());
+} else {
+  const allowedOrigins = CORS_ORIGIN.split(',').map((value) => value.trim()).filter(Boolean);
+  app.use(cors({ origin: allowedOrigins }));
+}
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/contracts', express.static(path.join(__dirname, 'contracts')));
@@ -1060,7 +1067,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    const imageUrl = `http://localhost:${PORT}/uploads/${req.file.filename}`;
+    const imageUrl = `${SERVER_PUBLIC_URL}/uploads/${req.file.filename}`;
     res.json({ 
       success: true, 
       url: imageUrl,
@@ -1077,7 +1084,7 @@ app.post('/api/upload-contract', contractUpload.single('contract'), async (req, 
     if (!req.file) {
       return res.status(400).json({ error: 'No contract file uploaded' });
     }
-    const contractUrl = `http://localhost:${PORT}/contracts/${req.file.filename}`;
+    const contractUrl = `${SERVER_PUBLIC_URL}/contracts/${req.file.filename}`;
     res.json({
       success: true,
       url: contractUrl,
@@ -1237,7 +1244,7 @@ app.post('/api/auth/admin/login', async (req, res) => {
 
 app.get('/api/auth/google/start', async (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${SERVER_PUBLIC_URL}/api/auth/google/callback`;
 
   if (!clientId) {
     return res.status(500).json({ error: 'GOOGLE_CLIENT_ID manquant' });
@@ -1264,7 +1271,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${SERVER_PUBLIC_URL}/api/auth/google/callback`;
 
     if (!clientId || !clientSecret) {
       return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_config_missing`);
@@ -1324,7 +1331,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 app.get('/api/auth/facebook/start', async (req, res) => {
   const clientId = process.env.FACEBOOK_CLIENT_ID;
-  const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
+  const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `${SERVER_PUBLIC_URL}/api/auth/facebook/callback`;
 
   if (!clientId) {
     return res.status(500).json({ error: 'FACEBOOK_CLIENT_ID manquant' });
@@ -1349,7 +1356,7 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
 
     const clientId = process.env.FACEBOOK_CLIENT_ID;
     const clientSecret = process.env.FACEBOOK_CLIENT_SECRET;
-    const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
+    const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `${SERVER_PUBLIC_URL}/api/auth/facebook/callback`;
 
     if (!clientId || !clientSecret) {
       return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
@@ -1437,7 +1444,7 @@ app.post('/api/utilisateurs', async (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on ${SERVER_PUBLIC_URL}`);
   console.log('📋 Available endpoints:');
   console.log('   - GET    /api/biens');
   console.log('   - POST   /api/biens');

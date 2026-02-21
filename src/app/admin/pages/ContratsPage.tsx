@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { API_BASE } from '../../config';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = API_BASE;
 
 type ContratApi = {
   id: string;

@@ -7,6 +7,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
+import { API_BASE } from '../../config';
 
 const statusColors: Record<BienStatut, string> = { disponible: "bg-emerald-100 text-emerald-800 border-emerald-200", loue: "bg-blue-100 text-blue-800 border-blue-200", reserve: "bg-amber-100 text-amber-800 border-amber-200", maintenance: "bg-red-100 text-red-800 border-red-200", bloque: "bg-gray-200 text-gray-800 border-gray-300" };
 const statusLabels: Record<BienStatut, string> = { disponible: "Disponible", loue: "Loué", reserve: "Réservé", maintenance: "Maintenance", bloque: "Bloqué" };
@@ -36,6 +37,7 @@ const BIEN_TYPES_BY_MODE: Record<BienMode, BienType[]> = {
   location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
 };
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
+const API_URL = API_BASE;
 
 export default function BiensPage() {
   const { biens, zones, proprietaires, addBien, updateBien, deleteBien, isLoading } = useProperties();
@@ -196,7 +198,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
     const fetchFeatures = async () => {
       try {
-        const response = await fetch(`http://localhost:3001/api/caracteristiques?mode_bien=${selectedMode}&type_bien=${selectedType}`);
+        const response = await fetch(`${API_URL}/caracteristiques?mode_bien=${selectedMode}&type_bien=${selectedType}`);
         if (!response.ok) throw new Error('Failed to fetch features');
         const rows = await response.json();
         const nextFeatures = Array.isArray(rows) ? rows : [];
@@ -218,7 +220,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     const uploadFormData = new FormData();
     uploadFormData.append('image', file);
     try {
-      const response = await fetch('http://localhost:3001/api/upload', { method: 'POST', body: uploadFormData });
+      const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
       if (!response.ok) throw new Error('Upload failed');
       const data = await response.json();
       const newMedia: Media = { id: Math.random().toString(36).substr(2, 9), bien_id: '', type: 'image', url: data.url };
@@ -319,7 +321,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         description: newZoneDescription.trim(),
         google_maps_url: newZoneGoogleMapsUrl.trim() || null
       };
-      const response = await fetch('http://localhost:3001/api/zones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
       const createdZone = await response.json();
       setZonesOptions([...zonesOptions, createdZone]);
@@ -338,7 +340,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     if (!newOwnerName.trim()) return toast.error('Nom du propriétaire requis');
     try {
       const payload = { nom: newOwnerName.trim(), telephone: newOwnerPhone.trim(), email: newOwnerEmail.trim(), cin: newOwnerCin.trim() };
-      const response = await fetch('http://localhost:3001/api/proprietaires', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch(`${API_URL}/proprietaires`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create owner');
       const createdOwner = await response.json();
       setProprietaireOptions([...proprietaireOptions, createdOwner]);
@@ -392,7 +394,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
         if (existingMedia.length > 0) {
           const positionPayload = existingMedia.map((media) => ({ id: media.id, position: media.position ?? 0 }));
-          const bulkResponse = await fetch('http://localhost:3001/api/media/bulk/positions', {
+          const bulkResponse = await fetch(`${API_URL}/media/bulk/positions`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ media: positionPayload }),
@@ -401,7 +403,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           if (!bulkResponse.ok) {
             let singleUpdateOk = true;
             for (const item of positionPayload) {
-              const updateResponse = await fetch(`http://localhost:3001/api/media/${item.id}/position`, {
+              const updateResponse = await fetch(`${API_URL}/media/${item.id}/position`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ position: item.position }),
@@ -414,10 +416,10 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
             if (!singleUpdateOk) {
               for (const mediaId of Array.from(initialMediaIds)) {
-                await fetch(`http://localhost:3001/api/media/${mediaId}`, { method: 'DELETE' });
+                await fetch(`${API_URL}/media/${mediaId}`, { method: 'DELETE' });
               }
               for (const media of imagesWithPositions) {
-                const rebuildResponse = await fetch('http://localhost:3001/api/media', {
+                const rebuildResponse = await fetch(`${API_URL}/media`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ bien_id: finalData.id, type: media.type, url: media.url, position: media.position ?? 0 }),
@@ -431,11 +433,11 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
         if (!usedFullRebuild) {
           for (const mediaId of removedMediaIds) {
-            const deleteResponse = await fetch(`http://localhost:3001/api/media/${mediaId}`, { method: 'DELETE' });
+            const deleteResponse = await fetch(`${API_URL}/media/${mediaId}`, { method: 'DELETE' });
             if (!deleteResponse.ok) throw new Error('Failed to delete media');
           }
           for (const media of newMedia) {
-            const createResponse = await fetch('http://localhost:3001/api/media', {
+            const createResponse = await fetch(`${API_URL}/media`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ bien_id: finalData.id, type: media.type, url: media.url, position: media.position ?? 0 }),

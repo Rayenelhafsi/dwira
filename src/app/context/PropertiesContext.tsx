@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode } from '../admin/types';
 import { Property } from '../data/properties';
+import { API_BASE } from '../config';
 
 // API Base URL
-const API_URL = 'http://localhost:3001/api';
+const API_URL = API_BASE;
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
 const LEGACY_TYPE_MAP: Record<string, BienType> = {
   S1: 'appartement',

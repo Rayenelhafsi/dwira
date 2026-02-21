@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search, Plus, Phone, Mail, FileText, Archive, CalendarDays, Eye, Download, X } from 'lucide-react';
 import { Contrat, Locataire } from '../types';
 import { toast } from 'sonner';
+import { API_BASE } from '../../config';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = API_BASE;
 
 type ContratArchive = Contrat & {
   bien_titre?: string;
