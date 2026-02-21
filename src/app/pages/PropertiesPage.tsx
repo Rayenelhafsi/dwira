@@ -5,7 +5,6 @@ import { PropertyCard } from "../components/PropertyCard";
 import { Search, SlidersHorizontal, MapPin, Calendar, Check, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-const AMENITIES_LIST = ["Piscine", "Garage", "Climatisation", "Vue sur mer", "Jardin", "Wifi"];
 const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
 
 export default function PropertiesPage() {
@@ -52,6 +51,10 @@ export default function PropertiesPage() {
   // Derived Data
   const uniqueLocations = useMemo(() => {
     return Array.from(new Set(properties.map(p => p.location))).sort();
+  }, [properties]);
+
+  const amenitiesList = useMemo(() => {
+    return Array.from(new Set(properties.flatMap((p) => p.amenities || []))).sort();
   }, [properties]);
 
   // Toggle helpers
@@ -201,7 +204,7 @@ export default function PropertiesPage() {
                 <div>
                   <label className="block text-sm font-bold text-gray-900 mb-3">Caractéristiques</label>
                   <div className="space-y-2">
-                    {AMENITIES_LIST.map(amenity => (
+                    {amenitiesList.map(amenity => (
                       <label key={amenity} className="flex items-center gap-2 cursor-pointer group">
                         <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                           selectedAmenities.includes(amenity) ? "bg-emerald-600 border-emerald-600" : "bg-white border-gray-300 group-hover:border-emerald-400"

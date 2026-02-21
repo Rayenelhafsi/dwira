@@ -1,14 +1,102 @@
-import { useState } from 'react';
-import { mockLocataires } from '../data/mockData';
-import { Search, Plus, Phone, Mail, FileText } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, Phone, Mail, FileText, Archive, CalendarDays, Eye, Download, X } from 'lucide-react';
+import { Contrat, Locataire } from '../types';
+import { toast } from 'sonner';
+
+const API_URL = 'http://localhost:3001/api';
+
+type ContratArchive = Contrat & {
+  bien_titre?: string;
+  locataire_nom?: string;
+  depot_garantie?: number;
+};
 
 export default function LocatairesPage() {
+  const [locataires, setLocataires] = useState<Locataire[]>([]);
+  const [contrats, setContrats] = useState<ContratArchive[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedLocataire, setSelectedLocataire] = useState<Locataire | null>(null);
+  const [previewContrat, setPreviewContrat] = useState<ContratArchive | null>(null);
 
-  const filtered = mockLocataires.filter(l => 
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
+      const [locatairesResult, contratsResult] = await Promise.allSettled([
+        fetch(`${API_URL}/locataires`),
+        fetch(`${API_URL}/contrats`),
+      ]);
+
+      let hasAnyData = false;
+      const errors: string[] = [];
+
+      if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {
+        const locatairesData = await locatairesResult.value.json();
+        setLocataires(Array.isArray(locatairesData) ? locatairesData : []);
+        hasAnyData = true;
+      } else {
+        setLocataires([]);
+        errors.push('locataires');
+      }
+
+      if (contratsResult.status === 'fulfilled' && contratsResult.value.ok) {
+        const contratsData = await contratsResult.value.json();
+        setContrats(Array.isArray(contratsData) ? contratsData : []);
+        hasAnyData = true;
+      } else {
+        setContrats([]);
+        errors.push('contrats');
+      }
+
+      if (errors.length > 0) {
+        const message = `Chargement partiel: ${errors.join(', ')}`;
+        setError(hasAnyData ? message : 'Impossible de charger les données');
+        toast.error(message);
+      }
+
+      setIsLoading(false);
+    };
+
+    fetchData();
+  }, []);
+
+  const filtered = locataires.filter(l =>
     l.nom.toLowerCase().includes(searchTerm.toLowerCase()) ||
     l.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const archiveContrats = useMemo(() => {
+    if (!selectedLocataire) return [];
+    return contrats.filter((contrat) => contrat.locataire_id === selectedLocataire.id);
+  }, [selectedLocataire, contrats]);
+
+  const closeArchive = () => {
+    setSelectedLocataire(null);
+    setPreviewContrat(null);
+  };
+
+  const handleDownloadPdf = (contrat: ContratArchive) => {
+    if (!contrat.url_pdf) return;
+    const normalizedUrl = contrat.url_pdf.startsWith('http')
+      ? contrat.url_pdf
+      : `${window.location.origin}${contrat.url_pdf}`;
+    const link = document.createElement('a');
+    link.href = normalizedUrl;
+    link.download = `contrat-${contrat.id}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -30,6 +118,8 @@ export default function LocatairesPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+
+        {error && <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</div>}
 
         {/* Desktop Table View */}
         <div className="hidden md:block overflow-x-auto">
@@ -65,7 +155,7 @@ export default function LocatairesPage() {
                     </div>
                   </td>
                   <td className="p-4">
-                    <button className="text-emerald-600 hover:text-emerald-800 text-sm font-medium">Voir dossier</button>
+                    <button onClick={() => setSelectedLocataire(locataire)} className="text-emerald-600 hover:text-emerald-800 text-sm font-medium">Voir dossier</button>
                   </td>
                 </tr>
               ))}
@@ -96,13 +186,87 @@ export default function LocatairesPage() {
                   <span className="truncate">{locataire.email}</span>
                 </div>
               </div>
-              <button className="text-emerald-600 hover:text-emerald-800 text-sm font-medium w-full text-center py-2 border-t border-gray-100">
+              <button onClick={() => setSelectedLocataire(locataire)} className="text-emerald-600 hover:text-emerald-800 text-sm font-medium w-full text-center py-2 border-t border-gray-100">
                 Voir dossier
               </button>
             </div>
           ))}
         </div>
       </div>
+
+      {selectedLocataire && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 sm:p-6">
+          <div className="bg-white w-full max-w-6xl max-h-[92vh] rounded-xl shadow-xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900 flex items-center gap-2"><Archive className="h-5 w-5 text-emerald-600" />Archive des relations</h2>
+                <p className="text-sm text-gray-500">{selectedLocataire.nom} • {archiveContrats.length} contrat(s)</p>
+              </div>
+              <button onClick={closeArchive} className="p-2 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto">
+              {archiveContrats.length === 0 ? (
+                <div className="text-center py-14 text-gray-500">
+                  <FileText className="mx-auto h-8 w-8 mb-3 text-gray-400" />
+                  Aucun contrat archivé pour ce locataire.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {archiveContrats.map((contrat) => {
+                    return (
+                      <div key={contrat.id} className="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <h3 className="font-semibold text-gray-900 line-clamp-1">{contrat.bien_titre || `Bien #${contrat.bien_id}`}</h3>
+                            <p className="text-xs text-gray-500">Contrat #{contrat.id}</p>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${contrat.statut === 'actif' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-700'}`}>
+                            {contrat.statut}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5 text-sm text-gray-600 mb-4">
+                          <div className="flex items-center gap-2"><CalendarDays size={14} className="text-gray-400" /><span>Du {new Date(contrat.date_debut).toLocaleDateString()} au {new Date(contrat.date_fin).toLocaleDateString()}</span></div>
+                          <div className="flex items-center gap-2"><FileText size={14} className="text-gray-400" /><span>{contrat.url_pdf ? 'PDF disponible' : 'PDF non disponible'}</span></div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => setPreviewContrat(contrat)} disabled={!contrat.url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                            <Eye size={16} /> Visualiser
+                          </button>
+                          <button onClick={() => handleDownloadPdf(contrat)} disabled={!contrat.url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50">
+                            <Download size={16} /> Télécharger
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewContrat?.url_pdf && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-3 sm:p-6">
+          <div className="bg-white w-full max-w-6xl h-[92vh] rounded-xl shadow-xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900">Visualisation du contrat #{previewContrat.id}</h3>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleDownloadPdf(previewContrat)} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50"><Download size={16} /> Télécharger</button>
+                <button onClick={() => setPreviewContrat(null)} className="p-2 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+              </div>
+            </div>
+            <iframe
+              src={previewContrat.url_pdf.startsWith('http') ? previewContrat.url_pdf : `${window.location.origin}${previewContrat.url_pdf}`}
+              title={`Contrat ${previewContrat.id}`}
+              className="w-full h-full border-0"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
