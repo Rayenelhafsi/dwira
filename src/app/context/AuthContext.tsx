@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 interface User {
+  id?: string;
   email: string;
   name: string;
   avatar?: string;
@@ -9,7 +10,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (user: Omit<User, 'role'> & { role?: 'admin' | 'user' }) => void;
+  login: (user: User) => void;
   logout: () => void;
   isLoading: boolean;
 }
@@ -34,12 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = (userData: Omit<User, 'role'> & { role?: 'admin' | 'user' }) => {
-    // Default to 'user' if not specified, unless email is admin
-    const role = userData.role || (userData.email === 'admin@dwira.com' ? 'admin' : 'user');
-    const userWithRole = { ...userData, role };
-    setUser(userWithRole);
-    localStorage.setItem('dwira_user', JSON.stringify(userWithRole));
+  const login = (userData: User) => {
+    setUser(userData);
+    localStorage.setItem('dwira_user', JSON.stringify(userData));
   };
 
   const logout = () => {

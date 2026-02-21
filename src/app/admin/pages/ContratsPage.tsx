@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload } from 'lucide-react';
+import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API_URL = 'http://localhost:3001/api';
@@ -244,6 +244,20 @@ export default function ContratsPage() {
     }
   };
 
+  const handleDeleteContract = async (contratId: string) => {
+    const confirmed = window.confirm('Supprimer ce contrat ?');
+    if (!confirmed) return;
+    try {
+      const response = await fetch(`${API_URL}/contrats/${contratId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Suppression contrat impossible');
+      toast.success('Contrat supprime');
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || 'Erreur suppression contrat');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -384,6 +398,13 @@ export default function ContratsPage() {
                     }}
                   />
                 </label>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteContract(contrat.id)}
+                  className="col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50"
+                >
+                  <Trash2 size={16} /> Supprimer
+                </button>
               </div>
             </div>
           );
