@@ -24,7 +24,7 @@ export interface Proprietaire {
 }
 
 export type BienType = 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'studio' | 'local';
-export type BienStatut = 'disponible' | 'loue' | 'reserve' | 'maintenance';
+export type BienStatut = 'disponible' | 'loue' | 'reserve' | 'maintenance' | 'bloque';
 
 export interface DateStatus {
   start: string;
@@ -56,6 +56,7 @@ export interface Bien {
   updated_at: string;
   media?: Media[];
   unavailableDates?: DateStatus[];
+  caracteristiques?: string[];
 }
 
 export interface Media {

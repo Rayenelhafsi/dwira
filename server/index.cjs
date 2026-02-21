@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/contracts', express.static(path.join(__dirname, 'contracts')));
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -58,6 +59,7 @@ const dbConfig = {
 };
 
 const pool = mysql.createPool(dbConfig);
+let mediaHasPositionColumn = true;
 
 console.log('🔄 Connecting to database...');
 pool.getConnection()
@@ -77,7 +79,13 @@ pool.getConnection()
 app.get('/api/biens', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom 
+      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom,
+        (
+          SELECT GROUP_CONCAT(c.nom SEPARATOR '||')
+          FROM bien_caracteristiques bc
+          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
+          WHERE bc.bien_id = b.id
+        ) as caracteristiques_list
       FROM biens b 
       LEFT JOIN zones z ON b.zone_id = z.id 
       LEFT JOIN proprietaires p ON b.proprietaire_id = p.id
@@ -93,7 +101,17 @@ app.get('/api/biens', async (req, res) => {
 // GET single bien
 app.get('/api/biens/:id', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
+    const [rows] = await pool.query(`
+      SELECT b.*,
+        (
+          SELECT GROUP_CONCAT(c.nom SEPARATOR '||')
+          FROM bien_caracteristiques bc
+          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
+          WHERE bc.bien_id = b.id
+        ) as caracteristiques_list
+      FROM biens b
+      WHERE b.id = ?
+    `, [req.params.id]);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Bien not found' });
     }
@@ -108,11 +126,12 @@ app.get('/api/biens/:id', async (req, res) => {
 app.post('/api/biens', async (req, res) => {
   try {
     const {
+      id,
       reference, titre, description, type, nb_chambres, nb_salle_bain,
       prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id
     } = req.body;
 
-    const id = 'b' + Date.now();
+    const bienId = id || ('b' + Date.now());
     const created_at = new Date().toISOString().split('T')[0];
     const updated_at = created_at;
 
@@ -121,13 +140,13 @@ app.post('/api/biens', async (req, res) => {
         prix_nuitee, avance, statut, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, reference, titre, description || null, type, nb_chambres, nb_salle_bain,
+      [bienId, reference, titre, description || null, type, nb_chambres, nb_salle_bain,
        prix_nuitee, avance || 0, statut || 'disponible', 
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
     );
 
-    const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [id]);
+    const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
     res.status(201).json(newBien[0]);
   } catch (error) {
     console.error('Error creating bien:', error);
@@ -275,7 +294,7 @@ app.post('/api/locataires', async (req, res) => {
     const id = 'l' + Date.now();
     const created_at = new Date().toISOString().split('T')[0];
     await pool.query(
-      'INSERT INTO locatairees (id, nom, telephone, email, cin, score_fiabilite, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [id, nom, telephone, email, cin, score_fiabilite || 5, created_at]
     );
     const [newLoc] = await pool.query('SELECT * FROM locataires WHERE id = ?', [id]);
@@ -307,12 +326,12 @@ app.get('/api/contrats', async (req, res) => {
 
 app.post('/api/contrats', async (req, res) => {
   try {
-    const { bien_id, locataire_id, date_debut, date_fin, depot_garantie, montant_recu, url_pdf, statut } = req.body;
+    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut } = req.body;
     const id = 'c' + Date.now();
-    const created_at = new Date().toISOString().split('T')[0];
+    const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
     await pool.query(
-      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, depot_garantie, montant_recu, url_pdf, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, bien_id, locataire_id, date_debut, date_fin, depot_garantie || 0, montant_recu || 0, url_pdf || null, statut || 'actif', created_at]
+      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, url_pdf || null, statut || 'actif', created_at]
     );
     const [newContrat] = await pool.query('SELECT * FROM contrats WHERE id = ?', [id]);
     res.status(201).json(newContrat[0]);
@@ -443,6 +462,109 @@ app.get('/api/media/:bien_id', async (req, res) => {
   }
 });
 
+app.put('/api/contrats/:id', async (req, res) => {
+  try {
+    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut } = req.body;
+    const fields = [];
+    const values = [];
+
+    if (bien_id !== undefined) { fields.push('bien_id = ?'); values.push(bien_id); }
+    if (locataire_id !== undefined) { fields.push('locataire_id = ?'); values.push(locataire_id); }
+    if (date_debut !== undefined) { fields.push('date_debut = ?'); values.push(date_debut); }
+    if (date_fin !== undefined) { fields.push('date_fin = ?'); values.push(date_fin); }
+    if (montant_recu !== undefined) { fields.push('montant_recu = ?'); values.push(montant_recu); }
+    if (url_pdf !== undefined) { fields.push('url_pdf = ?'); values.push(url_pdf); }
+    if (statut !== undefined) { fields.push('statut = ?'); values.push(statut); }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(req.params.id);
+    await pool.query(`UPDATE contrats SET ${fields.join(', ')} WHERE id = ?`, values);
+    const [updated] = await pool.query('SELECT * FROM contrats WHERE id = ?', [req.params.id]);
+    if (!updated.length) return res.status(404).json({ error: 'Contrat not found' });
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error updating contrat:', error);
+    res.status(500).json({ error: 'Failed to update contrat' });
+  }
+});
+
+const contractStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const contractsDir = path.join(__dirname, 'contracts');
+    if (!fs.existsSync(contractsDir)) {
+      fs.mkdirSync(contractsDir, { recursive: true });
+    }
+    cb(null, contractsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'contract-' + uniqueSuffix + '.pdf');
+  }
+});
+
+const contractUpload = multer({
+  storage: contractStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const isPdfMime = file.mimetype === 'application/pdf';
+    const isPdfExt = path.extname(file.originalname).toLowerCase() === '.pdf';
+    if (isPdfMime || isPdfExt) return cb(null, true);
+    cb(new Error('Only PDF files are allowed'));
+  }
+});
+
+// ============================================
+// CARACTERISTIQUES API
+// ============================================
+
+app.get('/api/caracteristiques', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM caracteristiques ORDER BY nom ASC');
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching caracteristiques:', error);
+    res.status(500).json({ error: 'Failed to fetch caracteristiques' });
+  }
+});
+
+app.post('/api/caracteristiques', async (req, res) => {
+  try {
+    const { nom } = req.body;
+    const id = 'car' + Date.now();
+    await pool.query('INSERT INTO caracteristiques (id, nom) VALUES (?, ?)', [id, nom]);
+    const [rows] = await pool.query('SELECT * FROM caracteristiques WHERE id = ?', [id]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    console.error('Error creating caracteristique:', error);
+    res.status(500).json({ error: 'Failed to create caracteristique' });
+  }
+});
+
+app.post('/api/biens/:id/caracteristiques', async (req, res) => {
+  try {
+    const { caracteristique_ids } = req.body;
+    if (!Array.isArray(caracteristique_ids)) {
+      return res.status(400).json({ error: 'caracteristique_ids must be an array' });
+    }
+
+    await pool.query('DELETE FROM bien_caracteristiques WHERE bien_id = ?', [req.params.id]);
+    for (const caracteristiqueId of caracteristique_ids) {
+      await pool.query(
+        'INSERT INTO bien_caracteristiques (bien_id, caracteristique_id) VALUES (?, ?)',
+        [req.params.id, caracteristiqueId]
+      );
+    }
+
+    res.json({ message: 'Caracteristiques updated' });
+  } catch (error) {
+    console.error('Error updating bien caracteristiques:', error);
+    res.status(500).json({ error: 'Failed to update bien caracteristiques' });
+  }
+});
+
 // Upload image endpoint
 app.post('/api/upload', upload.single('image'), async (req, res) => {
   try {
@@ -459,6 +581,23 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
   } catch (error) {
     console.error('Error uploading image:', error);
     res.status(500).json({ error: 'Failed to upload image' });
+  }
+});
+
+app.post('/api/upload-contract', contractUpload.single('contract'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No contract file uploaded' });
+    }
+    const contractUrl = `http://localhost:${PORT}/contracts/${req.file.filename}`;
+    res.json({
+      success: true,
+      url: contractUrl,
+      filename: req.file.filename
+    });
+  } catch (error) {
+    console.error('Error uploading contract:', error);
+    res.status(500).json({ error: 'Failed to upload contract' });
   }
 });
 

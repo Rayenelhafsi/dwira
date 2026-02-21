@@ -4,6 +4,27 @@ import { Property } from '../data/properties';
 
 // API Base URL
 const API_URL = 'http://localhost:3001/api';
+const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
+
+function parseDescriptionAndCharacteristics(rawDescription?: string | null): { description: string; caracteristiques: string[] } {
+  const descriptionText = rawDescription || '';
+  const markerIndex = descriptionText.indexOf(CHARACTERISTICS_MARKER);
+  if (markerIndex === -1) {
+    return { description: descriptionText, caracteristiques: [] };
+  }
+
+  const cleanDescription = descriptionText.slice(0, markerIndex).trim();
+  const jsonPart = descriptionText.slice(markerIndex + CHARACTERISTICS_MARKER.length).trim();
+  try {
+    const parsed = JSON.parse(jsonPart);
+    return {
+      description: cleanDescription,
+      caracteristiques: Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [],
+    };
+  } catch {
+    return { description: cleanDescription, caracteristiques: [] };
+  }
+}
 
 // ============================================
 // CONVERSION UTILITIES
@@ -18,19 +39,23 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     return parseFloat(val) || 0;
   };
 
+  const parsedDescription = parseDescriptionAndCharacteristics(row.description);
+  const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
+    ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
+    : [];
+
   return {
     id: row.id,
     reference: row.reference,
     titre: row.titre,
-    description: row.description,
+    description: parsedDescription.description,
+    caracteristiques: caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques,
     type: row.type as BienType,
-    surface: toNumber(row.surface),
     nb_chambres: toNumber(row.nb_chambres),
     nb_salle_bain: toNumber(row.nb_salle_bain),
     prix_nuitee: toNumber(row.prix_nuitee),
     avance: toNumber(row.avance),
-    caution: toNumber(row.caution),
-    charges: toNumber(row.charges),
+    caution: toNumber((row as any).caution),
     statut: row.statut as BienStatut,
     menage_en_cours: row.menage_en_cours === 1 || row.menage_en_cours === true || row.menage_en_cours === '1',
     zone_id: row.zone_id,
@@ -58,13 +83,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
 }
 
 // Convert Bien (Admin format) to Property (Site format)
-function bienToProperty(bien: Bien): Property {
-  const zoneNames: Record<string, string> = {
-    'z1': 'Kélibia Centre',
-    'z2': 'El Mansoura',
-    'z3': 'Petit Paris'
-  };
-  
+function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Property {
   const typeToCategory: Record<string, Property['category']> = {
     'S1': 'S+1',
     'S2': 'S+2',
@@ -90,7 +109,7 @@ function bienToProperty(bien: Bien): Property {
       ? bien.media.map((m: any) => m.url) 
       : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'],
     description: bien.description || `Superbe ${bien.type}`,
-    amenities: getAmenitiesFromType(bien.type),
+    amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),
     category: typeToCategory[bien.type] || 'S+1',
     isFeatured: bien.prix_nuitee > 300 || bien.statut === 'disponible',
     unavailableDates: bien.unavailableDates || [],
@@ -150,10 +169,15 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      // Fetch biens
-      const biensResponse = await fetch(`${API_URL}/biens`);
+      const [biensResponse, zonesResponse, propsResponse] = await Promise.all([
+        fetch(`${API_URL}/biens`),
+        fetch(`${API_URL}/zones`),
+        fetch(`${API_URL}/proprietaires`),
+      ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
+      const zonesData = zonesResponse.ok ? await zonesResponse.json() : [];
+      const propsData = propsResponse.ok ? await propsResponse.json() : [];
       
       // Fetch media and unavailable dates for each bien
       const mappedBiens = await Promise.all(biensData.map(async (bien: any) => {
@@ -182,22 +206,15 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         return dbRowToBien(bien, media, unavailableDates);
       }));
       
+      const zoneNameById: Record<string, string> = {};
+      for (const zone of Array.isArray(zonesData) ? zonesData : []) {
+        zoneNameById[zone.id] = zone.nom;
+      }
+
       setBiens(mappedBiens);
-      setProperties(mappedBiens.map(bienToProperty));
-
-      // Fetch zones
-      const zonesResponse = await fetch(`${API_URL}/zones`);
-      if (zonesResponse.ok) {
-        const zonesData = await zonesResponse.json();
-        setZones(zonesData);
-      }
-
-      // Fetch proprietaires
-      const propsResponse = await fetch(`${API_URL}/proprietaires`);
-      if (propsResponse.ok) {
-        const propsData = await propsResponse.json();
-        setProprietaires(propsData);
-      }
+      setProperties(mappedBiens.map((bien) => bienToProperty(bien, zoneNameById)));
+      setZones(Array.isArray(zonesData) ? zonesData : []);
+      setProprietaires(Array.isArray(propsData) ? propsData : []);
     } catch (err: any) {
       console.warn('API unavailable, using local mock data:', err.message);
       // Fall back to local mock data when API is unavailable
@@ -211,13 +228,11 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         titre: p.title,
         description: p.description,
         type: p.category as BienType,
-        surface: 0,
         nb_chambres: p.bedrooms,
         nb_salle_bain: p.bathrooms,
         prix_nuitee: p.pricePerNight,
         avance: p.cleaningFee || 0,
         caution: 0,
-        charges: 0,
         statut: 'disponible' as BienStatut,
         menage_en_cours: false,
         zone_id: 'z1',
@@ -225,7 +240,13 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         date_ajout: new Date().toISOString(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        media: [],
+        media: (p.images || []).map((url, idx) => ({
+          id: `local-media-${p.id}-${idx}`,
+          bien_id: p.id,
+          type: 'image',
+          url,
+          position: idx
+        })),
         unavailableDates: p.unavailableDates?.map(ud => ({
           start: ud.start,
           end: ud.end,
@@ -354,3 +375,4 @@ export function useProperties() {
 }
 
 export { bienToProperty };
+

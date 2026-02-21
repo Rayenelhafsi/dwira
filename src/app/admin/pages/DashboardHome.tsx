@@ -145,6 +145,7 @@ function StatusBadge({ status }: { status: string }) {
     loue: "bg-blue-100 text-blue-800",
     reserve: "bg-amber-100 text-amber-800",
     maintenance: "bg-red-100 text-red-800",
+    bloque: "bg-gray-200 text-gray-800",
   };
   
   const labels = {
@@ -152,6 +153,7 @@ function StatusBadge({ status }: { status: string }) {
     loue: "Loué",
     reserve: "Réservé",
     maintenance: "Maintenance",
+    bloque: "Bloqué",
   };
 
   return (
