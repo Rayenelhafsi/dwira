@@ -8,6 +8,27 @@ ALTER TABLE biens
   ADD COLUMN IF NOT EXISTS caution DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER avance;
 
 ALTER TABLE biens
+  ADD COLUMN IF NOT EXISTS tarification_methode ENUM('avec_commission','sans_commission') NULL DEFAULT NULL AFTER caution,
+  ADD COLUMN IF NOT EXISTS prix_affiche_client DECIMAL(12,2) NULL DEFAULT NULL AFTER tarification_methode,
+  ADD COLUMN IF NOT EXISTS prix_fixe_proprietaire DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_affiche_client,
+  ADD COLUMN IF NOT EXISTS prix_final DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_fixe_proprietaire,
+  ADD COLUMN IF NOT EXISTS revenu_agence DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_final,
+  ADD COLUMN IF NOT EXISTS commission_pourcentage_proprietaire DECIMAL(5,2) NULL DEFAULT NULL AFTER revenu_agence,
+  ADD COLUMN IF NOT EXISTS commission_pourcentage_client DECIMAL(5,2) NULL DEFAULT NULL AFTER commission_pourcentage_proprietaire,
+  ADD COLUMN IF NOT EXISTS montant_max_reduction_negociation DECIMAL(12,2) NULL DEFAULT NULL AFTER commission_pourcentage_client,
+  ADD COLUMN IF NOT EXISTS prix_minimum_accepte DECIMAL(12,2) NULL DEFAULT NULL AFTER montant_max_reduction_negociation,
+  ADD COLUMN IF NOT EXISTS modalite_paiement_vente ENUM('comptant','facilite') NULL DEFAULT NULL AFTER prix_minimum_accepte,
+  ADD COLUMN IF NOT EXISTS pourcentage_premiere_partie_promesse DECIMAL(5,2) NULL DEFAULT NULL AFTER modalite_paiement_vente,
+  ADD COLUMN IF NOT EXISTS montant_premiere_partie_promesse DECIMAL(12,2) NULL DEFAULT NULL AFTER pourcentage_premiere_partie_promesse,
+  ADD COLUMN IF NOT EXISTS montant_deuxieme_partie DECIMAL(12,2) NULL DEFAULT NULL AFTER montant_premiere_partie_promesse,
+  ADD COLUMN IF NOT EXISTS nombre_tranches INT NULL DEFAULT NULL AFTER montant_deuxieme_partie,
+  ADD COLUMN IF NOT EXISTS periode_tranches_mois INT NULL DEFAULT NULL AFTER nombre_tranches,
+  ADD COLUMN IF NOT EXISTS montant_par_tranche DECIMAL(12,2) NULL DEFAULT NULL AFTER periode_tranches_mois;
+
+ALTER TABLE media
+  ADD COLUMN IF NOT EXISTS motif_upload VARCHAR(255) NULL DEFAULT NULL AFTER url;
+
+ALTER TABLE biens
   ADD COLUMN IF NOT EXISTS type_rue ENUM('piste','route_goudronnee','rue_residentielle') NULL DEFAULT NULL AFTER caution;
 
 ALTER TABLE biens
@@ -35,6 +56,31 @@ ALTER TABLE biens
   ADD COLUMN IF NOT EXISTS eau_puits TINYINT(1) NOT NULL DEFAULT 0 AFTER independant,
   ADD COLUMN IF NOT EXISTS eau_sonede TINYINT(1) NOT NULL DEFAULT 0 AFTER eau_puits,
   ADD COLUMN IF NOT EXISTS electricite_steg TINYINT(1) NOT NULL DEFAULT 0 AFTER eau_sonede;
+
+ALTER TABLE biens
+  ADD COLUMN IF NOT EXISTS surface_local_m2 DECIMAL(10,2) NULL DEFAULT NULL AFTER electricite_steg,
+  ADD COLUMN IF NOT EXISTS facade_m DECIMAL(10,2) NULL DEFAULT NULL AFTER surface_local_m2,
+  ADD COLUMN IF NOT EXISTS hauteur_plafond_m DECIMAL(10,2) NULL DEFAULT NULL AFTER facade_m,
+  ADD COLUMN IF NOT EXISTS activite_recommandee VARCHAR(255) NULL DEFAULT NULL AFTER hauteur_plafond_m,
+  ADD COLUMN IF NOT EXISTS toilette TINYINT(1) NOT NULL DEFAULT 0 AFTER activite_recommandee,
+  ADD COLUMN IF NOT EXISTS reserve_local TINYINT(1) NOT NULL DEFAULT 0 AFTER toilette,
+  ADD COLUMN IF NOT EXISTS vitrine TINYINT(1) NOT NULL DEFAULT 0 AFTER reserve_local,
+  ADD COLUMN IF NOT EXISTS coin_angle TINYINT(1) NOT NULL DEFAULT 0 AFTER vitrine,
+  ADD COLUMN IF NOT EXISTS electricite_3_phases TINYINT(1) NOT NULL DEFAULT 0 AFTER coin_angle,
+  ADD COLUMN IF NOT EXISTS alarme TINYINT(1) NOT NULL DEFAULT 0 AFTER electricite_3_phases;
+
+ALTER TABLE biens
+  ADD COLUMN IF NOT EXISTS type_terrain ENUM('agricole','habitation','industrielle','loisir') NULL DEFAULT NULL AFTER alarme,
+  ADD COLUMN IF NOT EXISTS terrain_facade_m DECIMAL(10,2) NULL DEFAULT NULL AFTER type_terrain,
+  ADD COLUMN IF NOT EXISTS terrain_surface_m2 DECIMAL(10,2) NULL DEFAULT NULL AFTER terrain_facade_m,
+  ADD COLUMN IF NOT EXISTS terrain_distance_plage_m INT NULL DEFAULT NULL AFTER terrain_surface_m2,
+  ADD COLUMN IF NOT EXISTS terrain_zone VARCHAR(255) NULL DEFAULT NULL AFTER terrain_distance_plage_m,
+  ADD COLUMN IF NOT EXISTS terrain_constructible TINYINT(1) NOT NULL DEFAULT 0 AFTER terrain_zone,
+  ADD COLUMN IF NOT EXISTS terrain_angle TINYINT(1) NOT NULL DEFAULT 0 AFTER terrain_constructible;
+
+ALTER TABLE biens
+  ADD COLUMN IF NOT EXISTS immeuble_details_json LONGTEXT NULL AFTER terrain_angle,
+  ADD COLUMN IF NOT EXISTS immeuble_appartements_json LONGTEXT NULL AFTER immeuble_details_json;
 
 ALTER TABLE biens
   MODIFY COLUMN type ENUM(
@@ -87,7 +133,21 @@ INSERT INTO caracteristiques (id, nom) VALUES
   ('car18', 'Independant'),
   ('car19', 'Eau puits'),
   ('car20', 'Eau Sonede'),
-  ('car21', 'Electricite STEG')
+  ('car21', 'Electricite STEG'),
+  ('car22', 'Toilette'),
+  ('car23', 'Reserve'),
+  ('car24', 'Vitrine'),
+  ('car25', 'Coin d angle'),
+  ('car26', 'Electricite 3 phases'),
+  ('car27', 'Alarme'),
+  ('car28', 'Constructible'),
+  ('car29', 'Terrain d angle'),
+  ('car30', 'Terrain agricole'),
+  ('car31', 'Terrain habitation'),
+  ('car32', 'Terrain industrielle'),
+  ('car33', 'Terrain loisir'),
+  ('car34', 'Parking sous-sol'),
+  ('car35', 'Parking extérieur')
 ON DUPLICATE KEY UPDATE nom = VALUES(nom);
 
 INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_bien) VALUES
@@ -105,5 +165,33 @@ INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_b
   ('ctx24', 'car18', 'vente', 'appartement'),
   ('ctx25', 'car19', 'vente', 'appartement'),
   ('ctx26', 'car20', 'vente', 'appartement'),
-  ('ctx27', 'car21', 'vente', 'appartement')
+  ('ctx27', 'car21', 'vente', 'appartement'),
+  ('ctx28', 'car14', 'vente', 'local_commercial'),
+  ('ctx29', 'car19', 'vente', 'local_commercial'),
+  ('ctx30', 'car20', 'vente', 'local_commercial'),
+  ('ctx31', 'car21', 'vente', 'local_commercial'),
+  ('ctx32', 'car22', 'vente', 'local_commercial'),
+  ('ctx33', 'car23', 'vente', 'local_commercial'),
+  ('ctx34', 'car24', 'vente', 'local_commercial'),
+  ('ctx35', 'car25', 'vente', 'local_commercial'),
+  ('ctx36', 'car26', 'vente', 'local_commercial'),
+  ('ctx37', 'car27', 'vente', 'local_commercial'),
+  ('ctx38', 'car28', 'vente', 'terrain'),
+  ('ctx39', 'car29', 'vente', 'terrain'),
+  ('ctx40', 'car19', 'vente', 'terrain'),
+  ('ctx41', 'car20', 'vente', 'terrain'),
+  ('ctx42', 'car21', 'vente', 'terrain'),
+  ('ctx43', 'car30', 'vente', 'terrain'),
+  ('ctx44', 'car31', 'vente', 'terrain'),
+  ('ctx45', 'car32', 'vente', 'terrain'),
+  ('ctx46', 'car33', 'vente', 'terrain'),
+  ('ctx47', 'car7', 'vente', 'immeuble'),
+  ('ctx48', 'car34', 'vente', 'immeuble'),
+  ('ctx49', 'car35', 'vente', 'immeuble'),
+  ('ctx50', 'car16', 'vente', 'immeuble'),
+  ('ctx51', 'car4', 'vente', 'immeuble'),
+  ('ctx52', 'car11', 'vente', 'immeuble'),
+  ('ctx53', 'car19', 'vente', 'immeuble'),
+  ('ctx54', 'car20', 'vente', 'immeuble'),
+  ('ctx55', 'car21', 'vente', 'immeuble')
 ON DUPLICATE KEY UPDATE mode_bien = VALUES(mode_bien), type_bien = VALUES(type_bien);

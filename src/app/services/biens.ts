@@ -15,6 +15,22 @@ export interface CreateBienInput {
   nb_chambres: number;
   nb_salle_bain: number;
   prix_nuitee: number;
+  tarification_methode?: 'avec_commission' | 'sans_commission' | null;
+  prix_affiche_client?: number | null;
+  prix_fixe_proprietaire?: number | null;
+  prix_final?: number | null;
+  revenu_agence?: number | null;
+  commission_pourcentage_proprietaire?: number | null;
+  commission_pourcentage_client?: number | null;
+  montant_max_reduction_negociation?: number | null;
+  prix_minimum_accepte?: number | null;
+  modalite_paiement_vente?: 'comptant' | 'facilite' | null;
+  pourcentage_premiere_partie_promesse?: number | null;
+  montant_premiere_partie_promesse?: number | null;
+  montant_deuxieme_partie?: number | null;
+  nombre_tranches?: number | null;
+  periode_tranches_mois?: number | null;
+  montant_par_tranche?: number | null;
   avance: number;
   caution?: number;
   type_rue?: 'piste' | 'route_goudronnee' | 'rue_residentielle' | null;
@@ -40,6 +56,25 @@ export interface CreateBienInput {
   eau_puits?: boolean;
   eau_sonede?: boolean;
   electricite_steg?: boolean;
+  surface_local_m2?: number | null;
+  facade_m?: number | null;
+  hauteur_plafond_m?: number | null;
+  activite_recommandee?: string | null;
+  toilette?: boolean;
+  reserve_local?: boolean;
+  vitrine?: boolean;
+  coin_angle?: boolean;
+  electricite_3_phases?: boolean;
+  alarme?: boolean;
+  type_terrain?: 'agricole' | 'habitation' | 'industrielle' | 'loisir' | null;
+  terrain_facade_m?: number | null;
+  terrain_surface_m2?: number | null;
+  terrain_distance_plage_m?: number | null;
+  terrain_zone?: string | null;
+  terrain_constructible?: boolean;
+  terrain_angle?: boolean;
+  immeuble_details_json?: string | null;
+  immeuble_appartements_json?: string | null;
   statut?: 'disponible' | 'loue' | 'reserve' | 'maintenance';
   menage_en_cours?: boolean;
   zone_id?: string;
@@ -59,6 +94,22 @@ export interface UpdateBienInput {
   nb_chambres?: number;
   nb_salle_bain?: number;
   prix_nuitee?: number;
+  tarification_methode?: 'avec_commission' | 'sans_commission' | null;
+  prix_affiche_client?: number | null;
+  prix_fixe_proprietaire?: number | null;
+  prix_final?: number | null;
+  revenu_agence?: number | null;
+  commission_pourcentage_proprietaire?: number | null;
+  commission_pourcentage_client?: number | null;
+  montant_max_reduction_negociation?: number | null;
+  prix_minimum_accepte?: number | null;
+  modalite_paiement_vente?: 'comptant' | 'facilite' | null;
+  pourcentage_premiere_partie_promesse?: number | null;
+  montant_premiere_partie_promesse?: number | null;
+  montant_deuxieme_partie?: number | null;
+  nombre_tranches?: number | null;
+  periode_tranches_mois?: number | null;
+  montant_par_tranche?: number | null;
   avance?: number;
   caution?: number;
   type_rue?: 'piste' | 'route_goudronnee' | 'rue_residentielle' | null;
@@ -84,6 +135,25 @@ export interface UpdateBienInput {
   eau_puits?: boolean;
   eau_sonede?: boolean;
   electricite_steg?: boolean;
+  surface_local_m2?: number | null;
+  facade_m?: number | null;
+  hauteur_plafond_m?: number | null;
+  activite_recommandee?: string | null;
+  toilette?: boolean;
+  reserve_local?: boolean;
+  vitrine?: boolean;
+  coin_angle?: boolean;
+  electricite_3_phases?: boolean;
+  alarme?: boolean;
+  type_terrain?: 'agricole' | 'habitation' | 'industrielle' | 'loisir' | null;
+  terrain_facade_m?: number | null;
+  terrain_surface_m2?: number | null;
+  terrain_distance_plage_m?: number | null;
+  terrain_zone?: string | null;
+  terrain_constructible?: boolean;
+  terrain_angle?: boolean;
+  immeuble_details_json?: string | null;
+  immeuble_appartements_json?: string | null;
   statut?: 'disponible' | 'loue' | 'reserve' | 'maintenance';
   menage_en_cours?: boolean;
   zone_id?: string;
@@ -162,8 +232,9 @@ export async function createBien(data: CreateBienInput): Promise<number> {
     INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
       prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
-      syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, statut, menage_en_cours, zone_id, proprietaire_id, date_ajout, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
+      type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, menage_en_cours, zone_id, proprietaire_id, date_ajout, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const result = await execute(sql, [
     data.id,
@@ -200,6 +271,25 @@ export async function createBien(data: CreateBienInput): Promise<number> {
     data.eau_puits ? 1 : 0,
     data.eau_sonede ? 1 : 0,
     data.electricite_steg ? 1 : 0,
+    data.surface_local_m2 ?? null,
+    data.facade_m ?? null,
+    data.hauteur_plafond_m ?? null,
+    data.activite_recommandee ?? null,
+    data.toilette ? 1 : 0,
+    data.reserve_local ? 1 : 0,
+    data.vitrine ? 1 : 0,
+    data.coin_angle ? 1 : 0,
+    data.electricite_3_phases ? 1 : 0,
+    data.alarme ? 1 : 0,
+    data.type_terrain ?? null,
+    data.terrain_facade_m ?? null,
+    data.terrain_surface_m2 ?? null,
+    data.terrain_distance_plage_m ?? null,
+    data.terrain_zone ?? null,
+    data.terrain_constructible ? 1 : 0,
+    data.terrain_angle ? 1 : 0,
+    data.immeuble_details_json ?? null,
+    data.immeuble_appartements_json ?? null,
     data.statut || 'disponible',
     data.menage_en_cours || false,
     data.zone_id || null,
@@ -349,6 +439,82 @@ export async function updateBien(id: string, data: UpdateBienInput): Promise<num
   if (data.electricite_steg !== undefined) {
     fields.push('electricite_steg = ?');
     values.push(data.electricite_steg ? 1 : 0);
+  }
+  if (data.surface_local_m2 !== undefined) {
+    fields.push('surface_local_m2 = ?');
+    values.push(data.surface_local_m2);
+  }
+  if (data.facade_m !== undefined) {
+    fields.push('facade_m = ?');
+    values.push(data.facade_m);
+  }
+  if (data.hauteur_plafond_m !== undefined) {
+    fields.push('hauteur_plafond_m = ?');
+    values.push(data.hauteur_plafond_m);
+  }
+  if (data.activite_recommandee !== undefined) {
+    fields.push('activite_recommandee = ?');
+    values.push(data.activite_recommandee);
+  }
+  if (data.toilette !== undefined) {
+    fields.push('toilette = ?');
+    values.push(data.toilette ? 1 : 0);
+  }
+  if (data.reserve_local !== undefined) {
+    fields.push('reserve_local = ?');
+    values.push(data.reserve_local ? 1 : 0);
+  }
+  if (data.vitrine !== undefined) {
+    fields.push('vitrine = ?');
+    values.push(data.vitrine ? 1 : 0);
+  }
+  if (data.coin_angle !== undefined) {
+    fields.push('coin_angle = ?');
+    values.push(data.coin_angle ? 1 : 0);
+  }
+  if (data.electricite_3_phases !== undefined) {
+    fields.push('electricite_3_phases = ?');
+    values.push(data.electricite_3_phases ? 1 : 0);
+  }
+  if (data.alarme !== undefined) {
+    fields.push('alarme = ?');
+    values.push(data.alarme ? 1 : 0);
+  }
+  if (data.type_terrain !== undefined) {
+    fields.push('type_terrain = ?');
+    values.push(data.type_terrain);
+  }
+  if (data.terrain_facade_m !== undefined) {
+    fields.push('terrain_facade_m = ?');
+    values.push(data.terrain_facade_m);
+  }
+  if (data.terrain_surface_m2 !== undefined) {
+    fields.push('terrain_surface_m2 = ?');
+    values.push(data.terrain_surface_m2);
+  }
+  if (data.terrain_distance_plage_m !== undefined) {
+    fields.push('terrain_distance_plage_m = ?');
+    values.push(data.terrain_distance_plage_m);
+  }
+  if (data.terrain_zone !== undefined) {
+    fields.push('terrain_zone = ?');
+    values.push(data.terrain_zone);
+  }
+  if (data.terrain_constructible !== undefined) {
+    fields.push('terrain_constructible = ?');
+    values.push(data.terrain_constructible ? 1 : 0);
+  }
+  if (data.terrain_angle !== undefined) {
+    fields.push('terrain_angle = ?');
+    values.push(data.terrain_angle ? 1 : 0);
+  }
+  if (data.immeuble_details_json !== undefined) {
+    fields.push('immeuble_details_json = ?');
+    values.push(data.immeuble_details_json);
+  }
+  if (data.immeuble_appartements_json !== undefined) {
+    fields.push('immeuble_appartements_json = ?');
+    values.push(data.immeuble_appartements_json);
   }
   if (data.statut !== undefined) {
     fields.push('statut = ?');
