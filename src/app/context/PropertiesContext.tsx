@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente } from '../admin/types';
+import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente } from '../admin/types';
 import { Property } from '../data/properties';
 
 // API Base URL
@@ -60,6 +60,16 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   const toBoolean = (val: any): boolean => val === 1 || val === true || val === '1';
 
   const parsedDescription = parseDescriptionAndCharacteristics(row.description);
+  let immeubleDetails: any = {};
+  let immeubleAppartements: any[] = [];
+  try {
+    const raw = (row as any).immeuble_details_json;
+    if (raw) immeubleDetails = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {}
+  try {
+    const raw = (row as any).immeuble_appartements_json;
+    if (raw) immeubleAppartements = Array.isArray(raw) ? raw : JSON.parse(raw);
+  } catch {}
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
@@ -79,6 +89,22 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     nb_chambres: toNumber(row.nb_chambres),
     nb_salle_bain: toNumber(row.nb_salle_bain),
     prix_nuitee: toNumber(row.prix_nuitee),
+    tarification_methode: ((row as any).tarification_methode || null) as any,
+    prix_affiche_client: toNullableNumber((row as any).prix_affiche_client),
+    prix_fixe_proprietaire: toNullableNumber((row as any).prix_fixe_proprietaire),
+    prix_final: toNullableNumber((row as any).prix_final),
+    revenu_agence: toNullableNumber((row as any).revenu_agence),
+    commission_pourcentage_proprietaire: toNullableNumber((row as any).commission_pourcentage_proprietaire),
+    commission_pourcentage_client: toNullableNumber((row as any).commission_pourcentage_client),
+    montant_max_reduction_negociation: toNullableNumber((row as any).montant_max_reduction_negociation),
+    prix_minimum_accepte: toNullableNumber((row as any).prix_minimum_accepte),
+    modalite_paiement_vente: ((row as any).modalite_paiement_vente || null) as any,
+    pourcentage_premiere_partie_promesse: toNullableNumber((row as any).pourcentage_premiere_partie_promesse),
+    montant_premiere_partie_promesse: toNullableNumber((row as any).montant_premiere_partie_promesse),
+    montant_deuxieme_partie: toNullableNumber((row as any).montant_deuxieme_partie),
+    nombre_tranches: toNullableNumber((row as any).nombre_tranches),
+    periode_tranches_mois: toNullableNumber((row as any).periode_tranches_mois),
+    montant_par_tranche: toNullableNumber((row as any).montant_par_tranche),
     avance: toNumber(row.avance),
     caution: toNumber((row as any).caution),
     type_rue: ((row as any).type_rue || null) as TypeRueAppartementVente | null,
@@ -104,6 +130,43 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     eau_puits: toBoolean((row as any).eau_puits),
     eau_sonede: toBoolean((row as any).eau_sonede),
     electricite_steg: toBoolean((row as any).electricite_steg),
+    surface_local_m2: toNullableNumber((row as any).surface_local_m2),
+    facade_m: toNullableNumber((row as any).facade_m),
+    hauteur_plafond_m: toNullableNumber((row as any).hauteur_plafond_m),
+    activite_recommandee: ((row as any).activite_recommandee || null) as string | null,
+    toilette: toBoolean((row as any).toilette),
+    reserve_local: toBoolean((row as any).reserve_local),
+    vitrine: toBoolean((row as any).vitrine),
+    coin_angle: toBoolean((row as any).coin_angle),
+    electricite_3_phases: toBoolean((row as any).electricite_3_phases),
+    alarme: toBoolean((row as any).alarme),
+    type_terrain: ((row as any).type_terrain || null) as TypeTerrainVente | null,
+    terrain_facade_m: toNullableNumber((row as any).terrain_facade_m),
+    terrain_surface_m2: toNullableNumber((row as any).terrain_surface_m2),
+    terrain_distance_plage_m: toNullableNumber((row as any).terrain_distance_plage_m),
+    terrain_zone: ((row as any).terrain_zone || null) as string | null,
+    terrain_constructible: toBoolean((row as any).terrain_constructible),
+    terrain_angle: toBoolean((row as any).terrain_angle),
+    immeuble_surface_terrain_m2: toNullableNumber((immeubleDetails as any).surface_terrain_m2),
+    immeuble_surface_batie_m2: toNullableNumber((immeubleDetails as any).surface_batie_m2),
+    immeuble_nb_niveaux: toNullableNumber((immeubleDetails as any).nb_niveaux),
+    immeuble_nb_garages: toNullableNumber((immeubleDetails as any).nb_garages),
+    immeuble_nb_appartements: toNullableNumber((immeubleDetails as any).nb_appartements),
+    immeuble_nb_locaux_commerciaux: toNullableNumber((immeubleDetails as any).nb_locaux_commerciaux),
+    immeuble_distance_plage_m: toNullableNumber((immeubleDetails as any).distance_plage_m),
+    immeuble_proche_plage: toBoolean((immeubleDetails as any).proche_plage),
+    immeuble_ascenseur: toBoolean((immeubleDetails as any).ascenseur),
+    immeuble_parking_sous_sol: toBoolean((immeubleDetails as any).parking_sous_sol),
+    immeuble_parking_exterieur: toBoolean((immeubleDetails as any).parking_exterieur),
+    immeuble_syndic: toBoolean((immeubleDetails as any).syndic),
+    immeuble_vue_mer: toBoolean((immeubleDetails as any).vue_mer),
+    immeuble_appartements: (Array.isArray(immeubleAppartements) ? immeubleAppartements : []).map((item, idx) => ({
+      index: Number(item?.index || idx + 1),
+      chambres: Number(item?.chambres || 0),
+      salle_bain: Number(item?.salle_bain || 0),
+      superficie_m2: toNullableNumber(item?.superficie_m2),
+      configuration: item?.configuration ? String(item.configuration) : null,
+    })),
     statut: row.statut as BienStatut,
     menage_en_cours: row.menage_en_cours === 1 || row.menage_en_cours === true || row.menage_en_cours === '1',
     zone_id: row.zone_id,
@@ -117,7 +180,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
         bien_id: m.bien_id,
         type: m.type,
         url: m.url,
-        position: m.position || 0
+        position: m.position || 0,
+        motif_upload: m.motif_upload || null,
       }))
       .sort((a, b) => (a.position || 0) - (b.position || 0)),
 
@@ -289,6 +353,22 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         nb_chambres: p.bedrooms,
         nb_salle_bain: p.bathrooms,
         prix_nuitee: p.pricePerNight,
+        tarification_methode: null,
+        prix_affiche_client: null,
+        prix_fixe_proprietaire: null,
+        prix_final: null,
+        revenu_agence: null,
+        commission_pourcentage_proprietaire: 3,
+        commission_pourcentage_client: 2,
+        montant_max_reduction_negociation: null,
+        prix_minimum_accepte: null,
+        modalite_paiement_vente: null,
+        pourcentage_premiere_partie_promesse: null,
+        montant_premiere_partie_promesse: null,
+        montant_deuxieme_partie: null,
+        nombre_tranches: null,
+        periode_tranches_mois: null,
+        montant_par_tranche: null,
         avance: p.cleaningFee || 0,
         caution: 0,
         type_rue: null,
@@ -314,6 +394,37 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         eau_puits: false,
         eau_sonede: false,
         electricite_steg: false,
+        surface_local_m2: null,
+        facade_m: null,
+        hauteur_plafond_m: null,
+        activite_recommandee: null,
+        toilette: false,
+        reserve_local: false,
+        vitrine: false,
+        coin_angle: false,
+        electricite_3_phases: false,
+        alarme: false,
+        type_terrain: null,
+        terrain_facade_m: null,
+        terrain_surface_m2: null,
+        terrain_distance_plage_m: null,
+        terrain_zone: null,
+        terrain_constructible: false,
+        terrain_angle: false,
+        immeuble_surface_terrain_m2: null,
+        immeuble_surface_batie_m2: null,
+        immeuble_nb_niveaux: null,
+        immeuble_nb_garages: null,
+        immeuble_nb_appartements: null,
+        immeuble_nb_locaux_commerciaux: null,
+        immeuble_distance_plage_m: null,
+        immeuble_proche_plage: false,
+        immeuble_ascenseur: false,
+        immeuble_parking_sous_sol: false,
+        immeuble_parking_exterieur: false,
+        immeuble_syndic: false,
+        immeuble_vue_mer: false,
+        immeuble_appartements: [],
         statut: 'disponible' as BienStatut,
         menage_en_cours: false,
         zone_id: 'z1',

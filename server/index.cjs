@@ -84,6 +84,14 @@ const APPARTEMENT_VENTE_RUE_TYPES = ['piste', 'route_goudronnee', 'rue_residenti
 const APPARTEMENT_VENTE_PAPIER_TYPES = ['titre_foncier_individuel', 'titre_foncier_collectif', 'contrat_seulement', 'sans_papier'];
 const LOCAL_COMMERCIAL_VENTE_RUE_TYPES = APPARTEMENT_VENTE_RUE_TYPES;
 const LOCAL_COMMERCIAL_VENTE_PAPIER_TYPES = APPARTEMENT_VENTE_PAPIER_TYPES;
+const TERRAIN_VENTE_RUE_TYPES = APPARTEMENT_VENTE_RUE_TYPES;
+const TERRAIN_VENTE_PAPIER_TYPES = APPARTEMENT_VENTE_PAPIER_TYPES;
+const TERRAIN_VENTE_TYPES = ['agricole', 'habitation', 'industrielle', 'loisir'];
+const TARIFICATION_METHODES = ['avec_commission', 'sans_commission'];
+const MODALITES_PAIEMENT_VENTE = ['comptant', 'facilite'];
+const DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT = 3;
+const DEFAULT_COMMISSION_CLIENT_PERCENT = 2;
+const DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE = 30;
 const LEGACY_TYPE_MAP = {
   S1: 'appartement',
   S2: 'appartement',
@@ -249,12 +257,300 @@ function normalizeLocalCommercialVenteDetails(mode, type, payload = {}) {
   };
 }
 
+function normalizeTerrainVenteDetails(mode, type, payload = {}) {
+  const isTerrainVente = mode === 'vente' && type === 'terrain';
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toFlag = (value) => value === true || value === 1 || value === '1';
+
+  if (!isTerrainVente) {
+    return {
+      typeRue: null,
+      typePapier: null,
+      typeTerrain: null,
+      facadeM: null,
+      surfaceM2: null,
+      distancePlageM: null,
+      zoneTerrain: null,
+      constructible: false,
+      terrainAngle: false,
+      eauPuits: false,
+      eauSonede: false,
+      electriciteSteg: false,
+    };
+  }
+
+  const typeRue = payload.type_rue || null;
+  const typePapier = payload.type_papier || null;
+  const typeTerrain = payload.type_terrain || null;
+
+  if (typeRue && !TERRAIN_VENTE_RUE_TYPES.includes(typeRue)) {
+    return { error: 'type_rue invalide' };
+  }
+  if (typePapier && !TERRAIN_VENTE_PAPIER_TYPES.includes(typePapier)) {
+    return { error: 'type_papier invalide' };
+  }
+  if (typeTerrain && !TERRAIN_VENTE_TYPES.includes(typeTerrain)) {
+    return { error: 'type_terrain invalide' };
+  }
+
+  return {
+    typeRue,
+    typePapier,
+    typeTerrain,
+    facadeM: toNullableNumber(payload.terrain_facade_m),
+    surfaceM2: toNullableNumber(payload.terrain_surface_m2),
+    distancePlageM: toNullableNumber(payload.terrain_distance_plage_m),
+    zoneTerrain: (payload.terrain_zone !== undefined && payload.terrain_zone !== null ? String(payload.terrain_zone) : '').trim() || null,
+    constructible: toFlag(payload.terrain_constructible),
+    terrainAngle: toFlag(payload.terrain_angle),
+    eauPuits: toFlag(payload.eau_puits),
+    eauSonede: toFlag(payload.eau_sonede),
+    electriciteSteg: toFlag(payload.electricite_steg),
+  };
+}
+
+function normalizeImmeubleVenteDetails(mode, type, payload = {}) {
+  const isImmeubleVente = mode === 'vente' && type === 'immeuble';
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toFlag = (value) => value === true || value === 1 || value === '1';
+
+  if (!isImmeubleVente) {
+    return {
+      typeRue: null,
+      typePapier: null,
+      detailsJson: null,
+      appartementsJson: null,
+    };
+  }
+
+  const typeRue = payload.type_rue || null;
+  const typePapier = payload.type_papier || null;
+  if (typeRue && !APPARTEMENT_VENTE_RUE_TYPES.includes(typeRue)) {
+    return { error: 'type_rue invalide' };
+  }
+  if (typePapier && !APPARTEMENT_VENTE_PAPIER_TYPES.includes(typePapier)) {
+    return { error: 'type_papier invalide' };
+  }
+
+  const nbAppartements = Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_appartements) || 0));
+  const inputRows = Array.isArray(payload.immeuble_appartements) ? payload.immeuble_appartements : [];
+  const appartements = [];
+  for (let i = 0; i < nbAppartements; i += 1) {
+    const row = inputRows[i] || {};
+    appartements.push({
+      index: i + 1,
+      chambres: Math.max(0, Math.floor(toNullableNumber(row.chambres) || 0)),
+      salle_bain: Math.max(0, Math.floor(toNullableNumber(row.salle_bain) || 0)),
+      superficie_m2: toNullableNumber(row.superficie_m2),
+      configuration: row.configuration ? String(row.configuration).trim() : null,
+    });
+  }
+
+  const details = {
+    surface_terrain_m2: toNullableNumber(payload.immeuble_surface_terrain_m2),
+    surface_batie_m2: toNullableNumber(payload.immeuble_surface_batie_m2),
+    nb_niveaux: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_niveaux) || 0)),
+    nb_garages: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_garages) || 0)),
+    nb_appartements: nbAppartements,
+    nb_locaux_commerciaux: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_locaux_commerciaux) || 0)),
+    distance_plage_m: toNullableNumber(payload.immeuble_distance_plage_m),
+    proche_plage: toFlag(payload.immeuble_proche_plage),
+    ascenseur: toFlag(payload.immeuble_ascenseur),
+    parking_sous_sol: toFlag(payload.immeuble_parking_sous_sol),
+    parking_exterieur: toFlag(payload.immeuble_parking_exterieur),
+    syndic: toFlag(payload.immeuble_syndic),
+    vue_mer: toFlag(payload.immeuble_vue_mer),
+  };
+
+  return {
+    typeRue,
+    typePapier,
+    detailsJson: JSON.stringify(details),
+    appartementsJson: JSON.stringify(appartements),
+  };
+}
+
 function deriveBedroomsFromConfiguration(configuration) {
   if (!configuration) return 0;
   const match = String(configuration).match(/S\s*\+\s*(\d+)/i);
   if (!match) return 0;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeVenteTarification(mode, payload = {}) {
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+  if (mode !== 'vente') {
+    return {
+      tarificationMethode: null,
+      prixAfficheClient: null,
+      prixFixeProprietaire: null,
+      prixFinal: null,
+      revenuAgence: null,
+      commissionPourcentageProprietaire: null,
+      commissionPourcentageClient: null,
+      montantMaxReductionNegociation: null,
+      prixMinimumAccepte: null,
+    };
+  }
+
+  const prixAfficheClient = toNullableNumber(payload.prix_affiche_client ?? payload.prix_nuitee);
+  if (prixAfficheClient === null || prixAfficheClient <= 0) {
+    return { error: 'prix_affiche_client invalide (doit etre > 0)' };
+  }
+
+  const tarificationMethode = String(payload.tarification_methode || 'avec_commission');
+  if (!TARIFICATION_METHODES.includes(tarificationMethode)) {
+    return { error: 'tarification_methode invalide' };
+  }
+
+  if (tarificationMethode === 'avec_commission') {
+    const commissionPourcentageProprietaire = toNullableNumber(payload.commission_pourcentage_proprietaire) ?? DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT;
+    const commissionPourcentageClient = toNullableNumber(payload.commission_pourcentage_client) ?? DEFAULT_COMMISSION_CLIENT_PERCENT;
+    if (commissionPourcentageProprietaire < 0 || commissionPourcentageClient < 0) {
+      return { error: 'les pourcentages de commission doivent etre >= 0' };
+    }
+
+    const commissionPartProprietaire = toMoney((prixAfficheClient * commissionPourcentageProprietaire) / 100);
+    const supplementPartClient = toMoney((prixAfficheClient * commissionPourcentageClient) / 100);
+    const prixFixeProprietaire = toMoney(prixAfficheClient - commissionPartProprietaire);
+    if (prixFixeProprietaire < 0) {
+      return { error: 'prix_fixe_proprietaire negatif: verifier la commission proprietaire' };
+    }
+
+    return {
+      tarificationMethode,
+      prixAfficheClient: toMoney(prixAfficheClient),
+      prixFixeProprietaire,
+      prixFinal: toMoney(prixAfficheClient + supplementPartClient),
+      revenuAgence: toMoney(commissionPartProprietaire + supplementPartClient),
+      commissionPourcentageProprietaire,
+      commissionPourcentageClient,
+      montantMaxReductionNegociation: null,
+      prixMinimumAccepte: null,
+    };
+  }
+
+  const prixFixeProprietaire = toNullableNumber(payload.prix_fixe_proprietaire);
+  if (prixFixeProprietaire === null || prixFixeProprietaire <= 0) {
+    return { error: 'prix_fixe_proprietaire invalide (doit etre > 0)' };
+  }
+  if (prixFixeProprietaire > prixAfficheClient) {
+    return { error: 'prix_fixe_proprietaire ne peut pas depasser le prix_affiche_client' };
+  }
+
+  const revenuAgence = toMoney(prixAfficheClient - prixFixeProprietaire);
+  const montantMaxReductionNegociation = toNullableNumber(payload.montant_max_reduction_negociation) ?? 0;
+  if (montantMaxReductionNegociation < 0) {
+    return { error: 'montant_max_reduction_negociation doit etre >= 0' };
+  }
+  if (montantMaxReductionNegociation > revenuAgence) {
+    return { error: 'montant_max_reduction_negociation ne peut pas depasser le revenu_agence' };
+  }
+
+  return {
+    tarificationMethode,
+    prixAfficheClient: toMoney(prixAfficheClient),
+    prixFixeProprietaire: toMoney(prixFixeProprietaire),
+    prixFinal: toMoney(prixAfficheClient),
+    revenuAgence,
+    commissionPourcentageProprietaire: 0,
+    commissionPourcentageClient: 0,
+    montantMaxReductionNegociation: toMoney(montantMaxReductionNegociation),
+    prixMinimumAccepte: toMoney(prixAfficheClient - montantMaxReductionNegociation),
+  };
+}
+
+function normalizeVentePaiement(mode, totalPrixClient, payload = {}) {
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  const toPositiveInt = (value) => {
+    const numeric = toNullableNumber(value);
+    if (numeric === null) return null;
+    return Math.floor(numeric);
+  };
+
+  if (mode !== 'vente') {
+    return {
+      modalitePaiementVente: null,
+      pourcentagePremierePartiePromesse: null,
+      montantPremierePartiePromesse: null,
+      montantDeuxiemePartie: null,
+      nombreTranches: null,
+      periodeTranchesMois: null,
+      montantParTranche: null,
+    };
+  }
+
+  const total = Number(totalPrixClient || 0);
+  if (!Number.isFinite(total) || total <= 0) {
+    return { error: 'prix total client invalide pour la modalite de paiement' };
+  }
+
+  const modalitePaiementVente = String(payload.modalite_paiement_vente || 'comptant');
+  if (!MODALITES_PAIEMENT_VENTE.includes(modalitePaiementVente)) {
+    return { error: 'modalite_paiement_vente invalide' };
+  }
+
+  if (modalitePaiementVente === 'comptant') {
+    return {
+      modalitePaiementVente,
+      pourcentagePremierePartiePromesse: 100,
+      montantPremierePartiePromesse: toMoney(total),
+      montantDeuxiemePartie: 0,
+      nombreTranches: null,
+      periodeTranchesMois: null,
+      montantParTranche: null,
+    };
+  }
+
+  const pourcentagePremierePartiePromesse = toNullableNumber(payload.pourcentage_premiere_partie_promesse)
+    ?? DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE;
+  if (pourcentagePremierePartiePromesse <= 0 || pourcentagePremierePartiePromesse >= 100) {
+    return { error: 'pourcentage_premiere_partie_promesse doit etre > 0 et < 100' };
+  }
+
+  const nombreTranches = toPositiveInt(payload.nombre_tranches);
+  if (nombreTranches === null || nombreTranches <= 0) {
+    return { error: 'nombre_tranches invalide (doit etre > 0)' };
+  }
+
+  const periodeTranchesMois = toPositiveInt(payload.periode_tranches_mois);
+  if (periodeTranchesMois === null || periodeTranchesMois <= 0) {
+    return { error: 'periode_tranches_mois invalide (doit etre > 0)' };
+  }
+
+  const montantPremierePartiePromesse = toMoney((total * pourcentagePremierePartiePromesse) / 100);
+  const montantDeuxiemePartie = toMoney(total - montantPremierePartiePromesse);
+  const montantParTranche = toMoney(montantDeuxiemePartie / nombreTranches);
+
+  return {
+    modalitePaiementVente,
+    pourcentagePremierePartiePromesse,
+    montantPremierePartiePromesse,
+    montantDeuxiemePartie,
+    nombreTranches,
+    periodeTranchesMois,
+    montantParTranche,
+  };
 }
 
 async function syncBienCaracteristiques(bienId, caracteristiqueIds) {
@@ -449,6 +745,62 @@ async function ensureBiensWorkflowSchema() {
     );
   }
 
+  if (!(await columnExists('biens', 'tarification_methode'))) {
+    await pool.query(
+      "ALTER TABLE biens ADD COLUMN tarification_methode ENUM('avec_commission','sans_commission') NULL DEFAULT NULL AFTER caution"
+    );
+  }
+  if (!(await columnExists('biens', 'prix_affiche_client'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN prix_affiche_client DECIMAL(12,2) NULL DEFAULT NULL AFTER tarification_methode');
+  }
+  if (!(await columnExists('biens', 'prix_fixe_proprietaire'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN prix_fixe_proprietaire DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_affiche_client');
+  }
+  if (!(await columnExists('biens', 'prix_final'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN prix_final DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_fixe_proprietaire');
+  }
+  if (!(await columnExists('biens', 'revenu_agence'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN revenu_agence DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_final');
+  }
+  if (!(await columnExists('biens', 'commission_pourcentage_proprietaire'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN commission_pourcentage_proprietaire DECIMAL(5,2) NULL DEFAULT NULL AFTER revenu_agence');
+  }
+  if (!(await columnExists('biens', 'commission_pourcentage_client'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN commission_pourcentage_client DECIMAL(5,2) NULL DEFAULT NULL AFTER commission_pourcentage_proprietaire');
+  }
+  if (!(await columnExists('biens', 'montant_max_reduction_negociation'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN montant_max_reduction_negociation DECIMAL(12,2) NULL DEFAULT NULL AFTER commission_pourcentage_client');
+  }
+  if (!(await columnExists('biens', 'prix_minimum_accepte'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN prix_minimum_accepte DECIMAL(12,2) NULL DEFAULT NULL AFTER montant_max_reduction_negociation');
+  }
+  if (!(await columnExists('biens', 'modalite_paiement_vente'))) {
+    await pool.query(
+      "ALTER TABLE biens ADD COLUMN modalite_paiement_vente ENUM('comptant','facilite') NULL DEFAULT NULL AFTER prix_minimum_accepte"
+    );
+  }
+  if (!(await columnExists('biens', 'pourcentage_premiere_partie_promesse'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN pourcentage_premiere_partie_promesse DECIMAL(5,2) NULL DEFAULT NULL AFTER modalite_paiement_vente');
+  }
+  if (!(await columnExists('biens', 'montant_premiere_partie_promesse'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN montant_premiere_partie_promesse DECIMAL(12,2) NULL DEFAULT NULL AFTER pourcentage_premiere_partie_promesse');
+  }
+  if (!(await columnExists('biens', 'montant_deuxieme_partie'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN montant_deuxieme_partie DECIMAL(12,2) NULL DEFAULT NULL AFTER montant_premiere_partie_promesse');
+  }
+  if (!(await columnExists('biens', 'nombre_tranches'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN nombre_tranches INT NULL DEFAULT NULL AFTER montant_deuxieme_partie');
+  }
+  if (!(await columnExists('biens', 'periode_tranches_mois'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN periode_tranches_mois INT NULL DEFAULT NULL AFTER nombre_tranches');
+  }
+  if (!(await columnExists('biens', 'montant_par_tranche'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN montant_par_tranche DECIMAL(12,2) NULL DEFAULT NULL AFTER periode_tranches_mois');
+  }
+  if (!(await columnExists('media', 'motif_upload'))) {
+    await pool.query('ALTER TABLE media ADD COLUMN motif_upload VARCHAR(255) NULL DEFAULT NULL AFTER url');
+  }
+
   if (!(await columnExists('biens', 'type_rue'))) {
     await pool.query(
       "ALTER TABLE biens ADD COLUMN type_rue ENUM('piste','route_goudronnee','rue_residentielle') NULL DEFAULT NULL AFTER caution"
@@ -523,6 +875,63 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'electricite_steg'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN electricite_steg TINYINT(1) NOT NULL DEFAULT 0 AFTER eau_sonede');
   }
+  if (!(await columnExists('biens', 'surface_local_m2'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN surface_local_m2 DECIMAL(10,2) NULL DEFAULT NULL AFTER electricite_steg');
+  }
+  if (!(await columnExists('biens', 'facade_m'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN facade_m DECIMAL(10,2) NULL DEFAULT NULL AFTER surface_local_m2');
+  }
+  if (!(await columnExists('biens', 'hauteur_plafond_m'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN hauteur_plafond_m DECIMAL(10,2) NULL DEFAULT NULL AFTER facade_m');
+  }
+  if (!(await columnExists('biens', 'activite_recommandee'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN activite_recommandee VARCHAR(255) NULL DEFAULT NULL AFTER hauteur_plafond_m');
+  }
+  if (!(await columnExists('biens', 'toilette'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN toilette TINYINT(1) NOT NULL DEFAULT 0 AFTER activite_recommandee');
+  }
+  if (!(await columnExists('biens', 'reserve_local'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN reserve_local TINYINT(1) NOT NULL DEFAULT 0 AFTER toilette');
+  }
+  if (!(await columnExists('biens', 'vitrine'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN vitrine TINYINT(1) NOT NULL DEFAULT 0 AFTER reserve_local');
+  }
+  if (!(await columnExists('biens', 'coin_angle'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN coin_angle TINYINT(1) NOT NULL DEFAULT 0 AFTER vitrine');
+  }
+  if (!(await columnExists('biens', 'electricite_3_phases'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN electricite_3_phases TINYINT(1) NOT NULL DEFAULT 0 AFTER coin_angle');
+  }
+  if (!(await columnExists('biens', 'alarme'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN alarme TINYINT(1) NOT NULL DEFAULT 0 AFTER electricite_3_phases');
+  }
+  if (!(await columnExists('biens', 'type_terrain'))) {
+    await pool.query("ALTER TABLE biens ADD COLUMN type_terrain ENUM('agricole','habitation','industrielle','loisir') NULL DEFAULT NULL AFTER alarme");
+  }
+  if (!(await columnExists('biens', 'terrain_facade_m'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_facade_m DECIMAL(10,2) NULL DEFAULT NULL AFTER type_terrain');
+  }
+  if (!(await columnExists('biens', 'terrain_surface_m2'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_surface_m2 DECIMAL(10,2) NULL DEFAULT NULL AFTER terrain_facade_m');
+  }
+  if (!(await columnExists('biens', 'terrain_distance_plage_m'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_distance_plage_m INT NULL DEFAULT NULL AFTER terrain_surface_m2');
+  }
+  if (!(await columnExists('biens', 'terrain_zone'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_zone VARCHAR(255) NULL DEFAULT NULL AFTER terrain_distance_plage_m');
+  }
+  if (!(await columnExists('biens', 'terrain_constructible'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_constructible TINYINT(1) NOT NULL DEFAULT 0 AFTER terrain_zone');
+  }
+  if (!(await columnExists('biens', 'terrain_angle'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_angle TINYINT(1) NOT NULL DEFAULT 0 AFTER terrain_constructible');
+  }
+  if (!(await columnExists('biens', 'immeuble_details_json'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_details_json LONGTEXT NULL AFTER terrain_angle');
+  }
+  if (!(await columnExists('biens', 'immeuble_appartements_json'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_appartements_json LONGTEXT NULL AFTER immeuble_details_json');
+  }
 
   await pool.query(
     "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','villa_maison','studio','immeuble','terrain','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
@@ -586,7 +995,21 @@ async function ensureBiensWorkflowSchema() {
       ('car18', 'Independant'),
       ('car19', 'Eau puits'),
       ('car20', 'Eau Sonede'),
-      ('car21', 'Electricite STEG')
+      ('car21', 'Electricite STEG'),
+      ('car22', 'Toilette'),
+      ('car23', 'Reserve'),
+      ('car24', 'Vitrine'),
+      ('car25', 'Coin d angle'),
+      ('car26', 'Electricite 3 phases'),
+      ('car27', 'Alarme'),
+      ('car28', 'Constructible'),
+      ('car29', 'Terrain d angle'),
+      ('car30', 'Terrain agricole'),
+      ('car31', 'Terrain habitation'),
+      ('car32', 'Terrain industrielle'),
+      ('car33', 'Terrain loisir'),
+      ('car34', 'Parking sous-sol'),
+      ('car35', 'Parking extérieur')
     ON DUPLICATE KEY UPDATE nom = VALUES(nom)
   `);
 
@@ -608,6 +1031,34 @@ async function ensureBiensWorkflowSchema() {
     ['ctx25', 'car19', 'vente', 'appartement'],
     ['ctx26', 'car20', 'vente', 'appartement'],
     ['ctx27', 'car21', 'vente', 'appartement'],
+    ['ctx28', 'car14', 'vente', 'local_commercial'],
+    ['ctx29', 'car19', 'vente', 'local_commercial'],
+    ['ctx30', 'car20', 'vente', 'local_commercial'],
+    ['ctx31', 'car21', 'vente', 'local_commercial'],
+    ['ctx32', 'car22', 'vente', 'local_commercial'],
+    ['ctx33', 'car23', 'vente', 'local_commercial'],
+    ['ctx34', 'car24', 'vente', 'local_commercial'],
+    ['ctx35', 'car25', 'vente', 'local_commercial'],
+    ['ctx36', 'car26', 'vente', 'local_commercial'],
+    ['ctx37', 'car27', 'vente', 'local_commercial'],
+    ['ctx38', 'car28', 'vente', 'terrain'],
+    ['ctx39', 'car29', 'vente', 'terrain'],
+    ['ctx40', 'car19', 'vente', 'terrain'],
+    ['ctx41', 'car20', 'vente', 'terrain'],
+    ['ctx42', 'car21', 'vente', 'terrain'],
+    ['ctx43', 'car30', 'vente', 'terrain'],
+    ['ctx44', 'car31', 'vente', 'terrain'],
+    ['ctx45', 'car32', 'vente', 'terrain'],
+    ['ctx46', 'car33', 'vente', 'terrain'],
+    ['ctx47', 'car7', 'vente', 'immeuble'],
+    ['ctx48', 'car34', 'vente', 'immeuble'],
+    ['ctx49', 'car35', 'vente', 'immeuble'],
+    ['ctx50', 'car16', 'vente', 'immeuble'],
+    ['ctx51', 'car4', 'vente', 'immeuble'],
+    ['ctx52', 'car11', 'vente', 'immeuble'],
+    ['ctx53', 'car19', 'vente', 'immeuble'],
+    ['ctx54', 'car20', 'vente', 'immeuble'],
+    ['ctx55', 'car21', 'vente', 'immeuble'],
     ['ctx3', 'car8', 'vente', 'villa_maison'],
     ['ctx4', 'car5', 'vente', 'villa_maison'],
     ['ctx5', 'car6', 'location_saisonniere', 'appartement'],
@@ -753,9 +1204,15 @@ app.post('/api/biens', async (req, res) => {
       id,
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
       prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
+      modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
-      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
+      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg,
+      surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
+      type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
+      immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements
     } = req.body;
 
     const resolvedMode = normalizeBienMode(mode ?? mode_bien);
@@ -772,28 +1229,122 @@ app.post('/api/biens', async (req, res) => {
     if (details.error) {
       return res.status(400).json({ error: details.error });
     }
+    const localDetails = normalizeLocalCommercialVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette,
+      reserve_local, vitrine, coin_angle, electricite_3_phases, gaz_ville, alarme, eau_puits, eau_sonede, electricite_steg
+    });
+    if (localDetails.error) {
+      return res.status(400).json({ error: localDetails.error });
+    }
+
+    const terrainDetails = normalizeTerrainVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      eau_puits, eau_sonede, electricite_steg
+    });
+    if (terrainDetails.error) {
+      return res.status(400).json({ error: terrainDetails.error });
+    }
+    const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
+      immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
+      immeuble_syndic, immeuble_vue_mer, immeuble_appartements
+    });
+    if (immeubleDetails.error) {
+      return res.status(400).json({ error: immeubleDetails.error });
+    }
+    const venteTarification = normalizeVenteTarification(resolvedMode, {
+      prix_nuitee,
+      prix_affiche_client,
+      prix_fixe_proprietaire,
+      tarification_methode,
+      commission_pourcentage_proprietaire,
+      commission_pourcentage_client,
+      montant_max_reduction_negociation,
+    });
+    if (venteTarification.error) {
+      return res.status(400).json({ error: venteTarification.error });
+    }
 
     const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
       ? deriveBedroomsFromConfiguration(details.configuration)
-      : Number(nb_chambres || 0);
+      : (resolvedMode === 'vente' && resolvedType === 'local_commercial')
+        ? 0
+        : (resolvedMode === 'vente' && resolvedType === 'terrain')
+          ? 0
+        : Number(nb_chambres || 0);
+    const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain'))
+      ? 0
+      : Number(nb_salle_bain || 0);
 
     const bienId = id || ('b' + Date.now());
     const created_at = new Date().toISOString().split('T')[0];
     const updated_at = created_at;
+    const resolvedPrixNuitee = resolvedMode === 'vente'
+      ? Number(venteTarification.prixAfficheClient || 0)
+      : Number(prix_nuitee || 0);
+    const totalPrixClientVente = resolvedMode === 'vente'
+      ? Number(venteTarification.prixFinal || 0)
+      : 0;
+    const paiementVente = normalizeVentePaiement(resolvedMode, totalPrixClientVente, {
+      modalite_paiement_vente,
+      pourcentage_premiere_partie_promesse,
+      nombre_tranches,
+      periode_tranches_mois,
+    });
+    if (paiementVente.error) {
+      return res.status(400).json({ error: paiementVente.error });
+    }
 
     await pool.query(
       `INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
         prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
         proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
-        syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, statut, menage_en_cours, zone_id, proprietaire_id, 
+        syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
+        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [bienId, reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, nb_salle_bain,
-       prix_nuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [bienId, reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
+       resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
-       details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0, details.eauPuits ? 1 : 0, details.eauSonede ? 1 : 0, details.electriciteSteg ? 1 : 0, statut || 'disponible', 
+       details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0,
+       (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.eauPuits ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.eauPuits ? 1 : 0) : (details.eauPuits ? 1 : 0))),
+       (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.eauSonede ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.eauSonede ? 1 : 0) : (details.eauSonede ? 1 : 0))),
+       (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.electriciteSteg ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.electriciteSteg ? 1 : 0) : (details.electriciteSteg ? 1 : 0))),
+       localDetails.surfaceM2, localDetails.facadeM, localDetails.hauteurPlafondM, localDetails.activiteRecommandee,
+       localDetails.toilette ? 1 : 0, localDetails.reserveLocal ? 1 : 0, localDetails.vitrine ? 1 : 0, localDetails.coinAngle ? 1 : 0, localDetails.electricite3Phases ? 1 : 0, localDetails.alarme ? 1 : 0,
+       terrainDetails.typeTerrain, terrainDetails.facadeM, terrainDetails.surfaceM2, terrainDetails.distancePlageM, terrainDetails.zoneTerrain, terrainDetails.constructible ? 1 : 0, terrainDetails.terrainAngle ? 1 : 0,
+       immeubleDetails.detailsJson, immeubleDetails.appartementsJson,
+       statut || 'disponible', 
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
+    );
+
+    await pool.query(
+      `UPDATE biens
+       SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_final = ?, revenu_agence = ?,
+           commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
+           modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
+           nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?
+       WHERE id = ?`,
+      [
+        venteTarification.tarificationMethode,
+        venteTarification.prixAfficheClient,
+        venteTarification.prixFixeProprietaire,
+        venteTarification.prixFinal,
+        venteTarification.revenuAgence,
+        venteTarification.commissionPourcentageProprietaire,
+        venteTarification.commissionPourcentageClient,
+        venteTarification.montantMaxReductionNegociation,
+        venteTarification.prixMinimumAccepte,
+        paiementVente.modalitePaiementVente,
+        paiementVente.pourcentagePremierePartiePromesse,
+        paiementVente.montantPremierePartiePromesse,
+        paiementVente.montantDeuxiemePartie,
+        paiementVente.nombreTranches,
+        paiementVente.periodeTranchesMois,
+        paiementVente.montantParTranche,
+        bienId,
+      ]
     );
 
     if (Array.isArray(caracteristique_ids)) {
@@ -818,9 +1369,15 @@ app.put('/api/biens/:id', async (req, res) => {
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
       prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
+      modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
-      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
+      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg,
+      surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
+      type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
+      immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements
     } = req.body;
 
     const resolvedMode = normalizeBienMode(mode ?? mode_bien);
@@ -837,27 +1394,121 @@ app.put('/api/biens/:id', async (req, res) => {
     if (details.error) {
       return res.status(400).json({ error: details.error });
     }
+    const localDetails = normalizeLocalCommercialVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette,
+      reserve_local, vitrine, coin_angle, electricite_3_phases, gaz_ville, alarme, eau_puits, eau_sonede, electricite_steg
+    });
+    if (localDetails.error) {
+      return res.status(400).json({ error: localDetails.error });
+    }
+
+    const terrainDetails = normalizeTerrainVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      eau_puits, eau_sonede, electricite_steg
+    });
+    if (terrainDetails.error) {
+      return res.status(400).json({ error: terrainDetails.error });
+    }
+    const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
+      type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
+      immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
+      immeuble_syndic, immeuble_vue_mer, immeuble_appartements
+    });
+    if (immeubleDetails.error) {
+      return res.status(400).json({ error: immeubleDetails.error });
+    }
+    const venteTarification = normalizeVenteTarification(resolvedMode, {
+      prix_nuitee,
+      prix_affiche_client,
+      prix_fixe_proprietaire,
+      tarification_methode,
+      commission_pourcentage_proprietaire,
+      commission_pourcentage_client,
+      montant_max_reduction_negociation,
+    });
+    if (venteTarification.error) {
+      return res.status(400).json({ error: venteTarification.error });
+    }
 
     const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
       ? deriveBedroomsFromConfiguration(details.configuration)
-      : Number(nb_chambres || 0);
+      : (resolvedMode === 'vente' && resolvedType === 'local_commercial')
+        ? 0
+        : (resolvedMode === 'vente' && resolvedType === 'terrain')
+          ? 0
+        : Number(nb_chambres || 0);
+    const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain'))
+      ? 0
+      : Number(nb_salle_bain || 0);
 
     const updated_at = new Date().toISOString().split('T')[0];
+    const resolvedPrixNuitee = resolvedMode === 'vente'
+      ? Number(venteTarification.prixAfficheClient || 0)
+      : Number(prix_nuitee || 0);
+    const totalPrixClientVente = resolvedMode === 'vente'
+      ? Number(venteTarification.prixFinal || 0)
+      : 0;
+    const paiementVente = normalizeVentePaiement(resolvedMode, totalPrixClientVente, {
+      modalite_paiement_vente,
+      pourcentage_premiere_partie_promesse,
+      nombre_tranches,
+      periode_tranches_mois,
+    });
+    if (paiementVente.error) {
+      return res.status(400).json({ error: paiementVente.error });
+    }
 
     await pool.query(
       `UPDATE biens SET 
         reference = ?, titre = ?, description = ?, mode = ?, type = ?, nb_chambres = ?, 
         nb_salle_bain = ?, prix_nuitee = ?, avance = ?, caution = ?, type_rue = ?, type_papier = ?, superficie_m2 = ?, etage = ?, configuration = ?, annee_construction = ?, distance_plage_m = ?,
         proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
-        syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?,
+        syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?, surface_local_m2 = ?, facade_m = ?, hauteur_plafond_m = ?, activite_recommandee = ?, toilette = ?, reserve_local = ?, vitrine = ?, coin_angle = ?, electricite_3_phases = ?, alarme = ?,
+        type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
         statut = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
-      [reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, nb_salle_bain,
-       prix_nuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
+      [reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
+       resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
-       details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0, details.eauPuits ? 1 : 0, details.eauSonede ? 1 : 0, details.electriciteSteg ? 1 : 0, statut || 'disponible',
+       details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0,
+       (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.eauPuits ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.eauPuits ? 1 : 0) : (details.eauPuits ? 1 : 0))),
+       (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.eauSonede ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.eauSonede ? 1 : 0) : (details.eauSonede ? 1 : 0))),
+       (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.electriciteSteg ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.electriciteSteg ? 1 : 0) : (details.electriciteSteg ? 1 : 0))),
+       localDetails.surfaceM2, localDetails.facadeM, localDetails.hauteurPlafondM, localDetails.activiteRecommandee,
+       localDetails.toilette ? 1 : 0, localDetails.reserveLocal ? 1 : 0, localDetails.vitrine ? 1 : 0, localDetails.coinAngle ? 1 : 0, localDetails.electricite3Phases ? 1 : 0, localDetails.alarme ? 1 : 0,
+       terrainDetails.typeTerrain, terrainDetails.facadeM, terrainDetails.surfaceM2, terrainDetails.distancePlageM, terrainDetails.zoneTerrain, terrainDetails.constructible ? 1 : 0, terrainDetails.terrainAngle ? 1 : 0,
+       immeubleDetails.detailsJson, immeubleDetails.appartementsJson,
+       statut || 'disponible',
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, req.params.id]
+    );
+
+    await pool.query(
+      `UPDATE biens
+       SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_final = ?, revenu_agence = ?,
+           commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
+           modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
+           nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?
+       WHERE id = ?`,
+      [
+        venteTarification.tarificationMethode,
+        venteTarification.prixAfficheClient,
+        venteTarification.prixFixeProprietaire,
+        venteTarification.prixFinal,
+        venteTarification.revenuAgence,
+        venteTarification.commissionPourcentageProprietaire,
+        venteTarification.commissionPourcentageClient,
+        venteTarification.montantMaxReductionNegociation,
+        venteTarification.prixMinimumAccepte,
+        paiementVente.modalitePaiementVente,
+        paiementVente.pourcentagePremierePartiePromesse,
+        paiementVente.montantPremierePartiePromesse,
+        paiementVente.montantDeuxiemePartie,
+        paiementVente.nombreTranches,
+        paiementVente.periodeTranchesMois,
+        paiementVente.montantParTranche,
+        req.params.id,
+      ]
     );
 
     if (Array.isArray(caracteristique_ids)) {
@@ -1376,7 +2027,7 @@ app.post('/api/upload-contract', contractUpload.single('contract'), async (req, 
 
 app.post('/api/media', async (req, res) => {
   try {
-    const { bien_id, type, url, position } = req.body;
+    const { bien_id, type, url, position, motif_upload } = req.body;
     const id = 'm' + Date.now();
     
     // Calculate the next position if not provided (max existing position + 1)
@@ -1389,8 +2040,8 @@ app.post('/api/media', async (req, res) => {
       mediaPosition = (maxPosResult[0]?.maxPos ?? -1) + 1;
     }
     
-    await pool.query('INSERT INTO media (id, bien_id, type, url, position) VALUES (?, ?, ?, ?, ?)',
-      [id, bien_id, type || 'image', url, mediaPosition]);
+    await pool.query('INSERT INTO media (id, bien_id, type, url, motif_upload, position) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, bien_id, type || 'image', url, motif_upload || null, mediaPosition]);
     const [newMedia] = await pool.query('SELECT * FROM media WHERE id = ?', [id]);
     res.status(201).json(newMedia[0]);
   } catch (error) {

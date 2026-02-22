@@ -2,7 +2,7 @@
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -37,14 +37,20 @@ const BIEN_TYPES_BY_MODE: Record<BienMode, BienType[]> = {
 };
 const TYPE_RUE_LABELS: Record<TypeRueAppartementVente, string> = {
   piste: 'Piste',
-  route_goudronnee: 'Route goudronnee',
-  rue_residentielle: 'Rue residentielle',
+  route_goudronnee: 'Route goudronnée',
+  rue_residentielle: 'Rue résidentielle',
 };
 const TYPE_PAPIER_LABELS: Record<TypePapierAppartementVente, string> = {
   titre_foncier_individuel: 'Titre foncier individuel',
   titre_foncier_collectif: 'Titre foncier collectif',
   contrat_seulement: 'Contrat seulement',
   sans_papier: 'Sans papier',
+};
+const TYPE_TERRAIN_LABELS: Record<TypeTerrainVente, string> = {
+  agricole: 'Agricole',
+  habitation: 'Habitation',
+  industrielle: 'Industrielle',
+  loisir: 'Loisir',
 };
 const APPARTEMENT_VENTE_BOOLEAN_FIELDS = [
   'proche_plage', 'chauffage_central', 'climatisation', 'balcon', 'terrasse', 'ascenseur', 'vue_mer',
@@ -63,11 +69,11 @@ const APPARTEMENT_VENTE_BOOLEAN_LABELS: Record<(typeof APPARTEMENT_VENTE_BOOLEAN
   cuisine_equipee: 'Cuisine equipee',
   place_parking: 'Place parking',
   syndic: 'Syndic',
-  meuble: 'Meuble',
-  independant: 'Independant',
+  meuble: 'Meublé',
+  independant: 'Indépendant',
   eau_puits: 'Eau puits',
   eau_sonede: 'Eau Sonede',
-  electricite_steg: 'Electricite STEG',
+  electricite_steg: 'Électricité STEG',
 };
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 const APPARTEMENT_VENTE_DETAIL_FEATURES = new Set(
@@ -75,7 +81,160 @@ const APPARTEMENT_VENTE_DETAIL_FEATURES = new Set(
 );
 APPARTEMENT_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Parking'));
 APPARTEMENT_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Vue sur mer'));
+const LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS = [
+  'toilette', 'reserve_local', 'vitrine', 'coin_angle', 'electricite_3_phases', 'gaz_ville', 'alarme',
+  'eau_puits', 'eau_sonede', 'electricite_steg'
+] as const;
+const LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS: Record<(typeof LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS)[number], string> = {
+  toilette: 'Toilette',
+  reserve_local: 'Réserve',
+  vitrine: 'Vitrine',
+  coin_angle: "Coin d'angle",
+  electricite_3_phases: 'Électricité 3 phases',
+  gaz_ville: 'Gaz de ville',
+  alarme: 'Alarme',
+  eau_puits: 'Eau puits',
+  eau_sonede: 'Eau Sonede',
+  electricite_steg: 'Électricité STEG',
+};
+const LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES = new Set(
+  Object.values(LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
+);
+const TERRAIN_VENTE_BOOLEAN_FIELDS = ['terrain_constructible', 'terrain_angle', 'eau_puits', 'eau_sonede', 'electricite_steg'] as const;
+const TERRAIN_VENTE_BOOLEAN_LABELS: Record<(typeof TERRAIN_VENTE_BOOLEAN_FIELDS)[number], string> = {
+  terrain_constructible: 'Constructible',
+  terrain_angle: "Terrain d'angle",
+  eau_puits: 'Eau puits',
+  eau_sonede: 'Eau Sonede',
+  electricite_steg: 'Électricité STEG',
+};
+const TERRAIN_VENTE_DETAIL_FEATURES = new Set(
+  Object.values(TERRAIN_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
+);
+TERRAIN_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Terrain agricole'));
+TERRAIN_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Terrain habitation'));
+TERRAIN_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Terrain industrielle'));
+TERRAIN_VENTE_DETAIL_FEATURES.add(normalizeFeatureName('Terrain loisir'));
+const IMMEUBLE_VENTE_BOOLEAN_FIELDS = ['immeuble_proche_plage', 'immeuble_ascenseur', 'immeuble_parking_sous_sol', 'immeuble_parking_exterieur', 'immeuble_syndic', 'immeuble_vue_mer', 'eau_puits', 'eau_sonede', 'electricite_steg'] as const;
+const IMMEUBLE_VENTE_BOOLEAN_LABELS: Record<(typeof IMMEUBLE_VENTE_BOOLEAN_FIELDS)[number], string> = {
+  immeuble_proche_plage: 'Proche de la plage',
+  immeuble_ascenseur: 'Ascenseur',
+  immeuble_parking_sous_sol: 'Parking sous-sol',
+  immeuble_parking_exterieur: 'Parking extérieur',
+  immeuble_syndic: 'Syndic',
+  immeuble_vue_mer: 'Vue mer',
+  eau_puits: 'Eau puits',
+  eau_sonede: 'Eau Sonede',
+  electricite_steg: 'Électricité STEG',
+};
+const IMMEUBLE_VENTE_DETAIL_FEATURES = new Set(
+  Object.values(IMMEUBLE_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
+);
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
+const DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT = 3;
+const DEFAULT_COMMISSION_CLIENT_PERCENT = 2;
+const DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE = 30;
+
+function toMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function computeVenteTarification(formData: Partial<Bien>) {
+  const prixAfficheClient = Number(formData.prix_affiche_client ?? formData.prix_nuitee ?? 0);
+  const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
+  if (!Number.isFinite(prixAfficheClient) || prixAfficheClient <= 0) {
+    return {
+      prixAfficheClient: 0,
+      prixFixeProprietaire: 0,
+      prixFinal: 0,
+      revenuAgence: 0,
+      prixMinimumAccepte: 0,
+      commissionPourcentageProprietaire: Number(formData.commission_pourcentage_proprietaire ?? DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT),
+      commissionPourcentageClient: Number(formData.commission_pourcentage_client ?? DEFAULT_COMMISSION_CLIENT_PERCENT),
+    };
+  }
+
+  if (tarificationMethode === 'avec_commission') {
+    const commissionPourcentageProprietaire = Number(formData.commission_pourcentage_proprietaire ?? DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT);
+    const commissionPourcentageClient = Number(formData.commission_pourcentage_client ?? DEFAULT_COMMISSION_CLIENT_PERCENT);
+    const partProprietaire = toMoney((prixAfficheClient * Math.max(0, commissionPourcentageProprietaire)) / 100);
+    const partClient = toMoney((prixAfficheClient * Math.max(0, commissionPourcentageClient)) / 100);
+    const prixFixeProprietaire = toMoney(prixAfficheClient - partProprietaire);
+    const prixFinal = toMoney(prixAfficheClient + partClient);
+    const revenuAgence = toMoney(partProprietaire + partClient);
+
+    return {
+      prixAfficheClient: toMoney(prixAfficheClient),
+      prixFixeProprietaire,
+      prixFinal,
+      revenuAgence,
+      prixMinimumAccepte: 0,
+      commissionPourcentageProprietaire: Math.max(0, commissionPourcentageProprietaire),
+      commissionPourcentageClient: Math.max(0, commissionPourcentageClient),
+    };
+  }
+
+  const prixFixeProprietaire = Math.max(0, Number(formData.prix_fixe_proprietaire ?? 0));
+  const revenuAgence = toMoney(Math.max(0, prixAfficheClient - prixFixeProprietaire));
+  const montantMaxReduction = Math.max(0, Number(formData.montant_max_reduction_negociation ?? 0));
+  const reductionEffective = Math.min(montantMaxReduction, revenuAgence);
+  const prixMinimumAccepte = toMoney(prixAfficheClient - reductionEffective);
+
+  return {
+    prixAfficheClient: toMoney(prixAfficheClient),
+    prixFixeProprietaire: toMoney(prixFixeProprietaire),
+    prixFinal: toMoney(prixAfficheClient),
+    revenuAgence,
+    prixMinimumAccepte,
+    commissionPourcentageProprietaire: 0,
+    commissionPourcentageClient: 0,
+  };
+}
+
+function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) {
+  const total = Number(prixTotalClient || 0);
+  const modalite = (formData.modalite_paiement_vente || 'comptant') as ModalitePaiementVente;
+  if (!Number.isFinite(total) || total <= 0) {
+    return {
+      modalite,
+      pourcentagePremierePartiePromesse: 0,
+      montantPremierePartiePromesse: 0,
+      montantDeuxiemePartie: 0,
+      nombreTranches: Number(formData.nombre_tranches ?? 0),
+      periodeTranchesMois: Number(formData.periode_tranches_mois ?? 0),
+      montantParTranche: 0,
+    };
+  }
+
+  if (modalite === 'comptant') {
+    return {
+      modalite,
+      pourcentagePremierePartiePromesse: 100,
+      montantPremierePartiePromesse: toMoney(total),
+      montantDeuxiemePartie: 0,
+      nombreTranches: 0,
+      periodeTranchesMois: 0,
+      montantParTranche: 0,
+    };
+  }
+
+  const pourcentagePremierePartiePromesse = Math.max(0, Number(formData.pourcentage_premiere_partie_promesse ?? DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE));
+  const montantPremierePartiePromesse = toMoney((total * pourcentagePremierePartiePromesse) / 100);
+  const montantDeuxiemePartie = toMoney(Math.max(0, total - montantPremierePartiePromesse));
+  const nombreTranches = Math.max(0, Math.floor(Number(formData.nombre_tranches ?? 0)));
+  const periodeTranchesMois = Math.max(0, Math.floor(Number(formData.periode_tranches_mois ?? 0)));
+  const montantParTranche = nombreTranches > 0 ? toMoney(montantDeuxiemePartie / nombreTranches) : 0;
+
+  return {
+    modalite,
+    pourcentagePremierePartiePromesse,
+    montantPremierePartiePromesse,
+    montantDeuxiemePartie,
+    nombreTranches,
+    periodeTranchesMois,
+    montantParTranche,
+  };
+}
 
 export default function BiensPage() {
   const { biens, zones, proprietaires, addBien, updateBien, deleteBien, isLoading } = useProperties();
@@ -86,11 +245,44 @@ export default function BiensPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBien, setEditingBien] = useState<Bien | null>(null);
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
+  const [saveSuccessDialogOpen, setSaveSuccessDialogOpen] = useState(false);
 
   const filteredBiens = biens.filter(bien => (bien.titre.toLowerCase().includes(searchTerm.toLowerCase()) || bien.reference.toLowerCase().includes(searchTerm.toLowerCase())) && (statusFilter === 'all' || bien.statut === statusFilter));
 
   const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
-  const handleSave = async (bien: Bien) => { try { if (editingBien) { await updateBien(bien); toast.success('Bien modifié'); } else { const { created_at, updated_at, media, unavailableDates, ...bienData } = bien; await addBien(bienData as any); toast.success('Bien ajouté'); } setIsAddOpen(false); setEditingBien(null); } catch { toast.error('Erreur sauvegarde'); } };
+  const syncMediaForBien = async (bienId: string, media: Media[]) => {
+    const existingResponse = await fetch(`http://localhost:3001/api/media/${bienId}`);
+    const existingMedia = existingResponse.ok ? await existingResponse.json() : [];
+    for (const m of existingMedia) {
+      await fetch(`http://localhost:3001/api/media/${m.id}`, { method: 'DELETE' });
+    }
+    const orderedMedia = (Array.isArray(media) ? media : []).map((m, idx) => ({ ...m, position: idx }));
+    for (const m of orderedMedia) {
+      const createResponse = await fetch('http://localhost:3001/api/media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bien_id: bienId, type: m.type || 'image', url: m.url, motif_upload: m.motif_upload || null, position: m.position ?? 0 }),
+      });
+      if (!createResponse.ok) throw new Error('Failed to save media');
+    }
+  };
+  const handleSave = async (bien: Bien) => {
+    try {
+      const { created_at, updated_at, media, unavailableDates, ...bienData } = bien;
+      if (editingBien) {
+        await updateBien(bien as any);
+        await syncMediaForBien(bien.id, media || []);
+      } else {
+        await addBien(bienData as any);
+        await syncMediaForBien(String(bienData.id || bien.id), media || []);
+      }
+      setIsAddOpen(false);
+      setEditingBien(null);
+      setSaveSuccessDialogOpen(true);
+    } catch {
+      toast.error('Erreur sauvegarde');
+    }
+  };
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div></div>;
 
@@ -125,6 +317,18 @@ export default function BiensPage() {
           <div className="flex-1 overflow-y-auto">{viewingBien && <BienPreview bien={viewingBien} zones={zoneOptions} />}</div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
+      <Dialog.Root open={saveSuccessDialogOpen} onOpenChange={setSaveSuccessDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
+          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
+            <Dialog.Title className="text-lg font-semibold text-gray-900">Sauvegarde</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-gray-600">Sauvegarde avec succès.</Dialog.Description>
+            <div className="mt-4 flex justify-end">
+              <button type="button" onClick={() => setSaveSuccessDialogOpen(false)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">OK</button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
@@ -132,6 +336,7 @@ export default function BiensPage() {
 function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
   const mainImage = bien.media?.[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
   const imageCount = bien.media?.length || 0;
+  const displayPrice = bien.mode === 'vente' ? Number(bien.prix_affiche_client ?? bien.prix_nuitee ?? 0) : Number(bien.prix_nuitee || 0);
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col h-full group">
       <div className="relative h-44 sm:h-48 bg-gray-100 overflow-hidden">
@@ -142,7 +347,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
           <button onClick={onView} className="p-2 bg-white rounded-full hover:bg-gray-100"><Eye className="h-4 w-4 text-gray-700" /></button>
           <button onClick={onEdit} className="p-2 bg-white rounded-full hover:bg-gray-100"><Edit2 className="h-4 w-4 text-emerald-600" /></button>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3"><p className="text-white font-bold text-lg">{bien.prix_nuitee} DT<span className="text-xs font-normal text-white/80">/nuit</span></p></div>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3"><p className="text-white font-bold text-lg">{displayPrice} DT{bien.mode === 'vente' ? '' : <span className="text-xs font-normal text-white/80">/nuit</span>}</p></div>
       </div>
       <div className="p-4 flex-1 flex flex-col">
         <div className="mb-3"><h3 className="font-bold text-gray-900 text-base line-clamp-1 mb-1">{bien.titre}</h3><div className="flex items-center gap-1 text-gray-500 text-xs"><MapPin className="h-3 w-3" /><span>{zones.find(z => z.id === bien.zone_id)?.nom || 'Zone Inconnue'}</span></div></div>
@@ -160,15 +365,15 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 
 function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; onSubmit: (data: Bien) => void; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
-  const [generalStep, setGeneralStep] = useState<1 | 2 | 3>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
   const [unavailableDates, setUnavailableDates] = useState<DateStatus[]>(initialData?.unavailableDates || []);
   const [newImageUrl, setNewImageUrl] = useState('');
+  const [newImageMotif, setNewImageMotif] = useState('');
   const [uploading, setUploading] = useState(false);
-  const initialMediaIds = new Set((initialData?.media || []).map((m) => m.id));
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
   const [customFeatures, setCustomFeatures] = useState<string[]>(initialData?.caracteristiques || []);
@@ -184,6 +389,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [newOwnerCin, setNewOwnerCin] = useState('');
   const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null);
+  const [stepInfoDialogOpen, setStepInfoDialogOpen] = useState(false);
+  const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : [1]));
   const normalizeLegacyType = (value?: BienType): BienType => {
     if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
     if (value === 'villa') return 'villa_maison';
@@ -227,9 +434,20 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   useEffect(() => { setZonesOptions(zones); }, [zones]);
   useEffect(() => { setProprietaireOptions(proprietaires); }, [proprietaires]);
   useEffect(() => {
+    const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
+    if (currentMode === 'vente' && activeTab === 'calendar') {
+      setActiveTab('general');
+    }
+  }, [formData.mode, activeTab]);
+  useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
     const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
+    const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
+    const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
+    const isImmeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
+    const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
+    const venteTarification = computeVenteTarification(formData);
     if (!selectedMode || !selectedType) {
       setAvailableFeatures([]);
       return;
@@ -250,6 +468,12 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         });
         const nextFeatures = isAppartementVente
           ? dedupedFeatures.filter((f: Caracteristique) => !APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+          : isLocalCommercialVente
+            ? dedupedFeatures.filter((f: Caracteristique) => !LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+            : isTerrainVente
+              ? dedupedFeatures.filter((f: Caracteristique) => !TERRAIN_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+              : isImmeubleVente
+                ? dedupedFeatures.filter((f: Caracteristique) => !IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
           : dedupedFeatures;
         setAvailableFeatures(nextFeatures);
         const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
@@ -262,9 +486,34 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     fetchFeatures();
   }, [formData.mode, formData.type]);
 
+  useEffect(() => {
+    const targetCount = Math.max(0, Math.floor(Number(formData.immeuble_nb_appartements || 0)));
+    const currentRows = Array.isArray(formData.immeuble_appartements) ? formData.immeuble_appartements : [];
+    if (currentRows.length === targetCount) return;
+    const nextRows = [];
+    for (let i = 0; i < targetCount; i += 1) {
+      const existing = currentRows[i];
+      nextRows.push({
+        index: i + 1,
+        chambres: Number(existing?.chambres || 0),
+        salle_bain: Number(existing?.salle_bain || 0),
+        superficie_m2: existing?.superficie_m2 ?? null,
+        configuration: existing?.configuration || null,
+      });
+    }
+    setFormData((prev) => ({ ...prev, immeuble_appartements: nextRows }));
+  }, [formData.immeuble_nb_appartements]);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const isLocalCommercial = selectedType === 'local_commercial';
+    if (isLocalCommercial && !newImageMotif.trim()) {
+      toast.error("Motif d'upload requis pour le local");
+      e.target.value = '';
+      return;
+    }
     setUploading(true);
     const uploadFormData = new FormData();
     uploadFormData.append('image', file);
@@ -272,8 +521,15 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       const response = await fetch('http://localhost:3001/api/upload', { method: 'POST', body: uploadFormData });
       if (!response.ok) throw new Error('Upload failed');
       const data = await response.json();
-      const newMedia: Media = { id: Math.random().toString(36).substr(2, 9), bien_id: '', type: 'image', url: data.url };
+      const newMedia: Media = {
+        id: Math.random().toString(36).substr(2, 9),
+        bien_id: '',
+        type: 'image',
+        url: data.url,
+        motif_upload: isLocalCommercial ? newImageMotif.trim() : null,
+      };
       setImages([...images, newMedia]);
+      if (isLocalCommercial) setNewImageMotif('');
       toast.success('Image uploadée');
     } catch { toast.error('Erreur upload'); }
     finally { setUploading(false); e.target.value = ''; }
@@ -281,7 +537,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
-    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m'];
+    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
     if (name === 'mode') {
       const nextMode = value as BienMode;
       const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
@@ -289,14 +545,21 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         const currentType = normalizeLegacyType(prev.type as BienType);
         const nextType = allowedTypes.includes(currentType) ? currentType : allowedTypes[0];
         const keepAppartementVenteDetails = nextMode === 'vente' && nextType === 'appartement';
+        const keepLocalCommercialVenteDetails = nextMode === 'vente' && nextType === 'local_commercial';
+        const keepTerrainVenteDetails = nextMode === 'vente' && nextType === 'terrain';
+        const keepImmeubleVenteDetails = nextMode === 'vente' && nextType === 'immeuble';
         const next = {
           ...prev,
           mode: nextMode,
           type: nextType,
-          type_rue: keepAppartementVenteDetails ? prev.type_rue || null : null,
-          type_papier: keepAppartementVenteDetails ? prev.type_papier || null : null,
+          type_rue: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_rue || null : null,
+          type_papier: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_papier || null : null,
         };
-        return keepAppartementVenteDetails ? next : resetAppartementVenteFields(next);
+        if (keepAppartementVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(next)));
+        if (keepLocalCommercialVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetAppartementVenteFields(next)));
+        if (keepTerrainVenteDetails) return resetImmeubleVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
+        if (keepImmeubleVenteDetails) return resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
+        return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
       });
       return;
     }
@@ -304,13 +567,20 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       const nextType = normalizeLegacyType(value as BienType);
       setFormData((prev) => {
         const keepAppartementVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'appartement';
+        const keepLocalCommercialVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'local_commercial';
+        const keepTerrainVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'terrain';
+        const keepImmeubleVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'immeuble';
         const next = {
           ...prev,
           type: nextType,
-          type_rue: keepAppartementVenteDetails ? prev.type_rue || null : null,
-          type_papier: keepAppartementVenteDetails ? prev.type_papier || null : null,
+          type_rue: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_rue || null : null,
+          type_papier: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_papier || null : null,
         };
-        return keepAppartementVenteDetails ? next : resetAppartementVenteFields(next);
+        if (keepAppartementVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(next)));
+        if (keepLocalCommercialVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetAppartementVenteFields(next)));
+        if (keepTerrainVenteDetails) return resetImmeubleVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
+        if (keepImmeubleVenteDetails) return resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
+        return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
       });
       return;
     }
@@ -346,13 +616,93 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     eau_sonede: false,
     electricite_steg: false,
   });
+  const resetLocalCommercialVenteFields = (current: Partial<Bien>): Partial<Bien> => ({
+    ...current,
+    type_rue: null,
+    type_papier: null,
+    surface_local_m2: null,
+    facade_m: null,
+    hauteur_plafond_m: null,
+    activite_recommandee: null,
+    toilette: false,
+    reserve_local: false,
+    vitrine: false,
+    coin_angle: false,
+    electricite_3_phases: false,
+    gaz_ville: false,
+    alarme: false,
+    eau_puits: false,
+    eau_sonede: false,
+    electricite_steg: false,
+  });
+  const resetTerrainVenteFields = (current: Partial<Bien>): Partial<Bien> => ({
+    ...current,
+    type_rue: null,
+    type_papier: null,
+    type_terrain: null,
+    terrain_facade_m: null,
+    terrain_surface_m2: null,
+    terrain_distance_plage_m: null,
+    terrain_zone: null,
+    terrain_constructible: false,
+    terrain_angle: false,
+    eau_puits: false,
+    eau_sonede: false,
+    electricite_steg: false,
+  });
+  const resetImmeubleVenteFields = (current: Partial<Bien>): Partial<Bien> => ({
+    ...current,
+    type_rue: null,
+    type_papier: null,
+    immeuble_surface_terrain_m2: null,
+    immeuble_surface_batie_m2: null,
+    immeuble_nb_niveaux: null,
+    immeuble_nb_garages: null,
+    immeuble_nb_appartements: null,
+    immeuble_nb_locaux_commerciaux: null,
+    immeuble_distance_plage_m: null,
+    immeuble_proche_plage: false,
+    immeuble_ascenseur: false,
+    immeuble_parking_sous_sol: false,
+    immeuble_parking_exterieur: false,
+    immeuble_syndic: false,
+    immeuble_vue_mer: false,
+    immeuble_appartements: [],
+    eau_puits: false,
+    eau_sonede: false,
+    electricite_steg: false,
+  });
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
+  const handleImmeubleAppartementChange = (index: number, field: 'chambres' | 'salle_bain' | 'superficie_m2' | 'configuration', value: string) => {
+    const rows = Array.isArray(formData.immeuble_appartements) ? [...formData.immeuble_appartements] : [];
+    const current = rows[index] || { index: index + 1, chambres: 0, salle_bain: 0, superficie_m2: null, configuration: null };
+    if (field === 'configuration') {
+      rows[index] = { ...current, configuration: value || null };
+    } else if (field === 'superficie_m2') {
+      rows[index] = { ...current, superficie_m2: value === '' ? null : Number(value) };
+    } else {
+      rows[index] = { ...current, [field]: Math.max(0, Number(value || 0)) } as any;
+    }
+    setFormData((prev) => ({ ...prev, immeuble_appartements: rows }));
+  };
 
   const handleAddImage = () => {
     if (!newImageUrl.trim()) return;
-    const newMedia: Media = { id: Math.random().toString(36).substr(2, 9), bien_id: formData.id || '', type: 'image', url: newImageUrl };
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const isLocalCommercial = selectedType === 'local_commercial';
+    if (isLocalCommercial && !newImageMotif.trim()) {
+      return toast.error("Motif d'upload requis pour le local");
+    }
+    const newMedia: Media = {
+      id: Math.random().toString(36).substr(2, 9),
+      bien_id: formData.id || '',
+      type: 'image',
+      url: newImageUrl,
+      motif_upload: isLocalCommercial ? newImageMotif.trim() : null,
+    };
     setImages([...images, newMedia]);
     setNewImageUrl('');
+    if (isLocalCommercial) setNewImageMotif('');
     toast.success('Image ajoutée');
   };
 
@@ -404,6 +754,9 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     if (!value) return;
     const normalizedValue = normalizeFeatureName(value);
     if (APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
+    if (LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
+    if (TERRAIN_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
+    if (IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
     if (availableFeatures.some((feature) => normalizeFeatureName(feature.nom || '') === normalizedValue)) return;
     if (customFeatures.some((item) => normalizeFeatureName(item) === normalizedValue)) return;
     setCustomFeatures([...customFeatures, value]);
@@ -464,6 +817,9 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     const selectedType = normalizeLegacyType(formData.type as BienType);
     const allowedTypes = BIEN_TYPES_BY_MODE[selectedMode] || [];
     const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
+    const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
+    const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
+    const isImmeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
 
     if (!formData.titre?.trim()) {
       setGeneralStep(1);
@@ -493,9 +849,83 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       setGeneralStep(3);
       return toast.error('Configuration obligatoire pour Appartement en vente');
     }
+    if (isLocalCommercialVente && !String(formData.activite_recommandee || '').trim()) {
+      setGeneralStep(3);
+      return toast.error('Activite recommandee obligatoire pour Local commercial en vente');
+    }
+    if (isLocalCommercialVente && !formData.type_rue) {
+      setGeneralStep(3);
+      return toast.error('Type de rue obligatoire pour Local commercial en vente');
+    }
+    if (isLocalCommercialVente && !formData.type_papier) {
+      setGeneralStep(3);
+      return toast.error('Type de papier obligatoire pour Local commercial en vente');
+    }
+    if (isTerrainVente && !formData.type_terrain) {
+      setGeneralStep(3);
+      return toast.error('Type de terrain obligatoire pour Terrain en vente');
+    }
+    if (isTerrainVente && !formData.type_rue) {
+      setGeneralStep(3);
+      return toast.error('Type de rue obligatoire pour Terrain en vente');
+    }
+    if (isTerrainVente && !formData.type_papier) {
+      setGeneralStep(3);
+      return toast.error('Type de papier obligatoire pour Terrain en vente');
+    }
+    if (isImmeubleVente && !formData.type_rue) {
+      setGeneralStep(3);
+      return toast.error('Type de rue obligatoire pour Immeuble en vente');
+    }
+    if (isImmeubleVente && !formData.type_papier) {
+      setGeneralStep(3);
+      return toast.error('Type de papier obligatoire pour Immeuble en vente');
+    }
+    if (selectedMode === 'vente') {
+      const prixAfficheClient = Number(formData.prix_affiche_client ?? formData.prix_nuitee ?? 0);
+      if (!Number.isFinite(prixAfficheClient) || prixAfficheClient <= 0) {
+        setGeneralStep(4);
+        return toast.error('Prix affiche client obligatoire et > 0');
+      }
+      if (tarificationMethode === 'sans_commission') {
+        const prixFixeProprietaire = Number(formData.prix_fixe_proprietaire ?? 0);
+        const maxReduction = Number(formData.montant_max_reduction_negociation ?? 0);
+        if (!Number.isFinite(prixFixeProprietaire) || prixFixeProprietaire <= 0) {
+          setGeneralStep(4);
+          return toast.error('Prix fixe proprietaire obligatoire et > 0');
+        }
+        if (prixFixeProprietaire > prixAfficheClient) {
+          setGeneralStep(4);
+          return toast.error('Prix fixe proprietaire ne peut pas depasser le prix affiche client');
+        }
+        if (maxReduction < 0 || maxReduction > venteTarification.revenuAgence) {
+          setGeneralStep(4);
+          return toast.error('Montant max de reduction invalide');
+        }
+      }
+      const modalitePaiementVente = (formData.modalite_paiement_vente || 'comptant') as ModalitePaiementVente;
+      if (modalitePaiementVente === 'facilite') {
+        const pourcentagePromesse = Number(formData.pourcentage_premiere_partie_promesse ?? DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE);
+        const nombreTranches = Math.floor(Number(formData.nombre_tranches ?? 0));
+        const periodeMois = Math.floor(Number(formData.periode_tranches_mois ?? 0));
+        if (pourcentagePromesse <= 0 || pourcentagePromesse >= 100) {
+          setGeneralStep(5);
+          return toast.error('Le pourcentage de promesse doit etre > 0 et < 100');
+        }
+        if (nombreTranches <= 0) {
+          setGeneralStep(5);
+          return toast.error('Le nombre de tranches doit etre > 0');
+        }
+        if (periodeMois <= 0) {
+          setGeneralStep(5);
+          return toast.error('La periode (mois) doit etre > 0');
+        }
+      }
+    }
 
     const imagesWithPositions = images.map((img, idx) => ({ ...img, position: idx }));
     const descriptionWithFeatures = customFeatures.length > 0 ? `${(formData.description || '').trim()}\n\n${CHARACTERISTICS_MARKER}${JSON.stringify(customFeatures)}` : (formData.description || '');
+    const ventePaiement = computeVentePaiement(formData, venteTarification.prixFinal);
     const deriveBedroomsFromConfiguration = (configuration?: string | null): number => {
       if (!configuration) return 0;
       const match = configuration.match(/S\s*\+\s*(\d+)/i);
@@ -504,7 +934,14 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     };
     const resolvedNbChambres = isAppartementVente
       ? deriveBedroomsFromConfiguration(formData.configuration || null)
-      : Number(formData.nb_chambres || 0);
+      : isLocalCommercialVente
+        ? 0
+        : isTerrainVente
+          ? 0
+          : isImmeubleVente
+            ? 0
+        : Number(formData.nb_chambres || 0);
+    const resolvedNbSalleBain = (isLocalCommercialVente || isTerrainVente || isImmeubleVente) ? 0 : Number(formData.nb_salle_bain || 0);
     const appartementVenteData = isAppartementVente
       ? {
           type_rue: formData.type_rue || null,
@@ -556,92 +993,194 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           eau_sonede: false,
           electricite_steg: false,
         };
-    const finalData: Bien = { ...formData, mode: selectedMode, type: selectedType, nb_chambres: resolvedNbChambres, ...appartementVenteData, description: descriptionWithFeatures, caracteristiques: customFeatures, caracteristique_ids: selectedFeatureIds, id: initialData?.id || Math.random().toString(36).substr(2, 9), media: imagesWithPositions, unavailableDates: unavailableDates, created_at: initialData?.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0] } as Bien;
-    
-    // Save media positions to database
-    if (finalData.id && imagesWithPositions.length > 0) {
-      try {
-        const existingMedia = imagesWithPositions.filter((media) => initialMediaIds.has(media.id));
-        const newMedia = imagesWithPositions.filter((media) => !initialMediaIds.has(media.id));
-        const removedMediaIds = Array.from(initialMediaIds).filter((id) => !imagesWithPositions.some((media) => media.id === id));
-
-        let usedFullRebuild = false;
-
-        if (existingMedia.length > 0) {
-          const positionPayload = existingMedia.map((media) => ({ id: media.id, position: media.position ?? 0 }));
-          const bulkResponse = await fetch('http://localhost:3001/api/media/bulk/positions', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ media: positionPayload }),
-          });
-
-          if (!bulkResponse.ok) {
-            let singleUpdateOk = true;
-            for (const item of positionPayload) {
-              const updateResponse = await fetch(`http://localhost:3001/api/media/${item.id}/position`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ position: item.position }),
-              });
-              if (!updateResponse.ok) {
-                singleUpdateOk = false;
-                break;
-              }
-            }
-
-            if (!singleUpdateOk) {
-              for (const mediaId of Array.from(initialMediaIds)) {
-                await fetch(`http://localhost:3001/api/media/${mediaId}`, { method: 'DELETE' });
-              }
-              for (const media of imagesWithPositions) {
-                const rebuildResponse = await fetch('http://localhost:3001/api/media', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ bien_id: finalData.id, type: media.type, url: media.url, position: media.position ?? 0 }),
-                });
-                if (!rebuildResponse.ok) throw new Error('Failed to rebuild media order');
-              }
-              usedFullRebuild = true;
-            }
-          }
+    const localCommercialVenteData = isLocalCommercialVente
+      ? {
+          type_rue: formData.type_rue || null,
+          type_papier: formData.type_papier || null,
+          surface_local_m2: formData.surface_local_m2 ?? null,
+          facade_m: formData.facade_m ?? null,
+          hauteur_plafond_m: formData.hauteur_plafond_m ?? null,
+          activite_recommandee: formData.activite_recommandee || null,
+          toilette: !!formData.toilette,
+          reserve_local: !!formData.reserve_local,
+          vitrine: !!formData.vitrine,
+          coin_angle: !!formData.coin_angle,
+          electricite_3_phases: !!formData.electricite_3_phases,
+          gaz_ville: !!formData.gaz_ville,
+          alarme: !!formData.alarme,
+          eau_puits: !!formData.eau_puits,
+          eau_sonede: !!formData.eau_sonede,
+          electricite_steg: !!formData.electricite_steg,
         }
-
-        if (!usedFullRebuild) {
-          for (const mediaId of removedMediaIds) {
-            const deleteResponse = await fetch(`http://localhost:3001/api/media/${mediaId}`, { method: 'DELETE' });
-            if (!deleteResponse.ok) throw new Error('Failed to delete media');
-          }
-          for (const media of newMedia) {
-            const createResponse = await fetch('http://localhost:3001/api/media', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ bien_id: finalData.id, type: media.type, url: media.url, position: media.position ?? 0 }),
-            });
-            if (!createResponse.ok) throw new Error('Failed to create media');
-          }
+      : {
+          surface_local_m2: null,
+          facade_m: null,
+          hauteur_plafond_m: null,
+          activite_recommandee: null,
+          toilette: false,
+          reserve_local: false,
+          vitrine: false,
+          coin_angle: false,
+          electricite_3_phases: false,
+          alarme: false,
+        };
+    const terrainVenteData = isTerrainVente
+      ? {
+          type_rue: formData.type_rue || null,
+          type_papier: formData.type_papier || null,
+          type_terrain: formData.type_terrain || null,
+          terrain_facade_m: formData.terrain_facade_m ?? null,
+          terrain_surface_m2: formData.terrain_surface_m2 ?? null,
+          terrain_distance_plage_m: formData.terrain_distance_plage_m ?? null,
+          terrain_zone: formData.terrain_zone || null,
+          terrain_constructible: !!formData.terrain_constructible,
+          terrain_angle: !!formData.terrain_angle,
+          eau_puits: !!formData.eau_puits,
+          eau_sonede: !!formData.eau_sonede,
+          electricite_steg: !!formData.electricite_steg,
         }
-      } catch (error) { console.error('Error saving media:', error); }
-    }
+      : {
+          type_terrain: null,
+          terrain_facade_m: null,
+          terrain_surface_m2: null,
+          terrain_distance_plage_m: null,
+          terrain_zone: null,
+          terrain_constructible: false,
+          terrain_angle: false,
+        };
+    const immeubleVenteData = isImmeubleVente
+      ? {
+          type_rue: formData.type_rue || null,
+          type_papier: formData.type_papier || null,
+          immeuble_surface_terrain_m2: formData.immeuble_surface_terrain_m2 ?? null,
+          immeuble_surface_batie_m2: formData.immeuble_surface_batie_m2 ?? null,
+          immeuble_nb_niveaux: formData.immeuble_nb_niveaux ?? null,
+          immeuble_nb_garages: formData.immeuble_nb_garages ?? null,
+          immeuble_nb_appartements: formData.immeuble_nb_appartements ?? null,
+          immeuble_nb_locaux_commerciaux: formData.immeuble_nb_locaux_commerciaux ?? null,
+          immeuble_distance_plage_m: formData.immeuble_distance_plage_m ?? null,
+          immeuble_proche_plage: !!formData.immeuble_proche_plage,
+          immeuble_ascenseur: !!formData.immeuble_ascenseur,
+          immeuble_parking_sous_sol: !!formData.immeuble_parking_sous_sol,
+          immeuble_parking_exterieur: !!formData.immeuble_parking_exterieur,
+          immeuble_syndic: !!formData.immeuble_syndic,
+          immeuble_vue_mer: !!formData.immeuble_vue_mer,
+          immeuble_appartements: Array.isArray(formData.immeuble_appartements) ? formData.immeuble_appartements : [],
+          eau_puits: !!formData.eau_puits,
+          eau_sonede: !!formData.eau_sonede,
+          electricite_steg: !!formData.electricite_steg,
+        }
+      : {
+          immeuble_surface_terrain_m2: null,
+          immeuble_surface_batie_m2: null,
+          immeuble_nb_niveaux: null,
+          immeuble_nb_garages: null,
+          immeuble_nb_appartements: null,
+          immeuble_nb_locaux_commerciaux: null,
+          immeuble_distance_plage_m: null,
+          immeuble_proche_plage: false,
+          immeuble_ascenseur: false,
+          immeuble_parking_sous_sol: false,
+          immeuble_parking_exterieur: false,
+          immeuble_syndic: false,
+          immeuble_vue_mer: false,
+          immeuble_appartements: [],
+        };
+    const finalData: Bien = {
+      ...formData,
+      mode: selectedMode,
+      type: selectedType,
+      nb_chambres: resolvedNbChambres,
+      nb_salle_bain: resolvedNbSalleBain,
+      prix_nuitee: selectedMode === 'vente' ? venteTarification.prixAfficheClient : Number(formData.prix_nuitee || 0),
+      tarification_methode: selectedMode === 'vente' ? tarificationMethode : null,
+      prix_affiche_client: selectedMode === 'vente' ? venteTarification.prixAfficheClient : null,
+      prix_fixe_proprietaire: selectedMode === 'vente' ? venteTarification.prixFixeProprietaire : null,
+      prix_final: selectedMode === 'vente' ? venteTarification.prixFinal : null,
+      revenu_agence: selectedMode === 'vente' ? venteTarification.revenuAgence : null,
+      commission_pourcentage_proprietaire: selectedMode === 'vente' ? venteTarification.commissionPourcentageProprietaire : null,
+      commission_pourcentage_client: selectedMode === 'vente' ? venteTarification.commissionPourcentageClient : null,
+      montant_max_reduction_negociation: selectedMode === 'vente' && tarificationMethode === 'sans_commission'
+        ? Number(formData.montant_max_reduction_negociation ?? 0)
+        : null,
+      prix_minimum_accepte: selectedMode === 'vente' && tarificationMethode === 'sans_commission'
+        ? venteTarification.prixMinimumAccepte
+        : null,
+      modalite_paiement_vente: selectedMode === 'vente' ? ventePaiement.modalite : null,
+      pourcentage_premiere_partie_promesse: selectedMode === 'vente' ? ventePaiement.pourcentagePremierePartiePromesse : null,
+      montant_premiere_partie_promesse: selectedMode === 'vente' ? ventePaiement.montantPremierePartiePromesse : null,
+      montant_deuxieme_partie: selectedMode === 'vente' ? ventePaiement.montantDeuxiemePartie : null,
+      nombre_tranches: selectedMode === 'vente' && ventePaiement.modalite === 'facilite' ? ventePaiement.nombreTranches : null,
+      periode_tranches_mois: selectedMode === 'vente' && ventePaiement.modalite === 'facilite' ? ventePaiement.periodeTranchesMois : null,
+      montant_par_tranche: selectedMode === 'vente' && ventePaiement.modalite === 'facilite' ? ventePaiement.montantParTranche : null,
+      ...appartementVenteData,
+      ...localCommercialVenteData,
+      ...terrainVenteData,
+      ...immeubleVenteData,
+      description: descriptionWithFeatures,
+      caracteristiques: customFeatures,
+      caracteristique_ids: selectedFeatureIds,
+      id: initialData?.id || Math.random().toString(36).substr(2, 9),
+      media: imagesWithPositions,
+      unavailableDates: unavailableDates,
+      created_at: initialData?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0]
+    } as Bien;
+    markStepValidated(selectedMode === 'vente' ? 5 : 4);
     onSubmit(finalData);
   };
   const selectedProprietaire = proprietaireOptions.find((p) => p.id === (formData.proprietaire_id || ''));
   const isAppartementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement';
+  const isLocalCommercialVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial';
+  const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
+  const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
+  const isModeVente = (formData.mode || 'location_saisonniere') === 'vente';
+  const currentTarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
+  const venteTarificationPreview = computeVenteTarification(formData);
+  const currentModalitePaiementVente = (formData.modalite_paiement_vente || 'comptant') as ModalitePaiementVente;
+  const ventePaiementPreview = computeVentePaiement(formData, venteTarificationPreview.prixFinal);
+  const requiredPrimaryStep = isModeVente ? 5 : 4;
+  const markStepValidated = (step: number) => {
+    setValidatedSteps((prev) => {
+      const next = new Set(prev);
+      next.add(step);
+      return next;
+    });
+  };
+  const isStepUnlocked = (targetStep: number) => {
+    if (targetStep <= 1) return true;
+    for (let step = 1; step < targetStep; step += 1) {
+      if (!validatedSteps.has(step)) return false;
+    }
+    return true;
+  };
+  const goToStep = (targetStep: 1 | 2 | 3 | 4 | 5) => {
+    if (!isStepUnlocked(targetStep)) {
+      toast.error("Validez d'abord les etapes precedentes");
+      return;
+    }
+    setGeneralStep(targetStep);
+  };
+  const canAccessSecondaryTabs = isStepUnlocked(requiredPrimaryStep) && validatedSteps.has(requiredPrimaryStep);
 
   return (
     <form id="bien-editor-form" onSubmit={handleSubmit} className="flex flex-col h-full">
       <div className="flex border-b border-gray-200 bg-gray-50 px-4 shrink-0 overflow-x-auto">
         <button type="button" onClick={() => setActiveTab('general')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'general' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'}`}><Home className="h-4 w-4 inline mr-2" />Informations</button>
-        <button type="button" onClick={() => setActiveTab('images')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'images' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'}`}><ImageIcon className="h-4 w-4 inline mr-2" />Images ({images.length})</button>
-        <button type="button" onClick={() => setActiveTab('calendar')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'calendar' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'}`}><CalendarIcon className="h-4 w-4 inline mr-2" />Calendrier</button>
+        <button type="button" disabled={!canAccessSecondaryTabs} onClick={() => setActiveTab('images')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'images' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'} ${!canAccessSecondaryTabs ? 'opacity-50 cursor-not-allowed' : ''}`}><ImageIcon className="h-4 w-4 inline mr-2" />Images ({images.length})</button>
+        {!isModeVente && <button type="button" disabled={!canAccessSecondaryTabs} onClick={() => setActiveTab('calendar')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'calendar' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'} ${!canAccessSecondaryTabs ? 'opacity-50 cursor-not-allowed' : ''}`}><CalendarIcon className="h-4 w-4 inline mr-2" />Calendrier</button>}
       </div>
       <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
         {activeTab === 'general' && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="grid grid-cols-3 gap-2 text-xs sm:text-sm">
-                <button type="button" onClick={() => setGeneralStep(1)} className={`px-3 py-2 rounded-lg border ${generalStep === 1 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 1: Base</button>
-                <button type="button" onClick={() => setGeneralStep(2)} className={`px-3 py-2 rounded-lg border ${generalStep === 2 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 2: Type</button>
-                <button type="button" onClick={() => setGeneralStep(3)} className={`px-3 py-2 rounded-lg border ${generalStep === 3 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 3: Details</button>
+              <div className="grid grid-cols-5 gap-2 text-xs sm:text-sm">
+                <button type="button" onClick={() => goToStep(1)} className={`px-3 py-2 rounded-lg border ${generalStep === 1 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 1: Base</button>
+                <button type="button" disabled={!isStepUnlocked(2)} onClick={() => goToStep(2)} className={`px-3 py-2 rounded-lg border ${generalStep === 2 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(2) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 2: Type</button>
+                <button type="button" disabled={!isStepUnlocked(3)} onClick={() => goToStep(3)} className={`px-3 py-2 rounded-lg border ${generalStep === 3 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(3) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 3: Details</button>
+                <button type="button" disabled={!isStepUnlocked(4)} onClick={() => goToStep(4)} className={`px-3 py-2 rounded-lg border ${generalStep === 4 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(4) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 4: Tarification</button>
+                <button type="button" disabled={!isModeVente || !isStepUnlocked(5)} onClick={() => goToStep(5)} className={`px-3 py-2 rounded-lg border ${generalStep === 5 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${(!isModeVente || !isStepUnlocked(5)) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 5: Paiement</button>
               </div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
@@ -687,7 +1226,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Numéro propriétaire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
               </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-              <div className="flex justify-end"><button type="button" onClick={() => setGeneralStep(2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
+              <div className="flex justify-end"><button type="button" onClick={() => { markStepValidated(1); setStepInfoDialogOpen(true); goToStep(2); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
             </div>
             {generalStep >= 2 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
@@ -698,8 +1237,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
               </div>
               <div className="flex justify-between">
-                <button type="button" onClick={() => setGeneralStep(1)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
-                <button type="button" onClick={() => setGeneralStep(3)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 3</button>
+                <button type="button" onClick={() => goToStep(1)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
+                <button type="button" onClick={() => { markStepValidated(2); goToStep(3); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 3</button>
               </div>
             </div>}
             {generalStep >= 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
@@ -735,14 +1274,14 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
               )}
               {isAppartementVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Details Appartement (Vente)</h4>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Appartement (Vente)</h4>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Superficie (m2)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Superficie (m²)</label>
                       <input type="number" min={0} step="0.01" name="superficie_m2" value={formData.superficie_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Etage</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Étage</label>
                       <input type="number" min={0} name="etage" value={formData.etage ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
@@ -754,7 +1293,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Annee construction</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Année construction</label>
                       <input type="number" min={1800} max={3000} name="annee_construction" value={formData.annee_construction ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
@@ -784,7 +1323,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </label>
                     ))}
                   </div>
-                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caracteristiques generales</h5>
+                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(13).map((field) => (
                       <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -795,9 +1334,174 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                   </div>
                 </div>
               )}
+              {isLocalCommercialVente && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Local commercial (Vente)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface (m²)</label>
+                      <input type="number" min={0} step="0.01" name="surface_local_m2" value={formData.surface_local_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Façade (m)</label>
+                      <input type="number" min={0} step="0.01" name="facade_m" value={formData.facade_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Hauteur plafond (m)</label>
+                      <input type="number" min={0} step="0.01" name="hauteur_plafond_m" value={formData.hauteur_plafond_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Activité recommandée</label>
+                      <input name="activite_recommandee" value={formData.activite_recommandee || ''} onChange={handleChange} placeholder="Café, boutique..." className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de rue *</label>
+                      <select name="type_rue" value={formData.type_rue || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">-- Choisir --</option>
+                        {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label>
+                      <select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">-- Choisir --</option>
+                        {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                    {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(0, 7).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(7).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isTerrainVente && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Terrain (Vente)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Façade (m)</label>
+                      <input type="number" min={0} step="0.01" name="terrain_facade_m" value={formData.terrain_facade_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface (m²)</label>
+                      <input type="number" min={0} step="0.01" name="terrain_surface_m2" value={formData.terrain_surface_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de terrain *</label>
+                      <select name="type_terrain" value={formData.type_terrain || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">-- Choisir --</option>
+                        {Object.entries(TYPE_TERRAIN_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">Agricole: culture, Habitation: résidentiel, Industrielle: activité pro, Loisir: usage détente.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+                      <input name="terrain_zone" value={formData.terrain_zone || ''} onChange={handleChange} placeholder="Urbaine / touristique..." className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label>
+                      <input type="number" min={0} name="terrain_distance_plage_m" value={formData.terrain_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de rue *</label>
+                      <select name="type_rue" value={formData.type_rue || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">-- Choisir --</option>
+                        {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label>
+                      <select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">-- Choisir --</option>
+                        {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                    {TERRAIN_VENTE_BOOLEAN_FIELDS.slice(0, 2).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{TERRAIN_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {TERRAIN_VENTE_BOOLEAN_FIELDS.slice(2).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{TERRAIN_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isImmeubleVente && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Immeuble (Vente)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface terrain (m²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_terrain_m2" value={formData.immeuble_surface_terrain_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface bâtie (m²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_batie_m2" value={formData.immeuble_surface_batie_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre de niveaux</label><input type="number" min={0} name="immeuble_nb_niveaux" value={formData.immeuble_nb_niveaux ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre de garages</label><input type="number" min={0} name="immeuble_nb_garages" value={formData.immeuble_nb_garages ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre d'appartements</label><input type="number" min={0} name="immeuble_nb_appartements" value={formData.immeuble_nb_appartements ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre de locaux commerciaux</label><input type="number" min={0} name="immeuble_nb_locaux_commerciaux" value={formData.immeuble_nb_locaux_commerciaux ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Type de rue *</label><select name="type_rue" value={formData.type_rue || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option>{Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label><select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option>{Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label><input type="number" min={0} name="immeuble_distance_plage_m" value={formData.immeuble_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                  </div>
+                  <div className="mt-4">
+                    <h5 className="text-sm font-semibold text-gray-800 mb-2">Appartements de l'immeuble</h5>
+                    <div className="space-y-2">
+                      {(formData.immeuble_appartements || []).map((row, idx) => (
+                        <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Chambres</label><input type="number" min={0} value={row.chambres || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'chambres', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - SDB</label><input type="number" min={0} value={row.salle_bain || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'salle_bain', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Surface (m²)</label><input type="number" min={0} step="0.01" value={row.superficie_m2 ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'superficie_m2', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Configuration</label><input value={row.configuration || ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'configuration', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        </div>
+                      ))}
+                      {(formData.immeuble_appartements || []).length === 0 && <span className="text-xs text-gray-500">Le nombre de lignes suit le champ "Nombre d'appartements".</span>}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                    {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(0, 6).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{IMMEUBLE_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(6).map((field) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                        <span>{IMMEUBLE_VENTE_BOOLEAN_LABELS[field]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {!isAppartementVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
-                {!isAppartementVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
+                {!isAppartementVente && !isLocalCommercialVente && !isTerrainVente && !isImmeubleVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
+                {!isAppartementVente && !isLocalCommercialVente && !isTerrainVente && !isImmeubleVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
                 <label htmlFor="menage_en_cours" className="md:col-span-2 flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
                   <div>
                     <span className="block text-sm font-medium text-gray-800">Ménage en cours</span>
@@ -806,14 +1510,139 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                   <input type="checkbox" id="menage_en_cours" name="menage_en_cours" checked={formData.menage_en_cours || false} onChange={handleCheckboxChange} className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
                 </label>
               </div>
-            </div>}
-            {generalStep >= 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
-              <h3 className="text-lg font-semibold"><Banknote className="h-5 w-5 inline text-emerald-600 mr-2" />Tarification</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+              <div className="flex justify-between">
+                <button type="button" onClick={() => goToStep(2)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
+                <button type="button" onClick={() => { markStepValidated(3); goToStep(4); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 4</button>
               </div>
+            </div>}
+            {generalStep >= 4 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+              <h3 className="text-lg font-semibold"><Banknote className="h-5 w-5 inline text-emerald-600 mr-2" />Tarification</h3>
+              {isModeVente ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Méthode de commission</label>
+                      <select name="tarification_methode" value={currentTarificationMethode} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="avec_commission">Avec commission</option>
+                        <option value="sans_commission">Sans commission</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiché client (DT)</label>
+                      <input type="number" min={0} step="0.01" name="prix_affiche_client" value={formData.prix_affiche_client ?? formData.prix_nuitee ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    {currentTarificationMethode === 'avec_commission' ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriétaire (calculé)</label>
+                        <input readOnly value={venteTarificationPreview.prixFixeProprietaire} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriétaire (DT)</label>
+                        <input type="number" min={0} step="0.01" name="prix_fixe_proprietaire" value={formData.prix_fixe_proprietaire ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    )}
+                  </div>
+                  {currentTarificationMethode === 'avec_commission' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Commission part propriétaire (%)</label>
+                        <input type="number" min={0} step="0.01" name="commission_pourcentage_proprietaire" value={formData.commission_pourcentage_proprietaire ?? DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Commission part client (%)</label>
+                        <input type="number" min={0} step="0.01" name="commission_pourcentage_client" value={formData.commission_pourcentage_client ?? DEFAULT_COMMISSION_CLIENT_PERCENT} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Montant max à diminuer (DT)</label>
+                        <input type="number" min={0} step="0.01" name="montant_max_reduction_negociation" value={formData.montant_max_reduction_negociation ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix minimum accepté (calculé)</label>
+                        <input readOnly value={venteTarificationPreview.prixMinimumAccepte} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" />
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix final (DT)</label><input readOnly value={venteTarificationPreview.prixFinal} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Revenu agence (DT)</label><input readOnly value={venteTarificationPreview.revenuAgence} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriétaire (DT)</label><input readOnly value={venteTarificationPreview.prixFixeProprietaire} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <button type="button" onClick={() => goToStep(3)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
+                {isModeVente
+                  ? <button type="button" onClick={() => { markStepValidated(4); goToStep(5); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 5</button>
+                  : <button type="button" onClick={() => { markStepValidated(4); toast.success('Etape 4 validée'); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Valider etape 4</button>}
+              </div>
+            </div>}
+            {isModeVente && generalStep >= 5 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+              <h3 className="text-lg font-semibold"><Banknote className="h-5 w-5 inline text-emerald-600 mr-2" />Modalite de paiement (Vente)</h3>
+              {isModeVente ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Mode de paiement</label>
+                      <select name="modalite_paiement_vente" value={currentModalitePaiementVente} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="comptant">Comptant</option>
+                        <option value="facilite">Facilite de paiement</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix total client (DT)</label>
+                      <input readOnly value={venteTarificationPreview.prixFinal} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">1ere partie promesse (DT)</label>
+                      <input readOnly value={ventePaiementPreview.montantPremierePartiePromesse} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" />
+                    </div>
+                  </div>
+                  {currentModalitePaiementVente === 'facilite' ? (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Pourcentage 1ere partie (%)</label>
+                          <input type="number" min={0} max={100} step="0.01" name="pourcentage_premiere_partie_promesse" value={formData.pourcentage_premiere_partie_promesse ?? DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de tranches</label>
+                          <input type="number" min={1} step="1" name="nombre_tranches" value={formData.nombre_tranches ?? 6} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Periode totale (mois)</label>
+                          <input type="number" min={1} step="1" name="periode_tranches_mois" value={formData.periode_tranches_mois ?? 6} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">2eme partie restante (DT)</label><input readOnly value={ventePaiementPreview.montantDeuxiemePartie} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Montant par tranche (DT)</label><input readOnly value={ventePaiementPreview.montantParTranche} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Resume</label><input readOnly value={`${ventePaiementPreview.nombreTranches} tranches / ${ventePaiementPreview.periodeTranchesMois} mois`} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Montant comptant (DT)</label><input readOnly value={ventePaiementPreview.montantPremierePartiePromesse} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Reste (DT)</label><input readOnly value={0} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <button type="button" onClick={() => goToStep(4)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
+                    <button type="button" onClick={() => { markStepValidated(5); toast.success('Etape 5 validée'); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Valider etape 5</button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500">La modalite de paiement est geree uniquement pour le mode vente.</p>
+              )}
             </div>}
           </div>
         )}
@@ -821,6 +1650,18 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
               <h3 className="text-lg font-semibold mb-4"><ImageIcon className="h-5 w-5 inline text-emerald-600 mr-2" />Gestion des images</h3>
+              {normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial' && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Motif d'upload photo du local</label>
+                  <input
+                    type="text"
+                    value={newImageMotif}
+                    onChange={(e) => setNewImageMotif(e.target.value)}
+                    placeholder="Ex: Facade, Vitrine, Interieur, Reserve..."
+                    className="w-full rounded-lg border-gray-300 border p-2"
+                  />
+                </div>
+              )}
               <div className="flex gap-2 mb-4"><input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL de l'image" className="flex-1 rounded-lg border-gray-300 border p-2" /><button type="button" onClick={handleAddImage} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button></div>
               <div className="mb-6"><label className="block text-sm font-medium text-gray-700 mb-2">Ou upload</label><input type="file" accept="image/*" onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />{uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -844,6 +1685,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       <button type="button" onClick={() => handleRemoveImage(img.id)} className="p-1.5 bg-red-500 text-white rounded-full shadow">✕</button>
                     </div>
                     {index === 0 && <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs px-2 py-0.5 rounded">Principale</span>}
+                    {!!img.motif_upload && <span className="absolute top-2 left-20 bg-white/90 text-gray-700 text-xs px-2 py-0.5 rounded border">{img.motif_upload}</span>}
                     <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{images.length}</span>
                   </div>
                 ))}
@@ -852,12 +1694,24 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
             </div>
           </div>
         )}
-        {activeTab === 'calendar' && (
+        {!isModeVente && activeTab === 'calendar' && (
           <div className="max-w-5xl mx-auto">
             <AdminCalendar dates={unavailableDates} onDatesChange={setUnavailableDates} />
           </div>
         )}
       </div>
+      <Dialog.Root open={stepInfoDialogOpen} onOpenChange={setStepInfoDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
+          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
+            <Dialog.Title className="text-lg font-semibold text-gray-900">Validation</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-gray-600">Étape Informations validée.</Dialog.Description>
+            <div className="mt-4 flex justify-end">
+              <button type="button" onClick={() => setStepInfoDialogOpen(false)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">OK</button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </form>
   );
 }
@@ -902,6 +1756,7 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
 
 function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
   const mainImage = bien.media?.[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
+  const displayPrice = bien.mode === 'vente' ? Number(bien.prix_affiche_client ?? bien.prix_nuitee ?? 0) : Number(bien.prix_nuitee || 0);
   const rawDescription = bien.description || '';
   const markerIndex = rawDescription.indexOf(CHARACTERISTICS_MARKER);
   const cleanDescription = markerIndex >= 0 ? rawDescription.slice(0, markerIndex).trim() : rawDescription;
@@ -914,7 +1769,22 @@ function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4"><div className="bg-gray-50 rounded-lg p-4 text-center"><Bed className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_chambres}</span><span className="text-xs text-gray-500 block">Chambres</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Bath className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_salle_bain}</span><span className="text-xs text-gray-500 block">Salles de bain</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Banknote className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.avance} DT</span><span className="text-xs text-gray-500 block">Avance</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Sofa className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.menage_en_cours ? 'Oui' : 'Non'}</span><span className="text-xs text-gray-500 block">Ménage</span></div></div>
         {customFeatures.length > 0 && <div><h3 className="text-lg font-semibold mb-2">Caractéristiques ajoutées</h3><div className="flex flex-wrap gap-2">{customFeatures.map((feature) => <span key={feature} className="px-2 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-sm text-emerald-700">{feature}</span>)}</div></div>}
         {cleanDescription && <div><h3 className="text-lg font-semibold mb-2">Description</h3><p className="text-gray-600 whitespace-pre-line">{cleanDescription}</p></div>}
-        <div className="bg-emerald-50 rounded-xl p-6"><div className="flex items-baseline justify-between"><div><span className="text-3xl font-bold text-emerald-600">{bien.prix_nuitee} DT</span><span className="text-gray-500">/nuit</span></div><div className="text-right text-sm text-gray-500"><div>Avance: {bien.avance} DT</div><div>Caution: {bien.caution} DT</div></div></div></div>
+        <div className="bg-emerald-50 rounded-xl p-6">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <span className="text-3xl font-bold text-emerald-600">{displayPrice} DT</span>
+              {bien.mode !== 'vente' && <span className="text-gray-500">/nuit</span>}
+            </div>
+            {bien.mode === 'vente' ? (
+              <div className="text-right text-sm text-gray-500">
+                <div>Prix final: {bien.prix_final ?? displayPrice} DT</div>
+                <div>Revenu agence: {bien.revenu_agence ?? 0} DT</div>
+              </div>
+            ) : (
+              <div className="text-right text-sm text-gray-500"><div>Avance: {bien.avance} DT</div><div>Caution: {bien.caution} DT</div></div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

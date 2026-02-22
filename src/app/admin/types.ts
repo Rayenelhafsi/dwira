@@ -46,6 +46,9 @@ export type TypePapierAppartementVente =
   | 'titre_foncier_collectif'
   | 'contrat_seulement'
   | 'sans_papier';
+export type TypeTerrainVente = 'agricole' | 'habitation' | 'industrielle' | 'loisir';
+export type TarificationMethodeVente = 'avec_commission' | 'sans_commission';
+export type ModalitePaiementVente = 'comptant' | 'facilite';
 
 export interface DateStatus {
   start: string;
@@ -53,6 +56,14 @@ export interface DateStatus {
   status: 'blocked' | 'pending' | 'booked';
   color?: string;
   paymentDeadline?: string;
+}
+
+export interface ImmeubleAppartementDetail {
+  index: number;
+  chambres: number;
+  salle_bain: number;
+  superficie_m2?: number | null;
+  configuration?: string | null;
 }
 
 export interface Bien {
@@ -66,6 +77,22 @@ export interface Bien {
   nb_chambres: number;
   nb_salle_bain: number;
   prix_nuitee: number;
+  tarification_methode?: TarificationMethodeVente | null;
+  prix_affiche_client?: number | null;
+  prix_fixe_proprietaire?: number | null;
+  prix_final?: number | null;
+  revenu_agence?: number | null;
+  commission_pourcentage_proprietaire?: number | null;
+  commission_pourcentage_client?: number | null;
+  montant_max_reduction_negociation?: number | null;
+  prix_minimum_accepte?: number | null;
+  modalite_paiement_vente?: ModalitePaiementVente | null;
+  pourcentage_premiere_partie_promesse?: number | null;
+  montant_premiere_partie_promesse?: number | null;
+  montant_deuxieme_partie?: number | null;
+  nombre_tranches?: number | null;
+  periode_tranches_mois?: number | null;
+  montant_par_tranche?: number | null;
   avance: number;
   caution: number;
   type_rue?: TypeRueAppartementVente | null;
@@ -91,6 +118,37 @@ export interface Bien {
   eau_puits?: boolean;
   eau_sonede?: boolean;
   electricite_steg?: boolean;
+  surface_local_m2?: number | null;
+  facade_m?: number | null;
+  hauteur_plafond_m?: number | null;
+  activite_recommandee?: string | null;
+  toilette?: boolean;
+  reserve_local?: boolean;
+  vitrine?: boolean;
+  coin_angle?: boolean;
+  electricite_3_phases?: boolean;
+  alarme?: boolean;
+  type_terrain?: TypeTerrainVente | null;
+  terrain_facade_m?: number | null;
+  terrain_surface_m2?: number | null;
+  terrain_distance_plage_m?: number | null;
+  terrain_zone?: string | null;
+  terrain_constructible?: boolean;
+  terrain_angle?: boolean;
+  immeuble_surface_terrain_m2?: number | null;
+  immeuble_surface_batie_m2?: number | null;
+  immeuble_nb_niveaux?: number | null;
+  immeuble_nb_garages?: number | null;
+  immeuble_nb_appartements?: number | null;
+  immeuble_nb_locaux_commerciaux?: number | null;
+  immeuble_distance_plage_m?: number | null;
+  immeuble_proche_plage?: boolean;
+  immeuble_ascenseur?: boolean;
+  immeuble_parking_sous_sol?: boolean;
+  immeuble_parking_exterieur?: boolean;
+  immeuble_syndic?: boolean;
+  immeuble_vue_mer?: boolean;
+  immeuble_appartements?: ImmeubleAppartementDetail[];
   charges?: number;
   statut: BienStatut;
   menage_en_cours: boolean;
@@ -116,6 +174,7 @@ export interface Media {
   type: 'image' | 'video';
   url: string;
   position?: number;
+  motif_upload?: string | null;
 }
 
 export interface Locataire {
