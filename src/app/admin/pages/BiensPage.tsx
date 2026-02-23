@@ -239,7 +239,7 @@ function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) 
 }
 
 export default function BiensPage() {
-  const { biens, zones, proprietaires, addBien, updateBien, deleteBien, isLoading } = useProperties();
+  const { biens, zones, proprietaires, addBien, updateBien, deleteBien, refreshData, isLoading } = useProperties();
   const zoneOptions = zones.length > 0 ? zones : mockZones;
   const proprietaireOptions = proprietaires.length > 0 ? proprietaires : mockProprietaires;
   const [searchTerm, setSearchTerm] = useState('');
@@ -275,12 +275,17 @@ export default function BiensPage() {
         await updateBien(bien as any);
         await syncMediaForBien(bien.id, media || []);
       } else {
-        await addBien(bienData as any);
-        await syncMediaForBien(String(bienData.id || bien.id), media || []);
+        const createdBienId = await addBien(bienData as any);
+        await syncMediaForBien(createdBienId || String(bienData.id || bien.id), media || []);
       }
+      await refreshData();
       setIsAddOpen(false);
       setEditingBien(null);
       setSaveSuccessDialogOpen(true);
+      // Hard refresh to guarantee dashboard state reflects persisted data.
+      setTimeout(() => {
+        window.location.reload();
+      }, 300);
     } catch {
       toast.error('Erreur sauvegarde');
     }
