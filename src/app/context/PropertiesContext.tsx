@@ -258,7 +258,14 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     bedrooms: bien.nb_chambres,
     bathrooms: bien.nb_salle_bain,
     images: bien.media && bien.media.length > 0 
-      ? bien.media.filter((m: any) => !m.motif_upload || (m.motif_upload !== 'preuve_type_rue' && m.motif_upload !== 'preuve_type_papier')).map((m: any) => m.url) 
+      ? bien.media.filter((m: any) => {
+        const motif = String(m.motif_upload || '');
+        const isProof = motif === 'preuve_type_rue'
+          || motif === 'preuve_type_papier'
+          || motif.startsWith('preuve_type_rue|')
+          || motif.startsWith('preuve_type_papier|');
+        return !m.motif_upload || !isProof;
+      }).map((m: any) => m.url) 
       : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'],
     description: bien.description || `Superbe ${bien.type}`,
     amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),

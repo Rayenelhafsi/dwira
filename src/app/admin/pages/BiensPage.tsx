@@ -157,6 +157,16 @@ const DEFAULT_COMMISSION_CLIENT_PERCENT = 2;
 const DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE = 30;
 const PROOF_MOTIF_TYPE_RUE = 'preuve_type_rue';
 const PROOF_MOTIF_TYPE_PAPIER = 'preuve_type_papier';
+const buildProofMotif = (
+  proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
+  mode?: BienMode,
+  type?: BienType
+) => `${proofType}|${mode || 'unknown_mode'}|${type || 'unknown_type'}`;
+const isProofMotif = (motif?: string | null) =>
+  String(motif || '') === PROOF_MOTIF_TYPE_RUE
+  || String(motif || '') === PROOF_MOTIF_TYPE_PAPIER
+  || String(motif || '').startsWith(`${PROOF_MOTIF_TYPE_RUE}|`)
+  || String(motif || '').startsWith(`${PROOF_MOTIF_TYPE_PAPIER}|`);
 
 function toMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -474,11 +484,20 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     return (value || 'appartement') as BienType;
   };
   const generateReference = () => `REF-${Date.now().toString().slice(-6)}`;
-  const isProofImage = (img: Media) =>
-    img.motif_upload === PROOF_MOTIF_TYPE_RUE || img.motif_upload === PROOF_MOTIF_TYPE_PAPIER;
+  const currentProofTypeRueMotif = buildProofMotif(
+    PROOF_MOTIF_TYPE_RUE,
+    (formData.mode || 'location_saisonniere') as BienMode,
+    normalizeLegacyType((formData.type || 'appartement') as BienType)
+  );
+  const currentProofTypePapierMotif = buildProofMotif(
+    PROOF_MOTIF_TYPE_PAPIER,
+    (formData.mode || 'location_saisonniere') as BienMode,
+    normalizeLegacyType((formData.type || 'appartement') as BienType)
+  );
+  const isProofImage = (img: Media) => isProofMotif(img.motif_upload);
   const clientVisibleImages = images.filter((img) => !isProofImage(img));
-  const typeRueProofImages = images.filter((img) => img.motif_upload === PROOF_MOTIF_TYPE_RUE);
-  const typePapierProofImages = images.filter((img) => img.motif_upload === PROOF_MOTIF_TYPE_PAPIER);
+  const typeRueProofImages = images.filter((img) => img.motif_upload === currentProofTypeRueMotif);
+  const typePapierProofImages = images.filter((img) => img.motif_upload === currentProofTypePapierMotif);
 
   useEffect(() => {
     const rawDescription = initialData?.description || '';
@@ -638,7 +657,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   };
 
   const handleProofFileUpload = async (
-    proofMotif: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
+    proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const files = Array.from(e.target.files || []);
@@ -659,7 +678,11 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           bien_id: formData.id || '',
           type: 'image',
           url: data.url,
-          motif_upload: proofMotif,
+          motif_upload: buildProofMotif(
+            proofType,
+            (formData.mode || 'location_saisonniere') as BienMode,
+            normalizeLegacyType((formData.type || 'appartement') as BienType)
+          ),
         };
         setImages((prev) => [...prev, newMedia]);
         successCount += 1;
@@ -946,6 +969,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     <div className="mt-4 rounded-lg border border-dashed border-gray-300 bg-white p-3 sm:p-4">
       <h5 className="text-sm font-semibold text-gray-800">Preuves (optionnel)</h5>
       <p className="text-xs text-gray-500 mt-1">Vous pouvez ajouter des images de preuve pour le type de rue et le type de papier de ce bien.</p>
+      <p className="text-xs text-gray-500 mt-1">Contexte: {(formData.mode || 'location_saisonniere')} / {normalizeLegacyType((formData.type || 'appartement') as BienType)}</p>
       <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
