@@ -37,7 +37,10 @@ export default function PropertyDetailsPage() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
-  const formatRating = (value: number) => (Number.isFinite(value) ? value.toFixed(1) : "0.0");
+  const formatRating = (value: number) =>
+    Number.isFinite(value)
+      ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
+      : "0,0";
 
   // Load saved state from localStorage on mount
   useEffect(() => {

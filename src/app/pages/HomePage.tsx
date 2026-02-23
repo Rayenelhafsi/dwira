@@ -441,12 +441,12 @@ export default function HomePage() {
             <div>
               <h2 className="text-3xl font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <Star className="text-amber-500 fill-amber-500" size={28} />
-                {hasSearched ? "Résultats de la recherche" : "Nos Coups de Cœur"}
+                {hasSearched ? "Résultats de la recherche" : "Catalogue des biens"}
               </h2>
               <p className="text-gray-600 max-w-xl">
                 {hasSearched 
                   ? `${filteredProperties.length} logement${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
-                  : "Une sélection exclusive de biens pour des vacances inoubliables ou un investissement sûr."}
+                  : "Tous les biens sont affichés. Les biens en vedette apparaissent en premier."}
               </p>
             </div>
             <Link to="/logements" className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">

@@ -11,7 +11,9 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const linkTo = searchParams 
     ? `/properties/${property.slug}?${searchParams}`
     : `/properties/${property.slug}`;
-  const ratingDisplay = Number.isFinite(property.rating) ? property.rating.toFixed(1) : "0.0";
+  const ratingDisplay = Number.isFinite(property.rating)
+    ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
+    : "0,0";
     
   return (
     <Link 
