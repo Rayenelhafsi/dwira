@@ -1522,6 +1522,12 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
+  const immeubleClientImageUnits = [
+    ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` })),
+    ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_garages || 0)) }, (_, idx) => ({ unitKey: `garage_${idx + 1}`, label: `Garage ${idx + 1}` })),
+    ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_locaux_commerciaux || 0)) }, (_, idx) => ({ unitKey: `local_commercial_${idx + 1}`, label: `Local commercial ${idx + 1}` })),
+  ];
+  const lotissementClientImageUnits = Array.from({ length: Math.max(1, Number(formData.lotissement_nb_terrains || 1)) }, (_, idx) => ({ unitKey: `terrain_${idx + 1}`, label: `Terrain ${idx + 1}` }));
   const isModeVente = (formData.mode || 'location_saisonniere') === 'vente';
   const currentTarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
   const venteTarificationPreview = computeVenteTarification(formData);
@@ -2239,12 +2245,9 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
               {(isImmeubleVente || isLotissementVente) ? (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600">
-                    Les images client sont séparées par {(isImmeubleVente ? "appartement" : "terrain")} pour éviter tout mélange.
+                    Les images client sont séparées par {(isImmeubleVente ? "unité d'immeuble" : "terrain")} pour éviter tout mélange.
                   </p>
-                  {(isImmeubleVente
-                    ? Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` }))
-                    : Array.from({ length: Math.max(1, Number(formData.lotissement_nb_terrains || 1)) }, (_, idx) => ({ unitKey: `terrain_${idx + 1}`, label: `Terrain ${idx + 1}` }))
-                  ).map(({ unitKey, label }) => {
+                  {(isImmeubleVente ? immeubleClientImageUnits : lotissementClientImageUnits).map(({ unitKey, label }) => {
                     const unitMotif = buildUnitGalleryMotif(
                       (formData.mode || 'location_saisonniere') as BienMode,
                       normalizeLegacyType((formData.type || 'appartement') as BienType),
@@ -2286,6 +2289,9 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </div>
                     );
                   })}
+                  {isImmeubleVente && immeubleClientImageUnits.length === 0 && (
+                    <div className="text-xs text-gray-500">Ajoutez le nombre d'appartements, de garages ou de locaux commerciaux dans les détails immeuble.</div>
+                  )}
                   {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
                 </div>
               ) : (
