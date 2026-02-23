@@ -157,12 +157,15 @@ const DEFAULT_COMMISSION_CLIENT_PERCENT = 2;
 const DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE = 30;
 const PROOF_MOTIF_TYPE_RUE = 'preuve_type_rue';
 const PROOF_MOTIF_TYPE_PAPIER = 'preuve_type_papier';
+const GALLERY_UNIT_MOTIF = 'gallery_unite';
 const buildProofMotif = (
   proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
   mode?: BienMode,
   type?: BienType,
-  terrainIndex?: number
-) => `${proofType}|${mode || 'unknown_mode'}|${type || 'unknown_type'}${terrainIndex ? `|terrain_${terrainIndex}` : ''}`;
+  unitKey?: string
+) => `${proofType}|${mode || 'unknown_mode'}|${type || 'unknown_type'}${unitKey ? `|${unitKey}` : ''}`;
+const buildUnitGalleryMotif = (mode?: BienMode, type?: BienType, unitKey?: string) =>
+  `${GALLERY_UNIT_MOTIF}|${mode || 'unknown_mode'}|${type || 'unknown_type'}${unitKey ? `|${unitKey}` : ''}`;
 const isProofMotif = (motif?: string | null) =>
   String(motif || '') === PROOF_MOTIF_TYPE_RUE
   || String(motif || '') === PROOF_MOTIF_TYPE_PAPIER
@@ -503,13 +506,35 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
     terrainIndex: number
   ) => {
+    const unitKey = `terrain_${terrainIndex}`;
     const motif = buildProofMotif(
       proofType,
       (formData.mode || 'location_saisonniere') as BienMode,
       normalizeLegacyType((formData.type || 'appartement') as BienType),
-      terrainIndex
+      unitKey
     );
     return images.filter((img) => img.motif_upload === motif);
+  };
+  const getImmeubleAppartementProofs = (
+    proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
+    appartementIndex: number
+  ) => {
+    const unitKey = `appartement_${appartementIndex}`;
+    const motif = buildProofMotif(
+      proofType,
+      (formData.mode || 'location_saisonniere') as BienMode,
+      normalizeLegacyType((formData.type || 'appartement') as BienType),
+      unitKey
+    );
+    return images.filter((img) => img.motif_upload === motif);
+  };
+  const getUnitClientImages = (unitKey: string) => {
+    const motif = buildUnitGalleryMotif(
+      (formData.mode || 'location_saisonniere') as BienMode,
+      normalizeLegacyType((formData.type || 'appartement') as BienType),
+      unitKey
+    );
+    return clientVisibleImages.filter((img) => img.motif_upload === motif);
   };
 
   useEffect(() => {
@@ -638,12 +663,13 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     setFormData((prev) => ({ ...prev, lotissement_terrains: nextRows }));
   }, [formData.lotissement_nb_terrains]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, motifOverride?: string | null) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const isLocalCommercial = selectedType === 'local_commercial';
-    if (isLocalCommercial && !newImageMotif.trim()) {
+    const resolvedMotif = motifOverride ?? (isLocalCommercial ? newImageMotif.trim() : null);
+    if (isLocalCommercial && !resolvedMotif) {
       toast.error("Motif d'upload requis pour le local");
       e.target.value = '';
       return;
@@ -660,10 +686,10 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         bien_id: '',
         type: 'image',
         url: data.url,
-        motif_upload: isLocalCommercial ? newImageMotif.trim() : null,
+        motif_upload: resolvedMotif,
       };
       setImages([...images, newMedia]);
-      if (isLocalCommercial) setNewImageMotif('');
+      if (isLocalCommercial && !motifOverride) setNewImageMotif('');
       toast.success('Image uploadée');
     } catch { toast.error('Erreur upload'); }
     finally { setUploading(false); e.target.value = ''; }
@@ -672,7 +698,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const handleProofFileUpload = async (
     proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
     e: React.ChangeEvent<HTMLInputElement>,
-    terrainIndex?: number
+    unitKey?: string
   ) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -696,7 +722,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
             proofType,
             (formData.mode || 'location_saisonniere') as BienMode,
             normalizeLegacyType((formData.type || 'appartement') as BienType),
-            terrainIndex
+            unitKey
           ),
         };
         setImages((prev) => [...prev, newMedia]);
@@ -910,11 +936,12 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     }));
   };
 
-  const handleAddImage = () => {
+  const handleAddImage = (motifOverride?: string | null) => {
     if (!newImageUrl.trim()) return;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const isLocalCommercial = selectedType === 'local_commercial';
-    if (isLocalCommercial && !newImageMotif.trim()) {
+    const resolvedMotif = motifOverride ?? (isLocalCommercial ? newImageMotif.trim() : null);
+    if (isLocalCommercial && !resolvedMotif) {
       return toast.error("Motif d'upload requis pour le local");
     }
     const newMedia: Media = {
@@ -922,11 +949,11 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       bien_id: formData.id || '',
       type: 'image',
       url: newImageUrl,
-      motif_upload: isLocalCommercial ? newImageMotif.trim() : null,
+      motif_upload: resolvedMotif,
     };
     setImages([...images, newMedia]);
     setNewImageUrl('');
-    if (isLocalCommercial) setNewImageMotif('');
+    if (isLocalCommercial && !motifOverride) setNewImageMotif('');
     toast.success('Image ajoutée');
   };
 
@@ -1900,7 +1927,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                                 type="file"
                                 accept="image/*"
                                 multiple
-                                onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e, idx + 1)}
+                                onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e, `terrain_${idx + 1}`)}
                                 disabled={uploading}
                                 className="block w-full text-xs"
                               />
@@ -1924,7 +1951,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                                 type="file"
                                 accept="image/*"
                                 multiple
-                                onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e, idx + 1)}
+                                onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e, `terrain_${idx + 1}`)}
                                 disabled={uploading}
                                 className="block w-full text-xs"
                               />
@@ -1964,11 +1991,64 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                     <h5 className="text-sm font-semibold text-gray-800 mb-2">Appartements de l'immeuble</h5>
                     <div className="space-y-2">
                       {(formData.immeuble_appartements || []).map((row, idx) => (
-                        <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                        <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Chambres</label><input type="number" min={0} value={row.chambres || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'chambres', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - SDB</label><input type="number" min={0} value={row.salle_bain || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'salle_bain', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Surface (m²)</label><input type="number" min={0} step="0.01" value={row.superficie_m2 ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'superficie_m2', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Configuration</label><input value={row.configuration || ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'configuration', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                          <div className="md:col-span-4 mt-1 rounded-lg border border-dashed border-gray-300 p-2">
+                            <div className="text-xs font-medium text-gray-700 mb-2">Preuves Appartement {idx + 1} (type rue / type papier)</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="flex items-center gap-2 text-xs font-medium text-gray-700 mb-1">
+                                  <Upload className="h-3.5 w-3.5 text-emerald-600" />
+                                  <span>Preuve type de rue</span>
+                                </label>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e, `appartement_${idx + 1}`)}
+                                  disabled={uploading}
+                                  className="block w-full text-xs"
+                                />
+                                <div className="mt-2 grid grid-cols-4 gap-2">
+                                  {getImmeubleAppartementProofs(PROOF_MOTIF_TYPE_RUE, idx + 1).map((img) => (
+                                    <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
+                                      <img src={resolveMediaUrl(img.url)} alt={`Preuve rue appartement ${idx + 1}`} className="w-full h-16 object-cover" />
+                                      <button type="button" onClick={() => handleRemoveImage(img.id)} className="absolute top-0.5 right-0.5 p-1 bg-red-500 text-white rounded-full">
+                                        <Trash2 className="h-2.5 w-2.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="flex items-center gap-2 text-xs font-medium text-gray-700 mb-1">
+                                  <Upload className="h-3.5 w-3.5 text-emerald-600" />
+                                  <span>Preuve type de papier</span>
+                                </label>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e, `appartement_${idx + 1}`)}
+                                  disabled={uploading}
+                                  className="block w-full text-xs"
+                                />
+                                <div className="mt-2 grid grid-cols-4 gap-2">
+                                  {getImmeubleAppartementProofs(PROOF_MOTIF_TYPE_PAPIER, idx + 1).map((img) => (
+                                    <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
+                                      <img src={resolveMediaUrl(img.url)} alt={`Preuve papier appartement ${idx + 1}`} className="w-full h-16 object-cover" />
+                                      <button type="button" onClick={() => handleRemoveImage(img.id)} className="absolute top-0.5 right-0.5 p-1 bg-red-500 text-white rounded-full">
+                                        <Trash2 className="h-2.5 w-2.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       ))}
                       {(formData.immeuble_appartements || []).length === 0 && <span className="text-xs text-gray-500">Le nombre de lignes suit le champ "Nombre d'appartements".</span>}
@@ -1982,7 +2062,6 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </label>
                     ))}
                   </div>
-                  {renderTypeProofUploads()}
                   <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(6).map((field) => (
@@ -2157,78 +2236,134 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                   />
                 </div>
               )}
-              <div className="flex gap-2 mb-4"><input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL de l'image" className="flex-1 rounded-lg border-gray-300 border p-2" /><button type="button" onClick={handleAddImage} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button></div>
-              <div className="mb-6">
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
-                  <Upload className="h-4 w-4 text-emerald-600" />
-                  <span>Ou upload</span>
-                </label>
-                <input type="file" accept="image/*" onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
-                {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                {clientVisibleImages.map((img, index) => (
-                  <div
-                    key={img.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, img.id)}
-                    onDragOver={handleDragOver}
-                    onDrop={() => handleDrop(img.id)}
-                    onDragEnd={handleDragEnd}
-                    className={`relative group rounded-lg overflow-hidden border border-gray-200 ${draggedImageIndex === img.id ? 'opacity-60 ring-2 ring-emerald-300' : ''}`}
-                  >
-                    <img src={resolveMediaUrl(img.url)} alt="" className="w-full h-32 object-cover" />
-                    <div className="absolute top-2 right-2 p-1 bg-black/40 text-white rounded cursor-grab"><GripVertical className="h-3.5 w-3.5" /></div>
-                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleMoveImage(img.id, 'up')}
-                        disabled={index === 0}
-                        className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
-                        aria-label="Monter l'image"
-                        title="Monter"
-                      >
-                        <ChevronUp className="h-4 w-4 text-gray-800" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleMoveImage(img.id, 'down')}
-                        disabled={index === clientVisibleImages.length - 1}
-                        className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
-                        aria-label="Descendre l'image"
-                        title="Descendre"
-                      >
-                        <ChevronDown className="h-4 w-4 text-gray-800" />
-                      </button>
-                      {index !== 0 && (
-                        <button
-                          type="button"
-                          onClick={() => handleSetMainImage(index)}
-                          className="p-1.5 bg-emerald-500 text-white rounded-full shadow"
-                          aria-label="Définir comme image principale"
-                          title="Définir en principale"
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(img.id)}
-                        className="p-1.5 bg-red-500 text-white rounded-full shadow"
-                        aria-label="Supprimer l'image"
-                        title="Supprimer"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    {index === 0 && <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs px-2 py-0.5 rounded">Principale</span>}
-                    {!!img.motif_upload && <span className="absolute top-2 left-20 bg-white/90 text-gray-700 text-xs px-2 py-0.5 rounded border">{img.motif_upload}</span>}
-                    <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{clientVisibleImages.length}</span>
+              {(isImmeubleVente || isLotissementVente) ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    Les images client sont séparées par {(isImmeubleVente ? "appartement" : "terrain")} pour éviter tout mélange.
+                  </p>
+                  {(isImmeubleVente
+                    ? Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` }))
+                    : Array.from({ length: Math.max(1, Number(formData.lotissement_nb_terrains || 1)) }, (_, idx) => ({ unitKey: `terrain_${idx + 1}`, label: `Terrain ${idx + 1}` }))
+                  ).map(({ unitKey, label }) => {
+                    const unitMotif = buildUnitGalleryMotif(
+                      (formData.mode || 'location_saisonniere') as BienMode,
+                      normalizeLegacyType((formData.type || 'appartement') as BienType),
+                      unitKey
+                    );
+                    const unitImages = getUnitClientImages(unitKey);
+                    return (
+                      <div key={unitKey} className="rounded-lg border border-gray-200 p-3">
+                        <h4 className="text-sm font-semibold text-gray-800 mb-2">{label}</h4>
+                        <div className="flex gap-2 mb-3">
+                          <input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder={`URL de l'image - ${label}`} className="flex-1 rounded-lg border-gray-300 border p-2" />
+                          <button type="button" onClick={() => handleAddImage(unitMotif)} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button>
+                        </div>
+                        <div className="mb-3">
+                          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                            <Upload className="h-4 w-4 text-emerald-600" />
+                            <span>Ou upload ({label})</span>
+                          </label>
+                          <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, unitMotif)} disabled={uploading} className="block w-full text-sm" />
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+                          {unitImages.map((img, index) => (
+                            <div key={img.id} className="relative group rounded-lg overflow-hidden border border-gray-200">
+                              <img src={resolveMediaUrl(img.url)} alt={label} className="w-full h-24 object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveImage(img.id)}
+                                className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full shadow"
+                                aria-label="Supprimer l'image"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                              <span className="absolute bottom-1 right-1 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded">{index + 1}/{unitImages.length}</span>
+                            </div>
+                          ))}
+                          {unitImages.length === 0 && <div className="col-span-full text-xs text-gray-500">Aucune image pour {label.toLowerCase()}.</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
+                </div>
+              ) : (
+                <>
+                  <div className="flex gap-2 mb-4"><input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL de l'image" className="flex-1 rounded-lg border-gray-300 border p-2" /><button type="button" onClick={handleAddImage} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button></div>
+                  <div className="mb-6">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                      <Upload className="h-4 w-4 text-emerald-600" />
+                      <span>Ou upload</span>
+                    </label>
+                    <input type="file" accept="image/*" onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
+                    {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
                   </div>
-                ))}
-                {clientVisibleImages.length === 0 && <div className="col-span-full text-center py-8 text-gray-500">Aucune image</div>}
-              </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {clientVisibleImages.map((img, index) => (
+                      <div
+                        key={img.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, img.id)}
+                        onDragOver={handleDragOver}
+                        onDrop={() => handleDrop(img.id)}
+                        onDragEnd={handleDragEnd}
+                        className={`relative group rounded-lg overflow-hidden border border-gray-200 ${draggedImageIndex === img.id ? 'opacity-60 ring-2 ring-emerald-300' : ''}`}
+                      >
+                        <img src={resolveMediaUrl(img.url)} alt="" className="w-full h-32 object-cover" />
+                        <div className="absolute top-2 right-2 p-1 bg-black/40 text-white rounded cursor-grab"><GripVertical className="h-3.5 w-3.5" /></div>
+                        <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveImage(img.id, 'up')}
+                            disabled={index === 0}
+                            className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
+                            aria-label="Monter l'image"
+                            title="Monter"
+                          >
+                            <ChevronUp className="h-4 w-4 text-gray-800" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveImage(img.id, 'down')}
+                            disabled={index === clientVisibleImages.length - 1}
+                            className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
+                            aria-label="Descendre l'image"
+                            title="Descendre"
+                          >
+                            <ChevronDown className="h-4 w-4 text-gray-800" />
+                          </button>
+                          {index !== 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleSetMainImage(index)}
+                              className="p-1.5 bg-emerald-500 text-white rounded-full shadow"
+                              aria-label="Définir comme image principale"
+                              title="Définir en principale"
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(img.id)}
+                            className="p-1.5 bg-red-500 text-white rounded-full shadow"
+                            aria-label="Supprimer l'image"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        {index === 0 && <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs px-2 py-0.5 rounded">Principale</span>}
+                        {!!img.motif_upload && <span className="absolute top-2 left-20 bg-white/90 text-gray-700 text-xs px-2 py-0.5 rounded border">{img.motif_upload}</span>}
+                        <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{clientVisibleImages.length}</span>
+                      </div>
+                    ))}
+                    {clientVisibleImages.length === 0 && <div className="col-span-full text-center py-8 text-gray-500">Aucune image</div>}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
