@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente } from '../types';
@@ -9,6 +9,15 @@ import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const resolveMediaUrl = (url?: string | null) => {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  const base = /^https?:\/\//i.test(API_URL) ? API_URL : window.location.origin;
+  const origin = new URL(base, window.location.origin).origin;
+  if (value.startsWith('/')) return `${origin}${value}`;
+  return value;
+};
 
 const statusColors: Record<BienStatut, string> = { disponible: "bg-emerald-100 text-emerald-800 border-emerald-200", loue: "bg-blue-100 text-blue-800 border-blue-200", reserve: "bg-amber-100 text-amber-800 border-amber-200", maintenance: "bg-red-100 text-red-800 border-red-200", bloque: "bg-gray-200 text-gray-800 border-gray-300" };
 const statusLabels: Record<BienStatut, string> = { disponible: "Disponible", loue: "Loué", reserve: "Réservé", maintenance: "Maintenance", bloque: "Bloqué" };
@@ -136,6 +145,8 @@ const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
 const DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT = 3;
 const DEFAULT_COMMISSION_CLIENT_PERCENT = 2;
 const DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE = 30;
+const PROOF_MOTIF_TYPE_RUE = 'preuve_type_rue';
+const PROOF_MOTIF_TYPE_PAPIER = 'preuve_type_papier';
 
 function toMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -244,12 +255,25 @@ export default function BiensPage() {
   const proprietaireOptions = proprietaires.length > 0 ? proprietaires : mockProprietaires;
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<BienStatut | 'all'>('all');
+  const [modeFilter, setModeFilter] = useState<BienMode | 'all'>('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBien, setEditingBien] = useState<Bien | null>(null);
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
   const [saveSuccessDialogOpen, setSaveSuccessDialogOpen] = useState(false);
 
-  const filteredBiens = biens.filter(bien => (bien.titre.toLowerCase().includes(searchTerm.toLowerCase()) || bien.reference.toLowerCase().includes(searchTerm.toLowerCase())) && (statusFilter === 'all' || bien.statut === statusFilter));
+  const filteredBiens = biens.filter((bien) => {
+    const query = searchTerm.toLowerCase();
+    const matchesQuery = bien.titre.toLowerCase().includes(query) || bien.reference.toLowerCase().includes(query);
+    const matchesStatus = statusFilter === 'all' || bien.statut === statusFilter;
+    const matchesMode = modeFilter === 'all' || bien.mode === modeFilter;
+    return matchesQuery && matchesStatus && matchesMode;
+  });
+  const modeTabs: Array<{ value: BienMode | 'all'; label: string }> = [
+    { value: 'all', label: 'Tous les biens' },
+    { value: 'vente', label: 'Vente' },
+    { value: 'location_annuelle', label: 'Location annuelle' },
+    { value: 'location_saisonniere', label: 'Location saisonniere' },
+  ];
 
   const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
   const syncMediaForBien = async (bienId: string, media: Media[]) => {
@@ -303,6 +327,24 @@ export default function BiensPage() {
         <div className="relative flex-1"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-gray-400" /></div><input type="text" className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md" placeholder="Rechercher..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
         <div className="w-full sm:w-64"><select className="block w-full pl-3 pr-10 py-2 border border-gray-300 rounded-md" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as BienStatut | 'all')}><option value="all">Tous les statuts</option><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
       </div>
+      <div className="bg-white p-2 sm:p-3 rounded-lg shadow-sm border border-gray-100">
+        <div className="flex flex-wrap gap-2">
+          {modeTabs.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setModeFilter(tab.value)}
+              className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                modeFilter === tab.value
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} onEdit={() => { setEditingBien(bien); setIsAddOpen(true); }} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
       </div>
@@ -341,7 +383,7 @@ export default function BiensPage() {
 }
 
 function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
-  const mainImage = bien.media?.[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
+  const mainImage = resolveMediaUrl(bien.media?.[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
   const imageCount = bien.media?.length || 0;
   const displayPrice = bien.mode === 'vente' ? Number(bien.prix_affiche_client ?? bien.prix_nuitee ?? 0) : Number(bien.prix_nuitee || 0);
   return (
@@ -395,7 +437,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [newOwnerCin, setNewOwnerCin] = useState('');
-  const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null);
+  const [draggedImageIndex, setDraggedImageIndex] = useState<string | null>(null);
   const [stepInfoDialogOpen, setStepInfoDialogOpen] = useState(false);
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : [1]));
   const normalizeLegacyType = (value?: BienType): BienType => {
@@ -405,6 +447,11 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     return (value || 'appartement') as BienType;
   };
   const generateReference = () => `REF-${Date.now().toString().slice(-6)}`;
+  const isProofImage = (img: Media) =>
+    img.motif_upload === PROOF_MOTIF_TYPE_RUE || img.motif_upload === PROOF_MOTIF_TYPE_PAPIER;
+  const clientVisibleImages = images.filter((img) => !isProofImage(img));
+  const typeRueProofImages = images.filter((img) => img.motif_upload === PROOF_MOTIF_TYPE_RUE);
+  const typePapierProofImages = images.filter((img) => img.motif_upload === PROOF_MOTIF_TYPE_PAPIER);
 
   useEffect(() => {
     const rawDescription = initialData?.description || '';
@@ -540,6 +587,46 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       toast.success('Image uploadée');
     } catch { toast.error('Erreur upload'); }
     finally { setUploading(false); e.target.value = ''; }
+  };
+
+  const handleProofFileUpload = async (
+    proofMotif: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setUploading(true);
+    let successCount = 0;
+    try {
+      for (const file of files) {
+        const uploadFormData = new FormData();
+        uploadFormData.append('image', file);
+        const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
+        if (!response.ok) {
+          continue;
+        }
+        const data = await response.json();
+        const newMedia: Media = {
+          id: Math.random().toString(36).substr(2, 9),
+          bien_id: formData.id || '',
+          type: 'image',
+          url: data.url,
+          motif_upload: proofMotif,
+        };
+        setImages((prev) => [...prev, newMedia]);
+        successCount += 1;
+      }
+      if (successCount > 0) {
+        toast.success(`${successCount} preuve(s) uploadee(s)`);
+      } else {
+        toast.error('Erreur upload');
+      }
+    } catch {
+      toast.error('Erreur upload');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -715,46 +802,123 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
   const handleRemoveImage = (id: string) => { setImages(images.filter(img => img.id !== id)); toast.success('Image supprimée'); };
 
-  const reorderImages = (fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    const nextImages = [...images];
-    const [movedImage] = nextImages.splice(fromIndex, 1);
-    nextImages.splice(toIndex, 0, movedImage);
-    setImages(nextImages.map((img, idx) => ({ ...img, position: idx })));
+  const reorderClientImages = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const clientImages = images.filter((img) => !isProofImage(img));
+    const fromIndex = clientImages.findIndex((img) => img.id === fromId);
+    const toIndex = clientImages.findIndex((img) => img.id === toId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const nextClientImages = [...clientImages];
+    const [movedImage] = nextClientImages.splice(fromIndex, 1);
+    nextClientImages.splice(toIndex, 0, movedImage);
+    let clientCursor = 0;
+    setImages(images.map((img) => (isProofImage(img) ? img : nextClientImages[clientCursor++])));
   };
 
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, imageId: string) => {
     const target = e.target as HTMLElement;
     if (target.closest('button')) {
       e.preventDefault();
       return;
     }
     e.dataTransfer.effectAllowed = 'move';
-    setDraggedImageIndex(index);
+    setDraggedImageIndex(imageId);
   };
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => e.preventDefault();
-  const handleDrop = (targetIndex: number) => {
+  const handleDrop = (targetId: string) => {
     if (draggedImageIndex === null) return;
-    reorderImages(draggedImageIndex, targetIndex);
+    reorderClientImages(draggedImageIndex, targetId);
     setDraggedImageIndex(null);
   };
   const handleDragEnd = () => setDraggedImageIndex(null);
 
-  const handleMoveImage = (index: number, direction: 'up' | 'down') => {
+  const handleMoveImage = (imageId: string, direction: 'up' | 'down') => {
+    const index = clientVisibleImages.findIndex((img) => img.id === imageId);
+    if (index < 0) return;
     const newIndex = direction === 'up' ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= images.length) return;
-    reorderImages(index, newIndex);
+    if (newIndex < 0 || newIndex >= clientVisibleImages.length) return;
+    reorderClientImages(imageId, clientVisibleImages[newIndex].id);
   };
 
   const handleSetMainImage = (index: number) => {
     if (index === 0) return;
-    const newImages = [...images];
+    const newImages = [...clientVisibleImages];
     const [movedImage] = newImages.splice(index, 1);
     newImages.unshift(movedImage);
-    const updatedImages = newImages.map((img, idx) => ({ ...img, position: idx }));
-    setImages(updatedImages);
+    let clientCursor = 0;
+    setImages(images.map((img) => (isProofImage(img) ? img : newImages[clientCursor++])));
     toast.success('Image principale définie');
   };
+
+  const renderTypeProofUploads = () => (
+    <div className="mt-4 rounded-lg border border-dashed border-gray-300 bg-white p-3 sm:p-4">
+      <h5 className="text-sm font-semibold text-gray-800">Preuves (optionnel)</h5>
+      <p className="text-xs text-gray-500 mt-1">Vous pouvez ajouter des images de preuve pour le type de rue et le type de papier de ce bien.</p>
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Upload className="h-4 w-4 text-emerald-600" />
+            <span>Preuve type de rue</span>
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e)}
+            disabled={uploading}
+            className="block w-full text-sm"
+          />
+          <div className="grid grid-cols-3 gap-2">
+            {typeRueProofImages.map((img) => (
+              <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
+                    <img src={resolveMediaUrl(img.url)} alt="Preuve type de rue" className="w-full h-20 object-cover" />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveImage(img.id)}
+                  className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full"
+                  aria-label="Supprimer preuve type de rue"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {typeRueProofImages.length === 0 && <span className="text-xs text-gray-500 col-span-full">Aucune preuve type de rue</span>}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Upload className="h-4 w-4 text-emerald-600" />
+            <span>Preuve type de papier</span>
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e)}
+            disabled={uploading}
+            className="block w-full text-sm"
+          />
+          <div className="grid grid-cols-3 gap-2">
+            {typePapierProofImages.map((img) => (
+              <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
+                    <img src={resolveMediaUrl(img.url)} alt="Preuve type de papier" className="w-full h-20 object-cover" />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveImage(img.id)}
+                  className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full"
+                  aria-label="Supprimer preuve type de papier"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {typePapierProofImages.length === 0 && <span className="text-xs text-gray-500 col-span-full">Aucune preuve type de papier</span>}
+          </div>
+        </div>
+      </div>
+      {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-3"></div>}
+    </div>
+  );
 
   const handleAddFeature = () => {
     const value = newFeature.trim();
@@ -932,7 +1096,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       }
     }
 
-    const imagesWithPositions = images.map((img, idx) => ({ ...img, position: idx }));
+    const orderedMediaForSave = [...clientVisibleImages, ...images.filter((img) => isProofImage(img))];
+    const imagesWithPositions = orderedMediaForSave.map((img, idx) => ({ ...img, position: idx }));
     const descriptionWithFeatures = customFeatures.length > 0 ? `${(formData.description || '').trim()}\n\n${CHARACTERISTICS_MARKER}${JSON.stringify(customFeatures)}` : (formData.description || '');
     const ventePaiement = computeVentePaiement(formData, venteTarification.prixFinal);
     const deriveBedroomsFromConfiguration = (configuration?: string | null): number => {
@@ -1177,7 +1342,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     <form id="bien-editor-form" onSubmit={handleSubmit} className="flex flex-col h-full">
       <div className="flex border-b border-gray-200 bg-gray-50 px-4 shrink-0 overflow-x-auto">
         <button type="button" onClick={() => setActiveTab('general')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'general' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'}`}><Home className="h-4 w-4 inline mr-2" />Informations</button>
-        <button type="button" disabled={!canAccessSecondaryTabs} onClick={() => setActiveTab('images')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'images' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'} ${!canAccessSecondaryTabs ? 'opacity-50 cursor-not-allowed' : ''}`}><ImageIcon className="h-4 w-4 inline mr-2" />Images ({images.length})</button>
+        <button type="button" disabled={!canAccessSecondaryTabs} onClick={() => setActiveTab('images')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'images' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'} ${!canAccessSecondaryTabs ? 'opacity-50 cursor-not-allowed' : ''}`}><ImageIcon className="h-4 w-4 inline mr-2" />Images ({clientVisibleImages.length})</button>
         {!isModeVente && <button type="button" disabled={!canAccessSecondaryTabs} onClick={() => setActiveTab('calendar')} className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === 'calendar' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500'} ${!canAccessSecondaryTabs ? 'opacity-50 cursor-not-allowed' : ''}`}><CalendarIcon className="h-4 w-4 inline mr-2" />Calendrier</button>}
       </div>
       <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
@@ -1332,6 +1497,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </label>
                     ))}
                   </div>
+                  {renderTypeProofUploads()}
                   <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(13).map((field) => (
@@ -1388,6 +1554,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </label>
                     ))}
                   </div>
+                  {renderTypeProofUploads()}
                   <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(7).map((field) => (
@@ -1450,6 +1617,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </label>
                     ))}
                   </div>
+                  {renderTypeProofUploads()}
                   <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {TERRAIN_VENTE_BOOLEAN_FIELDS.slice(2).map((field) => (
@@ -1497,6 +1665,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </label>
                     ))}
                   </div>
+                  {renderTypeProofUploads()}
                   <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(6).map((field) => (
@@ -1672,25 +1841,32 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                 </div>
               )}
               <div className="flex gap-2 mb-4"><input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL de l'image" className="flex-1 rounded-lg border-gray-300 border p-2" /><button type="button" onClick={handleAddImage} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button></div>
-              <div className="mb-6"><label className="block text-sm font-medium text-gray-700 mb-2">Ou upload</label><input type="file" accept="image/*" onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />{uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}</div>
+              <div className="mb-6">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                  <Upload className="h-4 w-4 text-emerald-600" />
+                  <span>Ou upload</span>
+                </label>
+                <input type="file" accept="image/*" onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
+                {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                {images.map((img, index) => (
+                {clientVisibleImages.map((img, index) => (
                   <div
                     key={img.id}
                     draggable
-                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragStart={(e) => handleDragStart(e, img.id)}
                     onDragOver={handleDragOver}
-                    onDrop={() => handleDrop(index)}
+                    onDrop={() => handleDrop(img.id)}
                     onDragEnd={handleDragEnd}
-                    className={`relative group rounded-lg overflow-hidden border border-gray-200 ${draggedImageIndex === index ? 'opacity-60 ring-2 ring-emerald-300' : ''}`}
+                    className={`relative group rounded-lg overflow-hidden border border-gray-200 ${draggedImageIndex === img.id ? 'opacity-60 ring-2 ring-emerald-300' : ''}`}
                   >
-                    <img src={img.url} alt="" className="w-full h-32 object-cover" />
+                    <img src={resolveMediaUrl(img.url)} alt="" className="w-full h-32 object-cover" />
                     <div className="absolute top-2 right-2 p-1 bg-black/40 text-white rounded cursor-grab"><GripVertical className="h-3.5 w-3.5" /></div>
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                     <div className="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleMoveImage(index, 'up')}
+                        onClick={() => handleMoveImage(img.id, 'up')}
                         disabled={index === 0}
                         className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
                         aria-label="Monter l'image"
@@ -1700,8 +1876,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleMoveImage(index, 'down')}
-                        disabled={index === images.length - 1}
+                        onClick={() => handleMoveImage(img.id, 'down')}
+                        disabled={index === clientVisibleImages.length - 1}
                         className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
                         aria-label="Descendre l'image"
                         title="Descendre"
@@ -1731,10 +1907,10 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                     </div>
                     {index === 0 && <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs px-2 py-0.5 rounded">Principale</span>}
                     {!!img.motif_upload && <span className="absolute top-2 left-20 bg-white/90 text-gray-700 text-xs px-2 py-0.5 rounded border">{img.motif_upload}</span>}
-                    <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{images.length}</span>
+                    <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{clientVisibleImages.length}</span>
                   </div>
                 ))}
-                {images.length === 0 && <div className="col-span-full text-center py-8 text-gray-500">Aucune image</div>}
+                {clientVisibleImages.length === 0 && <div className="col-span-full text-center py-8 text-gray-500">Aucune image</div>}
               </div>
             </div>
           </div>
@@ -1800,7 +1976,7 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
 }
 
 function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
-  const mainImage = bien.media?.[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
+  const mainImage = resolveMediaUrl(bien.media?.[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
   const displayPrice = bien.mode === 'vente' ? Number(bien.prix_affiche_client ?? bien.prix_nuitee ?? 0) : Number(bien.prix_nuitee || 0);
   const rawDescription = bien.description || '';
   const markerIndex = rawDescription.indexOf(CHARACTERISTICS_MARKER);
