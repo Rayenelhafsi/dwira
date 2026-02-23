@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 type ContratApi = {
   id: string;
@@ -353,7 +353,7 @@ export default function ContratsPage() {
 
               <h3 className="font-bold text-base sm:text-lg text-gray-900 mb-1 truncate">{contrat.bien_titre || bien?.titre || 'Bien Inconnu'}</h3>
               <p className="text-xs sm:text-sm text-gray-500 mb-1 truncate">Locataire: {contrat.locataire_nom || 'Inconnu'}</p>
-              <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4 truncate">Proprietaire: {bien?.proprietaire_nom || 'Inconnu'} • Ref: {bien?.reference || '-'}</p>
+              <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4 truncate">Proprietaire: {bien?.proprietaire_nom || 'Inconnu'} â€¢ Ref: {bien?.reference || '-'}</p>
 
               <div className="space-y-2 text-xs sm:text-sm text-gray-600 border-t pt-3 sm:pt-4">
                 <div className="flex items-center gap-2">
@@ -419,3 +419,4 @@ export default function ContratsPage() {
     </div>
   );
 }
+

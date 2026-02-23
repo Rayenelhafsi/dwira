@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Search, Plus, Phone, Mail, FileText, Archive, CalendarDays, Eye, Download, X } from 'lucide-react';
 import { Contrat, Locataire } from '../types';
 import { toast } from 'sonner';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 type ContratArchive = Contrat & {
   bien_titre?: string;
@@ -52,7 +52,7 @@ export default function LocatairesPage() {
 
       if (errors.length > 0) {
         const message = `Chargement partiel: ${errors.join(', ')}`;
-        setError(hasAnyData ? message : 'Impossible de charger les données');
+        setError(hasAnyData ? message : 'Impossible de charger les donnÃ©es');
         toast.error(message);
       }
 
@@ -128,7 +128,7 @@ export default function LocatairesPage() {
               <tr>
                 <th className="p-4 font-medium text-gray-500 text-sm">Nom</th>
                 <th className="p-4 font-medium text-gray-500 text-sm">Contact</th>
-                <th className="p-4 font-medium text-gray-500 text-sm">Fiabilité</th>
+                <th className="p-4 font-medium text-gray-500 text-sm">FiabilitÃ©</th>
                 <th className="p-4 font-medium text-gray-500 text-sm">Actions</th>
               </tr>
             </thead>
@@ -200,7 +200,7 @@ export default function LocatairesPage() {
             <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200">
               <div>
                 <h2 className="text-lg sm:text-xl font-bold text-gray-900 flex items-center gap-2"><Archive className="h-5 w-5 text-emerald-600" />Archive des relations</h2>
-                <p className="text-sm text-gray-500">{selectedLocataire.nom} • {archiveContrats.length} contrat(s)</p>
+                <p className="text-sm text-gray-500">{selectedLocataire.nom} â€¢ {archiveContrats.length} contrat(s)</p>
               </div>
               <button onClick={closeArchive} className="p-2 rounded-lg hover:bg-gray-100"><X size={18} /></button>
             </div>
@@ -209,7 +209,7 @@ export default function LocatairesPage() {
               {archiveContrats.length === 0 ? (
                 <div className="text-center py-14 text-gray-500">
                   <FileText className="mx-auto h-8 w-8 mb-3 text-gray-400" />
-                  Aucun contrat archivé pour ce locataire.
+                  Aucun contrat archivÃ© pour ce locataire.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -236,7 +236,7 @@ export default function LocatairesPage() {
                             <Eye size={16} /> Visualiser
                           </button>
                           <button onClick={() => handleDownloadPdf(contrat)} disabled={!contrat.url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50">
-                            <Download size={16} /> Télécharger
+                            <Download size={16} /> TÃ©lÃ©charger
                           </button>
                         </div>
                       </div>
@@ -255,7 +255,7 @@ export default function LocatairesPage() {
             <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200">
               <h3 className="text-base sm:text-lg font-semibold text-gray-900">Visualisation du contrat #{previewContrat.id}</h3>
               <div className="flex items-center gap-2">
-                <button onClick={() => handleDownloadPdf(previewContrat)} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50"><Download size={16} /> Télécharger</button>
+                <button onClick={() => handleDownloadPdf(previewContrat)} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50"><Download size={16} /> TÃ©lÃ©charger</button>
                 <button onClick={() => setPreviewContrat(null)} className="p-2 rounded-lg hover:bg-gray-100"><X size={18} /></button>
               </div>
             </div>
@@ -270,3 +270,4 @@ export default function LocatairesPage() {
     </div>
   );
 }
+

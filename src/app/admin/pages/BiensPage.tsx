@@ -8,6 +8,8 @@ import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMont
 import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
 
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+
 const statusColors: Record<BienStatut, string> = { disponible: "bg-emerald-100 text-emerald-800 border-emerald-200", loue: "bg-blue-100 text-blue-800 border-blue-200", reserve: "bg-amber-100 text-amber-800 border-amber-200", maintenance: "bg-red-100 text-red-800 border-red-200", bloque: "bg-gray-200 text-gray-800 border-gray-300" };
 const statusLabels: Record<BienStatut, string> = { disponible: "Disponible", loue: "Loué", reserve: "Réservé", maintenance: "Maintenance", bloque: "Bloqué" };
 const modeLabels: Record<BienMode, string> = {
@@ -251,14 +253,14 @@ export default function BiensPage() {
 
   const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
   const syncMediaForBien = async (bienId: string, media: Media[]) => {
-    const existingResponse = await fetch(`http://localhost:3001/api/media/${bienId}`);
+    const existingResponse = await fetch(`${API_URL}/media/${bienId}`);
     const existingMedia = existingResponse.ok ? await existingResponse.json() : [];
     for (const m of existingMedia) {
-      await fetch(`http://localhost:3001/api/media/${m.id}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/media/${m.id}`, { method: 'DELETE' });
     }
     const orderedMedia = (Array.isArray(media) ? media : []).map((m, idx) => ({ ...m, position: idx }));
     for (const m of orderedMedia) {
-      const createResponse = await fetch('http://localhost:3001/api/media', {
+      const createResponse = await fetch(`${API_URL}/media`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bien_id: bienId, type: m.type || 'image', url: m.url, motif_upload: m.motif_upload || null, position: m.position ?? 0 }),
@@ -455,7 +457,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
     const fetchFeatures = async () => {
       try {
-        const response = await fetch(`http://localhost:3001/api/caracteristiques?mode_bien=${selectedMode}&type_bien=${selectedType}`);
+        const response = await fetch(`${API_URL}/caracteristiques?mode_bien=${selectedMode}&type_bien=${selectedType}`);
         if (!response.ok) throw new Error('Failed to fetch features');
         const rows = await response.json();
         const nextFeaturesRaw = Array.isArray(rows) ? rows : [];
@@ -518,7 +520,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     const uploadFormData = new FormData();
     uploadFormData.append('image', file);
     try {
-      const response = await fetch('http://localhost:3001/api/upload', { method: 'POST', body: uploadFormData });
+      const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
       if (!response.ok) throw new Error('Upload failed');
       const data = await response.json();
       const newMedia: Media = {
@@ -776,7 +778,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         description: newZoneDescription.trim(),
         google_maps_url: newZoneGoogleMapsUrl.trim() || null
       };
-      const response = await fetch('http://localhost:3001/api/zones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
       const createdZone = await response.json();
       setZonesOptions([...zonesOptions, createdZone]);
@@ -795,7 +797,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     if (!newOwnerName.trim()) return toast.error('Nom du propriétaire requis');
     try {
       const payload = { nom: newOwnerName.trim(), telephone: newOwnerPhone.trim(), email: newOwnerEmail.trim(), cin: newOwnerCin.trim() };
-      const response = await fetch('http://localhost:3001/api/proprietaires', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch(`${API_URL}/proprietaires`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create owner');
       const createdOwner = await response.json();
       setProprietaireOptions([...proprietaireOptions, createdOwner]);
@@ -1679,10 +1681,10 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                     <div className="absolute top-2 right-2 p-1 bg-black/40 text-white rounded cursor-grab"><GripVertical className="h-3.5 w-3.5" /></div>
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                     <div className="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-2">
-                      <button type="button" onClick={() => handleMoveImage(index, 'up')} disabled={index === 0} className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow">↑</button>
-                      <button type="button" onClick={() => handleMoveImage(index, 'down')} disabled={index === images.length - 1} className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow">↓</button>
-                      {index !== 0 && <button type="button" onClick={() => handleSetMainImage(index)} className="p-1.5 bg-emerald-500 text-white rounded-full shadow">★</button>}
-                      <button type="button" onClick={() => handleRemoveImage(img.id)} className="p-1.5 bg-red-500 text-white rounded-full shadow">✕</button>
+                      <button type="button" onClick={() => handleMoveImage(index, 'up')} disabled={index === 0} className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow">?</button>
+                      <button type="button" onClick={() => handleMoveImage(index, 'down')} disabled={index === images.length - 1} className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow">?</button>
+                      {index !== 0 && <button type="button" onClick={() => handleSetMainImage(index)} className="p-1.5 bg-emerald-500 text-white rounded-full shadow">?</button>}
+                      <button type="button" onClick={() => handleRemoveImage(img.id)} className="p-1.5 bg-red-500 text-white rounded-full shadow">?</button>
                     </div>
                     {index === 0 && <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs px-2 py-0.5 rounded">Principale</span>}
                     {!!img.motif_upload && <span className="absolute top-2 left-20 bg-white/90 text-gray-700 text-xs px-2 py-0.5 rounded border">{img.motif_upload}</span>}
@@ -1789,5 +1791,8 @@ function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
     </div>
   );
 }
+
+
+
 
 

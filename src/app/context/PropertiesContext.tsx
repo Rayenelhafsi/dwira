@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+﻿import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente } from '../admin/types';
 import { Property } from '../data/properties';
 
 // API Base URL
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
 const LEGACY_TYPE_MAP: Record<string, BienType> = {
   S1: 'appartement',
@@ -216,7 +216,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     id: bien.id,
     title: bien.titre,
     slug: bien.titre.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    location: zoneNames[bien.zone_id || ''] || 'Kélibia',
+    location: zoneNames[bien.zone_id || ''] || 'KÃ©libia',
     pricePerNight: bien.prix_nuitee,
     rating: 4.5 + Math.random() * 0.5,
     reviews: Math.floor(Math.random() * 30) + 5,
@@ -450,14 +450,14 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       setBiens(localBiens);
       setProperties(localProperties);
       setZones([
-        { id: 'z1', nom: 'Kélibia Centre', description: 'Centre ville de Kélibia' },
+        { id: 'z1', nom: 'KÃ©libia Centre', description: 'Centre ville de KÃ©libia' },
         { id: 'z2', nom: 'El Mansoura', description: 'Quartier El Mansoura' },
         { id: 'z3', nom: 'Petit Paris', description: 'Quartier Petit Paris' }
       ]);
       setProprietaires([
-        { id: 'p1', nom: 'Propriétaire 1', telephone: '', email: '', cin: '' },
-        { id: 'p2', nom: 'Propriétaire 2', telephone: '', email: '', cin: '' },
-        { id: 'p3', nom: 'Propriétaire 3', telephone: '', email: '', cin: '' }
+        { id: 'p1', nom: 'PropriÃ©taire 1', telephone: '', email: '', cin: '' },
+        { id: 'p2', nom: 'PropriÃ©taire 2', telephone: '', email: '', cin: '' },
+        { id: 'p3', nom: 'PropriÃ©taire 3', telephone: '', email: '', cin: '' }
       ]);
       setError(null);
     } finally {
@@ -567,4 +567,5 @@ export function useProperties() {
 }
 
 export { bienToProperty };
+
 
