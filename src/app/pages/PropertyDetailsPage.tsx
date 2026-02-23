@@ -37,6 +37,7 @@ export default function PropertyDetailsPage() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
+  const formatRating = (value: number) => (Number.isFinite(value) ? value.toFixed(1) : "0.0");
 
   // Load saved state from localStorage on mount
   useEffect(() => {
@@ -270,7 +271,7 @@ export default function PropertyDetailsPage() {
               </div>
               <div className="flex items-center gap-1">
                  <Star size={16} className="text-amber-500 fill-current" />
-                 <span className="font-medium text-gray-900">{property.rating}</span>
+                 <span className="font-medium text-gray-900">{formatRating(property.rating)}</span>
                  <span>({property.reviews} avis)</span>
               </div>
             </div>
@@ -432,7 +433,7 @@ export default function PropertyDetailsPage() {
                 </div>
                 <div className="flex items-center gap-1 text-sm text-gray-600">
                   <Star size={14} className="text-amber-500 fill-current" />
-                  <span className="font-medium text-gray-900">{property.rating}</span>
+                  <span className="font-medium text-gray-900">{formatRating(property.rating)}</span>
                 </div>
               </div>
 
@@ -625,7 +626,7 @@ export default function PropertyDetailsPage() {
                         />
                         <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1">
                           <Star size={12} className="text-amber-500 fill-current" />
-                          {otherProperty.rating}
+                          {formatRating(otherProperty.rating)}
                         </div>
                       </div>
                       <div className="p-4">

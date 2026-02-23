@@ -122,12 +122,17 @@ export default function HomePage() {
   };
 
   const filteredProperties = useMemo(() => {
-    if (!hasSearched) return properties.filter((p) => p.isFeatured).slice(0, 6);
-    
-    return properties.filter((property) => {
-      const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
-      const matchCategory = selectedCategories.length === 0 || selectedCategories.includes(property.category);
-      return matchLocation && matchCategory;
+    const baseProperties = hasSearched
+      ? properties.filter((property) => {
+          const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
+          const matchCategory = selectedCategories.length === 0 || selectedCategories.includes(property.category);
+          return matchLocation && matchCategory;
+        })
+      : properties;
+
+    return [...baseProperties].sort((a, b) => {
+      if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
+      return b.rating - a.rating;
     });
   }, [hasSearched, location, selectedCategories, properties]);
 

@@ -11,6 +11,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const linkTo = searchParams 
     ? `/properties/${property.slug}?${searchParams}`
     : `/properties/${property.slug}`;
+  const ratingDisplay = Number.isFinite(property.rating) ? property.rating.toFixed(1) : "0.0";
     
   return (
     <Link 
@@ -34,7 +35,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
       <div className="p-5">
         <div className="flex items-center gap-1 text-amber-500 mb-2">
           <Star size={14} fill="currentColor" />
-          <span className="text-sm font-medium text-gray-900">{property.rating}</span>
+          <span className="text-sm font-medium text-gray-900">{ratingDisplay}</span>
           <span className="text-xs text-gray-500">({property.reviews} avis)</span>
         </div>
 
