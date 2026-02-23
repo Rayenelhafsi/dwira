@@ -31,6 +31,7 @@ export default function HomePage() {
   
   const navigate = useNavigate();
   const resultsRef = useRef<HTMLDivElement>(null);
+  const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   
   // Filter states
   const [location, setLocation] = useState("");
@@ -42,6 +43,7 @@ export default function HomePage() {
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [mobileDropdownTop, setMobileDropdownTop] = useState(112);
 
   const today = startOfDay(new Date());
 
@@ -141,6 +143,16 @@ export default function HomePage() {
   };
 
   const weekDays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+  const closeAllFilters = () => {
+    setShowLocationDropdown(false);
+    setShowCalendar(false);
+    setShowCategoryDropdown(false);
+  };
+  const getMobileDropdownTop = () => {
+    if (typeof window === "undefined" || window.innerWidth >= 768) return 112;
+    const rect = categoryTriggerRef.current?.getBoundingClientRect();
+    return rect ? Math.max(96, Math.round(rect.bottom + 8)) : 112;
+  };
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -220,15 +232,23 @@ export default function HomePage() {
 
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
+              {(showLocationDropdown || showCalendar || showCategoryDropdown) && (
+                <button
+                  type="button"
+                  aria-label="Fermer les filtres"
+                  className="fixed inset-0 z-[140] bg-black/30 md:hidden"
+                  onClick={closeAllFilters}
+                />
+              )}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 
                 {/* Location Dropdown */}
-                <div className="relative z-50 pointer-events-auto">
+                <div className={`relative pointer-events-auto ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
                     className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
                     onClick={() => {
-                      console.log('Location clicked, current:', showLocationDropdown, 'setting to:', !showLocationDropdown);
+                      setMobileDropdownTop(getMobileDropdownTop());
                       setShowLocationDropdown(!showLocationDropdown);
                       setShowCategoryDropdown(false);
                       setShowCalendar(false);
@@ -244,7 +264,10 @@ export default function HomePage() {
                   </button>
                   
                   {showLocationDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-[100]">
+                    <div
+                      className="fixed left-3 right-3 top-[var(--mobile-dropdown-top)] z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 md:absolute md:top-full md:left-0 md:right-0 md:mt-2 md:max-h-none md:overflow-visible"
+                      style={{ ["--mobile-dropdown-top" as string]: `${mobileDropdownTop}px` }}
+                    >
                       <div className="p-2">
                         <button
                           className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
@@ -267,12 +290,12 @@ export default function HomePage() {
                 </div>
 
                 {/* Date Range Picker */}
-                <div className="relative z-50 pointer-events-auto">
+                <div className={`relative pointer-events-auto ${showCalendar ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
                     className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
                     onClick={() => {
-                      console.log('Calendar clicked, current:', showCalendar, 'setting to:', !showCalendar);
+                      setMobileDropdownTop(getMobileDropdownTop());
                       setShowCalendar(!showCalendar);
                       setShowLocationDropdown(false);
                       setShowCategoryDropdown(false);
@@ -288,7 +311,10 @@ export default function HomePage() {
                   </button>
 
                   {showCalendar && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-[100] md:w-[400px] md:left-auto md:right-0">
+                    <div
+                      className="fixed left-3 right-3 top-[var(--mobile-dropdown-top)] z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 md:absolute md:top-full md:left-auto md:right-0 md:mt-2 md:w-[400px] md:max-h-none md:overflow-visible"
+                      style={{ ["--mobile-dropdown-top" as string]: `${mobileDropdownTop}px` }}
+                    >
                         <div className="flex items-center justify-between mb-4">
                           <button 
                             onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
@@ -346,12 +372,13 @@ export default function HomePage() {
                 </div>
 
                 {/* Property Type Dropdown */}
-                <div className="relative z-50 pointer-events-auto">
+                <div className={`relative pointer-events-auto ${showCategoryDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
+                    ref={categoryTriggerRef}
                     type="button"
                     className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
                     onClick={() => {
-                      console.log('Category clicked, current:', showCategoryDropdown, 'setting to:', !showCategoryDropdown);
+                      setMobileDropdownTop(getMobileDropdownTop());
                       setShowCategoryDropdown(!showCategoryDropdown);
                       setShowLocationDropdown(false);
                       setShowCalendar(false);
@@ -367,7 +394,10 @@ export default function HomePage() {
                   </button>
 
                   {showCategoryDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-[100]">
+                    <div
+                      className="fixed left-3 right-3 top-[var(--mobile-dropdown-top)] z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 md:absolute md:top-full md:left-0 md:right-0 md:mt-2 md:max-h-none md:overflow-visible"
+                      style={{ ["--mobile-dropdown-top" as string]: `${mobileDropdownTop}px` }}
+                    >
                       <div className="p-2">
                         <button
                           className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
