@@ -818,6 +818,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
     const allowedTypes = BIEN_TYPES_BY_MODE[selectedMode] || [];
+    const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
+    const venteTarification = computeVenteTarification(formData);
     const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
     const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
     const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
