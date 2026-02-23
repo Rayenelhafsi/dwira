@@ -31,6 +31,7 @@ export type BienType =
   | 'studio'
   | 'immeuble'
   | 'terrain'
+  | 'lotissement'
   | 'local_commercial'
   | 'bungalow'
   | 'S1'
@@ -47,6 +48,8 @@ export type TypePapierAppartementVente =
   | 'contrat_seulement'
   | 'sans_papier';
 export type TypeTerrainVente = 'agricole' | 'habitation' | 'industrielle' | 'loisir';
+export type ModeAffichagePrixTerrain = 'total_uniquement' | 'm2_uniquement' | 'total_et_m2';
+export type ModePrixLotissement = 'm2_unique' | 'paliers';
 export type TarificationMethodeVente = 'avec_commission' | 'sans_commission';
 export type ModalitePaiementVente = 'comptant' | 'facilite';
 
@@ -64,6 +67,24 @@ export interface ImmeubleAppartementDetail {
   salle_bain: number;
   superficie_m2?: number | null;
   configuration?: string | null;
+}
+
+export interface LotissementTerrainDetail {
+  index: number;
+  type_terrain?: TypeTerrainVente | null;
+  surface_m2?: number | null;
+  type_rue?: TypeRueAppartementVente | null;
+  type_papier?: TypePapierAppartementVente | null;
+  terrain_zone?: string | null;
+  terrain_distance_plage_m?: number | null;
+  terrain_constructible?: boolean;
+  terrain_angle?: boolean;
+}
+
+export interface LotissementPalierPrix {
+  min_m2: number;
+  max_m2?: number | null;
+  prix_m2: number;
 }
 
 export interface Bien {
@@ -135,6 +156,9 @@ export interface Bien {
   terrain_zone?: string | null;
   terrain_constructible?: boolean;
   terrain_angle?: boolean;
+  terrain_prix_affiche_total?: number | null;
+  terrain_prix_affiche_par_m2?: number | null;
+  terrain_mode_affichage_prix?: ModeAffichagePrixTerrain | null;
   immeuble_surface_terrain_m2?: number | null;
   immeuble_surface_batie_m2?: number | null;
   immeuble_nb_niveaux?: number | null;
@@ -149,6 +173,12 @@ export interface Bien {
   immeuble_syndic?: boolean;
   immeuble_vue_mer?: boolean;
   immeuble_appartements?: ImmeubleAppartementDetail[];
+  lotissement_nb_terrains?: number | null;
+  lotissement_prix_total?: number | null;
+  lotissement_mode_prix_m2?: ModePrixLotissement | null;
+  lotissement_prix_m2_unique?: number | null;
+  lotissement_terrains?: LotissementTerrainDetail[];
+  lotissement_paliers_prix_m2?: LotissementPalierPrix[];
   charges?: number;
   statut: BienStatut;
   menage_en_cours: boolean;

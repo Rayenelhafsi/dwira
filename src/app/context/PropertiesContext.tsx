@@ -62,6 +62,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   const parsedDescription = parseDescriptionAndCharacteristics(row.description);
   let immeubleDetails: any = {};
   let immeubleAppartements: any[] = [];
+  let lotissementTerrains: any[] = [];
+  let lotissementPaliersPrix: any[] = [];
   try {
     const raw = (row as any).immeuble_details_json;
     if (raw) immeubleDetails = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -69,6 +71,14 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   try {
     const raw = (row as any).immeuble_appartements_json;
     if (raw) immeubleAppartements = Array.isArray(raw) ? raw : JSON.parse(raw);
+  } catch {}
+  try {
+    const raw = (row as any).lotissement_terrains_json;
+    if (raw) lotissementTerrains = Array.isArray(raw) ? raw : JSON.parse(raw);
+  } catch {}
+  try {
+    const raw = (row as any).lotissement_paliers_prix_m2_json;
+    if (raw) lotissementPaliersPrix = Array.isArray(raw) ? raw : JSON.parse(raw);
   } catch {}
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
@@ -147,6 +157,9 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     terrain_zone: ((row as any).terrain_zone || null) as string | null,
     terrain_constructible: toBoolean((row as any).terrain_constructible),
     terrain_angle: toBoolean((row as any).terrain_angle),
+    terrain_prix_affiche_total: toNullableNumber((row as any).terrain_prix_affiche_total),
+    terrain_prix_affiche_par_m2: toNullableNumber((row as any).terrain_prix_affiche_par_m2),
+    terrain_mode_affichage_prix: ((row as any).terrain_mode_affichage_prix || null) as any,
     immeuble_surface_terrain_m2: toNullableNumber((immeubleDetails as any).surface_terrain_m2),
     immeuble_surface_batie_m2: toNullableNumber((immeubleDetails as any).surface_batie_m2),
     immeuble_nb_niveaux: toNullableNumber((immeubleDetails as any).nb_niveaux),
@@ -166,6 +179,26 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       salle_bain: Number(item?.salle_bain || 0),
       superficie_m2: toNullableNumber(item?.superficie_m2),
       configuration: item?.configuration ? String(item.configuration) : null,
+    })),
+    lotissement_nb_terrains: toNullableNumber((row as any).lotissement_nb_terrains),
+    lotissement_prix_total: toNullableNumber((row as any).lotissement_prix_total),
+    lotissement_mode_prix_m2: ((row as any).lotissement_mode_prix_m2 || null) as any,
+    lotissement_prix_m2_unique: toNullableNumber((row as any).lotissement_prix_m2_unique),
+    lotissement_terrains: (Array.isArray(lotissementTerrains) ? lotissementTerrains : []).map((item, idx) => ({
+      index: Number(item?.index || idx + 1),
+      type_terrain: (item?.type_terrain || null) as TypeTerrainVente | null,
+      surface_m2: toNullableNumber(item?.surface_m2),
+      type_rue: (item?.type_rue || null) as TypeRueAppartementVente | null,
+      type_papier: (item?.type_papier || null) as TypePapierAppartementVente | null,
+      terrain_zone: item?.terrain_zone ? String(item.terrain_zone) : null,
+      terrain_distance_plage_m: toNullableNumber(item?.terrain_distance_plage_m),
+      terrain_constructible: toBoolean(item?.terrain_constructible),
+      terrain_angle: toBoolean(item?.terrain_angle),
+    })),
+    lotissement_paliers_prix_m2: (Array.isArray(lotissementPaliersPrix) ? lotissementPaliersPrix : []).map((item) => ({
+      min_m2: Number(item?.min_m2 || 0),
+      max_m2: toNullableNumber(item?.max_m2),
+      prix_m2: Number(item?.prix_m2 || 0),
     })),
     statut: row.statut as BienStatut,
     menage_en_cours: row.menage_en_cours === 1 || row.menage_en_cours === true || row.menage_en_cours === '1',
@@ -208,6 +241,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     'local_commercial': 'S+1',
     'immeuble': 'S+4',
     'terrain': 'S+1',
+    'lotissement': 'S+1',
     'bungalow': 'Villa',
     'villa': 'Villa',
   };
@@ -224,7 +258,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     bedrooms: bien.nb_chambres,
     bathrooms: bien.nb_salle_bain,
     images: bien.media && bien.media.length > 0 
-      ? bien.media.map((m: any) => m.url) 
+      ? bien.media.filter((m: any) => !m.motif_upload || (m.motif_upload !== 'preuve_type_rue' && m.motif_upload !== 'preuve_type_papier')).map((m: any) => m.url) 
       : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'],
     description: bien.description || `Superbe ${bien.type}`,
     amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),

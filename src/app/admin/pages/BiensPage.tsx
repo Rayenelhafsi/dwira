@@ -2,7 +2,7 @@
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -32,6 +32,7 @@ const typeLabels: Record<BienType, string> = {
   studio: "Studio",
   immeuble: "Immeuble",
   terrain: "Terrain",
+  lotissement: "Lotissement",
   local_commercial: "Local commercial",
   bungalow: "Bungalow",
   S1: "Appartement",
@@ -42,9 +43,18 @@ const typeLabels: Record<BienType, string> = {
   local: "Local commercial",
 };
 const BIEN_TYPES_BY_MODE: Record<BienMode, BienType[]> = {
-  vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'local_commercial'],
+  vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'lotissement', 'local_commercial'],
   location_saisonniere: ['appartement', 'villa_maison', 'bungalow', 'studio'],
   location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
+};
+const TERRAIN_PRIX_MODE_LABELS: Record<ModeAffichagePrixTerrain, string> = {
+  total_uniquement: 'Total uniquement',
+  m2_uniquement: 'Prix / m2 uniquement',
+  total_et_m2: 'Total et prix / m2',
+};
+const LOTISSEMENT_PRIX_MODE_LABELS: Record<ModePrixLotissement, string> = {
+  m2_unique: 'Prix / m2 unique',
+  paliers: 'Paliers selon surface',
 };
 const TYPE_RUE_LABELS: Record<TypeRueAppartementVente, string> = {
   piste: 'Piste',
@@ -153,7 +163,14 @@ function toMoney(value: number): number {
 }
 
 function computeVenteTarification(formData: Partial<Bien>) {
-  const prixAfficheClient = Number(formData.prix_affiche_client ?? formData.prix_nuitee ?? 0);
+  const selectedType = (formData.type || 'appartement') as BienType;
+  const terrainPrixDerive = selectedType === 'terrain'
+    ? (Number(formData.terrain_prix_affiche_total || 0) || (Number(formData.terrain_surface_m2 || 0) * Number(formData.terrain_prix_affiche_par_m2 || 0)))
+    : 0;
+  const lotissementPrixDerive = selectedType === 'lotissement'
+    ? Number(formData.lotissement_prix_total || 0)
+    : 0;
+  const prixAfficheClient = Number(formData.prix_affiche_client ?? formData.prix_nuitee ?? terrainPrixDerive ?? lotissementPrixDerive ?? 0);
   const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
   if (!Number.isFinite(prixAfficheClient) || prixAfficheClient <= 0) {
     return {
@@ -385,7 +402,17 @@ export default function BiensPage() {
 function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
   const mainImage = resolveMediaUrl(bien.media?.[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
   const imageCount = bien.media?.length || 0;
-  const displayPrice = bien.mode === 'vente' ? Number(bien.prix_affiche_client ?? bien.prix_nuitee ?? 0) : Number(bien.prix_nuitee || 0);
+  const terrainMode = bien.terrain_mode_affichage_prix || 'total_et_m2';
+  const terrainTotal = Number(bien.terrain_prix_affiche_total ?? bien.prix_affiche_client ?? bien.prix_nuitee ?? 0);
+  const terrainParM2 = Number(bien.terrain_prix_affiche_par_m2 ?? 0);
+  const displayPrice = bien.mode === 'vente'
+    ? (bien.type === 'terrain' && terrainMode === 'm2_uniquement' && terrainParM2 > 0
+      ? terrainParM2
+      : Number(bien.prix_affiche_client ?? terrainTotal ?? bien.prix_nuitee ?? 0))
+    : Number(bien.prix_nuitee || 0);
+  const priceSuffix = bien.mode === 'vente'
+    ? (bien.type === 'terrain' && terrainMode === 'm2_uniquement' ? '/m2' : '')
+    : '/nuit';
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col h-full group">
       <div className="relative h-44 sm:h-48 bg-gray-100 overflow-hidden">
@@ -396,7 +423,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
           <button onClick={onView} className="p-2 bg-white rounded-full hover:bg-gray-100"><Eye className="h-4 w-4 text-gray-700" /></button>
           <button onClick={onEdit} className="p-2 bg-white rounded-full hover:bg-gray-100"><Edit2 className="h-4 w-4 text-emerald-600" /></button>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3"><p className="text-white font-bold text-lg">{displayPrice} DT{bien.mode === 'vente' ? '' : <span className="text-xs font-normal text-white/80">/nuit</span>}</p></div>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3"><p className="text-white font-bold text-lg">{displayPrice} DT{priceSuffix ? <span className="text-xs font-normal text-white/80">{priceSuffix}</span> : null}</p></div>
       </div>
       <div className="p-4 flex-1 flex flex-col">
         <div className="mb-3"><h3 className="font-bold text-gray-900 text-base line-clamp-1 mb-1">{bien.titre}</h3><div className="flex items-center gap-1 text-gray-500 text-xs"><MapPin className="h-3 w-3" /><span>{zones.find(z => z.id === bien.zone_id)?.nom || 'Zone Inconnue'}</span></div></div>
@@ -415,7 +442,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; onSubmit: (data: Bien) => void; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
@@ -557,6 +584,27 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     }
     setFormData((prev) => ({ ...prev, immeuble_appartements: nextRows }));
   }, [formData.immeuble_nb_appartements]);
+  useEffect(() => {
+    const targetCount = Math.max(1, Math.floor(Number(formData.lotissement_nb_terrains || 1)));
+    const currentRows = Array.isArray(formData.lotissement_terrains) ? formData.lotissement_terrains : [];
+    if (currentRows.length === targetCount) return;
+    const nextRows = [];
+    for (let i = 0; i < targetCount; i += 1) {
+      const existing = currentRows[i];
+      nextRows.push({
+        index: i + 1,
+        type_terrain: (existing?.type_terrain || null),
+        surface_m2: existing?.surface_m2 ?? null,
+        type_rue: (existing?.type_rue || null),
+        type_papier: (existing?.type_papier || null),
+        terrain_zone: existing?.terrain_zone || null,
+        terrain_distance_plage_m: existing?.terrain_distance_plage_m ?? null,
+        terrain_constructible: !!existing?.terrain_constructible,
+        terrain_angle: !!existing?.terrain_angle,
+      });
+    }
+    setFormData((prev) => ({ ...prev, lotissement_terrains: nextRows }));
+  }, [formData.lotissement_nb_terrains]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -631,7 +679,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
-    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
+    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
     if (name === 'mode') {
       const nextMode = value as BienMode;
       const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
@@ -641,19 +689,21 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         const keepAppartementVenteDetails = nextMode === 'vente' && nextType === 'appartement';
         const keepLocalCommercialVenteDetails = nextMode === 'vente' && nextType === 'local_commercial';
         const keepTerrainVenteDetails = nextMode === 'vente' && nextType === 'terrain';
+        const keepLotissementVenteDetails = nextMode === 'vente' && nextType === 'lotissement';
         const keepImmeubleVenteDetails = nextMode === 'vente' && nextType === 'immeuble';
         const next = {
           ...prev,
           mode: nextMode,
           type: nextType,
-          type_rue: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_rue || null : null,
-          type_papier: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_papier || null : null,
+          type_rue: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails || keepLotissementVenteDetails) ? prev.type_rue || null : null,
+          type_papier: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails || keepLotissementVenteDetails) ? prev.type_papier || null : null,
         };
-        if (keepAppartementVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(next)));
-        if (keepLocalCommercialVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetAppartementVenteFields(next)));
-        if (keepTerrainVenteDetails) return resetImmeubleVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
-        if (keepImmeubleVenteDetails) return resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
-        return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        if (keepAppartementVenteDetails) return resetLotissementVenteFields(resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(next))));
+        if (keepLocalCommercialVenteDetails) return resetLotissementVenteFields(resetImmeubleVenteFields(resetTerrainVenteFields(resetAppartementVenteFields(next))));
+        if (keepTerrainVenteDetails) return resetLotissementVenteFields(resetImmeubleVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        if (keepLotissementVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        if (keepImmeubleVenteDetails) return resetLotissementVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        return resetLotissementVenteFields(resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)))));
       });
       return;
     }
@@ -663,18 +713,20 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         const keepAppartementVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'appartement';
         const keepLocalCommercialVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'local_commercial';
         const keepTerrainVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'terrain';
+        const keepLotissementVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'lotissement';
         const keepImmeubleVenteDetails = (prev.mode || 'location_saisonniere') === 'vente' && nextType === 'immeuble';
         const next = {
           ...prev,
           type: nextType,
-          type_rue: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_rue || null : null,
-          type_papier: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails) ? prev.type_papier || null : null,
+          type_rue: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails || keepLotissementVenteDetails) ? prev.type_rue || null : null,
+          type_papier: (keepAppartementVenteDetails || keepLocalCommercialVenteDetails || keepTerrainVenteDetails || keepImmeubleVenteDetails || keepLotissementVenteDetails) ? prev.type_papier || null : null,
         };
-        if (keepAppartementVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(next)));
-        if (keepLocalCommercialVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetAppartementVenteFields(next)));
-        if (keepTerrainVenteDetails) return resetImmeubleVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
-        if (keepImmeubleVenteDetails) return resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)));
-        return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        if (keepAppartementVenteDetails) return resetLotissementVenteFields(resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(next))));
+        if (keepLocalCommercialVenteDetails) return resetLotissementVenteFields(resetImmeubleVenteFields(resetTerrainVenteFields(resetAppartementVenteFields(next))));
+        if (keepTerrainVenteDetails) return resetLotissementVenteFields(resetImmeubleVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        if (keepLotissementVenteDetails) return resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        if (keepImmeubleVenteDetails) return resetLotissementVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next))));
+        return resetLotissementVenteFields(resetImmeubleVenteFields(resetTerrainVenteFields(resetLocalCommercialVenteFields(resetAppartementVenteFields(next)))));
       });
       return;
     }
@@ -740,9 +792,21 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     terrain_zone: null,
     terrain_constructible: false,
     terrain_angle: false,
+    terrain_prix_affiche_total: null,
+    terrain_prix_affiche_par_m2: null,
+    terrain_mode_affichage_prix: null,
     eau_puits: false,
     eau_sonede: false,
     electricite_steg: false,
+  });
+  const resetLotissementVenteFields = (current: Partial<Bien>): Partial<Bien> => ({
+    ...current,
+    lotissement_nb_terrains: null,
+    lotissement_prix_total: null,
+    lotissement_mode_prix_m2: null,
+    lotissement_prix_m2_unique: null,
+    lotissement_terrains: [],
+    lotissement_paliers_prix_m2: [],
   });
   const resetImmeubleVenteFields = (current: Partial<Bien>): Partial<Bien> => ({
     ...current,
@@ -778,6 +842,34 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       rows[index] = { ...current, [field]: Math.max(0, Number(value || 0)) } as any;
     }
     setFormData((prev) => ({ ...prev, immeuble_appartements: rows }));
+  };
+  const handleLotissementTerrainChange = (index: number, field: string, value: string | boolean) => {
+    const rows = Array.isArray(formData.lotissement_terrains) ? [...formData.lotissement_terrains] : [];
+    const current = rows[index] || { index: index + 1 };
+    const numericFields = ['surface_m2', 'terrain_distance_plage_m'];
+    const nextValue = numericFields.includes(field as string)
+      ? (value === '' ? null : Number(value))
+      : value;
+    rows[index] = { ...current, [field]: nextValue };
+    setFormData((prev) => ({ ...prev, lotissement_terrains: rows }));
+  };
+  const handleLotissementPalierChange = (index: number, field: 'min_m2' | 'max_m2' | 'prix_m2', value: string) => {
+    const rows = Array.isArray(formData.lotissement_paliers_prix_m2) ? [...formData.lotissement_paliers_prix_m2] : [];
+    const current = rows[index] || { min_m2: 0, max_m2: null, prix_m2: 0 };
+    rows[index] = { ...current, [field]: value === '' ? null : Number(value) } as any;
+    setFormData((prev) => ({ ...prev, lotissement_paliers_prix_m2: rows }));
+  };
+  const addLotissementPalier = () => {
+    setFormData((prev) => ({
+      ...prev,
+      lotissement_paliers_prix_m2: [...(prev.lotissement_paliers_prix_m2 || []), { min_m2: 0, max_m2: null, prix_m2: 0 }],
+    }));
+  };
+  const removeLotissementPalier = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      lotissement_paliers_prix_m2: (prev.lotissement_paliers_prix_m2 || []).filter((_, idx) => idx !== index),
+    }));
   };
 
   const handleAddImage = () => {
@@ -992,6 +1084,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
     const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
     const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
+    const isLotissementVente = selectedMode === 'vente' && selectedType === 'lotissement';
     const isImmeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
 
     if (!formData.titre?.trim()) {
@@ -1038,6 +1131,14 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       setGeneralStep(3);
       return toast.error('Type de terrain obligatoire pour Terrain en vente');
     }
+    if (isTerrainVente && (!formData.terrain_surface_m2 || Number(formData.terrain_surface_m2) <= 0)) {
+      setGeneralStep(3);
+      return toast.error('Surface terrain obligatoire (> 0)');
+    }
+    if (isTerrainVente && (formData.terrain_mode_affichage_prix === 'm2_uniquement' || formData.terrain_mode_affichage_prix === 'total_et_m2') && (!formData.terrain_prix_affiche_par_m2 || Number(formData.terrain_prix_affiche_par_m2) <= 0)) {
+      setGeneralStep(3);
+      return toast.error('Prix affiche par m2 obligatoire (> 0)');
+    }
     if (isTerrainVente && !formData.type_rue) {
       setGeneralStep(3);
       return toast.error('Type de rue obligatoire pour Terrain en vente');
@@ -1054,11 +1155,30 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       setGeneralStep(3);
       return toast.error('Type de papier obligatoire pour Immeuble en vente');
     }
+    if (isLotissementVente && (!formData.lotissement_nb_terrains || Number(formData.lotissement_nb_terrains) <= 0)) {
+      setGeneralStep(3);
+      return toast.error('Nombre de terrains obligatoire pour le lotissement');
+    }
+    if (isLotissementVente && (formData.lotissement_mode_prix_m2 || 'm2_unique') === 'm2_unique' && (!formData.lotissement_prix_m2_unique || Number(formData.lotissement_prix_m2_unique) <= 0)) {
+      setGeneralStep(3);
+      return toast.error('Prix m2 unique obligatoire pour le lotissement');
+    }
+    if (isLotissementVente && (formData.lotissement_mode_prix_m2 === 'paliers') && (!Array.isArray(formData.lotissement_paliers_prix_m2) || formData.lotissement_paliers_prix_m2.length === 0)) {
+      setGeneralStep(3);
+      return toast.error('Ajoutez au moins un palier de prix m2');
+    }
     if (selectedMode === 'vente') {
       const prixAfficheClient = Number(formData.prix_affiche_client ?? formData.prix_nuitee ?? 0);
-      if (!Number.isFinite(prixAfficheClient) || prixAfficheClient <= 0) {
+      const terrainPrixDerive = isTerrainVente
+        ? Number(formData.terrain_prix_affiche_total || 0) || (Number(formData.terrain_surface_m2 || 0) * Number(formData.terrain_prix_affiche_par_m2 || 0))
+        : 0;
+      const lotissementPrixDerive = isLotissementVente ? Number(formData.lotissement_prix_total || 0) : 0;
+      const prixValideVente = (isTerrainVente || isLotissementVente)
+        ? (prixAfficheClient > 0 || terrainPrixDerive > 0 || lotissementPrixDerive > 0)
+        : (prixAfficheClient > 0);
+      if (!prixValideVente) {
         setGeneralStep(4);
-        return toast.error('Prix affiche client obligatoire et > 0');
+        return toast.error('Prix affiche client obligatoire et > 0 (ou prix terrain/lotissement)');
       }
       if (tarificationMethode === 'sans_commission') {
         const prixFixeProprietaire = Number(formData.prix_fixe_proprietaire ?? 0);
@@ -1112,10 +1232,12 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
         ? 0
         : isTerrainVente
           ? 0
+          : isLotissementVente
+            ? 0
           : isImmeubleVente
             ? 0
         : Number(formData.nb_chambres || 0);
-    const resolvedNbSalleBain = (isLocalCommercialVente || isTerrainVente || isImmeubleVente) ? 0 : Number(formData.nb_salle_bain || 0);
+    const resolvedNbSalleBain = (isLocalCommercialVente || isTerrainVente || isLotissementVente || isImmeubleVente) ? 0 : Number(formData.nb_salle_bain || 0);
     const appartementVenteData = isAppartementVente
       ? {
           type_rue: formData.type_rue || null,
@@ -1209,6 +1331,9 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           terrain_zone: formData.terrain_zone || null,
           terrain_constructible: !!formData.terrain_constructible,
           terrain_angle: !!formData.terrain_angle,
+          terrain_prix_affiche_total: formData.terrain_prix_affiche_total ?? null,
+          terrain_prix_affiche_par_m2: formData.terrain_prix_affiche_par_m2 ?? null,
+          terrain_mode_affichage_prix: formData.terrain_mode_affichage_prix || 'total_et_m2',
           eau_puits: !!formData.eau_puits,
           eau_sonede: !!formData.eau_sonede,
           electricite_steg: !!formData.electricite_steg,
@@ -1221,6 +1346,26 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           terrain_zone: null,
           terrain_constructible: false,
           terrain_angle: false,
+          terrain_prix_affiche_total: null,
+          terrain_prix_affiche_par_m2: null,
+          terrain_mode_affichage_prix: null,
+        };
+    const lotissementVenteData = isLotissementVente
+      ? {
+          lotissement_nb_terrains: formData.lotissement_nb_terrains ?? 1,
+          lotissement_prix_total: formData.lotissement_prix_total ?? null,
+          lotissement_mode_prix_m2: formData.lotissement_mode_prix_m2 || 'm2_unique',
+          lotissement_prix_m2_unique: formData.lotissement_prix_m2_unique ?? null,
+          lotissement_terrains: Array.isArray(formData.lotissement_terrains) ? formData.lotissement_terrains : [],
+          lotissement_paliers_prix_m2: Array.isArray(formData.lotissement_paliers_prix_m2) ? formData.lotissement_paliers_prix_m2 : [],
+        }
+      : {
+          lotissement_nb_terrains: null,
+          lotissement_prix_total: null,
+          lotissement_mode_prix_m2: null,
+          lotissement_prix_m2_unique: null,
+          lotissement_terrains: [],
+          lotissement_paliers_prix_m2: [],
         };
     const immeubleVenteData = isImmeubleVente
       ? {
@@ -1290,6 +1435,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       ...appartementVenteData,
       ...localCommercialVenteData,
       ...terrainVenteData,
+      ...lotissementVenteData,
       ...immeubleVenteData,
       description: descriptionWithFeatures,
       caracteristiques: customFeatures,
@@ -1308,6 +1454,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const isAppartementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement';
   const isLocalCommercialVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial';
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
+  const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
   const isModeVente = (formData.mode || 'location_saisonniere') === 'vente';
   const currentTarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
@@ -1545,6 +1692,20 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                         {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Mode affichage prix</label>
+                      <select name="terrain_mode_affichage_prix" value={formData.terrain_mode_affichage_prix || 'total_et_m2'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        {Object.entries(TERRAIN_PRIX_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiche total (DT)</label>
+                      <input type="number" min={0} step="0.01" name="terrain_prix_affiche_total" value={formData.terrain_prix_affiche_total ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiche / m2 (DT)</label>
+                      <input type="number" min={0} step="0.01" name="terrain_prix_affiche_par_m2" value={formData.terrain_prix_affiche_par_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
                   </div>
                   <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
                     {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(0, 7).map((field) => (
@@ -1625,6 +1786,70 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                         <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
                         <span>{TERRAIN_VENTE_BOOLEAN_LABELS[field]}</span>
                       </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isLotissementVente && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Lotissement (Vente)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de terrains *</label>
+                      <input type="number" min={1} name="lotissement_nb_terrains" value={formData.lotissement_nb_terrains ?? 1} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix total (DT)</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_prix_total" value={formData.lotissement_prix_total ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Mode prix m2 *</label>
+                      <select name="lotissement_mode_prix_m2" value={formData.lotissement_mode_prix_m2 || 'm2_unique'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        {Object.entries(LOTISSEMENT_PRIX_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </div>
+                    {(formData.lotissement_mode_prix_m2 || 'm2_unique') === 'm2_unique' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix m2 unique (DT) *</label>
+                        <input type="number" min={0} step="0.01" name="lotissement_prix_m2_unique" value={formData.lotissement_prix_m2_unique ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    )}
+                  </div>
+                  {(formData.lotissement_mode_prix_m2 || 'm2_unique') === 'paliers' && (
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h5 className="text-sm font-semibold text-gray-800">Paliers prix m2</h5>
+                        <button type="button" onClick={addLotissementPalier} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs">Ajouter palier</button>
+                      </div>
+                      {(formData.lotissement_paliers_prix_m2 || []).map((row, idx) => (
+                        <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                          <input type="number" min={1} placeholder="Min m2" value={row.min_m2 ?? ''} onChange={(e) => handleLotissementPalierChange(idx, 'min_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                          <input type="number" min={1} placeholder="Max m2 (optionnel)" value={row.max_m2 ?? ''} onChange={(e) => handleLotissementPalierChange(idx, 'max_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                          <input type="number" min={0} step="0.01" placeholder="Prix m2 (DT)" value={row.prix_m2 ?? ''} onChange={(e) => handleLotissementPalierChange(idx, 'prix_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                          <button type="button" onClick={() => removeLotissementPalier(idx)} className="px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm">Supprimer</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-4 space-y-2">
+                    <h5 className="text-sm font-semibold text-gray-800">Terrains du lotissement</h5>
+                    {(formData.lotissement_terrains || []).map((row, idx) => (
+                      <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                        <select value={row.type_terrain || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'type_terrain', e.target.value)} className="rounded-lg border-gray-300 border p-2">
+                          <option value="">Type terrain</option>
+                          {Object.entries(TYPE_TERRAIN_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                        <input type="number" min={0} step="0.01" placeholder="Surface m2" value={row.surface_m2 ?? ''} onChange={(e) => handleLotissementTerrainChange(idx, 'surface_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <select value={row.type_rue || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'type_rue', e.target.value)} className="rounded-lg border-gray-300 border p-2">
+                          <option value="">Type rue</option>
+                          {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                        <select value={row.type_papier || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'type_papier', e.target.value)} className="rounded-lg border-gray-300 border p-2">
+                          <option value="">Type papier</option>
+                          {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                        <input placeholder="Zone" value={row.terrain_zone || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'terrain_zone', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1977,7 +2202,14 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
 
 function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
   const mainImage = resolveMediaUrl(bien.media?.[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
-  const displayPrice = bien.mode === 'vente' ? Number(bien.prix_affiche_client ?? bien.prix_nuitee ?? 0) : Number(bien.prix_nuitee || 0);
+  const terrainMode = bien.terrain_mode_affichage_prix || 'total_et_m2';
+  const terrainTotal = Number(bien.terrain_prix_affiche_total ?? bien.prix_affiche_client ?? bien.prix_nuitee ?? 0);
+  const terrainParM2 = Number(bien.terrain_prix_affiche_par_m2 ?? 0);
+  const displayPrice = bien.mode === 'vente'
+    ? (bien.type === 'terrain' && terrainMode === 'm2_uniquement' && terrainParM2 > 0
+      ? terrainParM2
+      : Number(bien.prix_affiche_client ?? terrainTotal ?? bien.prix_nuitee ?? 0))
+    : Number(bien.prix_nuitee || 0);
   const rawDescription = bien.description || '';
   const markerIndex = rawDescription.indexOf(CHARACTERISTICS_MARKER);
   const cleanDescription = markerIndex >= 0 ? rawDescription.slice(0, markerIndex).trim() : rawDescription;
@@ -1995,11 +2227,13 @@ function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
             <div>
               <span className="text-3xl font-bold text-emerald-600">{displayPrice} DT</span>
               {bien.mode !== 'vente' && <span className="text-gray-500">/nuit</span>}
+              {bien.mode === 'vente' && bien.type === 'terrain' && terrainMode === 'm2_uniquement' && <span className="text-gray-500">/m2</span>}
             </div>
             {bien.mode === 'vente' ? (
               <div className="text-right text-sm text-gray-500">
                 <div>Prix final: {bien.prix_final ?? displayPrice} DT</div>
                 <div>Revenu agence: {bien.revenu_agence ?? 0} DT</div>
+                {bien.type === 'terrain' && terrainParM2 > 0 && <div>Prix /m2: {terrainParM2} DT</div>}
               </div>
             ) : (
               <div className="text-right text-sm text-gray-500"><div>Avance: {bien.avance} DT</div><div>Caution: {bien.caution} DT</div></div>

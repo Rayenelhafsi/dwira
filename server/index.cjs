@@ -76,7 +76,7 @@ let mediaHasPositionColumn = true;
 const socialAuthSessions = new Map();
 const BIEN_MODES = ['vente', 'location_annuelle', 'location_saisonniere'];
 const BIEN_TYPES_BY_MODE = {
-  vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'local_commercial'],
+  vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'lotissement', 'local_commercial'],
   location_saisonniere: ['appartement', 'villa_maison', 'bungalow', 'studio'],
   location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
 };
@@ -87,6 +87,8 @@ const LOCAL_COMMERCIAL_VENTE_PAPIER_TYPES = APPARTEMENT_VENTE_PAPIER_TYPES;
 const TERRAIN_VENTE_RUE_TYPES = APPARTEMENT_VENTE_RUE_TYPES;
 const TERRAIN_VENTE_PAPIER_TYPES = APPARTEMENT_VENTE_PAPIER_TYPES;
 const TERRAIN_VENTE_TYPES = ['agricole', 'habitation', 'industrielle', 'loisir'];
+const TERRAIN_AFFICHAGE_PRIX_MODES = ['total_uniquement', 'm2_uniquement', 'total_et_m2'];
+const LOTISSEMENT_PRIX_M2_MODES = ['m2_unique', 'paliers'];
 const TARIFICATION_METHODES = ['avec_commission', 'sans_commission'];
 const MODALITES_PAIEMENT_VENTE = ['comptant', 'facilite'];
 const DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT = 3;
@@ -273,6 +275,9 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
       typeTerrain: null,
       facadeM: null,
       surfaceM2: null,
+      prixAfficheTotal: null,
+      prixAfficheParM2: null,
+      modeAffichagePrix: null,
       distancePlageM: null,
       zoneTerrain: null,
       constructible: false,
@@ -286,6 +291,10 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
   const typeRue = payload.type_rue || null;
   const typePapier = payload.type_papier || null;
   const typeTerrain = payload.type_terrain || null;
+  const modeAffichagePrix = payload.terrain_mode_affichage_prix || 'total_et_m2';
+  const surfaceM2 = toNullableNumber(payload.terrain_surface_m2);
+  const prixAfficheTotal = toNullableNumber(payload.terrain_prix_affiche_total);
+  const prixAfficheParM2 = toNullableNumber(payload.terrain_prix_affiche_par_m2);
 
   if (typeRue && !TERRAIN_VENTE_RUE_TYPES.includes(typeRue)) {
     return { error: 'type_rue invalide' };
@@ -296,13 +305,22 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
   if (typeTerrain && !TERRAIN_VENTE_TYPES.includes(typeTerrain)) {
     return { error: 'type_terrain invalide' };
   }
+  if (!surfaceM2 || surfaceM2 <= 0) {
+    return { error: 'terrain_surface_m2 obligatoire (> 0)' };
+  }
+  if (modeAffichagePrix && !TERRAIN_AFFICHAGE_PRIX_MODES.includes(modeAffichagePrix)) {
+    return { error: 'terrain_mode_affichage_prix invalide' };
+  }
 
   return {
     typeRue,
     typePapier,
     typeTerrain,
     facadeM: toNullableNumber(payload.terrain_facade_m),
-    surfaceM2: toNullableNumber(payload.terrain_surface_m2),
+    surfaceM2,
+    prixAfficheTotal,
+    prixAfficheParM2,
+    modeAffichagePrix,
     distancePlageM: toNullableNumber(payload.terrain_distance_plage_m),
     zoneTerrain: (payload.terrain_zone !== undefined && payload.terrain_zone !== null ? String(payload.terrain_zone) : '').trim() || null,
     constructible: toFlag(payload.terrain_constructible),
@@ -310,6 +328,84 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
     eauPuits: toFlag(payload.eau_puits),
     eauSonede: toFlag(payload.eau_sonede),
     electriciteSteg: toFlag(payload.electricite_steg),
+  };
+}
+
+function normalizeLotissementVenteDetails(mode, type, payload = {}) {
+  const isLotissementVente = mode === 'vente' && type === 'lotissement';
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toFlag = (value) => value === true || value === 1 || value === '1';
+  if (!isLotissementVente) {
+    return {
+      nbTerrains: null,
+      prixTotal: null,
+      modePrixM2: null,
+      prixM2Unique: null,
+      terrainsJson: null,
+      paliersPrixM2Json: null,
+    };
+  }
+
+  const nbTerrains = Math.max(1, Math.floor(Number(payload.lotissement_nb_terrains || 1)));
+  const modePrixM2 = String(payload.lotissement_mode_prix_m2 || 'm2_unique');
+  if (!LOTISSEMENT_PRIX_M2_MODES.includes(modePrixM2)) {
+    return { error: 'lotissement_mode_prix_m2 invalide' };
+  }
+
+  const rawTerrains = Array.isArray(payload.lotissement_terrains) ? payload.lotissement_terrains : [];
+  const terrains = [];
+  for (let i = 0; i < nbTerrains; i += 1) {
+    const row = rawTerrains[i] || {};
+    const typeTerrain = row.type_terrain || null;
+    const typeRue = row.type_rue || null;
+    const typePapier = row.type_papier || null;
+    if (typeTerrain && !TERRAIN_VENTE_TYPES.includes(typeTerrain)) return { error: `type_terrain invalide pour terrain ${i + 1}` };
+    if (typeRue && !TERRAIN_VENTE_RUE_TYPES.includes(typeRue)) return { error: `type_rue invalide pour terrain ${i + 1}` };
+    if (typePapier && !TERRAIN_VENTE_PAPIER_TYPES.includes(typePapier)) return { error: `type_papier invalide pour terrain ${i + 1}` };
+    const surfaceM2 = toNullableNumber(row.surface_m2);
+    if (!surfaceM2 || surfaceM2 <= 0) return { error: `surface_m2 obligatoire pour terrain ${i + 1}` };
+    terrains.push({
+      index: i + 1,
+      type_terrain: typeTerrain,
+      surface_m2: surfaceM2,
+      type_rue: typeRue,
+      type_papier: typePapier,
+      terrain_zone: row.terrain_zone ? String(row.terrain_zone).trim() : null,
+      terrain_distance_plage_m: toNullableNumber(row.terrain_distance_plage_m),
+      terrain_constructible: toFlag(row.terrain_constructible),
+      terrain_angle: toFlag(row.terrain_angle),
+    });
+  }
+
+  const prixM2Unique = toNullableNumber(payload.lotissement_prix_m2_unique);
+  const prixTotal = toNullableNumber(payload.lotissement_prix_total);
+  const rawPaliers = Array.isArray(payload.lotissement_paliers_prix_m2) ? payload.lotissement_paliers_prix_m2 : [];
+  let paliers = [];
+
+  if (modePrixM2 === 'm2_unique') {
+    if (!prixM2Unique || prixM2Unique <= 0) return { error: 'lotissement_prix_m2_unique obligatoire (> 0)' };
+  } else {
+    paliers = rawPaliers
+      .map((row) => ({
+        min_m2: Number(row?.min_m2 || 0),
+        max_m2: toNullableNumber(row?.max_m2),
+        prix_m2: Number(row?.prix_m2 || 0),
+      }))
+      .filter((row) => row.min_m2 > 0 && row.prix_m2 > 0);
+    if (paliers.length === 0) return { error: 'lotissement_paliers_prix_m2 obligatoire en mode paliers' };
+  }
+
+  return {
+    nbTerrains,
+    prixTotal,
+    modePrixM2,
+    prixM2Unique: modePrixM2 === 'm2_unique' ? prixM2Unique : null,
+    terrainsJson: JSON.stringify(terrains),
+    paliersPrixM2Json: modePrixM2 === 'paliers' ? JSON.stringify(paliers) : null,
   };
 }
 
@@ -386,7 +482,7 @@ function deriveBedroomsFromConfiguration(configuration) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeVenteTarification(mode, payload = {}) {
+function normalizeVenteTarification(mode, type, payload = {}) {
   const toNullableNumber = (value) => {
     if (value === undefined || value === null || value === '') return null;
     const numeric = Number(value);
@@ -408,9 +504,32 @@ function normalizeVenteTarification(mode, payload = {}) {
     };
   }
 
-  const prixAfficheClient = toNullableNumber(payload.prix_affiche_client ?? payload.prix_nuitee);
+  let prixAfficheClient = toNullableNumber(payload.prix_affiche_client ?? payload.prix_nuitee);
+  if ((prixAfficheClient === null || prixAfficheClient <= 0) && type === 'terrain') {
+    const surfaceTerrain = toNullableNumber(payload.terrain_surface_m2);
+    const prixParM2 = toNullableNumber(payload.terrain_prix_affiche_par_m2);
+    if (surfaceTerrain && surfaceTerrain > 0 && prixParM2 && prixParM2 > 0) {
+      prixAfficheClient = toMoney(surfaceTerrain * prixParM2);
+    }
+  }
+  if ((prixAfficheClient === null || prixAfficheClient <= 0) && type === 'lotissement') {
+    const prixTotal = toNullableNumber(payload.lotissement_prix_total);
+    if (prixTotal && prixTotal > 0) {
+      prixAfficheClient = toMoney(prixTotal);
+    }
+  }
   if (prixAfficheClient === null || prixAfficheClient <= 0) {
-    return { error: 'prix_affiche_client invalide (doit etre > 0)' };
+    return {
+      tarificationMethode: null,
+      prixAfficheClient: null,
+      prixFixeProprietaire: null,
+      prixFinal: null,
+      revenuAgence: null,
+      commissionPourcentageProprietaire: null,
+      commissionPourcentageClient: null,
+      montantMaxReductionNegociation: null,
+      prixMinimumAccepte: null,
+    };
   }
 
   const tarificationMethode = String(payload.tarification_methode || 'avec_commission');
@@ -926,6 +1045,33 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'terrain_angle'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN terrain_angle TINYINT(1) NOT NULL DEFAULT 0 AFTER terrain_constructible');
   }
+  if (!(await columnExists('biens', 'terrain_prix_affiche_total'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_prix_affiche_total DECIMAL(12,2) NULL DEFAULT NULL AFTER terrain_angle');
+  }
+  if (!(await columnExists('biens', 'terrain_prix_affiche_par_m2'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_prix_affiche_par_m2 DECIMAL(12,2) NULL DEFAULT NULL AFTER terrain_prix_affiche_total');
+  }
+  if (!(await columnExists('biens', 'terrain_mode_affichage_prix'))) {
+    await pool.query("ALTER TABLE biens ADD COLUMN terrain_mode_affichage_prix ENUM('total_uniquement','m2_uniquement','total_et_m2') NULL DEFAULT NULL AFTER terrain_prix_affiche_par_m2");
+  }
+  if (!(await columnExists('biens', 'lotissement_nb_terrains'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_nb_terrains INT NULL DEFAULT NULL AFTER terrain_mode_affichage_prix');
+  }
+  if (!(await columnExists('biens', 'lotissement_prix_total'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_prix_total DECIMAL(12,2) NULL DEFAULT NULL AFTER lotissement_nb_terrains');
+  }
+  if (!(await columnExists('biens', 'lotissement_mode_prix_m2'))) {
+    await pool.query("ALTER TABLE biens ADD COLUMN lotissement_mode_prix_m2 ENUM('m2_unique','paliers') NULL DEFAULT NULL AFTER lotissement_prix_total");
+  }
+  if (!(await columnExists('biens', 'lotissement_prix_m2_unique'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_prix_m2_unique DECIMAL(12,2) NULL DEFAULT NULL AFTER lotissement_mode_prix_m2');
+  }
+  if (!(await columnExists('biens', 'lotissement_terrains_json'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_terrains_json LONGTEXT NULL AFTER lotissement_prix_m2_unique');
+  }
+  if (!(await columnExists('biens', 'lotissement_paliers_prix_m2_json'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_paliers_prix_m2_json LONGTEXT NULL AFTER lotissement_terrains_json');
+  }
   if (!(await columnExists('biens', 'immeuble_details_json'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN immeuble_details_json LONGTEXT NULL AFTER terrain_angle');
   }
@@ -934,7 +1080,7 @@ async function ensureBiensWorkflowSchema() {
   }
 
   await pool.query(
-    "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','villa_maison','studio','immeuble','terrain','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
+    "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
   );
 
   if (!(await indexExists('biens', 'idx_biens_mode_type'))) {
@@ -966,12 +1112,15 @@ async function ensureBiensWorkflowSchema() {
       id VARCHAR(50) PRIMARY KEY,
       caracteristique_id VARCHAR(50) NOT NULL,
       mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
-      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','local_commercial','bungalow') NOT NULL,
+      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL,
       UNIQUE KEY uq_car_context (caracteristique_id, mode_bien, type_bien),
       INDEX idx_mode_type (mode_bien, type_bien),
       FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await pool.query(
+    "ALTER TABLE caracteristique_contextes MODIFY COLUMN type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL"
+  );
 
   await pool.query(`
     INSERT INTO caracteristiques (id, nom) VALUES
@@ -1211,6 +1360,8 @@ app.post('/api/biens', async (req, res) => {
       cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg,
       surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
       type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
+      lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
       immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements
     } = req.body;
@@ -1239,10 +1390,17 @@ app.post('/api/biens', async (req, res) => {
 
     const terrainDetails = normalizeTerrainVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
       eau_puits, eau_sonede, electricite_steg
     });
     if (terrainDetails.error) {
       return res.status(400).json({ error: terrainDetails.error });
+    }
+    const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
+      lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
+    });
+    if (lotissementDetails.error) {
+      return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
@@ -1252,9 +1410,12 @@ app.post('/api/biens', async (req, res) => {
     if (immeubleDetails.error) {
       return res.status(400).json({ error: immeubleDetails.error });
     }
-    const venteTarification = normalizeVenteTarification(resolvedMode, {
+    const venteTarification = normalizeVenteTarification(resolvedMode, resolvedType, {
       prix_nuitee,
       prix_affiche_client,
+      terrain_surface_m2,
+      terrain_prix_affiche_par_m2,
+      lotissement_prix_total,
       prix_fixe_proprietaire,
       tarification_methode,
       commission_pourcentage_proprietaire,
@@ -1269,10 +1430,10 @@ app.post('/api/biens', async (req, res) => {
       ? deriveBedroomsFromConfiguration(details.configuration)
       : (resolvedMode === 'vente' && resolvedType === 'local_commercial')
         ? 0
-        : (resolvedMode === 'vente' && resolvedType === 'terrain')
+        : (resolvedMode === 'vente' && (resolvedType === 'terrain' || resolvedType === 'lotissement'))
           ? 0
         : Number(nb_chambres || 0);
-    const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain'))
+    const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain' || resolvedType === 'lotissement'))
       ? 0
       : Number(nb_salle_bain || 0);
 
@@ -1324,7 +1485,9 @@ app.post('/api/biens', async (req, res) => {
        SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_final = ?, revenu_agence = ?,
            commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
-           nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?
+           nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
+           terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?,
+           lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?
        WHERE id = ?`,
       [
         venteTarification.tarificationMethode,
@@ -1343,6 +1506,15 @@ app.post('/api/biens', async (req, res) => {
         paiementVente.nombreTranches,
         paiementVente.periodeTranchesMois,
         paiementVente.montantParTranche,
+        terrainDetails.prixAfficheTotal,
+        terrainDetails.prixAfficheParM2,
+        terrainDetails.modeAffichagePrix,
+        lotissementDetails.nbTerrains,
+        lotissementDetails.prixTotal,
+        lotissementDetails.modePrixM2,
+        lotissementDetails.prixM2Unique,
+        lotissementDetails.terrainsJson,
+        lotissementDetails.paliersPrixM2Json,
         bienId,
       ]
     );
@@ -1376,6 +1548,8 @@ app.put('/api/biens/:id', async (req, res) => {
       cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg,
       surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
       type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
+      lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
       immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements
     } = req.body;
@@ -1404,10 +1578,17 @@ app.put('/api/biens/:id', async (req, res) => {
 
     const terrainDetails = normalizeTerrainVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
+      terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
       eau_puits, eau_sonede, electricite_steg
     });
     if (terrainDetails.error) {
       return res.status(400).json({ error: terrainDetails.error });
+    }
+    const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
+      lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
+    });
+    if (lotissementDetails.error) {
+      return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
@@ -1417,9 +1598,12 @@ app.put('/api/biens/:id', async (req, res) => {
     if (immeubleDetails.error) {
       return res.status(400).json({ error: immeubleDetails.error });
     }
-    const venteTarification = normalizeVenteTarification(resolvedMode, {
+    const venteTarification = normalizeVenteTarification(resolvedMode, resolvedType, {
       prix_nuitee,
       prix_affiche_client,
+      terrain_surface_m2,
+      terrain_prix_affiche_par_m2,
+      lotissement_prix_total,
       prix_fixe_proprietaire,
       tarification_methode,
       commission_pourcentage_proprietaire,
@@ -1434,10 +1618,10 @@ app.put('/api/biens/:id', async (req, res) => {
       ? deriveBedroomsFromConfiguration(details.configuration)
       : (resolvedMode === 'vente' && resolvedType === 'local_commercial')
         ? 0
-        : (resolvedMode === 'vente' && resolvedType === 'terrain')
+        : (resolvedMode === 'vente' && (resolvedType === 'terrain' || resolvedType === 'lotissement'))
           ? 0
         : Number(nb_chambres || 0);
-    const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain'))
+    const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain' || resolvedType === 'lotissement'))
       ? 0
       : Number(nb_salle_bain || 0);
 
@@ -1488,7 +1672,9 @@ app.put('/api/biens/:id', async (req, res) => {
        SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_final = ?, revenu_agence = ?,
            commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
-           nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?
+           nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
+           terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?,
+           lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?
        WHERE id = ?`,
       [
         venteTarification.tarificationMethode,
@@ -1507,6 +1693,15 @@ app.put('/api/biens/:id', async (req, res) => {
         paiementVente.nombreTranches,
         paiementVente.periodeTranchesMois,
         paiementVente.montantParTranche,
+        terrainDetails.prixAfficheTotal,
+        terrainDetails.prixAfficheParM2,
+        terrainDetails.modeAffichagePrix,
+        lotissementDetails.nbTerrains,
+        lotissementDetails.prixTotal,
+        lotissementDetails.modePrixM2,
+        lotissementDetails.prixM2Unique,
+        lotissementDetails.terrainsJson,
+        lotissementDetails.paliersPrixM2Json,
         req.params.id,
       ]
     );
