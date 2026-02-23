@@ -31,6 +31,8 @@ export default function HomePage() {
   
   const navigate = useNavigate();
   const resultsRef = useRef<HTMLDivElement>(null);
+  const locationTriggerRef = useRef<HTMLButtonElement>(null);
+  const calendarTriggerRef = useRef<HTMLButtonElement>(null);
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   
   // Filter states
@@ -148,9 +150,9 @@ export default function HomePage() {
     setShowCalendar(false);
     setShowCategoryDropdown(false);
   };
-  const getMobileDropdownTop = () => {
+  const getMobileDropdownTop = (triggerRef: React.RefObject<HTMLButtonElement>) => {
     if (typeof window === "undefined" || window.innerWidth >= 768) return 112;
-    const rect = categoryTriggerRef.current?.getBoundingClientRect();
+    const rect = triggerRef.current?.getBoundingClientRect();
     return rect ? Math.max(96, Math.round(rect.bottom + 8)) : 112;
   };
 
@@ -245,10 +247,11 @@ export default function HomePage() {
                 {/* Location Dropdown */}
                 <div className={`relative pointer-events-auto ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
+                    ref={locationTriggerRef}
                     type="button"
                     className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
                     onClick={() => {
-                      setMobileDropdownTop(getMobileDropdownTop());
+                      setMobileDropdownTop(getMobileDropdownTop(locationTriggerRef));
                       setShowLocationDropdown(!showLocationDropdown);
                       setShowCategoryDropdown(false);
                       setShowCalendar(false);
@@ -292,10 +295,11 @@ export default function HomePage() {
                 {/* Date Range Picker */}
                 <div className={`relative pointer-events-auto ${showCalendar ? 'z-[120]' : 'z-10'}`}>
                   <button 
+                    ref={calendarTriggerRef}
                     type="button"
                     className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
                     onClick={() => {
-                      setMobileDropdownTop(getMobileDropdownTop());
+                      setMobileDropdownTop(getMobileDropdownTop(calendarTriggerRef));
                       setShowCalendar(!showCalendar);
                       setShowLocationDropdown(false);
                       setShowCategoryDropdown(false);
@@ -378,7 +382,7 @@ export default function HomePage() {
                     type="button"
                     className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
                     onClick={() => {
-                      setMobileDropdownTop(getMobileDropdownTop());
+                      setMobileDropdownTop(getMobileDropdownTop(categoryTriggerRef));
                       setShowCategoryDropdown(!showCategoryDropdown);
                       setShowLocationDropdown(false);
                       setShowCalendar(false);

@@ -1996,7 +1996,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    const imageUrl = `http://localhost:${PORT}/uploads/${req.file.filename}`;
+    const imageUrl = `/uploads/${req.file.filename}`;
     res.json({ 
       success: true, 
       url: imageUrl,
@@ -2013,7 +2013,7 @@ app.post('/api/upload-contract', contractUpload.single('contract'), async (req, 
     if (!req.file) {
       return res.status(400).json({ error: 'No contract file uploaded' });
     }
-    const contractUrl = `http://localhost:${PORT}/contracts/${req.file.filename}`;
+    const contractUrl = `/contracts/${req.file.filename}`;
     res.json({
       success: true,
       url: contractUrl,
