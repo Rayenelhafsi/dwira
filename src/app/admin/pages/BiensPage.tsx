@@ -160,8 +160,9 @@ const PROOF_MOTIF_TYPE_PAPIER = 'preuve_type_papier';
 const buildProofMotif = (
   proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
   mode?: BienMode,
-  type?: BienType
-) => `${proofType}|${mode || 'unknown_mode'}|${type || 'unknown_type'}`;
+  type?: BienType,
+  terrainIndex?: number
+) => `${proofType}|${mode || 'unknown_mode'}|${type || 'unknown_type'}${terrainIndex ? `|terrain_${terrainIndex}` : ''}`;
 const isProofMotif = (motif?: string | null) =>
   String(motif || '') === PROOF_MOTIF_TYPE_RUE
   || String(motif || '') === PROOF_MOTIF_TYPE_PAPIER
@@ -498,6 +499,18 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const clientVisibleImages = images.filter((img) => !isProofImage(img));
   const typeRueProofImages = images.filter((img) => img.motif_upload === currentProofTypeRueMotif);
   const typePapierProofImages = images.filter((img) => img.motif_upload === currentProofTypePapierMotif);
+  const getLotissementTerrainProofs = (
+    proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
+    terrainIndex: number
+  ) => {
+    const motif = buildProofMotif(
+      proofType,
+      (formData.mode || 'location_saisonniere') as BienMode,
+      normalizeLegacyType((formData.type || 'appartement') as BienType),
+      terrainIndex
+    );
+    return images.filter((img) => img.motif_upload === motif);
+  };
 
   useEffect(() => {
     const rawDescription = initialData?.description || '';
@@ -658,7 +671,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
 
   const handleProofFileUpload = async (
     proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
-    e: React.ChangeEvent<HTMLInputElement>
+    e: React.ChangeEvent<HTMLInputElement>,
+    terrainIndex?: number
   ) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -681,7 +695,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           motif_upload: buildProofMotif(
             proofType,
             (formData.mode || 'location_saisonniere') as BienMode,
-            normalizeLegacyType((formData.type || 'appartement') as BienType)
+            normalizeLegacyType((formData.type || 'appartement') as BienType),
+            terrainIndex
           ),
         };
         setImages((prev) => [...prev, newMedia]);
@@ -1873,10 +1888,62 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                           {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                         </select>
                         <input placeholder="Zone" value={row.terrain_zone || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'terrain_zone', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <div className="md:col-span-5 mt-1 rounded-lg border border-dashed border-gray-300 p-2">
+                          <div className="text-xs font-medium text-gray-700 mb-2">Preuves Terrain {idx + 1} (type rue / type papier)</div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="flex items-center gap-2 text-xs font-medium text-gray-700 mb-1">
+                                <Upload className="h-3.5 w-3.5 text-emerald-600" />
+                                <span>Preuve type de rue</span>
+                              </label>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e, idx + 1)}
+                                disabled={uploading}
+                                className="block w-full text-xs"
+                              />
+                              <div className="mt-2 grid grid-cols-4 gap-2">
+                                {getLotissementTerrainProofs(PROOF_MOTIF_TYPE_RUE, idx + 1).map((img) => (
+                                  <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
+                                    <img src={resolveMediaUrl(img.url)} alt={`Preuve rue terrain ${idx + 1}`} className="w-full h-16 object-cover" />
+                                    <button type="button" onClick={() => handleRemoveImage(img.id)} className="absolute top-0.5 right-0.5 p-1 bg-red-500 text-white rounded-full">
+                                      <Trash2 className="h-2.5 w-2.5" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="flex items-center gap-2 text-xs font-medium text-gray-700 mb-1">
+                                <Upload className="h-3.5 w-3.5 text-emerald-600" />
+                                <span>Preuve type de papier</span>
+                              </label>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e, idx + 1)}
+                                disabled={uploading}
+                                className="block w-full text-xs"
+                              />
+                              <div className="mt-2 grid grid-cols-4 gap-2">
+                                {getLotissementTerrainProofs(PROOF_MOTIF_TYPE_PAPIER, idx + 1).map((img) => (
+                                  <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
+                                    <img src={resolveMediaUrl(img.url)} alt={`Preuve papier terrain ${idx + 1}`} className="w-full h-16 object-cover" />
+                                    <button type="button" onClick={() => handleRemoveImage(img.id)} className="absolute top-0.5 right-0.5 p-1 bg-red-500 text-white rounded-full">
+                                      <Trash2 className="h-2.5 w-2.5" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
-                  {renderTypeProofUploads()}
                 </div>
               )}
               {isImmeubleVente && (
