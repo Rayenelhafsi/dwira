@@ -12,6 +12,7 @@ export interface Property {
   detailPath?: string;
   location: string;
   pricePerNight: number;
+  priceContext?: 'night' | 'sale';
   rating: number;
   reviews: number;
   guests: number;

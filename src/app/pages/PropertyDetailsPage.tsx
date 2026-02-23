@@ -435,7 +435,7 @@ export default function PropertyDetailsPage() {
               <div className="flex justify-between items-baseline mb-6">
                 <div>
                   <span className="text-2xl font-bold text-gray-900">{property.pricePerNight} TND</span>
-                  <span className="text-gray-500"> / nuit</span>
+                  {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
                 </div>
                 <div className="flex items-center gap-1 text-sm text-gray-600">
                   <Star size={14} className="text-amber-500 fill-current" />
@@ -645,7 +645,7 @@ export default function PropertyDetailsPage() {
                         </h3>
                         <div className="flex items-baseline gap-1">
                           <span className="text-lg font-bold text-gray-900">{otherProperty.pricePerNight} TND</span>
-                          <span className="text-gray-500 text-sm">/ nuit</span>
+                          <span className="text-gray-500 text-sm">{otherProperty.priceContext === 'sale' ? '/ vente' : '/ nuit'}</span>
                         </div>
                         <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
                           <span>{otherProperty.guests} voyageurs</span>

@@ -269,6 +269,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     detailPath,
     location: zoneNames[bien.zone_id || ''] || 'KÃ©libia',
     pricePerNight: bien.prix_nuitee,
+    priceContext: bien.mode === 'vente' ? 'sale' : 'night',
     rating: 4.5 + Math.random() * 0.5,
     reviews: Math.floor(Math.random() * 30) + 5,
     guests: bien.nb_chambres + 1,

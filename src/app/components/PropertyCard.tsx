@@ -28,7 +28,8 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
           className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
         />
         <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md text-sm font-semibold text-gray-900 shadow-sm">
-          {property.pricePerNight} TND <span className="text-xs font-normal text-gray-500">/ nuit</span>
+          {property.pricePerNight} TND
+          {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
         </div>
         <div className="absolute top-3 left-3 bg-emerald-700/90 backdrop-blur-sm px-2 py-1 rounded-md text-xs font-semibold text-white shadow-sm">
           {property.category}
