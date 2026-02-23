@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
@@ -31,7 +31,7 @@ export default function HomePage() {
   
   const navigate = useNavigate();
   const resultsRef = useRef<HTMLDivElement>(null);
-  const categoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const filterControlsRef = useRef<HTMLDivElement>(null);
   
   // Filter states
   const [location, setLocation] = useState("");
@@ -148,6 +148,22 @@ export default function HomePage() {
     setShowCategoryDropdown(false);
   };
 
+  useEffect(() => {
+    if (!showLocationDropdown && !showCalendar && !showCategoryDropdown) return;
+    const handleOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (filterControlsRef.current && target && !filterControlsRef.current.contains(target)) {
+        closeAllFilters();
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [showLocationDropdown, showCalendar, showCategoryDropdown]);
+
   return (
     <div className="flex flex-col min-h-screen">
       {/* Hero Section */}
@@ -226,21 +242,13 @@ export default function HomePage() {
 
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
-              {(showLocationDropdown || showCalendar || showCategoryDropdown) && (
-                <button
-                  type="button"
-                  aria-label="Fermer les filtres"
-                  className="fixed inset-0 z-[140] bg-black/30 md:hidden"
-                  onClick={closeAllFilters}
-                />
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 
                 {/* Location Dropdown */}
                 <div className={`relative pointer-events-auto ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
-                    className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
+                    className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showLocationDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
                       setShowLocationDropdown(!showLocationDropdown);
                       setShowCategoryDropdown(false);
@@ -283,7 +291,7 @@ export default function HomePage() {
                 <div className={`relative pointer-events-auto ${showCalendar ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
-                    className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
+                    className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showCalendar ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
                       setShowCalendar(!showCalendar);
                       setShowLocationDropdown(false);
@@ -360,9 +368,8 @@ export default function HomePage() {
                 {/* Property Type Dropdown */}
                 <div className={`relative pointer-events-auto ${showCategoryDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
-                    ref={categoryTriggerRef}
                     type="button"
-                    className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:border-emerald-400 transition-colors h-full text-left pointer-events-auto"
+                    className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showCategoryDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
                       setShowCategoryDropdown(!showCategoryDropdown);
                       setShowLocationDropdown(false);
