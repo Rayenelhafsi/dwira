@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente } from '../types';
@@ -1683,10 +1683,46 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                     <div className="absolute top-2 right-2 p-1 bg-black/40 text-white rounded cursor-grab"><GripVertical className="h-3.5 w-3.5" /></div>
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                     <div className="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-2">
-                      <button type="button" onClick={() => handleMoveImage(index, 'up')} disabled={index === 0} className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow">?</button>
-                      <button type="button" onClick={() => handleMoveImage(index, 'down')} disabled={index === images.length - 1} className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow">?</button>
-                      {index !== 0 && <button type="button" onClick={() => handleSetMainImage(index)} className="p-1.5 bg-emerald-500 text-white rounded-full shadow">?</button>}
-                      <button type="button" onClick={() => handleRemoveImage(img.id)} className="p-1.5 bg-red-500 text-white rounded-full shadow">?</button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveImage(index, 'up')}
+                        disabled={index === 0}
+                        className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
+                        aria-label="Monter l'image"
+                        title="Monter"
+                      >
+                        <ChevronUp className="h-4 w-4 text-gray-800" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveImage(index, 'down')}
+                        disabled={index === images.length - 1}
+                        className="p-1.5 bg-white/95 rounded-full disabled:opacity-50 shadow"
+                        aria-label="Descendre l'image"
+                        title="Descendre"
+                      >
+                        <ChevronDown className="h-4 w-4 text-gray-800" />
+                      </button>
+                      {index !== 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleSetMainImage(index)}
+                          className="p-1.5 bg-emerald-500 text-white rounded-full shadow"
+                          aria-label="Définir comme image principale"
+                          title="Définir en principale"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveImage(img.id)}
+                        className="p-1.5 bg-red-500 text-white rounded-full shadow"
+                        aria-label="Supprimer l'image"
+                        title="Supprimer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                     {index === 0 && <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs px-2 py-0.5 rounded">Principale</span>}
                     {!!img.motif_upload && <span className="absolute top-2 left-20 bg-white/90 text-gray-700 text-xs px-2 py-0.5 rounded border">{img.motif_upload}</span>}
