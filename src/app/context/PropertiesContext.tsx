@@ -175,10 +175,19 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     immeuble_vue_mer: toBoolean((immeubleDetails as any).vue_mer),
     immeuble_appartements: (Array.isArray(immeubleAppartements) ? immeubleAppartements : []).map((item, idx) => ({
       index: Number(item?.index || idx + 1),
+      reference: item?.reference ? String(item.reference) : null,
       chambres: Number(item?.chambres || 0),
       salle_bain: Number(item?.salle_bain || 0),
       superficie_m2: toNullableNumber(item?.superficie_m2),
       configuration: item?.configuration ? String(item.configuration) : null,
+    })),
+    immeuble_garages: (Array.isArray((immeubleDetails as any)?.garages) ? (immeubleDetails as any).garages : []).map((item: any, idx: number) => ({
+      index: Number(item?.index || idx + 1),
+      reference: item?.reference ? String(item.reference) : null,
+    })),
+    immeuble_locaux_commerciaux: (Array.isArray((immeubleDetails as any)?.locaux_commerciaux) ? (immeubleDetails as any).locaux_commerciaux : []).map((item: any, idx: number) => ({
+      index: Number(item?.index || idx + 1),
+      reference: item?.reference ? String(item.reference) : null,
     })),
     lotissement_nb_terrains: toNullableNumber((row as any).lotissement_nb_terrains),
     lotissement_prix_total: toNullableNumber((row as any).lotissement_prix_total),
@@ -186,6 +195,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     lotissement_prix_m2_unique: toNullableNumber((row as any).lotissement_prix_m2_unique),
     lotissement_terrains: (Array.isArray(lotissementTerrains) ? lotissementTerrains : []).map((item, idx) => ({
       index: Number(item?.index || idx + 1),
+      reference: item?.reference ? String(item.reference) : null,
       type_terrain: (item?.type_terrain || null) as TypeTerrainVente | null,
       surface_m2: toNullableNumber(item?.surface_m2),
       type_rue: (item?.type_rue || null) as TypeRueAppartementVente | null,
@@ -246,10 +256,17 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     'villa': 'Villa',
   };
 
+  const detailPath = bien.mode === 'vente' && bien.type === 'immeuble'
+    ? `/vente/immeuble/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`
+    : bien.mode === 'vente' && bien.type === 'lotissement'
+      ? `/vente/lotissement/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`
+      : `/properties/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`;
+
   return {
     id: bien.id,
     title: bien.titre,
     slug: bien.titre.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    detailPath,
     location: zoneNames[bien.zone_id || ''] || 'KÃ©libia',
     pricePerNight: bien.prix_nuitee,
     rating: 4.5 + Math.random() * 0.5,

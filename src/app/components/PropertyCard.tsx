@@ -8,9 +8,10 @@ interface PropertyCardProps {
 }
 
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
+  const baseDetailPath = property.detailPath || `/properties/${property.slug}`;
   const linkTo = searchParams 
-    ? `/properties/${property.slug}?${searchParams}`
-    : `/properties/${property.slug}`;
+    ? `${baseDetailPath}?${searchParams}`
+    : baseDetailPath;
   const ratingDisplay = Number.isFinite(property.rating)
     ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
     : "0,0";

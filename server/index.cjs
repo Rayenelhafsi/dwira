@@ -12,10 +12,35 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const ALLOWED_ORIGINS = [
+  ...String(process.env.FRONTEND_URL || FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
+  'http://localhost:5173',
+  'https://localhost:5173',
+  'https://www.dwiraimmobilier.com',
+  'https://dwiraimmobilier.com',
+];
+app.disable('x-powered-by');
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS blocked for this origin'));
+  },
+  credentials: true,
+}));
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (String(req.headers['x-forwarded-proto'] || '').includes('https')) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/contracts', express.static(path.join(__dirname, 'contracts')));
 
@@ -105,6 +130,14 @@ const LEGACY_TYPE_MAP = {
 
 function normalizeBienType(rawType) {
   return LEGACY_TYPE_MAP[rawType] || rawType;
+}
+
+function normalizeReferenceBase(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '') || 'REF';
+}
+
+function buildChildReference(baseReference, prefix, index) {
+  return `${normalizeReferenceBase(baseReference)}-${prefix}${index}`;
 }
 
 function normalizeBienMode(rawMode) {
@@ -357,6 +390,7 @@ function normalizeLotissementVenteDetails(mode, type, payload = {}) {
   }
 
   const rawTerrains = Array.isArray(payload.lotissement_terrains) ? payload.lotissement_terrains : [];
+  const baseReference = payload.reference || payload.titre || 'LOTISSEMENT';
   const terrains = [];
   for (let i = 0; i < nbTerrains; i += 1) {
     const row = rawTerrains[i] || {};
@@ -370,6 +404,7 @@ function normalizeLotissementVenteDetails(mode, type, payload = {}) {
     if (!surfaceM2 || surfaceM2 <= 0) return { error: `surface_m2 obligatoire pour terrain ${i + 1}` };
     terrains.push({
       index: i + 1,
+      reference: (row.reference ? String(row.reference).trim().toUpperCase() : buildChildReference(baseReference, 'TRN', i + 1)),
       type_terrain: typeTerrain,
       surface_m2: surfaceM2,
       type_rue: typeRue,
@@ -437,16 +472,38 @@ function normalizeImmeubleVenteDetails(mode, type, payload = {}) {
   }
 
   const nbAppartements = Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_appartements) || 0));
+  const nbGarages = Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_garages) || 0));
+  const nbLocauxCommerciaux = Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_locaux_commerciaux) || 0));
+  const baseReference = payload.reference || payload.titre || 'IMMEUBLE';
   const inputRows = Array.isArray(payload.immeuble_appartements) ? payload.immeuble_appartements : [];
+  const inputGarages = Array.isArray(payload.immeuble_garages) ? payload.immeuble_garages : [];
+  const inputLocaux = Array.isArray(payload.immeuble_locaux_commerciaux) ? payload.immeuble_locaux_commerciaux : [];
   const appartements = [];
   for (let i = 0; i < nbAppartements; i += 1) {
     const row = inputRows[i] || {};
     appartements.push({
       index: i + 1,
+      reference: (row.reference ? String(row.reference).trim().toUpperCase() : buildChildReference(baseReference, 'APT', i + 1)),
       chambres: Math.max(0, Math.floor(toNullableNumber(row.chambres) || 0)),
       salle_bain: Math.max(0, Math.floor(toNullableNumber(row.salle_bain) || 0)),
       superficie_m2: toNullableNumber(row.superficie_m2),
       configuration: row.configuration ? String(row.configuration).trim() : null,
+    });
+  }
+  const garages = [];
+  for (let i = 0; i < nbGarages; i += 1) {
+    const row = inputGarages[i] || {};
+    garages.push({
+      index: i + 1,
+      reference: (row.reference ? String(row.reference).trim().toUpperCase() : buildChildReference(baseReference, 'GAR', i + 1)),
+    });
+  }
+  const locauxCommerciaux = [];
+  for (let i = 0; i < nbLocauxCommerciaux; i += 1) {
+    const row = inputLocaux[i] || {};
+    locauxCommerciaux.push({
+      index: i + 1,
+      reference: (row.reference ? String(row.reference).trim().toUpperCase() : buildChildReference(baseReference, 'LOC', i + 1)),
     });
   }
 
@@ -454,9 +511,9 @@ function normalizeImmeubleVenteDetails(mode, type, payload = {}) {
     surface_terrain_m2: toNullableNumber(payload.immeuble_surface_terrain_m2),
     surface_batie_m2: toNullableNumber(payload.immeuble_surface_batie_m2),
     nb_niveaux: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_niveaux) || 0)),
-    nb_garages: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_garages) || 0)),
+    nb_garages: nbGarages,
     nb_appartements: nbAppartements,
-    nb_locaux_commerciaux: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_locaux_commerciaux) || 0)),
+    nb_locaux_commerciaux: nbLocauxCommerciaux,
     distance_plage_m: toNullableNumber(payload.immeuble_distance_plage_m),
     proche_plage: toFlag(payload.immeuble_proche_plage),
     ascenseur: toFlag(payload.immeuble_ascenseur),
@@ -464,6 +521,8 @@ function normalizeImmeubleVenteDetails(mode, type, payload = {}) {
     parking_exterieur: toFlag(payload.immeuble_parking_exterieur),
     syndic: toFlag(payload.immeuble_syndic),
     vue_mer: toFlag(payload.immeuble_vue_mer),
+    garages,
+    locaux_commerciaux: locauxCommerciaux,
   };
 
   return {
@@ -1363,7 +1422,7 @@ app.post('/api/biens', async (req, res) => {
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
       lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
-      immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements
+      immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     } = req.body;
 
     const resolvedMode = normalizeBienMode(mode ?? mode_bien);
@@ -1397,15 +1456,15 @@ app.post('/api/biens', async (req, res) => {
       return res.status(400).json({ error: terrainDetails.error });
     }
     const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
-      lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
+      reference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
     });
     if (lotissementDetails.error) {
       return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
-      type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
+      reference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
       immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
-      immeuble_syndic, immeuble_vue_mer, immeuble_appartements
+      immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     });
     if (immeubleDetails.error) {
       return res.status(400).json({ error: immeubleDetails.error });
@@ -1551,7 +1610,7 @@ app.put('/api/biens/:id', async (req, res) => {
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
       lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
-      immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements
+      immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     } = req.body;
 
     const resolvedMode = normalizeBienMode(mode ?? mode_bien);
@@ -1585,15 +1644,15 @@ app.put('/api/biens/:id', async (req, res) => {
       return res.status(400).json({ error: terrainDetails.error });
     }
     const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
-      lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
+      reference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
     });
     if (lotissementDetails.error) {
       return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
-      type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
+      reference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
       immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
-      immeuble_syndic, immeuble_vue_mer, immeuble_appartements
+      immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     });
     if (immeubleDetails.error) {
       return res.status(400).json({ error: immeubleDetails.error });

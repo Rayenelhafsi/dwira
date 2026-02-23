@@ -3,6 +3,8 @@ import { Layout } from "./Layout";
 import HomePage from "./pages/HomePage";
 import PropertiesPage from "./pages/PropertiesPage";
 import PropertyDetailsPage from "./pages/PropertyDetailsPage";
+import ImmeubleVenteDetailsPage from "./pages/ImmeubleVenteDetailsPage";
+import LotissementVenteDetailsPage from "./pages/LotissementVenteDetailsPage";
 import ContactPage from "./pages/ContactPage";
 import LoginPage from "./pages/LoginPage";
 import { AdminLayout } from "./admin/AdminLayout";
@@ -25,6 +27,8 @@ export const router = createBrowserRouter([
       { index: true, Component: HomePage },
       { path: "logements", Component: PropertiesPage },
       { path: "properties/:slug", Component: PropertyDetailsPage },
+      { path: "vente/immeuble/:slug", Component: ImmeubleVenteDetailsPage },
+      { path: "vente/lotissement/:slug", Component: LotissementVenteDetailsPage },
       { path: "contact", Component: ContactPage },
       { path: "login", Component: LoginPage },
       { path: "*", Component: () => <div className="p-20 text-center">Page non trouvée</div> },

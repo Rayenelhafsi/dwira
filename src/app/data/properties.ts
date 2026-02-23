@@ -9,6 +9,7 @@ export interface Property {
   id: string;
   title: string;
   slug: string;
+  detailPath?: string;
   location: string;
   pricePerNight: number;
   rating: number;

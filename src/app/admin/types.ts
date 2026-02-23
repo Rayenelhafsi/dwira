@@ -63,14 +63,26 @@ export interface DateStatus {
 
 export interface ImmeubleAppartementDetail {
   index: number;
+  reference?: string | null;
   chambres: number;
   salle_bain: number;
   superficie_m2?: number | null;
   configuration?: string | null;
 }
 
+export interface ImmeubleGarageDetail {
+  index: number;
+  reference?: string | null;
+}
+
+export interface ImmeubleLocalCommercialDetail {
+  index: number;
+  reference?: string | null;
+}
+
 export interface LotissementTerrainDetail {
   index: number;
+  reference?: string | null;
   type_terrain?: TypeTerrainVente | null;
   surface_m2?: number | null;
   type_rue?: TypeRueAppartementVente | null;
@@ -173,6 +185,8 @@ export interface Bien {
   immeuble_syndic?: boolean;
   immeuble_vue_mer?: boolean;
   immeuble_appartements?: ImmeubleAppartementDetail[];
+  immeuble_garages?: ImmeubleGarageDetail[];
+  immeuble_locaux_commerciaux?: ImmeubleLocalCommercialDetail[];
   lotissement_nb_terrains?: number | null;
   lotissement_prix_total?: number | null;
   lotissement_mode_prix_m2?: ModePrixLotissement | null;

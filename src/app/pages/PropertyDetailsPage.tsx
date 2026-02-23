@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams } from "react-router";
+import { useParams, Link, useSearchParams, Navigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
@@ -248,6 +248,9 @@ export default function PropertyDetailsPage() {
         </Link>
       </div>
     );
+  }
+  if (property.detailPath && property.detailPath.startsWith("/vente/")) {
+    return <Navigate to={`${property.detailPath}${filterQueryString ? `?${filterQueryString}` : ""}`} replace />;
   }
 
   return (
@@ -618,7 +621,7 @@ export default function PropertyDetailsPage() {
                     className="flex-[0_0_280px] min-w-0 sm:flex-[0_0_320px]"
                   >
                     <Link 
-                      to={`/properties/${otherProperty.slug}${filterQueryString ? `?${filterQueryString}` : ''}`}
+                      to={`${otherProperty.detailPath || `/properties/${otherProperty.slug}`}${filterQueryString ? `?${filterQueryString}` : ''}`}
                       className="block bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group/card"
                     >
                       <div className="relative h-48 overflow-hidden">

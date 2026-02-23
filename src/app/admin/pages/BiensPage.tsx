@@ -456,7 +456,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; onSubmit: (data: Bien) => void; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
@@ -488,6 +488,12 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     return (value || 'appartement') as BienType;
   };
   const generateReference = () => `REF-${Date.now().toString().slice(-6)}`;
+  const normalizeReferenceBase = (value?: string | null) => {
+    const base = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    return base || 'REF';
+  };
+  const generateChildReference = (prefix: 'APT' | 'GAR' | 'LOC' | 'TRN', index: number) =>
+    `${normalizeReferenceBase(formData.reference)}-${prefix}${index}`;
   const currentProofTypeRueMotif = buildProofMotif(
     PROOF_MOTIF_TYPE_RUE,
     (formData.mode || 'location_saisonniere') as BienMode,
@@ -627,12 +633,14 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   useEffect(() => {
     const targetCount = Math.max(0, Math.floor(Number(formData.immeuble_nb_appartements || 0)));
     const currentRows = Array.isArray(formData.immeuble_appartements) ? formData.immeuble_appartements : [];
-    if (currentRows.length === targetCount) return;
+    const needsSync = currentRows.length !== targetCount || currentRows.some((row, idx) => !row?.reference || Number(row?.index || 0) !== (idx + 1));
+    if (!needsSync) return;
     const nextRows = [];
     for (let i = 0; i < targetCount; i += 1) {
       const existing = currentRows[i];
       nextRows.push({
         index: i + 1,
+        reference: existing?.reference || generateChildReference('APT', i + 1),
         chambres: Number(existing?.chambres || 0),
         salle_bain: Number(existing?.salle_bain || 0),
         superficie_m2: existing?.superficie_m2 ?? null,
@@ -640,16 +648,48 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       });
     }
     setFormData((prev) => ({ ...prev, immeuble_appartements: nextRows }));
-  }, [formData.immeuble_nb_appartements]);
+  }, [formData.immeuble_nb_appartements, formData.reference]);
   useEffect(() => {
-    const targetCount = Math.max(1, Math.floor(Number(formData.lotissement_nb_terrains || 1)));
-    const currentRows = Array.isArray(formData.lotissement_terrains) ? formData.lotissement_terrains : [];
-    if (currentRows.length === targetCount) return;
+    const targetCount = Math.max(0, Math.floor(Number(formData.immeuble_nb_garages || 0)));
+    const currentRows = Array.isArray(formData.immeuble_garages) ? formData.immeuble_garages : [];
+    const needsSync = currentRows.length !== targetCount || currentRows.some((row, idx) => !row?.reference || Number(row?.index || 0) !== (idx + 1));
+    if (!needsSync) return;
     const nextRows = [];
     for (let i = 0; i < targetCount; i += 1) {
       const existing = currentRows[i];
       nextRows.push({
         index: i + 1,
+        reference: existing?.reference || generateChildReference('GAR', i + 1),
+      });
+    }
+    setFormData((prev) => ({ ...prev, immeuble_garages: nextRows }));
+  }, [formData.immeuble_nb_garages, formData.reference]);
+  useEffect(() => {
+    const targetCount = Math.max(0, Math.floor(Number(formData.immeuble_nb_locaux_commerciaux || 0)));
+    const currentRows = Array.isArray(formData.immeuble_locaux_commerciaux) ? formData.immeuble_locaux_commerciaux : [];
+    const needsSync = currentRows.length !== targetCount || currentRows.some((row, idx) => !row?.reference || Number(row?.index || 0) !== (idx + 1));
+    if (!needsSync) return;
+    const nextRows = [];
+    for (let i = 0; i < targetCount; i += 1) {
+      const existing = currentRows[i];
+      nextRows.push({
+        index: i + 1,
+        reference: existing?.reference || generateChildReference('LOC', i + 1),
+      });
+    }
+    setFormData((prev) => ({ ...prev, immeuble_locaux_commerciaux: nextRows }));
+  }, [formData.immeuble_nb_locaux_commerciaux, formData.reference]);
+  useEffect(() => {
+    const targetCount = Math.max(1, Math.floor(Number(formData.lotissement_nb_terrains || 1)));
+    const currentRows = Array.isArray(formData.lotissement_terrains) ? formData.lotissement_terrains : [];
+    const needsSync = currentRows.length !== targetCount || currentRows.some((row, idx) => !row?.reference || Number(row?.index || 0) !== (idx + 1));
+    if (!needsSync) return;
+    const nextRows = [];
+    for (let i = 0; i < targetCount; i += 1) {
+      const existing = currentRows[i];
+      nextRows.push({
+        index: i + 1,
+        reference: existing?.reference || generateChildReference('TRN', i + 1),
         type_terrain: (existing?.type_terrain || null),
         surface_m2: existing?.surface_m2 ?? null,
         type_rue: (existing?.type_rue || null),
@@ -661,7 +701,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       });
     }
     setFormData((prev) => ({ ...prev, lotissement_terrains: nextRows }));
-  }, [formData.lotissement_nb_terrains]);
+  }, [formData.lotissement_nb_terrains, formData.reference]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, motifOverride?: string | null) => {
     const file = e.target.files?.[0];
@@ -890,6 +930,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     immeuble_syndic: false,
     immeuble_vue_mer: false,
     immeuble_appartements: [],
+    immeuble_garages: [],
+    immeuble_locaux_commerciaux: [],
     eau_puits: false,
     eau_sonede: false,
     electricite_steg: false,
@@ -897,7 +939,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
   const handleImmeubleAppartementChange = (index: number, field: 'chambres' | 'salle_bain' | 'superficie_m2' | 'configuration', value: string) => {
     const rows = Array.isArray(formData.immeuble_appartements) ? [...formData.immeuble_appartements] : [];
-    const current = rows[index] || { index: index + 1, chambres: 0, salle_bain: 0, superficie_m2: null, configuration: null };
+    const current = rows[index] || { index: index + 1, reference: generateChildReference('APT', index + 1), chambres: 0, salle_bain: 0, superficie_m2: null, configuration: null };
     if (field === 'configuration') {
       rows[index] = { ...current, configuration: value || null };
     } else if (field === 'superficie_m2') {
@@ -909,7 +951,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
   };
   const handleLotissementTerrainChange = (index: number, field: string, value: string | boolean) => {
     const rows = Array.isArray(formData.lotissement_terrains) ? [...formData.lotissement_terrains] : [];
-    const current = rows[index] || { index: index + 1 };
+    const current = rows[index] || { index: index + 1, reference: generateChildReference('TRN', index + 1) };
     const numericFields = ['surface_m2', 'terrain_distance_plage_m'];
     const nextValue = numericFields.includes(field as string)
       ? (value === '' ? null : Number(value))
@@ -1451,6 +1493,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           immeuble_syndic: !!formData.immeuble_syndic,
           immeuble_vue_mer: !!formData.immeuble_vue_mer,
           immeuble_appartements: Array.isArray(formData.immeuble_appartements) ? formData.immeuble_appartements : [],
+          immeuble_garages: Array.isArray(formData.immeuble_garages) ? formData.immeuble_garages : [],
+          immeuble_locaux_commerciaux: Array.isArray(formData.immeuble_locaux_commerciaux) ? formData.immeuble_locaux_commerciaux : [],
           eau_puits: !!formData.eau_puits,
           eau_sonede: !!formData.eau_sonede,
           electricite_steg: !!formData.electricite_steg,
@@ -1470,6 +1514,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
           immeuble_syndic: false,
           immeuble_vue_mer: false,
           immeuble_appartements: [],
+          immeuble_garages: [],
+          immeuble_locaux_commerciaux: [],
         };
     const finalData: Bien = {
       ...formData,
@@ -1906,7 +1952,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                   <div className="mt-4 space-y-2">
                     <h5 className="text-sm font-semibold text-gray-800">Terrains du lotissement</h5>
                     {(formData.lotissement_terrains || []).map((row, idx) => (
-                      <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                      <div key={idx} className="grid grid-cols-1 md:grid-cols-6 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                        <input value={row.reference || generateChildReference('TRN', idx + 1)} readOnly className="rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" />
                         <select value={row.type_terrain || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'type_terrain', e.target.value)} className="rounded-lg border-gray-300 border p-2">
                           <option value="">Type terrain</option>
                           {Object.entries(TYPE_TERRAIN_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -1997,7 +2044,8 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                     <h5 className="text-sm font-semibold text-gray-800 mb-2">Appartements de l'immeuble</h5>
                     <div className="space-y-2">
                       {(formData.immeuble_appartements || []).map((row, idx) => (
-                        <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                        <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Référence</label><input value={row.reference || generateChildReference('APT', idx + 1)} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Chambres</label><input type="number" min={0} value={row.chambres || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'chambres', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - SDB</label><input type="number" min={0} value={row.salle_bain || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'salle_bain', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Surface (m²)</label><input type="number" min={0} step="0.01" value={row.superficie_m2 ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'superficie_m2', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
@@ -2058,6 +2106,26 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
                         </div>
                       ))}
                       {(formData.immeuble_appartements || []).length === 0 && <span className="text-xs text-gray-500">Le nombre de lignes suit le champ "Nombre d'appartements".</span>}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-gray-200 bg-white p-3">
+                      <h6 className="text-sm font-semibold text-gray-800 mb-2">Références garages</h6>
+                      <div className="space-y-2">
+                        {(formData.immeuble_garages || []).map((row, idx) => (
+                          <input key={`garage-${idx}`} value={row.reference || generateChildReference('GAR', idx + 1)} readOnly className="w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" />
+                        ))}
+                        {(formData.immeuble_garages || []).length === 0 && <span className="text-xs text-gray-500">Aucun garage défini.</span>}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-white p-3">
+                      <h6 className="text-sm font-semibold text-gray-800 mb-2">Références locaux commerciaux</h6>
+                      <div className="space-y-2">
+                        {(formData.immeuble_locaux_commerciaux || []).map((row, idx) => (
+                          <input key={`local-${idx}`} value={row.reference || generateChildReference('LOC', idx + 1)} readOnly className="w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" />
+                        ))}
+                        {(formData.immeuble_locaux_commerciaux || []).length === 0 && <span className="text-xs text-gray-500">Aucun local commercial défini.</span>}
+                      </div>
                     </div>
                   </div>
                   <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
