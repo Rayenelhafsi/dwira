@@ -263,7 +263,7 @@ interface PropertiesContextType {
   loading: boolean;
   isLoading: boolean;
   error: string | null;
-  addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
+  addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<string>;
   updateBien: (updatedBien: Bien) => Promise<void>;
   deleteBien: (id: string) => Promise<void>;
   getBienById: (id: string) => Bien | undefined;
@@ -470,7 +470,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // CRUD Operations
-  const addBien = async (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => {
+  const addBien = async (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>): Promise<string> => {
     try {
       const response = await fetch(`${API_URL}/biens`, {
         method: 'POST',
@@ -479,8 +479,10 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       });
       
       if (!response.ok) throw new Error('Failed to create bien');
-      
+
+      const createdBien = await response.json();
       await fetchData(); // Refresh data
+      return String(createdBien?.id || '');
     } catch (err: any) {
       console.error('Error creating bien:', err);
       throw err;

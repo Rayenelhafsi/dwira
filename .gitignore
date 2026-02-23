@@ -1,7 +1,5 @@
-# Node modules
+# Dependencies and build output
 node_modules/
-
-# Build output
 dist/
 
 # Logs
@@ -13,18 +11,14 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Env
+# Environment files
 .env
 .env.*
-database.sql
-add-position-column.sql
-add-admin-auth-table.sql
-add-bien-workflow.sql
-add-bien-workflow.sql
-node_modules
+!.env.example
+!.env.local.example
+!.env.production.example
 
 # Runtime / deployment artifacts
 server/uploads/
 server/contracts/
 site.tar.gz
-*.sql
