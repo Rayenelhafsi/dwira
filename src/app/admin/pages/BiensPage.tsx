@@ -341,8 +341,9 @@ export default function BiensPage() {
       setTimeout(() => {
         window.location.reload();
       }, 300);
-    } catch {
-      toast.error('Erreur sauvegarde');
+    } catch (error: any) {
+      const message = String(error?.message || '').trim();
+      toast.error(message ? `Erreur sauvegarde: ${message}` : 'Erreur sauvegarde');
     }
   };
 
@@ -385,9 +386,15 @@ export default function BiensPage() {
           <Dialog.Description className="sr-only">Formulaire d'ajout ou de modification de bien</Dialog.Description>
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
             <div className="flex items-center gap-3"><button onClick={() => setIsAddOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">{editingBien ? 'Modifier le bien' : 'Nouveau bien'}</Dialog.Title></div>
-            <button onClick={() => document.getElementById('bien-editor-form')?.dispatchEvent(new Event('submit', { bubbles: true }))} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Save className="h-4 w-4" /><span>Sauvegarder</span></button>
+            <button
+              onClick={() => {
+                const form = document.getElementById('bien-editor-form') as HTMLFormElement | null;
+                if (form) form.requestSubmit();
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+            ><Save className="h-4 w-4" /><span>Sauvegarder</span></button>
           </div>
-          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} zones={zoneOptions} proprietaires={proprietaireOptions} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
+          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root open={!!viewingBien} onOpenChange={() => setViewingBien(null)}>
@@ -453,7 +460,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
   );
 }
 
-function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; onSubmit: (data: Bien) => void; onCancel: () => void; }) {
+function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
@@ -487,7 +494,79 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
     if (value === 'local') return 'local_commercial';
     return (value || 'appartement') as BienType;
   };
-  const generateReference = () => `REF-${Date.now().toString().slice(-6)}`;
+  const MODE_REFERENCE_CODES: Record<BienMode, string> = {
+    vente: 'VENTE',
+    location_annuelle: 'LOCANNUELLE',
+    location_saisonniere: 'LOCSAISONNIERE',
+  };
+  const TYPE_REFERENCE_CODES: Record<BienType, string> = {
+    appartement: 'APP',
+    villa_maison: 'VILLA',
+    studio: 'STU',
+    immeuble: 'IMM',
+    terrain: 'TER',
+    lotissement: 'LOT',
+    local_commercial: 'LCOM',
+    bungalow: 'BUN',
+    S1: 'APP',
+    S2: 'APP',
+    S3: 'APP',
+    S4: 'APP',
+    villa: 'VILLA',
+    local: 'LOC',
+  };
+  const TYPE_UNIT_PREFIX: Record<BienType, string> = {
+    appartement: 'A',
+    villa_maison: 'V',
+    studio: 'S',
+    immeuble: 'I',
+    terrain: 'T',
+    lotissement: 'L',
+    local_commercial: 'C',
+    bungalow: 'B',
+    S1: 'A',
+    S2: 'A',
+    S3: 'A',
+    S4: 'A',
+    villa: 'V',
+    local: 'C',
+  };
+  const normalizeAnnonceKey = (titre?: string | null, zoneId?: string | null, proprietaireId?: string | null) =>
+    `${String(titre || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()}__${String(zoneId || '')}__${String(proprietaireId || '')}`;
+  const generateReference = () => {
+    const mode = (formData.mode || 'location_saisonniere') as BienMode;
+    const type = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const modeCode = MODE_REFERENCE_CODES[mode] || 'MODE';
+    const typeCode = TYPE_REFERENCE_CODES[type] || 'TYPE';
+    const unitPrefix = TYPE_UNIT_PREFIX[type] || 'U';
+    const pattern = new RegExp(`^REF-${modeCode}-${typeCode}-ANN(\\d+)-([A-Z])(\\d+)$`);
+
+    const filtered = existingBiens.filter((bien) => bien.mode === mode && normalizeLegacyType(bien.type) === type && (!initialData || bien.id !== initialData.id));
+    let maxAnnonceNumber = 0;
+    let annonceNumberForCurrent: number | null = null;
+    let maxUnitForCurrentAnnonce = 0;
+    const annonceKey = normalizeAnnonceKey(formData.titre, formData.zone_id, formData.proprietaire_id);
+
+    for (const bien of filtered) {
+      const parsed = pattern.exec(String(bien.reference || '').trim().toUpperCase());
+      if (!parsed) continue;
+      const ann = Number(parsed[1] || 0);
+      const unit = String(parsed[2] || '');
+      const unitNo = Number(parsed[3] || 0);
+      maxAnnonceNumber = Math.max(maxAnnonceNumber, ann);
+      const bienAnnonceKey = normalizeAnnonceKey(bien.titre, bien.zone_id, bien.proprietaire_id);
+      if (bienAnnonceKey === annonceKey) {
+        if (!annonceNumberForCurrent) annonceNumberForCurrent = ann;
+        if (annonceNumberForCurrent === ann && unit === unitPrefix) {
+          maxUnitForCurrentAnnonce = Math.max(maxUnitForCurrentAnnonce, unitNo);
+        }
+      }
+    }
+
+    const annNumber = annonceNumberForCurrent || (maxAnnonceNumber + 1);
+    const unitNumber = maxUnitForCurrentAnnonce + 1;
+    return `REF-${modeCode}-${typeCode}-ANN${annNumber}-${unitPrefix}${unitNumber}`;
+  };
   const normalizeReferenceBase = (value?: string | null) => {
     const base = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
     return base || 'REF';
@@ -1560,7 +1639,7 @@ function BienEditor({ initialData, zones, proprietaires, onSubmit }: { initialDa
       date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0]
     } as Bien;
     markStepValidated(selectedMode === 'vente' ? 5 : 4);
-    onSubmit(finalData);
+    await onSubmit(finalData);
   };
   const selectedProprietaire = proprietaireOptions.find((p) => p.id === (formData.proprietaire_id || ''));
   const isAppartementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement';
@@ -2502,7 +2581,18 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
 }
 
 function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
-  const mainImage = resolveMediaUrl(bien.media?.[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
+  const clientImages = (Array.isArray(bien.media) ? bien.media : [])
+    .filter((media) => !isProofMotif(media.motif_upload))
+    .map((media) => resolveMediaUrl(media.url))
+    .filter(Boolean);
+  const galleryImages = clientImages.length > 0
+    ? clientImages
+    : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200'];
+  const mainImage = galleryImages[0];
+  const secondImage = galleryImages[1] || mainImage;
+  const thirdImage = galleryImages[2] || mainImage;
+  const fourthImage = galleryImages[3] || mainImage;
+  const fifthImage = galleryImages[4] || mainImage;
   const terrainMode = bien.terrain_mode_affichage_prix || 'total_et_m2';
   const terrainTotal = Number(bien.terrain_prix_affiche_total ?? bien.prix_affiche_client ?? bien.prix_nuitee ?? 0);
   const terrainParM2 = Number(bien.terrain_prix_affiche_par_m2 ?? 0);
@@ -2515,33 +2605,57 @@ function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
   const markerIndex = rawDescription.indexOf(CHARACTERISTICS_MARKER);
   const cleanDescription = markerIndex >= 0 ? rawDescription.slice(0, markerIndex).trim() : rawDescription;
   const customFeatures = markerIndex >= 0 ? (() => { try { const parsed = JSON.parse(rawDescription.slice(markerIndex + CHARACTERISTICS_MARKER.length).trim()); return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : []; } catch { return []; } })() : [];
+  const featuresToDisplay = customFeatures.length > 0
+    ? customFeatures
+    : (Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []);
+  const locationLabel = zones.find((z) => z.id === bien.zone_id)?.nom || 'Zone non définie';
+  const guests = Math.max(1, Number(bien.nb_chambres || 0) + 1);
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6">
-      <div className="mb-6"><img src={mainImage} alt={bien.titre} className="w-full h-64 object-cover rounded-xl" /></div>
-      <div className="space-y-6">
-        <div><div className="flex items-center gap-2 mb-2"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[bien.statut]}`}>{statusLabels[bien.statut]}</span><span className="text-sm text-gray-500">{typeLabels[bien.type]}</span></div><h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{bien.titre}</h1><div className="flex items-center gap-2 text-gray-600 mt-2"><MapPin className="h-4 w-4" /><span>{zones.find(z => z.id === bien.zone_id)?.nom}</span></div></div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4"><div className="bg-gray-50 rounded-lg p-4 text-center"><Bed className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_chambres}</span><span className="text-xs text-gray-500 block">Chambres</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Bath className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_salle_bain}</span><span className="text-xs text-gray-500 block">Salles de bain</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Banknote className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.avance} DT</span><span className="text-xs text-gray-500 block">Avance</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Sofa className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.menage_en_cours ? 'Oui' : 'Non'}</span><span className="text-xs text-gray-500 block">Ménage</span></div></div>
-        {customFeatures.length > 0 && <div><h3 className="text-lg font-semibold mb-2">Caractéristiques ajoutées</h3><div className="flex flex-wrap gap-2">{customFeatures.map((feature) => <span key={feature} className="px-2 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-sm text-emerald-700">{feature}</span>)}</div></div>}
-        {cleanDescription && <div><h3 className="text-lg font-semibold mb-2">Description</h3><p className="text-gray-600 whitespace-pre-line">{cleanDescription}</p></div>}
-        <div className="bg-emerald-50 rounded-xl p-6">
-          <div className="flex items-baseline justify-between">
-            <div>
-              <span className="text-3xl font-bold text-emerald-600">{displayPrice} DT</span>
-              {bien.mode !== 'vente' && <span className="text-gray-500">/nuit</span>}
-              {bien.mode === 'vente' && bien.type === 'terrain' && terrainMode === 'm2_uniquement' && <span className="text-gray-500">/m2</span>}
-            </div>
-            {bien.mode === 'vente' ? (
-              <div className="text-right text-sm text-gray-500">
-                <div>Prix final: {bien.prix_final ?? displayPrice} DT</div>
-                <div>Revenu agence: {bien.revenu_agence ?? 0} DT</div>
-                {bien.type === 'terrain' && terrainParM2 > 0 && <div>Prix /m2: {terrainParM2} DT</div>}
-              </div>
-            ) : (
-              <div className="text-right text-sm text-gray-500"><div>Avance: {bien.avance} DT</div><div>Caution: {bien.caution} DT</div></div>
-            )}
-          </div>
+    <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-8">
+      <div className="hidden md:grid grid-cols-4 grid-rows-2 gap-2 h-[360px] rounded-2xl overflow-hidden">
+        <div className="col-span-2 row-span-2"><img src={mainImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
+        <div><img src={secondImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
+        <div><img src={thirdImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
+        <div><img src={fourthImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
+        <div className="relative">
+          <img src={fifthImage} alt={bien.titre} className="w-full h-full object-cover" />
+          {galleryImages.length > 5 && <div className="absolute inset-0 bg-black/45 flex items-center justify-center text-white font-semibold">Voir tout</div>}
         </div>
       </div>
+      <div className="md:hidden rounded-2xl overflow-hidden"><img src={mainImage} alt={bien.titre} className="w-full h-64 object-cover" /></div>
+
+      <div className="space-y-5">
+        <div className="flex items-center gap-2 mb-1"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[bien.statut]}`}>{statusLabels[bien.statut]}</span><span className="text-sm text-gray-500">{typeLabels[bien.type]}</span></div>
+        <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 leading-tight">{bien.titre}</h1>
+        <div className="flex items-center gap-2 text-gray-600"><MapPin className="h-4 w-4" /><span>{locationLabel}</span></div>
+      </div>
+
+      <div className="py-6 border-y border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div><h2 className="text-xl font-bold text-gray-900">Logement entier : {typeLabels[bien.type]}</h2><p className="text-sm text-gray-600 mt-1">{guests} voyageurs max · {bien.nb_chambres} chambres · {bien.nb_salle_bain} salles de bain</p></div>
+        <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center">DI</div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4"><div className="bg-gray-50 rounded-lg p-4 text-center"><Bed className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_chambres}</span><span className="text-xs text-gray-500 block">Chambres</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Bath className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_salle_bain}</span><span className="text-xs text-gray-500 block">Salles de bain</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Banknote className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.avance} DT</span><span className="text-xs text-gray-500 block">Avance</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Sofa className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.menage_en_cours ? 'Oui' : 'Non'}</span><span className="text-xs text-gray-500 block">Ménage</span></div></div>
+      {cleanDescription && <div className="py-2"><h3 className="text-xl font-bold mb-3">A propos de ce logement</h3><p className="text-gray-600 whitespace-pre-line">{cleanDescription}</p></div>}
+      {featuresToDisplay.length > 0 && <div className="py-2"><h3 className="text-xl font-bold mb-4">Ce que propose ce logement</h3><div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{featuresToDisplay.map((feature) => <div key={feature} className="flex items-center gap-3 text-gray-700"><div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center"><Check className="h-4 w-4 text-emerald-600" /></div><span>{feature}</span></div>)}</div></div>}
+      <div className="bg-emerald-50 rounded-xl p-6">
+        <div className="flex items-baseline justify-between">
+          <div>
+            <span className="text-3xl font-bold text-emerald-600">{displayPrice} DT</span>
+            {bien.mode !== 'vente' && <span className="text-gray-500"> / nuit</span>}
+            {bien.mode === 'vente' && bien.type === 'terrain' && terrainMode === 'm2_uniquement' && <span className="text-gray-500"> / m2</span>}
+          </div>
+          {bien.mode === 'vente' ? (
+            <div className="text-right text-sm text-gray-500">
+              <div>Prix final: {bien.prix_final ?? displayPrice} DT</div>
+              <div>Revenu agence: {bien.revenu_agence ?? 0} DT</div>
+              {bien.type === 'terrain' && terrainParM2 > 0 && <div>Prix /m2: {terrainParM2} DT</div>}
+            </div>
+          ) : (
+            <div className="text-right text-sm text-gray-500"><div>Avance: {bien.avance} DT</div><div>Caution: {bien.caution} DT</div></div>
+          )}
+          </div>
+        </div>
     </div>
   );
 }

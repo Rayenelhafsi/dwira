@@ -4,14 +4,23 @@ import { useAuth } from '../context/AuthContext';
 import { Mail, Lock, Facebook, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
-import { getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
+import { getAuthProviders, getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [providers, setProviders] = useState({ google: false, facebook: false });
   const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const loadProviders = async () => {
+      const availableProviders = await getAuthProviders();
+      setProviders(availableProviders);
+    };
+    loadProviders();
+  }, []);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -24,12 +33,25 @@ export default function LoginPage() {
     const oauthError = params.get('oauth_error');
 
     if (oauthError) {
-      toast.error('Echec de la connexion sociale. Verifiez la configuration OAuth.');
+      const messages: Record<string, string> = {
+        google_config_missing: 'Google OAuth non configure (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).',
+        facebook_config_missing: 'Facebook OAuth non configure (FACEBOOK_CLIENT_ID / FACEBOOK_CLIENT_SECRET).',
+        google_code_missing: 'Code Google manquant.',
+        google_token_exchange_failed: "Echec d'echange du token Google.",
+        google_profile_fetch_failed: 'Impossible de recuperer le profil Google.',
+        facebook_code_missing: 'Code Facebook manquant.',
+        facebook_token_exchange_failed: "Echec d'echange du token Facebook.",
+        facebook_profile_fetch_failed: 'Impossible de recuperer le profil Facebook.',
+      };
+      toast.error(messages[oauthError] || 'Echec de la connexion sociale. Verifiez la configuration OAuth.');
       navigate('/login', { replace: true });
       return;
     }
 
     if (!socialToken) return;
+
+    // Remove token from URL immediately to avoid duplicate processing (e.g. React StrictMode in dev).
+    window.history.replaceState({}, document.title, '/login');
 
     const restoreSocialSession = async () => {
       try {
@@ -75,6 +97,14 @@ export default function LoginPage() {
   };
 
   const handleSocialLogin = (provider: 'google' | 'facebook') => {
+    if (provider === 'google' && !providers.google) {
+      toast.error('Google login indisponible: OAuth Google non configure sur le serveur.');
+      return;
+    }
+    if (provider === 'facebook' && !providers.facebook) {
+      toast.error('Facebook login indisponible: OAuth Facebook non configure sur le serveur.');
+      return;
+    }
     startSocialLogin(provider);
   };
 
@@ -164,8 +194,9 @@ export default function LoginPage() {
               <div>
                 <button
                   type="button"
+                  disabled={!providers.google}
                   onClick={() => handleSocialLogin('google')}
-                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
+                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Globe className="h-5 w-5 text-blue-500 mr-2" />
                   Google
@@ -175,14 +206,20 @@ export default function LoginPage() {
               <div>
                 <button
                   type="button"
+                  disabled={!providers.facebook}
                   onClick={() => handleSocialLogin('facebook')}
-                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
+                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Facebook className="h-5 w-5 text-blue-800 mr-2" />
                   Facebook
                 </button>
               </div>
             </div>
+            {(!providers.google || !providers.facebook) && (
+              <p className="mt-3 text-xs text-amber-700">
+                Certains fournisseurs sociaux sont indisponibles car OAuth n'est pas configure sur le serveur.
+              </p>
+            )}
           </div>
         </div>
       </div>

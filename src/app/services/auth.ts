@@ -16,6 +16,11 @@ interface SocialSessionResponse {
   user: AuthUser;
 }
 
+interface AuthProvidersResponse {
+  google: boolean;
+  facebook: boolean;
+}
+
 export async function loginAdmin(email: string, password: string): Promise<AuthUser> {
   const response = await fetch(`${API_BASE}/auth/admin/login`, {
     method: 'POST',
@@ -29,6 +34,18 @@ export async function loginAdmin(email: string, password: string): Promise<AuthU
   }
 
   return (data as AdminLoginResponse).user;
+}
+
+export async function getAuthProviders(): Promise<AuthProvidersResponse> {
+  const response = await fetch(`${API_BASE}/auth/providers`);
+  if (!response.ok) {
+    return { google: false, facebook: false };
+  }
+  const data = await response.json();
+  return {
+    google: Boolean(data?.google),
+    facebook: Boolean(data?.facebook),
+  };
 }
 
 export async function getSocialSession(token: string): Promise<AuthUser> {

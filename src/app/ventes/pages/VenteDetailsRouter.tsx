@@ -1,12 +1,10 @@
 import { Navigate, useParams } from "react-router";
-import ImmeubleDetailsPage from "./ImmeubleDetailsPage";
-import LotissementDetailsPage from "./LotissementDetailsPage";
+import VenteDetailsPage from "./VenteDetailsPage";
 
 export default function VenteDetailsRouter() {
   const { type } = useParams();
 
-  if (type === "immeuble") return <ImmeubleDetailsPage />;
-  if (type === "lotissement") return <LotissementDetailsPage />;
+  if (!type) return <Navigate to="/ventes" replace />;
 
-  return <Navigate to="/ventes" replace />;
+  return <VenteDetailsPage />;
 }

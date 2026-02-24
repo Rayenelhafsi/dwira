@@ -136,6 +136,114 @@ function normalizeReferenceBase(value) {
   return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '') || 'REF';
 }
 
+const MODE_REFERENCE_CODES = {
+  vente: 'VENTE',
+  location_annuelle: 'LOCANNUELLE',
+  location_saisonniere: 'LOCSAISONNIERE',
+};
+
+const TYPE_REFERENCE_CODES = {
+  appartement: 'APP',
+  villa_maison: 'VILLA',
+  studio: 'STU',
+  immeuble: 'IMM',
+  terrain: 'TER',
+  lotissement: 'LOT',
+  local_commercial: 'LCOM',
+  bungalow: 'BUN',
+  S1: 'APP',
+  S2: 'APP',
+  S3: 'APP',
+  S4: 'APP',
+  villa: 'VILLA',
+  local: 'LOC',
+};
+
+const TYPE_UNIT_PREFIX = {
+  appartement: 'A',
+  villa_maison: 'V',
+  studio: 'S',
+  immeuble: 'I',
+  terrain: 'T',
+  lotissement: 'L',
+  local_commercial: 'C',
+  bungalow: 'B',
+  S1: 'A',
+  S2: 'A',
+  S3: 'A',
+  S4: 'A',
+  villa: 'V',
+  local: 'C',
+};
+
+function normalizeAnnonceKey({ titre, zoneId, proprietaireId }) {
+  const normalizedTitle = String(titre || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return `${normalizedTitle}__${String(zoneId || '')}__${String(proprietaireId || '')}`;
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function generateStructuredBienReference({ mode, type, titre, zoneId, proprietaireId, excludeId = null }) {
+  const modeCode = MODE_REFERENCE_CODES[mode] || normalizeReferenceBase(mode).replace(/-/g, '');
+  const typeCode = TYPE_REFERENCE_CODES[type] || normalizeReferenceBase(type).replace(/-/g, '');
+  const unitPrefix = TYPE_UNIT_PREFIX[type] || 'U';
+  const basePrefix = `REF-${modeCode}-${typeCode}-ANN`;
+
+  const params = [mode, type];
+  let sql = 'SELECT id, reference, titre, zone_id, proprietaire_id FROM biens WHERE mode = ? AND type = ?';
+  if (excludeId) {
+    sql += ' AND id <> ?';
+    params.push(excludeId);
+  }
+  const [rows] = await pool.query(sql, params);
+
+  const pattern = new RegExp(`^REF-${escapeRegExp(modeCode)}-${escapeRegExp(typeCode)}-ANN(\\d+)-([A-Z])(\\d+)$`);
+  const annonceKey = normalizeAnnonceKey({ titre, zoneId, proprietaireId });
+
+  let maxAnnonceNumber = 0;
+  let annonceNumberForCurrent = null;
+  let maxUnitForCurrentAnnonce = 0;
+
+  for (const row of rows) {
+    const parsed = pattern.exec(String(row.reference || '').trim().toUpperCase());
+    if (!parsed) continue;
+    const annNumber = Number(parsed[1] || 0);
+    const rowUnitPrefix = String(parsed[2] || '');
+    const rowUnitNumber = Number(parsed[3] || 0);
+    if (annNumber > maxAnnonceNumber) maxAnnonceNumber = annNumber;
+    const rowKey = normalizeAnnonceKey({
+      titre: row.titre,
+      zoneId: row.zone_id,
+      proprietaireId: row.proprietaire_id,
+    });
+    if (rowKey === annonceKey) {
+      if (!annonceNumberForCurrent) annonceNumberForCurrent = annNumber;
+      if (annonceNumberForCurrent === annNumber && rowUnitPrefix === unitPrefix) {
+        maxUnitForCurrentAnnonce = Math.max(maxUnitForCurrentAnnonce, rowUnitNumber);
+      }
+    }
+  }
+
+  const finalAnnonceNumber = annonceNumberForCurrent || (maxAnnonceNumber + 1);
+  const finalUnitNumber = maxUnitForCurrentAnnonce + 1;
+  return `${basePrefix}${finalAnnonceNumber}-${unitPrefix}${finalUnitNumber}`;
+}
+
+function isStructuredBienReference(reference, mode, type) {
+  const modeCode = MODE_REFERENCE_CODES[mode] || normalizeReferenceBase(mode).replace(/-/g, '');
+  const typeCode = TYPE_REFERENCE_CODES[type] || normalizeReferenceBase(type).replace(/-/g, '');
+  const pattern = new RegExp(`^REF-${escapeRegExp(modeCode)}-${escapeRegExp(typeCode)}-ANN\\d+-[A-Z]\\d+$`);
+  return pattern.test(String(reference || '').trim().toUpperCase());
+}
+
 function buildChildReference(baseReference, prefix, index) {
   return `${normalizeReferenceBase(baseReference)}-${prefix}${index}`;
 }
@@ -1463,14 +1571,25 @@ app.post('/api/biens', async (req, res) => {
     if (terrainDetails.error) {
       return res.status(400).json({ error: terrainDetails.error });
     }
+    const providedReference = String(reference || '').trim().toUpperCase();
+    const resolvedReference = isStructuredBienReference(providedReference, resolvedMode, resolvedType)
+      ? providedReference
+      : await generateStructuredBienReference({
+          mode: resolvedMode,
+          type: resolvedType,
+          titre,
+          zoneId: zone_id,
+          proprietaireId: proprietaire_id,
+        });
+
     const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
-      reference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
+      reference: resolvedReference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
     });
     if (lotissementDetails.error) {
       return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
-      reference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
+      reference: resolvedReference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
       immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
       immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     });
@@ -1531,7 +1650,7 @@ app.post('/api/biens', async (req, res) => {
         type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [bienId, reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
+      [bienId, resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
        details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0,
@@ -1651,14 +1770,27 @@ app.put('/api/biens/:id', async (req, res) => {
     if (terrainDetails.error) {
       return res.status(400).json({ error: terrainDetails.error });
     }
+    const currentId = req.params.id;
+    const providedReference = String(reference || '').trim().toUpperCase();
+    const resolvedReference = isStructuredBienReference(providedReference, resolvedMode, resolvedType)
+      ? providedReference
+      : await generateStructuredBienReference({
+          mode: resolvedMode,
+          type: resolvedType,
+          titre,
+          zoneId: zone_id,
+          proprietaireId: proprietaire_id,
+          excludeId: currentId,
+        });
+
     const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
-      reference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
+      reference: resolvedReference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
     });
     if (lotissementDetails.error) {
       return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
-      reference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
+      reference: resolvedReference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
       immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
       immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     });
@@ -1718,7 +1850,7 @@ app.put('/api/biens/:id', async (req, res) => {
         type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
         statut = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
-      [reference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
+      [resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
        details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0,
@@ -2453,12 +2585,21 @@ app.post('/api/auth/admin/login', async (req, res) => {
   }
 });
 
+app.get('/api/auth/providers', (req, res) => {
+  const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  const facebookConfigured = Boolean(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET);
+  res.json({
+    google: googleConfigured,
+    facebook: facebookConfigured,
+  });
+});
+
 app.get('/api/auth/google/start', async (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
 
   if (!clientId) {
-    return res.status(500).json({ error: 'GOOGLE_CLIENT_ID manquant' });
+    return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_config_missing`);
   }
 
   const params = new URLSearchParams({
@@ -2545,7 +2686,7 @@ app.get('/api/auth/facebook/start', async (req, res) => {
   const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
 
   if (!clientId) {
-    return res.status(500).json({ error: 'FACEBOOK_CLIENT_ID manquant' });
+    return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
   }
 
   const params = new URLSearchParams({
