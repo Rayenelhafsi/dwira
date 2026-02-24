@@ -49,6 +49,7 @@ export function Header() {
   const navLinks = [
     { name: "Accueil", path: "/" },
     { name: "Logements", path: "/logements" },
+    { name: "Ventes", path: "/ventes" },
     { name: "Contact", path: "/contact" },
   ];
 

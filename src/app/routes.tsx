@@ -7,6 +7,9 @@ import ImmeubleVenteDetailsPage from "./pages/ImmeubleVenteDetailsPage";
 import LotissementVenteDetailsPage from "./pages/LotissementVenteDetailsPage";
 import ContactPage from "./pages/ContactPage";
 import LoginPage from "./pages/LoginPage";
+import { VentesLayout } from "./ventes/VentesLayout";
+import VentesListPage from "./ventes/pages/VentesListPage";
+import VenteDetailsRouter from "./ventes/pages/VenteDetailsRouter";
 import { AdminLayout } from "./admin/AdminLayout";
 import DashboardHome from "./admin/pages/DashboardHome";
 import BiensPage from "./admin/pages/BiensPage";
@@ -29,6 +32,14 @@ export const router = createBrowserRouter([
       { path: "properties/:slug", Component: PropertyDetailsPage },
       { path: "vente/immeuble/:slug", Component: ImmeubleVenteDetailsPage },
       { path: "vente/lotissement/:slug", Component: LotissementVenteDetailsPage },
+      {
+        path: "ventes",
+        Component: VentesLayout,
+        children: [
+          { index: true, Component: VentesListPage },
+          { path: ":type/:id", Component: VenteDetailsRouter },
+        ],
+      },
       { path: "contact", Component: ContactPage },
       { path: "login", Component: LoginPage },
       { path: "*", Component: () => <div className="p-20 text-center">Page non trouvée</div> },
