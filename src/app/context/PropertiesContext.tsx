@@ -537,7 +537,10 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(newBien)
       });
       
-      if (!response.ok) throw new Error('Failed to create bien');
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to create bien (${response.status}): ${errorBody}`);
+      }
 
       const createdBien = await response.json();
       await fetchData(); // Refresh data
@@ -556,7 +559,10 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(updatedBien)
       });
       
-      if (!response.ok) throw new Error('Failed to update bien');
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to update bien (${response.status}): ${errorBody}`);
+      }
       
       await fetchData(); // Refresh data
     } catch (err: any) {

@@ -680,7 +680,15 @@ function normalizeVentePaiement(mode, totalPrixClient, payload = {}) {
 
   const total = Number(totalPrixClient || 0);
   if (!Number.isFinite(total) || total <= 0) {
-    return { error: 'prix total client invalide pour la modalite de paiement' };
+    return {
+      modalitePaiementVente: null,
+      pourcentagePremierePartiePromesse: null,
+      montantPremierePartiePromesse: null,
+      montantDeuxiemePartie: null,
+      nombreTranches: null,
+      periodeTranchesMois: null,
+      montantParTranche: null,
+    };
   }
 
   const modalitePaiementVente = String(payload.modalite_paiement_vente || 'comptant');
@@ -2281,21 +2289,41 @@ app.post('/api/upload-contract', contractUpload.single('contract'), async (req, 
 
 app.post('/api/media', async (req, res) => {
   try {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'payload JSON invalide' });
+    }
     const { bien_id, type, url, position, motif_upload } = req.body;
+    if (!bien_id || typeof bien_id !== 'string') {
+      return res.status(400).json({ error: 'bien_id requis' });
+    }
+    const resolvedType = Array.isArray(type)
+      ? String(type[type.length - 1] || 'image')
+      : String(type || 'image');
+    const safeType = resolvedType === 'video' ? 'video' : 'image';
+    const resolvedUrl = Array.isArray(url) ? String(url[0] || '') : String(url || '');
+    const resolvedMotif = Array.isArray(motif_upload)
+      ? String(motif_upload[motif_upload.length - 1] || '')
+      : String(motif_upload || '');
+    if (!resolvedUrl.trim()) {
+      return res.status(400).json({ error: 'url image requis' });
+    }
     const id = 'm' + Date.now();
     
     // Calculate the next position if not provided (max existing position + 1)
-    let mediaPosition = position;
-    if (mediaPosition === undefined || mediaPosition === null) {
+    let mediaPosition = Number(position);
+    if (position === undefined || position === null || Number.isNaN(mediaPosition)) {
       const [maxPosResult] = await pool.query(
         'SELECT MAX(position) as maxPos FROM media WHERE bien_id = ?',
         [bien_id]
       );
       mediaPosition = (maxPosResult[0]?.maxPos ?? -1) + 1;
     }
+    if (!Number.isFinite(mediaPosition) || mediaPosition < 0) {
+      mediaPosition = 0;
+    }
     
     await pool.query('INSERT INTO media (id, bien_id, type, url, motif_upload, position) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, bien_id, type || 'image', url, motif_upload || null, mediaPosition]);
+      [id, bien_id, safeType, resolvedUrl, resolvedMotif.trim() || null, mediaPosition]);
     const [newMedia] = await pool.query('SELECT * FROM media WHERE id = ?', [id]);
     res.status(201).json(newMedia[0]);
   } catch (error) {
