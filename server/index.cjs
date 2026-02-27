@@ -960,13 +960,42 @@ async function syncBienCaracteristiques(bienId, caracteristiqueIds) {
     }
   }
 
-  await pool.query('DELETE FROM bien_caracteristiques WHERE bien_id = ?', [bienId]);
-  if (!Array.isArray(caracteristiqueIds) || caracteristiqueIds.length === 0) return;
+  const normalizedIds = Array.isArray(caracteristiqueIds) ? Array.from(new Set(caracteristiqueIds.map((id) => String(id || '').trim()).filter(Boolean))) : [];
+  const [existingRows] = await pool.query(
+    'SELECT caracteristique_id FROM bien_caracteristiques WHERE bien_id = ?',
+    [bienId]
+  );
+  const existingIds = new Set(existingRows.map((row) => String(row.caracteristique_id || '').trim()).filter(Boolean));
 
-  for (const caracteristiqueId of caracteristiqueIds) {
+  const toDelete = [...existingIds].filter((id) => !normalizedIds.includes(id));
+  if (toDelete.length > 0) {
+    const placeholders = toDelete.map(() => '?').join(',');
     await pool.query(
-      'INSERT IGNORE INTO bien_caracteristiques (bien_id, caracteristique_id) VALUES (?, ?)',
-      [bienId, caracteristiqueId]
+      `DELETE FROM bien_caracteristiques WHERE bien_id = ? AND caracteristique_id IN (${placeholders})`,
+      [bienId, ...toDelete]
+    );
+  }
+
+  if (normalizedIds.length === 0) return;
+
+  const toInsert = normalizedIds.filter((id) => !existingIds.has(id));
+  if (toInsert.length === 0) return;
+
+  const placeholders = toInsert.map(() => '?').join(',');
+  const [featureRows] = await pool.query(
+    `SELECT id, COALESCE(visibilite_client, 1) AS visibilite_client
+     FROM caracteristiques
+     WHERE id IN (${placeholders})`,
+    toInsert
+  );
+  const visibilityById = new Map(featureRows.map((row) => [String(row.id), Number(row.visibilite_client) === 0 ? 0 : 1]));
+
+  for (const caracteristiqueId of toInsert) {
+    await pool.query(
+      `INSERT INTO bien_caracteristiques (
+        bien_id, caracteristique_id, visibilite_client, override_nom, override_type_caracteristique, override_unite, override_onglet_id
+      ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL)`,
+      [bienId, caracteristiqueId, visibilityById.get(caracteristiqueId) ?? 1]
     );
   }
 }
@@ -1126,6 +1155,16 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'caution'))) {
     await pool.query(
       'ALTER TABLE biens ADD COLUMN caution DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER avance'
+    );
+  }
+  if (!(await columnExists('biens', 'visible_sur_site'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN visible_sur_site TINYINT(1) NOT NULL DEFAULT 1 AFTER statut'
+    );
+  }
+  if (!(await columnExists('biens', 'ui_config_json'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN ui_config_json LONGTEXT NULL AFTER visible_sur_site'
     );
   }
 
@@ -1363,6 +1402,7 @@ async function ensureBiensWorkflowSchema() {
       type_caracteristique ENUM('simple','choix_multiple','valeur') NOT NULL DEFAULT 'simple',
       choix_json LONGTEXT NULL,
       unite VARCHAR(50) NULL,
+      visibilite_client TINYINT(1) NOT NULL DEFAULT 1,
       INDEX idx_nom (nom)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
@@ -1375,17 +1415,40 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('caracteristiques', 'unite'))) {
     await pool.query('ALTER TABLE caracteristiques ADD COLUMN unite VARCHAR(50) NULL AFTER choix_json');
   }
+  if (!(await columnExists('caracteristiques', 'visibilite_client'))) {
+    await pool.query('ALTER TABLE caracteristiques ADD COLUMN visibilite_client TINYINT(1) NOT NULL DEFAULT 1 AFTER unite');
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bien_caracteristiques (
       bien_id VARCHAR(50) NOT NULL,
       caracteristique_id VARCHAR(50) NOT NULL,
+      visibilite_client TINYINT(1) NULL DEFAULT NULL,
+      override_nom VARCHAR(100) NULL,
+      override_type_caracteristique ENUM('simple','choix_multiple','valeur') NULL DEFAULT NULL,
+      override_unite VARCHAR(50) NULL,
+      override_onglet_id VARCHAR(50) NULL,
       PRIMARY KEY (bien_id, caracteristique_id),
       FOREIGN KEY (bien_id) REFERENCES biens(id) ON DELETE CASCADE,
       FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE,
       INDEX idx_caracteristique_id (caracteristique_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await columnExists('bien_caracteristiques', 'visibilite_client'))) {
+    await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN visibilite_client TINYINT(1) NULL DEFAULT NULL AFTER caracteristique_id');
+  }
+  if (!(await columnExists('bien_caracteristiques', 'override_nom'))) {
+    await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN override_nom VARCHAR(100) NULL AFTER visibilite_client');
+  }
+  if (!(await columnExists('bien_caracteristiques', 'override_type_caracteristique'))) {
+    await pool.query("ALTER TABLE bien_caracteristiques ADD COLUMN override_type_caracteristique ENUM('simple','choix_multiple','valeur') NULL DEFAULT NULL AFTER override_nom");
+  }
+  if (!(await columnExists('bien_caracteristiques', 'override_unite'))) {
+    await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN override_unite VARCHAR(50) NULL AFTER override_type_caracteristique');
+  }
+  if (!(await columnExists('bien_caracteristiques', 'override_onglet_id'))) {
+    await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN override_onglet_id VARCHAR(50) NULL AFTER override_unite');
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS caracteristique_contextes (
@@ -1418,6 +1481,29 @@ async function ensureBiensWorkflowSchema() {
       INDEX idx_mode_type_ordre (mode_bien, type_bien, ordre)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS modifier_onglets (
+      id VARCHAR(50) PRIMARY KEY,
+      mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
+      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL,
+      onglet_id VARCHAR(50) NOT NULL,
+      caracteristique_id VARCHAR(50) NOT NULL,
+      ordre INT NOT NULL DEFAULT 0,
+      UNIQUE KEY uq_modif_onglet_car (mode_bien, type_bien, caracteristique_id),
+      INDEX idx_modif_onglet (mode_bien, type_bien, onglet_id, ordre),
+      FOREIGN KEY (onglet_id) REFERENCES caracteristique_onglets(id) ON DELETE CASCADE,
+      FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(
+    `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
+     SELECT CONCAT('mo_', cc.mode_bien, '_', cc.type_bien, '_', cc.caracteristique_id), cc.mode_bien, cc.type_bien, cc.onglet_id, cc.caracteristique_id, 0
+     FROM caracteristique_contextes cc
+     WHERE cc.onglet_id IS NOT NULL AND cc.onglet_id <> ''
+     ON DUPLICATE KEY UPDATE onglet_id = VALUES(onglet_id), ordre = VALUES(ordre)`
+  );
 
   const terrainTabsSeeds = [
     ['informations_generales', 'vente', 'terrain', '1. Informations generales', 1, 1],
@@ -1506,15 +1592,6 @@ async function ensureBiensWorkflowSchema() {
     ['ctx35', 'car25', 'vente', 'local_commercial'],
     ['ctx36', 'car26', 'vente', 'local_commercial'],
     ['ctx37', 'car27', 'vente', 'local_commercial'],
-    ['ctx38', 'car28', 'vente', 'terrain'],
-    ['ctx39', 'car29', 'vente', 'terrain'],
-    ['ctx40', 'car19', 'vente', 'terrain'],
-    ['ctx41', 'car20', 'vente', 'terrain'],
-    ['ctx42', 'car21', 'vente', 'terrain'],
-    ['ctx43', 'car30', 'vente', 'terrain'],
-    ['ctx44', 'car31', 'vente', 'terrain'],
-    ['ctx45', 'car32', 'vente', 'terrain'],
-    ['ctx46', 'car33', 'vente', 'terrain'],
     ['ctx47', 'car7', 'vente', 'immeuble'],
     ['ctx48', 'car34', 'vente', 'immeuble'],
     ['ctx49', 'car35', 'vente', 'immeuble'],
@@ -1615,10 +1692,10 @@ app.get('/api/biens', async (req, res) => {
           WHERE bc.bien_id = b.id
         ) as caracteristique_ids_list,
         (
-          SELECT GROUP_CONCAT(c.nom SEPARATOR '||')
+          SELECT GROUP_CONCAT(COALESCE(bc.override_nom, c.nom) SEPARATOR '||')
           FROM bien_caracteristiques bc
           INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
-          WHERE bc.bien_id = b.id
+          WHERE bc.bien_id = b.id AND COALESCE(bc.visibilite_client, c.visibilite_client, 1) = 1
         ) as caracteristiques_list
       FROM biens b 
       LEFT JOIN zones z ON b.zone_id = z.id 
@@ -1644,10 +1721,10 @@ app.get('/api/biens/:id', async (req, res) => {
           WHERE bc.bien_id = b.id
         ) as caracteristique_ids_list,
         (
-          SELECT GROUP_CONCAT(c.nom SEPARATOR '||')
+          SELECT GROUP_CONCAT(COALESCE(bc.override_nom, c.nom) SEPARATOR '||')
           FROM bien_caracteristiques bc
           INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
-          WHERE bc.bien_id = b.id
+          WHERE bc.bien_id = b.id AND COALESCE(bc.visibilite_client, c.visibilite_client, 1) = 1
         ) as caracteristiques_list
       FROM biens b
       WHERE b.id = ?
@@ -1668,7 +1745,7 @@ app.post('/api/biens', async (req, res) => {
     const {
       id,
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      prix_nuitee, avance, caution, statut, visible_sur_site, ui_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -1800,9 +1877,9 @@ app.post('/api/biens', async (req, res) => {
         prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
         proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
         syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
-        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, menage_en_cours, zone_id, proprietaire_id, 
+        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, ui_config_json, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [bienId, resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
@@ -1814,7 +1891,9 @@ app.post('/api/biens', async (req, res) => {
        localDetails.toilette ? 1 : 0, localDetails.reserveLocal ? 1 : 0, localDetails.vitrine ? 1 : 0, localDetails.coinAngle ? 1 : 0, localDetails.electricite3Phases ? 1 : 0, localDetails.alarme ? 1 : 0,
        terrainDetails.typeTerrain, terrainDetails.facadeM, terrainDetails.surfaceM2, terrainDetails.distancePlageM, terrainDetails.zoneTerrain, terrainDetails.constructible ? 1 : 0, terrainDetails.terrainAngle ? 1 : 0,
        immeubleDetails.detailsJson, immeubleDetails.appartementsJson,
-       statut || 'disponible', 
+       statut || 'disponible',
+       visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1,
+       ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
     );
@@ -1880,7 +1959,7 @@ app.put('/api/biens/:id', async (req, res) => {
   try {
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      prix_nuitee, avance, caution, statut, visible_sur_site, ui_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -2014,7 +2093,7 @@ app.put('/api/biens/:id', async (req, res) => {
         proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
         syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?, surface_local_m2 = ?, facade_m = ?, hauteur_plafond_m = ?, activite_recommandee = ?, toilette = ?, reserve_local = ?, vitrine = ?, coin_angle = ?, electricite_3_phases = ?, alarme = ?,
         type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
-        statut = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
+        statut = ?, visible_sur_site = ?, ui_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
       [resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
@@ -2028,6 +2107,8 @@ app.put('/api/biens/:id', async (req, res) => {
        terrainDetails.typeTerrain, terrainDetails.facadeM, terrainDetails.surfaceM2, terrainDetails.distancePlageM, terrainDetails.zoneTerrain, terrainDetails.constructible ? 1 : 0, terrainDetails.terrainAngle ? 1 : 0,
        immeubleDetails.detailsJson, immeubleDetails.appartementsJson,
        statut || 'disponible',
+       visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1,
+       ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, req.params.id]
     );
@@ -2518,9 +2599,6 @@ app.delete('/api/caracteristique-onglets/:id', async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
     const onglet = rows?.[0];
     if (!onglet) return res.status(404).json({ error: 'onglet introuvable' });
-    if (Number(onglet.is_system || 0) === 1) {
-      return res.status(400).json({ error: 'suppression onglet systeme interdite' });
-    }
     await pool.query('UPDATE caracteristique_contextes SET onglet_id = NULL WHERE onglet_id = ?', [id]);
     await pool.query('DELETE FROM caracteristique_onglets WHERE id = ?', [id]);
     res.json({ message: 'Onglet supprime' });
@@ -2557,21 +2635,47 @@ app.get('/api/caracteristiques', async (req, res) => {
   try {
     const mode = normalizeBienMode(req.query.mode_bien || req.query.mode);
     const type = normalizeBienType(req.query.type_bien || req.query.type);
+    const bienId = String(req.query.bien_id || '').trim() || null;
 
     if ((req.query.mode_bien || req.query.mode) && (req.query.type_bien || req.query.type)) {
       const validation = validateModeAndType(mode, type);
       if (!validation.valid) {
         return res.status(400).json({ error: validation.error });
       }
-      const [rows] = await pool.query(
-        `SELECT DISTINCT c.*, cc.onglet_id, co.nom as onglet_nom
-         FROM caracteristiques c
-         INNER JOIN caracteristique_contextes cc ON cc.caracteristique_id = c.id
-         LEFT JOIN caracteristique_onglets co ON co.id = cc.onglet_id
-         WHERE cc.mode_bien = ? AND cc.type_bien = ?
-         ORDER BY c.nom ASC`,
-        [mode, type]
-      );
+      const query = bienId
+        ? `SELECT DISTINCT c.id,
+             COALESCE(bc.override_nom, c.nom) AS nom,
+             COALESCE(bc.override_type_caracteristique, c.type_caracteristique) AS type_caracteristique,
+             c.choix_json,
+             COALESCE(bc.override_unite, c.unite) AS unite,
+             COALESCE(bc.override_onglet_id, mo.onglet_id) AS onglet_id,
+             co.nom AS onglet_nom,
+             COALESCE(bc.visibilite_client, c.visibilite_client, 1) AS visibilite_client
+           FROM caracteristiques c
+           INNER JOIN caracteristique_contextes cc ON cc.caracteristique_id = c.id
+           LEFT JOIN modifier_onglets mo
+             ON mo.caracteristique_id = c.id
+            AND mo.mode_bien = cc.mode_bien
+            AND mo.type_bien = cc.type_bien
+           LEFT JOIN bien_caracteristiques bc
+             ON bc.caracteristique_id = c.id
+            AND bc.bien_id = ?
+           LEFT JOIN caracteristique_onglets co
+             ON co.id = COALESCE(bc.override_onglet_id, mo.onglet_id)
+           WHERE cc.mode_bien = ? AND cc.type_bien = ?
+           ORDER BY nom ASC`
+        : `SELECT DISTINCT c.*, mo.onglet_id, co.nom as onglet_nom
+           FROM caracteristiques c
+           INNER JOIN caracteristique_contextes cc ON cc.caracteristique_id = c.id
+           LEFT JOIN modifier_onglets mo
+             ON mo.caracteristique_id = c.id
+            AND mo.mode_bien = cc.mode_bien
+            AND mo.type_bien = cc.type_bien
+           LEFT JOIN caracteristique_onglets co ON co.id = mo.onglet_id
+           WHERE cc.mode_bien = ? AND cc.type_bien = ?
+           ORDER BY c.nom ASC`;
+      const params = bienId ? [bienId, mode, type] : [mode, type];
+      const [rows] = await pool.query(query, params);
       return res.json(rows);
     }
 
@@ -2585,7 +2689,7 @@ app.get('/api/caracteristiques', async (req, res) => {
 
 app.post('/api/caracteristiques', async (req, res) => {
   try {
-    const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, onglet_id } = req.body;
+    const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, onglet_id, visibilite_client } = req.body;
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
     const featureName = String(nom || '').trim();
@@ -2596,6 +2700,7 @@ app.post('/api/caracteristiques', async (req, res) => {
       ? Array.from(new Set(choix.map((item) => String(item || '').trim()).filter(Boolean)))
       : [];
     const normalizedUnit = String(unite || '').trim() || null;
+    const visibleClient = Number(visibilite_client) === 0 ? 0 : 1;
     if (!featureName) {
       return res.status(400).json({ error: 'nom requis' });
     }
@@ -2619,8 +2724,8 @@ app.post('/api/caracteristiques', async (req, res) => {
     if (!caracteristique) {
       const id = 'car' + Date.now();
       await pool.query(
-        'INSERT INTO caracteristiques (id, nom, type_caracteristique, choix_json, unite) VALUES (?, ?, ?, ?, ?)',
-        [id, featureName, featureType, featureChoicesJson, featureUnit]
+        'INSERT INTO caracteristiques (id, nom, type_caracteristique, choix_json, unite, visibilite_client) VALUES (?, ?, ?, ?, ?, ?)',
+        [id, featureName, featureType, featureChoicesJson, featureUnit, visibleClient]
       );
       caracteristique = {
         id,
@@ -2628,17 +2733,19 @@ app.post('/api/caracteristiques', async (req, res) => {
         type_caracteristique: featureType,
         choix_json: featureChoicesJson,
         unite: featureUnit,
+        visibilite_client: visibleClient,
       };
     } else {
       await pool.query(
-        'UPDATE caracteristiques SET type_caracteristique = ?, choix_json = ?, unite = ? WHERE id = ?',
-        [featureType, featureChoicesJson, featureUnit, caracteristique.id]
+        'UPDATE caracteristiques SET type_caracteristique = ?, choix_json = ?, unite = ?, visibilite_client = ? WHERE id = ?',
+        [featureType, featureChoicesJson, featureUnit, visibleClient, caracteristique.id]
       );
       caracteristique = {
         ...caracteristique,
         type_caracteristique: featureType,
         choix_json: featureChoicesJson,
         unite: featureUnit,
+        visibilite_client: visibleClient,
       };
     }
 
@@ -2663,6 +2770,19 @@ app.post('/api/caracteristiques', async (req, res) => {
          ON DUPLICATE KEY UPDATE mode_bien = VALUES(mode_bien), type_bien = VALUES(type_bien), onglet_id = VALUES(onglet_id)`,
         ['ctx' + Date.now(), caracteristique.id, normalizedMode, normalizedType, normalizedOngletId]
       );
+      if (normalizedOngletId) {
+        await pool.query(
+          `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
+           VALUES (?, ?, ?, ?, ?, 0)
+           ON DUPLICATE KEY UPDATE onglet_id = VALUES(onglet_id), ordre = VALUES(ordre)`,
+          [`mo_${normalizedMode}_${normalizedType}_${caracteristique.id}`, normalizedMode, normalizedType, normalizedOngletId, caracteristique.id]
+        );
+      } else {
+        await pool.query(
+          'DELETE FROM modifier_onglets WHERE mode_bien = ? AND type_bien = ? AND caracteristique_id = ?',
+          [normalizedMode, normalizedType, caracteristique.id]
+        );
+      }
     }
 
     res.status(201).json(caracteristique);
@@ -2697,8 +2817,13 @@ app.delete('/api/caracteristiques/:id', async (req, res) => {
         'DELETE FROM caracteristique_contextes WHERE caracteristique_id = ? AND mode_bien = ? AND type_bien = ?',
         [featureId, normalizedMode, normalizedType]
       );
+      await pool.query(
+        'DELETE FROM modifier_onglets WHERE caracteristique_id = ? AND mode_bien = ? AND type_bien = ?',
+        [featureId, normalizedMode, normalizedType]
+      );
     } else {
       await pool.query('DELETE FROM caracteristique_contextes WHERE caracteristique_id = ?', [featureId]);
+      await pool.query('DELETE FROM modifier_onglets WHERE caracteristique_id = ?', [featureId]);
       await pool.query('DELETE FROM bien_caracteristiques WHERE caracteristique_id = ?', [featureId]);
       await pool.query('DELETE FROM caracteristiques WHERE id = ?', [featureId]);
       return res.json({ message: 'Caracteristique supprimee' });
@@ -2731,6 +2856,8 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
     const featureId = String(req.params.id || '').trim();
     const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
     const type = normalizeBienType(req.body.type_bien || req.body.type);
+    const bienId = String(req.body.bien_id || '').trim() || null;
+    const applyToAll = req.body.apply_to_all === true || String(req.body.apply_to_all || '').trim() === '1';
     const nom = String(req.body.nom || '').trim();
     const featureType = ['simple', 'choix_multiple', 'valeur'].includes(String(req.body.type_caracteristique || '').trim())
       ? String(req.body.type_caracteristique).trim()
@@ -2740,6 +2867,7 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
       : [];
     const normalizedUnit = String(req.body.unite || '').trim() || null;
     const normalizedOngletId = String(req.body.onglet_id || '').trim() || null;
+    const visibleClient = Number(req.body.visibilite_client) === 0 ? 0 : 1;
 
     if (!featureId) return res.status(400).json({ error: 'id requis' });
     if (!nom) return res.status(400).json({ error: 'nom requis' });
@@ -2764,14 +2892,94 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
       }
     }
 
+    if (bienId && !applyToAll) {
+      const [bienRows] = await pool.query('SELECT id FROM biens WHERE id = ? LIMIT 1', [bienId]);
+      if (!bienRows?.[0]) {
+        return res.status(404).json({ error: 'bien introuvable' });
+      }
+      await pool.query(
+        `INSERT INTO bien_caracteristiques (
+          bien_id, caracteristique_id, visibilite_client, override_nom, override_type_caracteristique, override_unite, override_onglet_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          visibilite_client = VALUES(visibilite_client),
+          override_nom = VALUES(override_nom),
+          override_type_caracteristique = VALUES(override_type_caracteristique),
+          override_unite = VALUES(override_unite),
+          override_onglet_id = VALUES(override_onglet_id)`,
+        [
+          bienId,
+          featureId,
+          visibleClient,
+          nom,
+          featureType,
+          featureType === 'valeur' ? normalizedUnit : null,
+          normalizedOngletId,
+        ]
+      );
+
+      const [rows] = await pool.query(
+        `SELECT c.id,
+            COALESCE(bc.override_nom, c.nom) AS nom,
+            COALESCE(bc.override_type_caracteristique, c.type_caracteristique) AS type_caracteristique,
+            c.choix_json,
+            COALESCE(bc.override_unite, c.unite) AS unite,
+            COALESCE(bc.override_onglet_id, mo.onglet_id) AS onglet_id,
+            co.nom AS onglet_nom,
+            COALESCE(bc.visibilite_client, c.visibilite_client, 1) AS visibilite_client
+         FROM caracteristiques c
+         LEFT JOIN modifier_onglets mo
+           ON mo.caracteristique_id = c.id
+          AND mo.mode_bien = ?
+          AND mo.type_bien = ?
+         LEFT JOIN bien_caracteristiques bc
+           ON bc.caracteristique_id = c.id
+          AND bc.bien_id = ?
+         LEFT JOIN caracteristique_onglets co
+           ON co.id = COALESCE(bc.override_onglet_id, mo.onglet_id)
+         WHERE c.id = ?
+         LIMIT 1`,
+        [mode, type, bienId, featureId]
+      );
+      return res.json(rows[0] || null);
+    }
+
     await pool.query(
-      'UPDATE caracteristiques SET nom = ?, type_caracteristique = ?, choix_json = ?, unite = ? WHERE id = ?',
-      [nom, featureType, featureType === 'choix_multiple' ? JSON.stringify(normalizedChoices) : null, featureType === 'valeur' ? normalizedUnit : null, featureId]
+      'UPDATE caracteristiques SET nom = ?, type_caracteristique = ?, choix_json = ?, unite = ?, visibilite_client = ? WHERE id = ?',
+      [nom, featureType, featureType === 'choix_multiple' ? JSON.stringify(normalizedChoices) : null, featureType === 'valeur' ? normalizedUnit : null, visibleClient, featureId]
     );
     await pool.query(
       'UPDATE caracteristique_contextes SET onglet_id = ? WHERE caracteristique_id = ? AND mode_bien = ? AND type_bien = ?',
       [normalizedOngletId, featureId, mode, type]
     );
+    if (normalizedOngletId) {
+      await pool.query(
+        `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
+         VALUES (?, ?, ?, ?, ?, 0)
+         ON DUPLICATE KEY UPDATE onglet_id = VALUES(onglet_id), ordre = VALUES(ordre)`,
+        [`mo_${mode}_${type}_${featureId}`, mode, type, normalizedOngletId, featureId]
+      );
+    } else {
+      await pool.query(
+        'DELETE FROM modifier_onglets WHERE mode_bien = ? AND type_bien = ? AND caracteristique_id = ?',
+        [mode, type, featureId]
+      );
+    }
+    if (applyToAll) {
+      await pool.query(
+        `UPDATE bien_caracteristiques bc
+         INNER JOIN biens b ON b.id = bc.bien_id
+         SET bc.visibilite_client = ?,
+             bc.override_nom = ?,
+             bc.override_type_caracteristique = ?,
+             bc.override_unite = ?,
+             bc.override_onglet_id = ?
+         WHERE bc.caracteristique_id = ?
+           AND b.mode = ?
+           AND b.type = ?`,
+        [visibleClient, nom, featureType, featureType === 'valeur' ? normalizedUnit : null, normalizedOngletId, featureId, mode, type]
+      );
+    }
     const [rows] = await pool.query('SELECT * FROM caracteristiques WHERE id = ? LIMIT 1', [featureId]);
     res.json(rows[0] || null);
   } catch (error) {

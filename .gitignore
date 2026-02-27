@@ -24,3 +24,9 @@ server/contracts/
 site.tar.gz
 dwira.sql
 migrations/2026-02-26-add-terrain-details-json.sql
+migrations/2026-02-27-add-bien-caracteristique-overrides.sql
+migrations/2026-02-27-add-biens-ui-config-json.sql
+migrations/2026-02-27-add-biens-visible-sur-site.sql
+migrations/2026-02-27-add-caracteristiques-visibilite-client.sql
+migrations/2026-02-27-add-modifier-onglets.sql
+migrations/2026-02-27-sync-vente-terrain-front-features.sql

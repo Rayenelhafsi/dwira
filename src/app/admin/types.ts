@@ -105,6 +105,19 @@ export interface LotissementPalierPrix {
   prix_m2: number;
 }
 
+export interface BienUiConfig {
+  show_gallery?: boolean;
+  show_informations_generales?: boolean;
+  show_caracteristiques?: boolean;
+  show_tarification_publique?: boolean;
+  show_modalites_paiement?: boolean;
+  show_immeuble_appartements?: boolean;
+  show_immeuble_garages?: boolean;
+  show_immeuble_locaux_commerciaux?: boolean;
+  show_lotissement_terrains?: boolean;
+  terrain_tabs?: Record<string, boolean>;
+}
+
 export interface Bien {
   id: string;
   reference: string;
@@ -226,6 +239,8 @@ export interface Bien {
   lotissement_paliers_prix_m2?: LotissementPalierPrix[];
   charges?: number;
   statut: BienStatut;
+  visible_sur_site?: boolean;
+  ui_config?: BienUiConfig | null;
   menage_en_cours: boolean;
   zone_id?: string;
   proprietaire_id?: string;
@@ -246,6 +261,7 @@ export interface Caracteristique {
   unite?: string | null;
   onglet_id?: string | null;
   onglet_nom?: string | null;
+  visibilite_client?: number | null;
 }
 
 export interface Media {

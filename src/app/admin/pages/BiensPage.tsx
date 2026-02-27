@@ -1,12 +1,13 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
+import PublicBienPageView from '../../ventes/components/PublicBienPageView';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const resolveMediaUrl = (url?: string | null) => {
@@ -373,6 +374,7 @@ export default function BiensPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBien, setEditingBien] = useState<Bien | null>(null);
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
+  const [editorInitialStep, setEditorInitialStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [saveSuccessDialogOpen, setSaveSuccessDialogOpen] = useState(false);
 
   const filteredBiens = biens.filter((bien) => {
@@ -429,6 +431,20 @@ export default function BiensPage() {
       toast.error(message ? `Erreur sauvegarde: ${message}` : 'Erreur sauvegarde');
     }
   };
+  const handlePreviewVisibilitySave = async (bienId: string, patch: { visible_sur_site: boolean; ui_config: BienUiConfig | null }) => {
+    const currentBien = biens.find((item) => item.id === bienId) || viewingBien;
+    if (!currentBien) return;
+    try {
+      await updateBien({ ...currentBien, ...patch } as any);
+      await refreshData();
+      setViewingBien((prev) => prev && prev.id === bienId ? { ...prev, ...patch } : prev);
+      setEditingBien((prev) => prev && prev.id === bienId ? { ...prev, ...patch } : prev);
+      toast.success('Visibilite mise a jour');
+    } catch (error: any) {
+      const message = String(error?.message || '').trim();
+      toast.error(message ? `Erreur visibilite: ${message}` : 'Erreur visibilite');
+    }
+  };
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div></div>;
 
@@ -436,7 +452,7 @@ export default function BiensPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div><h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Biens</h1><p className="text-xs sm:text-sm text-gray-500">Gérez votre portefeuille</p></div>
-        <button onClick={() => { setEditingBien(null); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
+        <button onClick={() => { setEditingBien(null); setEditorInitialStep(1); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
       </div>
       <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4">
         <div className="relative flex-1"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-gray-400" /></div><input type="text" className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md" placeholder="Rechercher..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
@@ -461,10 +477,10 @@ export default function BiensPage() {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} onEdit={() => { setEditingBien(bien); setIsAddOpen(true); }} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
+        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} onEdit={() => { setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
       </div>
       {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
-      <Dialog.Root open={isAddOpen} onOpenChange={setIsAddOpen}>
+      <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) setEditorInitialStep(1); }}>
         <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" /><Dialog.Content className="fixed inset-0 z-50 w-full h-full bg-white overflow-hidden flex flex-col">
           <Dialog.Description className="sr-only">Formulaire d'ajout ou de modification de bien</Dialog.Description>
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
@@ -477,14 +493,20 @@ export default function BiensPage() {
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
             ><Save className="h-4 w-4" /><span>Sauvegarder</span></button>
           </div>
-          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
+          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} initialGeneralStep={editorInitialStep} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root open={!!viewingBien} onOpenChange={() => setViewingBien(null)}>
         <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" /><Dialog.Content className="fixed inset-0 z-50 w-full h-full bg-white overflow-hidden flex flex-col">
-          <Dialog.Description className="sr-only">Aperçu du bien</Dialog.Description>
-          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0"><div className="flex items-center gap-3"><button onClick={() => setViewingBien(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">Aperçu</Dialog.Title></div><button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(viewingBien); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /></button></div>
-          <div className="flex-1 overflow-y-auto">{viewingBien && <BienPreview bien={viewingBien} zones={zoneOptions} />}</div>
+          <Dialog.Description className="sr-only">Apercu du bien</Dialog.Description>
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
+            <div className="flex items-center gap-3"><button onClick={() => setViewingBien(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">Apercu</Dialog.Title></div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(viewingBien); setEditorInitialStep(2); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><span>Modifier visibilite</span></button>
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(viewingBien); setEditorInitialStep(1); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /><span>Modifier</span></button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto">{viewingBien && <BienPreview bien={viewingBien} zones={zoneOptions} onSaveVisibility={handlePreviewVisibilitySave} />}</div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root open={saveSuccessDialogOpen} onOpenChange={setSaveSuccessDialogOpen}>
@@ -546,7 +568,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
@@ -556,14 +578,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [uploading, setUploading] = useState(false);
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
-  const [newFeatureType, setNewFeatureType] = useState<'simple' | 'choix_multiple' | 'valeur'>('simple');
-  const [newFeatureChoices, setNewFeatureChoices] = useState('');
+  const [newFeatureType, setNewFeatureType] = useState<'simple' | 'valeur'>('simple');
   const [newFeatureUnit, setNewFeatureUnit] = useState('');
+  const [newFeatureVisibilite, setNewFeatureVisibilite] = useState<0 | 1>(1);
   const [featureTabs, setFeatureTabs] = useState<CaracteristiqueOnglet[]>([]);
   const [featureTabDrafts, setFeatureTabDrafts] = useState<Record<string, string>>({});
   const [selectedFeatureTabId, setSelectedFeatureTabId] = useState<string>('');
   const [newFeatureTabName, setNewFeatureTabName] = useState('');
-  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string }>>({});
+  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
@@ -1100,6 +1122,21 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     electricite_steg: false,
   });
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
+  const updateUiConfig = (patch: Partial<BienUiConfig>) =>
+    setFormData((prev) => ({ ...prev, ui_config: { ...(prev.ui_config || {}), ...patch } }));
+  const setUiSectionVisible = (key: keyof BienUiConfig, checked: boolean) =>
+    updateUiConfig({ [key]: checked } as Partial<BienUiConfig>);
+  const setTerrainTabVisible = (tabId: string, checked: boolean) =>
+    setFormData((prev) => ({
+      ...prev,
+      ui_config: {
+        ...(prev.ui_config || {}),
+        terrain_tabs: {
+          ...((prev.ui_config && prev.ui_config.terrain_tabs) || {}),
+          [tabId]: checked,
+        },
+      },
+    }));
   type TerrainMultiField =
     | 'terrain_disponibilite_reseaux'
     | 'terrain_proximites_commodites'
@@ -1405,8 +1442,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       return lastResponse;
     };
     try {
+      const bienIdQuery = initialData?.id ? `&bien_id=${encodeURIComponent(initialData.id)}` : '';
       const response = await fetchFromFeatureApi(
-        (base) => `${base}?mode_bien=${mode}&type_bien=${type}`
+        (base) => `${base}?mode_bien=${mode}&type_bien=${type}${bienIdQuery}`
       );
       if (!response || !response.ok) throw new Error('Failed to fetch features');
       const rows = await response.json();
@@ -1418,46 +1456,27 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         seenNames.add(normalizedName);
         return true;
       });
-      const isAppartementVente = mode === 'vente' && type === 'appartement';
-      const isLocalCommercialVente = mode === 'vente' && type === 'local_commercial';
-      const isTerrainVente = mode === 'vente' && type === 'terrain';
-      const isImmeubleVente = mode === 'vente' && type === 'immeuble';
-      const nextFeatures = isAppartementVente
-        ? dedupedFeatures.filter((f: Caracteristique) => !APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-        : isLocalCommercialVente
-          ? dedupedFeatures.filter((f: Caracteristique) => !LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-          : isTerrainVente
-            ? dedupedFeatures.filter((f: Caracteristique) => !TERRAIN_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-            : isImmeubleVente
-              ? dedupedFeatures.filter((f: Caracteristique) => !IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-              : dedupedFeatures;
+      const nextFeatures = dedupedFeatures;
       setAvailableFeatures(nextFeatures);
       const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
       setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
       setFeatureDrafts((prev) => {
-        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string }> = {};
+        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
         for (const feature of nextFeatures) {
-          const parsedChoices = (() => {
-            if (typeof feature.choix_json !== 'string' || !feature.choix_json.trim()) return '';
-            try {
-              const parsed = JSON.parse(feature.choix_json);
-              return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean).join(', ') : '';
-            } catch {
-              return '';
-            }
-          })();
           nextDrafts[feature.id] = {
             nom: feature.nom || '',
-            type_caracteristique: (feature.type_caracteristique || 'simple') as 'simple' | 'choix_multiple' | 'valeur',
-            choix: parsedChoices,
+            type_caracteristique: feature.type_caracteristique === 'valeur' ? 'valeur' : 'simple',
             unite: feature.unite || '',
             onglet_id: feature.onglet_id || '',
+            visibilite_client: Number(feature.visibilite_client) === 0 ? 0 : 1,
           };
         }
         return { ...prev, ...nextDrafts };
       });
+      return nextFeatures;
     } catch {
       setAvailableFeatures([]);
+      return [];
     }
   };
 
@@ -1479,14 +1498,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const value = newFeature.trim();
-    const parsedChoices = Array.from(
-      new Set(
-        newFeatureChoices
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean)
-      )
-    );
     const parsedUnit = newFeatureUnit.trim();
     if (!value) return toast.error('Nom de caracteristique requis');
     const normalizedValue = normalizeFeatureName(value);
@@ -1496,9 +1507,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
     if (availableFeatures.some((feature) => normalizeFeatureName(feature.nom || '') === normalizedValue)) {
       return toast.error('Caracteristique deja existante');
-    }
-    if (newFeatureType === 'choix_multiple' && parsedChoices.length === 0) {
-      return toast.error('Ajoutez au moins un choix (separes par virgule)');
     }
     if (newFeatureType === 'valeur' && !parsedUnit) {
       return toast.error('Unite requise pour type valeur');
@@ -1516,9 +1524,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           mode_bien: selectedMode,
           type_bien: selectedType,
           type_caracteristique: newFeatureType,
-          choix: newFeatureType === 'choix_multiple' ? parsedChoices : [],
+          choix: [],
           unite: newFeatureType === 'valeur' ? parsedUnit : null,
           onglet_id: selectedFeatureTabId,
+          visibilite_client: newFeatureVisibilite,
         }),
       });
       if (!response || !response.ok) throw new Error('Failed to create feature');
@@ -1529,8 +1538,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       }
       setNewFeature('');
       setNewFeatureType('simple');
-      setNewFeatureChoices('');
       setNewFeatureUnit('');
+      setNewFeatureVisibilite(1);
       toast.success('Caracteristique ajoutee');
     } catch {
       toast.error('Erreur ajout caracteristique');
@@ -1653,6 +1662,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const handleUpdateFeatureTab = async (tab: CaracteristiqueOnglet) => {
     const nextName = String(featureTabDrafts[tab.id] || '').trim();
     if (!nextName) return toast.error("Nom d'onglet requis");
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    setSelectedFeatureTabId(tab.id);
     setFeatureSaving(true);
     try {
       const tabApiBases = Array.from(new Set([
@@ -1667,12 +1679,29 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           body: JSON.stringify({ nom: nextName, ordre: tab.ordre || 999 }),
         });
         response = next;
-        if (next.ok || next.status !== 404) break;
+        if (next.ok) break;
+        if (next.status === 404) {
+          const fallback = await fetch(base, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: tab.id,
+              mode_bien: selectedMode,
+              type_bien: selectedType,
+              nom: nextName,
+              ordre: tab.ordre || 999,
+            }),
+          });
+          response = fallback;
+          if (fallback.ok || fallback.status !== 404) break;
+        } else {
+          break;
+        }
       }
       if (!response || !response.ok) throw new Error('Failed to update tab');
-      const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
-      const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
       await loadFeatureTabs(selectedMode, selectedType);
+      await loadAvailableFeatures(selectedMode, selectedType);
+      setSelectedFeatureTabId(tab.id);
       toast.success('Onglet modifie');
     } catch {
       toast.error("Erreur modification onglet");
@@ -1681,32 +1710,32 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
   };
 
-  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string }>) => {
+  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>) => {
     setFeatureDrafts((prev) => ({
       ...prev,
       [featureId]: {
         nom: prev[featureId]?.nom || '',
         type_caracteristique: prev[featureId]?.type_caracteristique || 'simple',
-        choix: prev[featureId]?.choix || '',
         unite: prev[featureId]?.unite || '',
         onglet_id: prev[featureId]?.onglet_id || '',
+        visibilite_client: prev[featureId]?.visibilite_client ?? 1,
         ...patch,
       },
     }));
   };
 
   const handleUpdateFeature = async (feature: Caracteristique) => {
+    return handleUpdateFeatureWithScope(feature, false);
+  };
+
+  const handleUpdateFeatureWithScope = async (feature: Caracteristique, applyToAll: boolean) => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const draft = featureDrafts[feature.id];
     if (!draft) return;
     const normalizedName = String(draft.nom || '').trim();
-    const normalizedChoices = Array.from(new Set(String(draft.choix || '').split(',').map((item) => item.trim()).filter(Boolean)));
     const normalizedUnit = String(draft.unite || '').trim();
     if (!normalizedName) return toast.error('Nom requis');
-    if (draft.type_caracteristique === 'choix_multiple' && normalizedChoices.length === 0) {
-      return toast.error('Ajoutez au moins un choix');
-    }
     if (draft.type_caracteristique === 'valeur' && !normalizedUnit) {
       return toast.error('Unite requise');
     }
@@ -1721,23 +1750,80 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           body: JSON.stringify({
             mode_bien: selectedMode,
             type_bien: selectedType,
+            bien_id: initialData?.id || null,
+            apply_to_all: applyToAll,
             nom: normalizedName,
             type_caracteristique: draft.type_caracteristique,
-            choix: draft.type_caracteristique === 'choix_multiple' ? normalizedChoices : [],
+            choix: [],
             unite: draft.type_caracteristique === 'valeur' ? normalizedUnit : null,
             onglet_id: draft.onglet_id || null,
+            visibilite_client: draft.visibilite_client,
           }),
         });
         response = next;
         if (next.ok || next.status !== 404) break;
       }
       if (!response || !response.ok) throw new Error('Failed to update feature');
-      await loadAvailableFeatures(selectedMode, selectedType);
-      toast.success('Caracteristique mise a jour');
+      const nextFeatures = await loadAvailableFeatures(selectedMode, selectedType);
+      const updatedFeature = Array.isArray(nextFeatures) ? nextFeatures.find((item) => item.id === feature.id) : null;
+      if (updatedFeature && (Number(updatedFeature.visibilite_client) === 0 ? 0 : 1) !== draft.visibilite_client) {
+        throw new Error('Feature visibility mismatch after reload');
+      }
+      toast.success(applyToAll ? 'Caracteristique appliquee a tous les biens' : 'Caracteristique mise a jour');
     } catch {
-      toast.error('Erreur modification caracteristique');
+      toast.error("Modification non persistée. Vérifier que l'API/backend déployé contient bien la logique d'override par bien.");
     } finally {
       setFeatureSaving(false);
+    }
+  };
+
+  const savePendingFeatureDrafts = async (mode: BienMode, type: BienType) => {
+    const featureApiBases = getFeatureApiBases();
+    for (const feature of availableFeatures) {
+      const draft = featureDrafts[feature.id];
+      if (!draft) continue;
+      const currentType = feature.type_caracteristique === 'valeur' ? 'valeur' : 'simple';
+      const currentUnit = String(feature.unite || '').trim();
+      const currentTab = String(feature.onglet_id || '').trim();
+      const currentVisibility = Number(feature.visibilite_client) === 0 ? 0 : 1;
+      const nextName = String(draft.nom || '').trim();
+      const nextType = draft.type_caracteristique;
+      const nextUnit = String(draft.unite || '').trim();
+      const nextTab = String(draft.onglet_id || '').trim();
+      const nextVisibility = draft.visibilite_client;
+      const unchanged =
+        nextName === String(feature.nom || '').trim() &&
+        nextType === currentType &&
+        nextUnit === currentUnit &&
+        nextTab === currentTab &&
+        nextVisibility === currentVisibility;
+      if (unchanged) continue;
+      if (!nextName) continue;
+      if (nextType === 'valeur' && !nextUnit) continue;
+
+      let response: Response | null = null;
+      for (const base of featureApiBases) {
+        const next = await fetch(`${base}/${encodeURIComponent(feature.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode_bien: mode,
+            type_bien: type,
+            bien_id: initialData?.id || null,
+            nom: nextName,
+            type_caracteristique: nextType,
+            choix: [],
+            unite: nextType === 'valeur' ? nextUnit : null,
+            onglet_id: nextTab || null,
+            visibilite_client: nextVisibility,
+          }),
+        });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!response || !response.ok) {
+        throw new Error(`Failed to update feature ${feature.id}`);
+      }
     }
   };
 
@@ -1925,6 +2011,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           return toast.error('La periode (mois) doit etre > 0');
         }
       }
+    }
+
+    try {
+      await savePendingFeatureDrafts(selectedMode, selectedType);
+      await loadAvailableFeatures(selectedMode, selectedType);
+    } catch {
+      setGeneralStep(3);
+      return toast.error('Erreur sauvegarde des modifications de caracteristiques');
     }
 
     const orderedMediaForSave = [...clientVisibleImages, ...images.filter((img) => isProofImage(img))];
@@ -2203,12 +2297,13 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       ...immeubleVenteData,
       description: formData.description || '',
       caracteristiques: availableFeatures
-        .filter((feature) => selectedFeatureIds.includes(feature.id))
+        .filter((feature) => selectedFeatureIds.includes(feature.id) && Number(feature.visibilite_client) !== 0)
         .map((feature) => feature.nom),
       caracteristique_ids: selectedFeatureIds,
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       media: imagesWithPositions,
       unavailableDates: unavailableDates,
+      visible_sur_site: formData.visible_sur_site !== false,
       created_at: initialData?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
       date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0]
@@ -2222,20 +2317,12 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
-  const systemTerrainTabIds = new Set(TERRAIN_SECTION_TABS.map((tab) => tab.id));
-  const terrainTabsForRender = (() => {
-    const byId = new Map(featureTabs.map((tab) => [tab.id, tab]));
-    const systemTabs = TERRAIN_SECTION_TABS.map((tab) => ({
-      id: tab.id,
-      label: String(byId.get(tab.id)?.nom || tab.label),
-      is_system: true,
-    }));
-    const customTabs = featureTabs
-      .filter((tab) => !systemTerrainTabIds.has(tab.id))
-      .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
-      .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: false }));
-    return [...systemTabs, ...customTabs];
-  })();
+  const terrainTabsForRender = featureTabs
+    .slice()
+    .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
+    .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }));
+  const uiConfig = (formData.ui_config || {}) as BienUiConfig;
+  const isUiSectionVisible = (key: keyof BienUiConfig) => uiConfig[key] !== false;
   const visibleFeaturesForSelectedTab = selectedFeatureTabId
     ? availableFeatures.filter((feature) => (feature.onglet_id || '') === selectedFeatureTabId)
     : availableFeatures;
@@ -2261,7 +2348,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   useEffect(() => {
     if (!isTerrainVente) return;
     const hasTab = terrainTabsForRender.some((tab) => tab.id === terrainSectionTab);
-    if (!hasTab) setTerrainSectionTab('informations_generales');
+    if (!hasTab) setTerrainSectionTab(terrainTabsForRender[0]?.id || '');
   }, [isTerrainVente, terrainSectionTab, terrainTabsForRender]);
   const immeubleClientImageUnits = [
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` })),
@@ -2370,6 +2457,72 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Type *</label><select name="type" value={formData.type || 'appartement'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{(BIEN_TYPES_BY_MODE[(formData.mode || 'location_saisonniere') as BienMode] || []).map((typeValue) => <option key={typeValue} value={typeValue}>{typeLabels[typeValue]}</option>)}</select></div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
               </div>
+              <label htmlFor="visible_sur_site" className="flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
+                <div>
+                  <span className="block text-sm font-medium text-gray-800">Visible sur le site</span>
+                  <span className="block text-xs text-gray-500">Si désactivé, le bien reste en admin mais n'apparait plus côté client.</span>
+                </div>
+                <input type="checkbox" id="visible_sur_site" name="visible_sur_site" checked={formData.visible_sur_site !== false} onChange={handleCheckboxChange} className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+              </label>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">Visibilite des composants UI</h4>
+                  <p className="text-xs text-gray-500">Ces reglages controlent quels blocs apparaissent sur la page client et dans l'aperçu admin.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <span className="text-sm text-gray-700">Galerie</span>
+                    <input type="checkbox" checked={isUiSectionVisible('show_gallery')} onChange={(e) => setUiSectionVisible('show_gallery', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <span className="text-sm text-gray-700">Informations generales</span>
+                    <input type="checkbox" checked={isUiSectionVisible('show_informations_generales')} onChange={(e) => setUiSectionVisible('show_informations_generales', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <span className="text-sm text-gray-700">Caracteristiques</span>
+                    <input type="checkbox" checked={isUiSectionVisible('show_caracteristiques')} onChange={(e) => setUiSectionVisible('show_caracteristiques', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <span className="text-sm text-gray-700">Tarification publique</span>
+                    <input type="checkbox" checked={isUiSectionVisible('show_tarification_publique')} onChange={(e) => setUiSectionVisible('show_tarification_publique', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <span className="text-sm text-gray-700">Modalites de paiement</span>
+                    <input type="checkbox" checked={isUiSectionVisible('show_modalites_paiement')} onChange={(e) => setUiSectionVisible('show_modalites_paiement', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  </label>
+                  {isImmeubleVente && <>
+                    <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                      <span className="text-sm text-gray-700">Bloc appartements</span>
+                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_appartements')} onChange={(e) => setUiSectionVisible('show_immeuble_appartements', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                      <span className="text-sm text-gray-700">Bloc garages</span>
+                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_garages')} onChange={(e) => setUiSectionVisible('show_immeuble_garages', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                      <span className="text-sm text-gray-700">Bloc locaux commerciaux</span>
+                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_locaux_commerciaux')} onChange={(e) => setUiSectionVisible('show_immeuble_locaux_commerciaux', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    </label>
+                  </>}
+                  {isLotissementVente && <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <span className="text-sm text-gray-700">Bloc terrains du lotissement</span>
+                    <input type="checkbox" checked={isUiSectionVisible('show_lotissement_terrains')} onChange={(e) => setUiSectionVisible('show_lotissement_terrains', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  </label>}
+                </div>
+                {isTerrainVente && terrainTabsForRender.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-gray-200">
+                    <h5 className="text-sm font-semibold text-gray-800">Onglets terrain visibles</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {terrainTabsForRender.map((tab) => (
+                        <label key={`ui-tab-${tab.id}`} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                          <span className="text-sm text-gray-700">{tab.label}</span>
+                          <input type="checkbox" checked={uiConfig.terrain_tabs?.[tab.id] !== false} onChange={(e) => setTerrainTabVisible(tab.id, e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex justify-between">
                 <button type="button" onClick={() => goToStep(1)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
                 <button type="button" onClick={() => { markStepValidated(2); goToStep(3); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 3</button>
@@ -2380,19 +2533,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 3 - Caractéristiques</h3>
                 <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Gerer caractéristiques</button>
               </div>
-              <div className="space-y-2">
-                <p className="text-sm text-gray-500">Caractéristiques proposées pour {modeLabels[(formData.mode || 'location_saisonniere') as BienMode]} - {typeLabels[(formData.type || 'appartement') as BienType]}</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {availableFeatures.map((feature) => (
-                    <label key={feature.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200">
-                      <input type="checkbox" checked={selectedFeatureIds.includes(feature.id)} onChange={(e) => setSelectedFeatureIds((prev) => e.target.checked ? [...prev, feature.id] : prev.filter((id) => id !== feature.id))} />
-                      <span className="text-sm">{feature.nom}</span>
-                      {feature.onglet_nom && <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-600">{feature.onglet_nom}</span>}
-                    </label>
-                  ))}
-                  {availableFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caractéristique liée a ce mode/type</span>}
-                </div>
-              </div>
+              <p className="text-sm text-gray-500">Les caracteristiques sont selectionnees et affichees directement dans les onglets de details ci-dessous.</p>
               {showFeaturePanel && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -2407,7 +2548,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     {featureTabs.map((tab) => (
                       <span key={tab.id} className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${(selectedFeatureTabId === tab.id) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-emerald-200 text-emerald-700'}`}>
                         <button type="button" onClick={() => setSelectedFeatureTabId(tab.id)}>{tab.nom}</button>
-                        {!Number(tab.is_system || 0) && <button type="button" onClick={() => void handleDeleteFeatureTab(tab)} className={`${selectedFeatureTabId === tab.id ? 'text-white' : 'text-red-500'}`}>x</button>}
+                        <button type="button" onClick={() => void handleDeleteFeatureTab(tab)} className={`${selectedFeatureTabId === tab.id ? 'text-white' : 'text-red-500'}`}>x</button>
                       </span>
                     ))}
                     {featureTabs.length === 0 && <span className="text-xs text-gray-500">Aucun onglet disponible</span>}
@@ -2421,43 +2562,56 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                           className="rounded-lg border-gray-300 border p-2 text-sm md:col-span-2"
                         />
                         <button type="button" onClick={() => setSelectedFeatureTabId(tab.id)} className="px-3 py-2 border border-emerald-300 text-emerald-700 rounded-lg text-sm">Selectionner</button>
-                        <button type="button" onClick={() => void handleUpdateFeatureTab(tab)} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier onglet</button>
+                        <button type="button" onClick={() => { setSelectedFeatureTabId(tab.id); void handleUpdateFeatureTab(tab); }} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier onglet</button>
                       </div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
                     <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="rounded-lg border-gray-300 border p-2 text-sm" />
-                    <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'choix_multiple' | 'valeur')} className="rounded-lg border-gray-300 border p-2 text-sm">
+                    <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'valeur')} className="rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="simple">Simple (Oui/Non)</option>
-                      <option value="choix_multiple">Choix multiple</option>
                       <option value="valeur">Valeur</option>
                     </select>
-                    <input
-                      type="text"
-                      value={newFeatureType === 'valeur' ? newFeatureUnit : newFeatureChoices}
-                      onChange={(e) => newFeatureType === 'valeur' ? setNewFeatureUnit(e.target.value) : setNewFeatureChoices(e.target.value)}
-                      placeholder={newFeatureType === 'valeur' ? 'Unite (m2, m...)' : 'Choix (a,b,c)'}
-                      className="rounded-lg border-gray-300 border p-2 text-sm"
-                    />
+                    <select value={newFeatureVisibilite} onChange={(e) => setNewFeatureVisibilite((Number(e.target.value) === 0 ? 0 : 1) as 0 | 1)} className="rounded-lg border-gray-300 border p-2 text-sm">
+                      <option value={1}>Externe (client)</option>
+                      <option value={0}>Interne (admin)</option>
+                    </select>
+                    <select value={selectedFeatureTabId} onChange={(e) => setSelectedFeatureTabId(e.target.value)} className="rounded-lg border-gray-300 border p-2 text-sm">
+                      <option value="">-- Choisir onglet details --</option>
+                      {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                    </select>
                     <button type="button" onClick={() => void handleAddFeature()} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">{featureSaving ? '...' : 'Ajouter'}</button>
                   </div>
+                  {newFeatureType === 'valeur' && (
+                    <input
+                      type="text"
+                      value={newFeatureUnit}
+                      onChange={(e) => setNewFeatureUnit(e.target.value)}
+                      placeholder="Unite (m2, m...)"
+                      className="rounded-lg border-gray-300 border p-2 text-sm"
+                    />
+                  )}
                   <div className="space-y-2">
                     {visibleFeaturesForSelectedTab.map((feature) => {
-                      const draft = featureDrafts[feature.id] || { nom: feature.nom || '', type_caracteristique: (feature.type_caracteristique || 'simple') as 'simple' | 'choix_multiple' | 'valeur', choix: '', unite: feature.unite || '', onglet_id: feature.onglet_id || '' };
+                      const draft = featureDrafts[feature.id] || { nom: feature.nom || '', type_caracteristique: (feature.type_caracteristique === 'valeur' ? 'valeur' : 'simple') as 'simple' | 'valeur', unite: feature.unite || '', onglet_id: feature.onglet_id || '', visibilite_client: (Number(feature.visibilite_client) === 0 ? 0 : 1) as 0 | 1 };
                       return (
-                        <div key={feature.id} className="grid grid-cols-1 md:grid-cols-6 gap-2 p-2 bg-white border border-emerald-200 rounded-lg">
+                        <div key={feature.id} className="grid grid-cols-1 md:grid-cols-8 gap-2 p-2 bg-white border border-emerald-200 rounded-lg">
                           <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
-                          <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'valeur' })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                          <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'valeur' })} className="rounded-lg border-gray-300 border p-2 text-sm">
                             <option value="simple">Simple</option>
-                            <option value="choix_multiple">Choix</option>
                             <option value="valeur">Valeur</option>
                           </select>
-                          <input value={draft.type_caracteristique === 'valeur' ? draft.unite : draft.choix} onChange={(e) => draft.type_caracteristique === 'valeur' ? handleFeatureDraftChange(feature.id, { unite: e.target.value }) : handleFeatureDraftChange(feature.id, { choix: e.target.value })} placeholder={draft.type_caracteristique === 'valeur' ? 'Unite' : 'Choix a,b,c'} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                          <select value={draft.visibilite_client} onChange={(e) => handleFeatureDraftChange(feature.id, { visibilite_client: (Number(e.target.value) === 0 ? 0 : 1) as 0 | 1 })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                            <option value={1}>Externe</option>
+                            <option value={0}>Interne</option>
+                          </select>
                           <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm">
                             <option value="">Sans onglet</option>
                             {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                           </select>
+                          <input value={draft.unite} onChange={(e) => handleFeatureDraftChange(feature.id, { unite: e.target.value })} placeholder="Unite (si type valeur)" className="rounded-lg border-gray-300 border p-2 text-sm" />
                           <button type="button" onClick={() => void handleUpdateFeature(feature)} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier</button>
+                          <button type="button" onClick={() => void handleUpdateFeatureWithScope(feature, true)} disabled={featureSaving} className="px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg text-sm disabled:opacity-60">Appliquer a tous</button>
                           <button type="button" onClick={() => void handleRemoveFeature(feature)} disabled={featureSaving} className="px-3 py-2 border border-red-300 text-red-600 rounded-lg text-sm disabled:opacity-60">Supprimer</button>
                         </div>
                       );
@@ -2743,7 +2897,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                           </select>
                         </div>
                       </div>
-                      {renderTypeProofUploads()}
                       {renderTerrainTabFeatures()}
                     </div>
                   )}
@@ -2874,10 +3027,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   {terrainSectionTab === 'documents_disponibles' && (
                     <div>
                       {renderTerrainMultiChoice('terrain_documents_disponibles', 'Documents disponibles', TERRAIN_MULTI_OPTIONS.documents)}
+                      {renderTypeProofUploads()}
                       {renderTerrainTabFeatures()}
                     </div>
                   )}
-                  {!systemTerrainTabIds.has(terrainSectionTab) && (
+                  {!TERRAIN_SECTION_TABS.some((tab) => tab.id === terrainSectionTab) && (
                     <div>
                       {renderTerrainTabFeatures()}
                     </div>
@@ -3477,87 +3631,128 @@ function AdminCalendar({ dates, onDatesChange }: { dates: DateStatus[], onDatesC
   );
 }
 
-function BienPreview({ bien, zones }: { bien: Bien; zones: Zone[] }) {
-  const clientImages = (Array.isArray(bien.media) ? bien.media : [])
-    .filter((media) => !isProofMotif(media.motif_upload))
-    .map((media) => resolveMediaUrl(media.url))
-    .filter(Boolean);
-  const galleryImages = clientImages.length > 0
-    ? clientImages
-    : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200'];
-  const mainImage = galleryImages[0];
-  const secondImage = galleryImages[1] || mainImage;
-  const thirdImage = galleryImages[2] || mainImage;
-  const fourthImage = galleryImages[3] || mainImage;
-  const fifthImage = galleryImages[4] || mainImage;
-  const terrainMode = bien.terrain_mode_affichage_prix || 'total_et_m2';
-  const terrainTotal = Number(bien.terrain_prix_affiche_total ?? bien.prix_affiche_client ?? bien.prix_nuitee ?? 0);
-  const terrainParM2 = Number(bien.terrain_prix_affiche_par_m2 ?? 0);
-  const displayPrice = bien.mode === 'vente'
-    ? (bien.type === 'terrain' && terrainMode === 'm2_uniquement' && terrainParM2 > 0
-      ? terrainParM2
-      : Number(bien.prix_affiche_client ?? terrainTotal ?? bien.prix_nuitee ?? 0))
-    : Number(bien.prix_nuitee || 0);
-  const rawDescription = bien.description || '';
-  const markerIndex = rawDescription.indexOf(CHARACTERISTICS_MARKER);
-  const cleanDescription = markerIndex >= 0 ? rawDescription.slice(0, markerIndex).trim() : rawDescription;
-  const customFeatures = markerIndex >= 0 ? (() => { try { const parsed = JSON.parse(rawDescription.slice(markerIndex + CHARACTERISTICS_MARKER.length).trim()); return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : []; } catch { return []; } })() : [];
-  const featuresToDisplay = customFeatures.length > 0
-    ? customFeatures
-    : (Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []);
-  const locationLabel = zones.find((z) => z.id === bien.zone_id)?.nom || 'Zone non définie';
-  const guests = Math.max(1, Number(bien.nb_chambres || 0) + 1);
+function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zone[]; onSaveVisibility: (bienId: string, patch: { visible_sur_site: boolean; ui_config: BienUiConfig | null }) => Promise<void>; }) {
+  const [draftVisibleSurSite, setDraftVisibleSurSite] = useState(bien.visible_sur_site !== false);
+  const [draftUiConfig, setDraftUiConfig] = useState<BienUiConfig>(bien.ui_config || {});
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
+  const [featureReloadKey, setFeatureReloadKey] = useState(0);
+
+  useEffect(() => {
+    setDraftVisibleSurSite(bien.visible_sur_site !== false);
+    setDraftUiConfig(bien.ui_config || {});
+  }, [bien]);
+
+  const persistVisibility = async (nextVisibleSurSite: boolean, nextUiConfig: BienUiConfig, key: string) => {
+    setTogglingKey(key);
+    try {
+      await onSaveVisibility(bien.id, { visible_sur_site: nextVisibleSurSite, ui_config: nextUiConfig });
+    } finally {
+      setTogglingKey(null);
+    }
+  };
+
+  const handleToggleVisibility = async (type: 'section' | 'terrain_tab', key: string, nextValue: boolean) => {
+    if (type === 'section') {
+      const nextUiConfig = { ...draftUiConfig, [key]: nextValue } as BienUiConfig;
+      setDraftUiConfig(nextUiConfig);
+      await persistVisibility(draftVisibleSurSite, nextUiConfig, `${type}:${key}`);
+      return;
+    }
+    const nextUiConfig = {
+      ...draftUiConfig,
+      terrain_tabs: {
+        ...(draftUiConfig.terrain_tabs || {}),
+        [key]: nextValue,
+      },
+    };
+    setDraftUiConfig(nextUiConfig);
+    await persistVisibility(draftVisibleSurSite, nextUiConfig, `${type}:${key}`);
+  };
+
+  const handleToggleFeatureVisibility = async (
+    feature: { id: string; nom: string; onglet_id?: string | null; type_caracteristique?: string | null; unite?: string | null },
+    nextValue: boolean,
+  ) => {
+    const requestKey = `feature:${feature.id}`;
+    setTogglingKey(requestKey);
+    try {
+      const payload = {
+        mode_bien: bien.mode,
+        type_bien: bien.type,
+        bien_id: bien.id,
+        nom: feature.nom,
+        type_caracteristique: feature.type_caracteristique === 'valeur' ? 'valeur' : feature.type_caracteristique === 'choix_multiple' ? 'choix_multiple' : 'simple',
+        unite: feature.type_caracteristique === 'valeur' ? (feature.unite || '') : '',
+        onglet_id: feature.onglet_id || '',
+        visibilite_client: nextValue ? 1 : 0,
+      };
+      const base = String(API_URL || '').replace(/\/+$/, '');
+      const normalizedBase = base.replace(/\/api$/i, '');
+      const urls = Array.from(new Set([
+        `${base}/caracteristiques/${encodeURIComponent(feature.id)}`,
+        `${normalizedBase}/api/caracteristiques/${encodeURIComponent(feature.id)}`,
+      ]));
+      let response: Response | null = null;
+      for (const url of urls) {
+        const next = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      const data = response && response.headers.get('content-type')?.includes('application/json')
+        ? await response.json()
+        : null;
+      if (!response?.ok) {
+        throw new Error(data?.error || 'Erreur mise a jour caracteristique');
+      }
+      setFeatureReloadKey((prev) => prev + 1);
+      toast.success('Visibilite caracteristique mise a jour');
+      return data;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      toast.error(message ? `Erreur caracteristique: ${message}` : 'Erreur caracteristique');
+      throw error;
+    } finally {
+      setTogglingKey(null);
+    }
+  };
+
   return (
-    <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-8">
-      <div className="hidden md:grid grid-cols-4 grid-rows-2 gap-2 h-[360px] rounded-2xl overflow-hidden">
-        <div className="col-span-2 row-span-2"><img src={mainImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
-        <div><img src={secondImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
-        <div><img src={thirdImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
-        <div><img src={fourthImage} alt={bien.titre} className="w-full h-full object-cover" /></div>
-        <div className="relative">
-          <img src={fifthImage} alt={bien.titre} className="w-full h-full object-cover" />
-          {galleryImages.length > 5 && <div className="absolute inset-0 bg-black/45 flex items-center justify-center text-white font-semibold">Voir tout</div>}
-        </div>
-      </div>
-      <div className="md:hidden rounded-2xl overflow-hidden"><img src={mainImage} alt={bien.titre} className="w-full h-64 object-cover" /></div>
-
-      <div className="space-y-5">
-        <div className="flex items-center gap-2 mb-1"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[bien.statut]}`}>{statusLabels[bien.statut]}</span><span className="text-sm text-gray-500">{typeLabels[bien.type]}</span></div>
-        <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 leading-tight">{bien.titre}</h1>
-        <div className="flex items-center gap-2 text-gray-600"><MapPin className="h-4 w-4" /><span>{locationLabel}</span></div>
-      </div>
-
-      <div className="py-6 border-y border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div><h2 className="text-xl font-bold text-gray-900">Logement entier : {typeLabels[bien.type]}</h2><p className="text-sm text-gray-600 mt-1">{guests} voyageurs max · {bien.nb_chambres} chambres · {bien.nb_salle_bain} salles de bain</p></div>
-        <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center">DI</div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4"><div className="bg-gray-50 rounded-lg p-4 text-center"><Bed className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_chambres}</span><span className="text-xs text-gray-500 block">Chambres</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Bath className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.nb_salle_bain}</span><span className="text-xs text-gray-500 block">Salles de bain</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Banknote className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.avance} DT</span><span className="text-xs text-gray-500 block">Avance</span></div><div className="bg-gray-50 rounded-lg p-4 text-center"><Sofa className="h-5 w-5 mx-auto text-gray-400 mb-1" /><span className="font-semibold">{bien.menage_en_cours ? 'Oui' : 'Non'}</span><span className="text-xs text-gray-500 block">Ménage</span></div></div>
-      {cleanDescription && <div className="py-2"><h3 className="text-xl font-bold mb-3">A propos de ce logement</h3><p className="text-gray-600 whitespace-pre-line">{cleanDescription}</p></div>}
-      {featuresToDisplay.length > 0 && <div className="py-2"><h3 className="text-xl font-bold mb-4">Ce que propose ce logement</h3><div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{featuresToDisplay.map((feature) => <div key={feature} className="flex items-center gap-3 text-gray-700"><div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center"><Check className="h-4 w-4 text-emerald-600" /></div><span>{feature}</span></div>)}</div></div>}
-      <div className="bg-emerald-50 rounded-xl p-6">
-        <div className="flex items-baseline justify-between">
+    <div className="space-y-4">
+      <div className="max-w-7xl mx-auto px-4 pt-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-center justify-between gap-3">
           <div>
-            <span className="text-3xl font-bold text-emerald-600">{displayPrice} DT</span>
-            {bien.mode !== 'vente' && <span className="text-gray-500"> / nuit</span>}
-            {bien.mode === 'vente' && bien.type === 'terrain' && terrainMode === 'm2_uniquement' && <span className="text-gray-500"> / m2</span>}
+            <h3 className="text-sm font-semibold text-gray-900">Visibilite du bien</h3>
+            <p className="text-xs text-gray-500">Les blocs se pilotent directement dans la page ci-dessous.</p>
           </div>
-          {bien.mode === 'vente' ? (
-            <div className="text-right text-sm text-gray-500">
-              <div>Prix final: {bien.prix_final ?? displayPrice} DT</div>
-              <div>Revenu agence: {bien.revenu_agence ?? 0} DT</div>
-              {bien.type === 'terrain' && terrainParM2 > 0 && <div>Prix /m2: {terrainParM2} DT</div>}
-            </div>
-          ) : (
-            <div className="text-right text-sm text-gray-500"><div>Avance: {bien.avance} DT</div><div>Caution: {bien.caution} DT</div></div>
-          )}
-          </div>
+          <label className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+            <span className="text-sm text-gray-700">Visible sur le site</span>
+            <input
+              type="checkbox"
+              checked={draftVisibleSurSite}
+              onChange={async (e) => {
+                const next = e.target.checked;
+                setDraftVisibleSurSite(next);
+                await persistVisibility(next, draftUiConfig, 'site_visibility');
+              }}
+              className="h-4 w-4 rounded border-gray-300 text-emerald-600"
+            />
+          </label>
         </div>
+      </div>
+      <PublicBienPageView
+        bien={{ ...bien, visible_sur_site: draftVisibleSurSite, ui_config: draftUiConfig }}
+        zones={zones}
+        backHref={null}
+        previewMode
+        onToggleVisibility={handleToggleVisibility}
+        onToggleFeatureVisibility={handleToggleFeatureVisibility}
+        togglingKey={togglingKey}
+        featureReloadKey={featureReloadKey}
+      />
     </div>
   );
 }
-
-
-
-
-

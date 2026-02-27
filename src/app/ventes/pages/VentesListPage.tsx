@@ -74,7 +74,7 @@ function getPublicPrice(bien: Bien) {
 export default function VentesListPage() {
   const { biens, zones, proprietaires, isLoading } = useProperties();
   const venteBiens = biens
-    .filter((bien) => bien.mode === 'vente')
+    .filter((bien) => bien.mode === 'vente' && bien.visible_sur_site !== false)
     .sort((a, b) => Number(b.date_ajout || 0) - Number(a.date_ajout || 0));
 
   if (isLoading) {

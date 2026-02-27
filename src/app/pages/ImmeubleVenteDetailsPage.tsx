@@ -16,7 +16,7 @@ const resolveMediaUrl = (url?: string | null) => {
 export default function ImmeubleVenteDetailsPage() {
   const { slug } = useParams();
   const { biens, zones } = useProperties();
-  const bien = biens.find((item) => item.mode === "vente" && item.type === "immeuble" && slugify(item.titre) === slug);
+  const bien = biens.find((item) => item.mode === "vente" && item.type === "immeuble" && item.visible_sur_site !== false && slugify(item.titre) === slug);
 
   if (!bien) {
     return <div className="pt-28 text-center text-gray-700">Immeuble introuvable.</div>;

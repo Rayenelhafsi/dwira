@@ -88,6 +88,11 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     const raw = (row as any).lotissement_paliers_prix_m2_json;
     if (raw) lotissementPaliersPrix = Array.isArray(raw) ? raw : JSON.parse(raw);
   } catch {}
+  let uiConfig: any = null;
+  try {
+    const raw = (row as any).ui_config_json;
+    if (raw) uiConfig = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {}
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
@@ -244,6 +249,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       prix_m2: Number(item?.prix_m2 || 0),
     })),
     statut: row.statut as BienStatut,
+    visible_sur_site: row.visible_sur_site === 1 || row.visible_sur_site === true || row.visible_sur_site === '1',
+    ui_config: uiConfig && typeof uiConfig === 'object' ? uiConfig : null,
     menage_en_cours: row.menage_en_cours === 1 || row.menage_en_cours === true || row.menage_en_cours === '1',
     zone_id: row.zone_id,
     proprietaire_id: row.proprietaire_id,
@@ -425,7 +432,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       }
 
       setBiens(mappedBiens);
-      setProperties(mappedBiens.map((bien) => bienToProperty(bien, zoneNameById)));
+      setProperties(mappedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zoneNameById)));
       setZones(Array.isArray(zonesData) ? zonesData : []);
       setProprietaires(Array.isArray(propsData) ? propsData : []);
     } catch (err: any) {
@@ -518,6 +525,8 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         immeuble_vue_mer: false,
         immeuble_appartements: [],
         statut: 'disponible' as BienStatut,
+        visible_sur_site: true,
+        ui_config: null,
         menage_en_cours: false,
         zone_id: 'z1',
         proprietaire_id: p.proprietaire_id || '',
