@@ -2530,6 +2530,29 @@ app.delete('/api/caracteristique-onglets/:id', async (req, res) => {
   }
 });
 
+app.put('/api/caracteristique-onglets/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const nom = String(req.body.nom || '').trim();
+    const ordre = Number(req.body.ordre || 999);
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    if (!nom) return res.status(400).json({ error: 'nom requis' });
+    const [rows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
+    const onglet = rows?.[0];
+    if (!onglet) return res.status(404).json({ error: 'onglet introuvable' });
+
+    await pool.query(
+      'UPDATE caracteristique_onglets SET nom = ?, ordre = ? WHERE id = ?',
+      [nom, Number.isFinite(ordre) ? ordre : 999, id]
+    );
+    const [nextRows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
+    res.json(nextRows[0]);
+  } catch (error) {
+    console.error('Error updating caracteristique onglet:', error);
+    res.status(500).json({ error: 'Failed to update caracteristique onglet' });
+  }
+});
+
 app.get('/api/caracteristiques', async (req, res) => {
   try {
     const mode = normalizeBienMode(req.query.mode_bien || req.query.mode);

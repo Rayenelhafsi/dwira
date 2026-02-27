@@ -83,7 +83,7 @@ const TERRAIN_SECTION_TABS = [
   { id: 'ideal_utilisation', label: '7. Ideal pour' },
   { id: 'documents_disponibles', label: '8. Documents disponibles' },
 ] as const;
-type TerrainSectionTab = (typeof TERRAIN_SECTION_TABS)[number]['id'];
+type TerrainSectionTab = string;
 type CaracteristiqueOnglet = {
   id: string;
   nom: string;
@@ -560,6 +560,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newFeatureChoices, setNewFeatureChoices] = useState('');
   const [newFeatureUnit, setNewFeatureUnit] = useState('');
   const [featureTabs, setFeatureTabs] = useState<CaracteristiqueOnglet[]>([]);
+  const [featureTabDrafts, setFeatureTabDrafts] = useState<Record<string, string>>({});
   const [selectedFeatureTabId, setSelectedFeatureTabId] = useState<string>('');
   const [newFeatureTabName, setNewFeatureTabName] = useState('');
   const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string }>>({});
@@ -1367,6 +1368,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         const rows = await response.json();
         const nextTabs = Array.isArray(rows) ? rows : [];
         setFeatureTabs(nextTabs);
+        setFeatureTabDrafts((prev) => {
+          const nextDrafts: Record<string, string> = {};
+          for (const tab of nextTabs) nextDrafts[tab.id] = prev[tab.id] ?? String(tab.nom || '');
+          return nextDrafts;
+        });
         if (nextTabs.length > 0) {
           const hasCurrent = nextTabs.some((tab: CaracteristiqueOnglet) => tab.id === selectedFeatureTabId);
           if (!hasCurrent) setSelectedFeatureTabId(nextTabs[0].id);
@@ -1639,6 +1645,37 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       toast.success('Onglet supprime');
     } catch {
       toast.error("Erreur suppression onglet");
+    } finally {
+      setFeatureSaving(false);
+    }
+  };
+
+  const handleUpdateFeatureTab = async (tab: CaracteristiqueOnglet) => {
+    const nextName = String(featureTabDrafts[tab.id] || '').trim();
+    if (!nextName) return toast.error("Nom d'onglet requis");
+    setFeatureSaving(true);
+    try {
+      const tabApiBases = Array.from(new Set([
+        `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique-onglets`,
+        `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique-onglets`,
+      ]));
+      let response: Response | null = null;
+      for (const base of tabApiBases) {
+        const next = await fetch(`${base}/${encodeURIComponent(tab.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nom: nextName, ordre: tab.ordre || 999 }),
+        });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!response || !response.ok) throw new Error('Failed to update tab');
+      const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+      const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+      await loadFeatureTabs(selectedMode, selectedType);
+      toast.success('Onglet modifie');
+    } catch {
+      toast.error("Erreur modification onglet");
     } finally {
       setFeatureSaving(false);
     }
@@ -2185,9 +2222,47 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
+  const systemTerrainTabIds = new Set(TERRAIN_SECTION_TABS.map((tab) => tab.id));
+  const terrainTabsForRender = (() => {
+    const byId = new Map(featureTabs.map((tab) => [tab.id, tab]));
+    const systemTabs = TERRAIN_SECTION_TABS.map((tab) => ({
+      id: tab.id,
+      label: String(byId.get(tab.id)?.nom || tab.label),
+      is_system: true,
+    }));
+    const customTabs = featureTabs
+      .filter((tab) => !systemTerrainTabIds.has(tab.id))
+      .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
+      .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: false }));
+    return [...systemTabs, ...customTabs];
+  })();
   const visibleFeaturesForSelectedTab = selectedFeatureTabId
     ? availableFeatures.filter((feature) => (feature.onglet_id || '') === selectedFeatureTabId)
     : availableFeatures;
+  const terrainTabFeatures = availableFeatures.filter((feature) => (feature.onglet_id || '') === terrainSectionTab);
+  const renderTerrainTabFeatures = () => (
+    <div className="mt-4 rounded-lg border border-emerald-200 bg-white p-3">
+      <h5 className="text-sm font-semibold text-gray-800 mb-2">Caracteristiques personnalisees</h5>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {terrainTabFeatures.map((feature) => (
+          <label key={`terrain-tab-${feature.id}`} className="inline-flex items-center gap-2 text-sm text-gray-700 p-2 rounded border border-gray-200">
+            <input
+              type="checkbox"
+              checked={selectedFeatureIds.includes(feature.id)}
+              onChange={(e) => setSelectedFeatureIds((prev) => e.target.checked ? [...prev, feature.id] : prev.filter((id) => id !== feature.id))}
+            />
+            <span>{feature.nom}</span>
+          </label>
+        ))}
+        {terrainTabFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique dans cet onglet</span>}
+      </div>
+    </div>
+  );
+  useEffect(() => {
+    if (!isTerrainVente) return;
+    const hasTab = terrainTabsForRender.some((tab) => tab.id === terrainSectionTab);
+    if (!hasTab) setTerrainSectionTab('informations_generales');
+  }, [isTerrainVente, terrainSectionTab, terrainTabsForRender]);
   const immeubleClientImageUnits = [
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` })),
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_garages || 0)) }, (_, idx) => ({ unitKey: `garage_${idx + 1}`, label: `Garage ${idx + 1}` })),
@@ -2336,6 +2411,19 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </span>
                     ))}
                     {featureTabs.length === 0 && <span className="text-xs text-gray-500">Aucun onglet disponible</span>}
+                  </div>
+                  <div className="space-y-2">
+                    {featureTabs.map((tab) => (
+                      <div key={`edit-tab-${tab.id}`} className="grid grid-cols-1 md:grid-cols-4 gap-2 p-2 bg-white border border-emerald-200 rounded-lg">
+                        <input
+                          value={featureTabDrafts[tab.id] ?? tab.nom}
+                          onChange={(e) => setFeatureTabDrafts((prev) => ({ ...prev, [tab.id]: e.target.value }))}
+                          className="rounded-lg border-gray-300 border p-2 text-sm md:col-span-2"
+                        />
+                        <button type="button" onClick={() => setSelectedFeatureTabId(tab.id)} className="px-3 py-2 border border-emerald-300 text-emerald-700 rounded-lg text-sm">Selectionner</button>
+                        <button type="button" onClick={() => void handleUpdateFeatureTab(tab)} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier onglet</button>
+                      </div>
+                    ))}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                     <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="rounded-lg border-gray-300 border p-2 text-sm" />
@@ -2502,7 +2590,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Terrain (Vente)</h4>
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {TERRAIN_SECTION_TABS.map((section) => (
+                    {terrainTabsForRender.map((section) => (
                       <button
                         key={section.id}
                         type="button"
@@ -2565,6 +2653,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiche / m2 (DT)</label>
                         <input type="number" min={0} step="0.01" name="terrain_prix_affiche_par_m2" value={formData.terrain_prix_affiche_par_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                       </div>
+                      <div className="md:col-span-2">
+                        {renderTerrainTabFeatures()}
+                      </div>
                     </div>
                   )}
 
@@ -2606,6 +2697,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                           <option value="oui">Oui</option>
                           <option value="non">Non</option>
                         </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        {renderTerrainTabFeatures()}
                       </div>
                     </div>
                   )}
@@ -2650,6 +2744,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         </div>
                       </div>
                       {renderTypeProofUploads()}
+                      {renderTerrainTabFeatures()}
                     </div>
                   )}
 
@@ -2668,6 +2763,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-1">Autres proximites</label>
                         <input name="terrain_proximites_commodites_autres" value={formData.terrain_proximites_commodites_autres || ''} onChange={handleChange} placeholder="Hopital, clinique, etc." className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div className="md:col-span-2">
+                        {renderTerrainTabFeatures()}
                       </div>
                     </div>
                   )}
@@ -2723,6 +2821,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                           ))}
                         </div>
                       </div>
+                      <div className="md:col-span-2">
+                        {renderTerrainTabFeatures()}
+                      </div>
                     </div>
                   )}
 
@@ -2757,18 +2858,28 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         <label className="block text-sm font-medium text-gray-700 mb-1">Exposition au vent</label>
                         <input name="terrain_exposition_vent" value={formData.terrain_exposition_vent || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                       </div>
+                      <div className="md:col-span-2">
+                        {renderTerrainTabFeatures()}
+                      </div>
                     </div>
                   )}
 
                   {terrainSectionTab === 'ideal_utilisation' && (
                     <div>
                       {renderTerrainMultiChoice('terrain_ideal_utilisations', 'Ideal pour', TERRAIN_MULTI_OPTIONS.idealUtilisations)}
+                      {renderTerrainTabFeatures()}
                     </div>
                   )}
 
                   {terrainSectionTab === 'documents_disponibles' && (
                     <div>
                       {renderTerrainMultiChoice('terrain_documents_disponibles', 'Documents disponibles', TERRAIN_MULTI_OPTIONS.documents)}
+                      {renderTerrainTabFeatures()}
+                    </div>
+                  )}
+                  {!systemTerrainTabIds.has(terrainSectionTab) && (
+                    <div>
+                      {renderTerrainTabFeatures()}
                     </div>
                   )}
                 </div>
