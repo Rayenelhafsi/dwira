@@ -73,6 +73,83 @@ const TYPE_TERRAIN_LABELS: Record<TypeTerrainVente, string> = {
   industrielle: 'Industrielle',
   loisir: 'Loisir',
 };
+const TERRAIN_SECTION_TABS = [
+  { id: 'informations_generales', label: '1. Informations generales' },
+  { id: 'dimensions_forme', label: '2. Dimensions & forme' },
+  { id: 'situation_juridique', label: '3. Situation juridique' },
+  { id: 'acces_environnement', label: '4. Acces & environnement' },
+  { id: 'viabilisation', label: '5. Viabilisation' },
+  { id: 'environnement_naturel', label: '6. Environnement naturel' },
+  { id: 'ideal_utilisation', label: '7. Ideal pour' },
+  { id: 'documents_disponibles', label: '8. Documents disponibles' },
+] as const;
+type TerrainSectionTab = (typeof TERRAIN_SECTION_TABS)[number]['id'];
+const TERRAIN_HAUTEUR_OPTIONS = ['R+1', 'R+2', 'R+3', 'R+4', 'R+5'];
+const TERRAIN_FORME_OPTIONS = ['rectangulaire', 'irreguliere', 'carre', 'triangle', 'autre'];
+const TERRAIN_TOPOGRAPHIE_OPTIONS = [
+  { value: 'plat', label: 'Plat' },
+  { value: 'en_pente', label: 'En pente' },
+];
+const TERRAIN_VOISINAGE_OPTIONS = [
+  { value: 'residentiel_calme', label: 'Residentiel calme' },
+  { value: 'touristique_anime', label: 'Touristique anime' },
+  { value: 'agricole', label: 'Agricole' },
+];
+const TERRAIN_TYPE_SOL_OPTIONS = [
+  { value: 'sablonneux', label: 'Sablonneux' },
+  { value: 'rocheux', label: 'Rocheux' },
+  { value: 'terre_agricole', label: 'Terre agricole' },
+];
+const TERRAIN_NIVEAU_SONORE_OPTIONS = [
+  { value: 'faible', label: 'Faible' },
+  { value: 'moyen', label: 'Moyen' },
+  { value: 'eleve', label: 'Eleve' },
+];
+const TERRAIN_ONAS_OPTIONS = [
+  { value: 'disponible', label: 'Disponible' },
+  { value: 'en_facade', label: 'En facade' },
+  { value: 'non_disponible', label: 'Non disponible' },
+];
+const TERRAIN_STEG_OPTIONS = [
+  { value: 'disponible', label: 'Disponible' },
+  { value: 'a_proximite', label: 'A proximite' },
+  { value: 'transformateur_proche', label: 'Transformateur proche' },
+  { value: 'non_disponible', label: 'Non disponible' },
+];
+const TERRAIN_MULTI_OPTIONS = {
+  disponibiliteReseaux: [
+    { value: 'eau', label: 'Eau' },
+    { value: 'electricite', label: 'Electricite' },
+    { value: 'onas', label: 'ONAS' },
+  ],
+  proximites: [
+    { value: 'ecole', label: 'Ecole' },
+    { value: 'commerce', label: 'Commerce' },
+    { value: 'transport', label: 'Transport' },
+    { value: 'centre_ville', label: 'Centre-ville' },
+  ],
+  eauSources: [
+    { value: 'sonede', label: 'SONEDE' },
+    { value: 'puits', label: 'Puits' },
+    { value: 'citerne', label: 'Citerne' },
+  ],
+  idealUtilisations: [
+    { value: 'construction_villa', label: 'Construction villa' },
+    { value: 'construction_immeuble', label: 'Construction immeuble' },
+    { value: 'projet_touristique', label: 'Projet touristique' },
+    { value: 'projet_commercial', label: 'Projet commercial' },
+    { value: 'projet_agricole', label: 'Projet agricole' },
+    { value: 'investissement_longue_duree', label: 'Investissement longue duree' },
+  ],
+  documents: [
+    { value: 'plan_masse', label: 'Plan de masse' },
+    { value: 'plan_topographique', label: 'Plan topographique' },
+    { value: 'certificat_propriete', label: 'Certificat de propriete' },
+    { value: 'certificat_bornage', label: 'Certificat de bornage' },
+    { value: 'certificat_conformite_municipal', label: 'Certificat conformite municipal' },
+    { value: 'certificat_non_affectation_agricole', label: 'Certificat non-affectation agricole' },
+  ],
+} as const;
 const APPARTEMENT_VENTE_BOOLEAN_FIELDS = [
   'proche_plage', 'chauffage_central', 'climatisation', 'balcon', 'terrasse', 'ascenseur', 'vue_mer',
   'gaz_ville', 'cuisine_equipee', 'place_parking', 'syndic', 'meuble', 'independant', 'eau_puits',
@@ -463,7 +540,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
@@ -473,7 +550,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [uploading, setUploading] = useState(false);
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
-  const [customFeatures, setCustomFeatures] = useState<string[]>(initialData?.caracteristiques || []);
+  const [newFeatureType, setNewFeatureType] = useState<'simple' | 'choix_multiple' | 'valeur'>('simple');
+  const [newFeatureChoices, setNewFeatureChoices] = useState('');
+  const [newFeatureUnit, setNewFeatureUnit] = useState('');
+  const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
   const [showAddZone, setShowAddZone] = useState(false);
@@ -488,6 +568,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [draggedImageIndex, setDraggedImageIndex] = useState<string | null>(null);
   const [stepInfoDialogOpen, setStepInfoDialogOpen] = useState(false);
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : [1]));
+  const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
   const normalizeLegacyType = (value?: BienType): BienType => {
     if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
     if (value === 'villa') return 'villa_maison';
@@ -637,12 +718,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         type: allowedTypes.includes(normalizedType) ? normalizedType : allowedTypes[0],
         reference: prev.reference || generateReference(),
       }));
-      try {
-        const parsed = JSON.parse(rawDescription.slice(markerIndex + CHARACTERISTICS_MARKER.length).trim());
-        if (Array.isArray(parsed)) setCustomFeatures(parsed.filter((x) => typeof x === 'string'));
-      } catch {
-        setCustomFeatures([]);
-      }
     } else {
       setFormData((prev) => ({
         ...prev,
@@ -663,14 +738,15 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
   }, [formData.mode, activeTab]);
   useEffect(() => {
+    const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const currentType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    if (!(currentMode === 'vente' && currentType === 'terrain')) {
+      setTerrainSectionTab('informations_generales');
+    }
+  }, [formData.mode, formData.type]);
+  useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
-    const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
-    const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
-    const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
-    const isImmeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
-    const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
-    const venteTarification = computeVenteTarification(formData);
     if (!selectedMode || !selectedType) {
       setAvailableFeatures([]);
       return;
@@ -678,7 +754,25 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
     const fetchFeatures = async () => {
       try {
-        const response = await fetch(`${API_URL}/caracteristiques?mode_bien=${selectedMode}&type_bien=${selectedType}`);
+        const featureApiBases = Array.from(new Set([
+          `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
+          `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
+          `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
+          `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
+        ]));
+        let response: Response | null = null;
+        for (const base of featureApiBases) {
+          const next = await fetch(`${base}?mode_bien=${selectedMode}&type_bien=${selectedType}`);
+          if (next.ok) {
+            response = next;
+            break;
+          }
+          if (next.status !== 404) {
+            response = next;
+            break;
+          }
+        }
+        if (!response) throw new Error('No feature endpoint found');
         if (!response.ok) throw new Error('Failed to fetch features');
         const rows = await response.json();
         const nextFeaturesRaw = Array.isArray(rows) ? rows : [];
@@ -689,6 +783,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           seenNames.add(normalizedName);
           return true;
         });
+        const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
+        const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
+        const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
+        const isImmeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
         const nextFeatures = isAppartementVente
           ? dedupedFeatures.filter((f: Caracteristique) => !APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
           : isLocalCommercialVente
@@ -862,7 +960,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
-    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
+    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'terrain_route_acces_largeur_m', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
     if (name === 'mode') {
       const nextMode = value as BienMode;
       const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
@@ -978,6 +1076,31 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     terrain_prix_affiche_total: null,
     terrain_prix_affiche_par_m2: null,
     terrain_mode_affichage_prix: null,
+    terrain_disponibilite_reseaux: [],
+    terrain_hauteur_construction_autorisee: null,
+    terrain_route_acces_largeur_m: null,
+    terrain_forme: null,
+    terrain_topographie: null,
+    terrain_bornage: false,
+    terrain_travaux_municipalite_autorises: false,
+    terrain_limites_cadastrales: false,
+    terrain_visualisation_limites_cadastrales: false,
+    terrain_voisinage: null,
+    terrain_proximites_commodites: [],
+    terrain_proximites_commodites_autres: null,
+    terrain_viabilisation_eau_sources: [],
+    terrain_viabilisation_onas: null,
+    terrain_viabilisation_steg: null,
+    terrain_viabilisation_gaz_ville: false,
+    terrain_viabilisation_fibre_optique: false,
+    terrain_viabilisation_telephone_fixe: false,
+    terrain_type_sol: null,
+    terrain_vegetation: null,
+    terrain_niveau_sonore: null,
+    terrain_risque_inondation: false,
+    terrain_exposition_vent: null,
+    terrain_ideal_utilisations: [],
+    terrain_documents_disponibles: [],
     eau_puits: false,
     eau_sonede: false,
     electricite_steg: false,
@@ -1016,6 +1139,71 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     electricite_steg: false,
   });
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
+  type TerrainMultiField =
+    | 'terrain_disponibilite_reseaux'
+    | 'terrain_proximites_commodites'
+    | 'terrain_viabilisation_eau_sources'
+    | 'terrain_ideal_utilisations'
+    | 'terrain_documents_disponibles';
+  const handleMultiSelectChange = (field: keyof Bien, values: string[]) => {
+    setFormData((prev) => ({ ...prev, [field]: values }));
+  };
+  const handleTerrainMultiToggle = (field: TerrainMultiField, value: string, checked: boolean) => {
+    const currentValues = Array.isArray(formData[field]) ? (formData[field] as string[]) : [];
+    const nextValues = checked
+      ? Array.from(new Set([...currentValues, value]))
+      : currentValues.filter((item) => item !== value);
+    handleMultiSelectChange(field, nextValues);
+  };
+  const renderTerrainMultiChoice = (
+    field: TerrainMultiField,
+    label: string,
+    options: readonly { value: string; label: string }[],
+    helperText?: string
+  ) => {
+    const selectedValues = Array.isArray(formData[field]) ? (formData[field] as string[]) : [];
+    return (
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+        <div className="rounded-lg border border-gray-300 p-2 bg-white">
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {selectedValues.length > 0 ? selectedValues.map((selectedValue) => {
+              const optionLabel = options.find((option) => option.value === selectedValue)?.label || selectedValue;
+              return (
+                <button
+                  key={selectedValue}
+                  type="button"
+                  onClick={() => handleTerrainMultiToggle(field, selectedValue, false)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-emerald-200 text-emerald-700 bg-emerald-50"
+                  title="Retirer"
+                >
+                  <span>{optionLabel}</span>
+                  <span aria-hidden="true">x</span>
+                </button>
+              );
+            }) : <span className="text-xs text-gray-500">Aucune selection</span>}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {options.map((option) => (
+              <label key={option.value} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={selectedValues.includes(option.value)}
+                  onChange={(e) => handleTerrainMultiToggle(field, option.value, e.target.checked)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {helperText && <p className="text-xs text-gray-500 mt-1">{helperText}</p>}
+      </div>
+    );
+  };
+  const handleBooleanSelectChange = (field: keyof Bien, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value === 'oui' }));
+  };
+  const getBooleanSelectValue = (value?: boolean) => (value ? 'oui' : 'non');
   const handleImmeubleAppartementChange = (index: number, field: 'chambres' | 'salle_bain' | 'superficie_m2' | 'configuration', value: string) => {
     const rows = Array.isArray(formData.immeuble_appartements) ? [...formData.immeuble_appartements] : [];
     const current = rows[index] || { index: index + 1, reference: generateChildReference('APT', index + 1), chambres: 0, salle_bain: 0, superficie_m2: null, configuration: null };
@@ -1199,22 +1387,166 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     </div>
   );
 
-  const handleAddFeature = () => {
+  const loadAvailableFeatures = async (mode: BienMode, type: BienType) => {
+    const featureApiBases = Array.from(new Set([
+      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
+      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
+      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
+      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
+    ]));
+    const fetchFromFeatureApi = async (
+      buildUrl: (base: string) => string,
+      init?: RequestInit
+    ) => {
+      let lastResponse: Response | null = null;
+      for (const base of featureApiBases) {
+        const response = await fetch(buildUrl(base), init);
+        lastResponse = response;
+        if (response.ok) return response;
+        if (response.status !== 404) return response;
+      }
+      return lastResponse;
+    };
+    try {
+      const response = await fetchFromFeatureApi(
+        (base) => `${base}?mode_bien=${mode}&type_bien=${type}`
+      );
+      if (!response || !response.ok) throw new Error('Failed to fetch features');
+      const rows = await response.json();
+      const nextFeaturesRaw = Array.isArray(rows) ? rows : [];
+      const seenNames = new Set<string>();
+      const dedupedFeatures = nextFeaturesRaw.filter((f: Caracteristique) => {
+        const normalizedName = normalizeFeatureName(f.nom || '');
+        if (seenNames.has(normalizedName)) return false;
+        seenNames.add(normalizedName);
+        return true;
+      });
+      const isAppartementVente = mode === 'vente' && type === 'appartement';
+      const isLocalCommercialVente = mode === 'vente' && type === 'local_commercial';
+      const isTerrainVente = mode === 'vente' && type === 'terrain';
+      const isImmeubleVente = mode === 'vente' && type === 'immeuble';
+      const nextFeatures = isAppartementVente
+        ? dedupedFeatures.filter((f: Caracteristique) => !APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+        : isLocalCommercialVente
+          ? dedupedFeatures.filter((f: Caracteristique) => !LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+          : isTerrainVente
+            ? dedupedFeatures.filter((f: Caracteristique) => !TERRAIN_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+            : isImmeubleVente
+              ? dedupedFeatures.filter((f: Caracteristique) => !IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
+              : dedupedFeatures;
+      setAvailableFeatures(nextFeatures);
+      const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
+      setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
+    } catch {
+      setAvailableFeatures([]);
+    }
+  };
+
+  const handleAddFeature = async () => {
+    const featureApiBases = Array.from(new Set([
+      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
+      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
+      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
+      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
+    ]));
+    const fetchFromFeatureApi = async (
+      buildUrl: (base: string) => string,
+      init?: RequestInit
+    ) => {
+      let lastResponse: Response | null = null;
+      for (const base of featureApiBases) {
+        const response = await fetch(buildUrl(base), init);
+        lastResponse = response;
+        if (response.ok) return response;
+        if (response.status !== 404) return response;
+      }
+      return lastResponse;
+    };
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const value = newFeature.trim();
-    if (!value) return;
+    const parsedChoices = Array.from(
+      new Set(
+        newFeatureChoices
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    );
+    const parsedUnit = newFeatureUnit.trim();
+    if (!value) return toast.error('Nom de caracteristique requis');
     const normalizedValue = normalizeFeatureName(value);
     if (APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
     if (LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
     if (TERRAIN_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
     if (IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
-    if (availableFeatures.some((feature) => normalizeFeatureName(feature.nom || '') === normalizedValue)) return;
-    if (customFeatures.some((item) => normalizeFeatureName(item) === normalizedValue)) return;
-    setCustomFeatures([...customFeatures, value]);
-    setNewFeature('');
+    if (availableFeatures.some((feature) => normalizeFeatureName(feature.nom || '') === normalizedValue)) {
+      return toast.error('Caracteristique deja existante');
+    }
+    if (newFeatureType === 'choix_multiple' && parsedChoices.length === 0) {
+      return toast.error('Ajoutez au moins un choix (separes par virgule)');
+    }
+    if (newFeatureType === 'valeur' && !parsedUnit) {
+      return toast.error('Unite requise pour type valeur');
+    }
+    setFeatureSaving(true);
+    try {
+      const response = await fetchFromFeatureApi((base) => base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nom: value,
+          mode_bien: selectedMode,
+          type_bien: selectedType,
+          type_caracteristique: newFeatureType,
+          choix: newFeatureType === 'choix_multiple' ? parsedChoices : [],
+          unite: newFeatureType === 'valeur' ? parsedUnit : null,
+        }),
+      });
+      if (!response || !response.ok) throw new Error('Failed to create feature');
+      const createdFeature = await response.json();
+      await loadAvailableFeatures(selectedMode, selectedType);
+      if (createdFeature?.id) {
+        setSelectedFeatureIds((prev) => (prev.includes(createdFeature.id) ? prev : [...prev, createdFeature.id]));
+      }
+      setNewFeature('');
+      setNewFeatureType('simple');
+      setNewFeatureChoices('');
+      setNewFeatureUnit('');
+      toast.success('Caracteristique ajoutee');
+    } catch {
+      toast.error('Erreur ajout caracteristique');
+    } finally {
+      setFeatureSaving(false);
+    }
   };
 
-  const handleRemoveFeature = (feature: string) => {
-    setCustomFeatures(customFeatures.filter((item) => item !== feature));
+  const handleRemoveFeature = async (feature: Caracteristique) => {
+    const featuresBase = `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`;
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    setFeatureSaving(true);
+    try {
+      const response = await fetch(
+        `${featuresBase}/${encodeURIComponent(feature.id)}?mode_bien=${selectedMode}&type_bien=${selectedType}`,
+        { method: 'DELETE' }
+      );
+      if (!response.ok) {
+        const responseText = await response.text().catch(() => '');
+        if (response.status === 404 && responseText.includes('Cannot DELETE')) {
+          toast.error("Suppression indisponible sur ce backend. Redemarrer l'API serveur.");
+          return;
+        }
+        throw new Error(`Failed to delete feature: ${response.status}`);
+      }
+      setSelectedFeatureIds((prev) => prev.filter((id) => id !== feature.id));
+      await loadAvailableFeatures(selectedMode, selectedType);
+      toast.success('Caracteristique supprimee');
+    } catch {
+      toast.error('Erreur suppression caracteristique (verifier API/restart backend)');
+    } finally {
+      setFeatureSaving(false);
+    }
   };
 
   const handleAddZone = async () => {
@@ -1405,7 +1737,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
     const orderedMediaForSave = [...clientVisibleImages, ...images.filter((img) => isProofImage(img))];
     const imagesWithPositions = orderedMediaForSave.map((img, idx) => ({ ...img, position: idx }));
-    const descriptionWithFeatures = customFeatures.length > 0 ? `${(formData.description || '').trim()}\n\n${CHARACTERISTICS_MARKER}${JSON.stringify(customFeatures)}` : (formData.description || '');
     const ventePaiement = computeVentePaiement(formData, venteTarification.prixFinal);
     const deriveBedroomsFromConfiguration = (configuration?: string | null): number => {
       if (!configuration) return 0;
@@ -1521,6 +1852,31 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           terrain_prix_affiche_total: formData.terrain_prix_affiche_total ?? null,
           terrain_prix_affiche_par_m2: formData.terrain_prix_affiche_par_m2 ?? null,
           terrain_mode_affichage_prix: formData.terrain_mode_affichage_prix || 'total_et_m2',
+          terrain_disponibilite_reseaux: Array.isArray(formData.terrain_disponibilite_reseaux) ? formData.terrain_disponibilite_reseaux : [],
+          terrain_hauteur_construction_autorisee: formData.terrain_hauteur_construction_autorisee || null,
+          terrain_route_acces_largeur_m: formData.terrain_route_acces_largeur_m ?? null,
+          terrain_forme: formData.terrain_forme || null,
+          terrain_topographie: formData.terrain_topographie || null,
+          terrain_bornage: !!formData.terrain_bornage,
+          terrain_travaux_municipalite_autorises: !!formData.terrain_travaux_municipalite_autorises,
+          terrain_limites_cadastrales: !!formData.terrain_limites_cadastrales,
+          terrain_visualisation_limites_cadastrales: !!formData.terrain_visualisation_limites_cadastrales,
+          terrain_voisinage: formData.terrain_voisinage || null,
+          terrain_proximites_commodites: Array.isArray(formData.terrain_proximites_commodites) ? formData.terrain_proximites_commodites : [],
+          terrain_proximites_commodites_autres: formData.terrain_proximites_commodites_autres || null,
+          terrain_viabilisation_eau_sources: Array.isArray(formData.terrain_viabilisation_eau_sources) ? formData.terrain_viabilisation_eau_sources : [],
+          terrain_viabilisation_onas: formData.terrain_viabilisation_onas || null,
+          terrain_viabilisation_steg: formData.terrain_viabilisation_steg || null,
+          terrain_viabilisation_gaz_ville: !!formData.terrain_viabilisation_gaz_ville,
+          terrain_viabilisation_fibre_optique: !!formData.terrain_viabilisation_fibre_optique,
+          terrain_viabilisation_telephone_fixe: !!formData.terrain_viabilisation_telephone_fixe,
+          terrain_type_sol: formData.terrain_type_sol || null,
+          terrain_vegetation: formData.terrain_vegetation || null,
+          terrain_niveau_sonore: formData.terrain_niveau_sonore || null,
+          terrain_risque_inondation: !!formData.terrain_risque_inondation,
+          terrain_exposition_vent: formData.terrain_exposition_vent || null,
+          terrain_ideal_utilisations: Array.isArray(formData.terrain_ideal_utilisations) ? formData.terrain_ideal_utilisations : [],
+          terrain_documents_disponibles: Array.isArray(formData.terrain_documents_disponibles) ? formData.terrain_documents_disponibles : [],
           eau_puits: !!formData.eau_puits,
           eau_sonede: !!formData.eau_sonede,
           electricite_steg: !!formData.electricite_steg,
@@ -1536,6 +1892,31 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           terrain_prix_affiche_total: null,
           terrain_prix_affiche_par_m2: null,
           terrain_mode_affichage_prix: null,
+          terrain_disponibilite_reseaux: [],
+          terrain_hauteur_construction_autorisee: null,
+          terrain_route_acces_largeur_m: null,
+          terrain_forme: null,
+          terrain_topographie: null,
+          terrain_bornage: false,
+          terrain_travaux_municipalite_autorises: false,
+          terrain_limites_cadastrales: false,
+          terrain_visualisation_limites_cadastrales: false,
+          terrain_voisinage: null,
+          terrain_proximites_commodites: [],
+          terrain_proximites_commodites_autres: null,
+          terrain_viabilisation_eau_sources: [],
+          terrain_viabilisation_onas: null,
+          terrain_viabilisation_steg: null,
+          terrain_viabilisation_gaz_ville: false,
+          terrain_viabilisation_fibre_optique: false,
+          terrain_viabilisation_telephone_fixe: false,
+          terrain_type_sol: null,
+          terrain_vegetation: null,
+          terrain_niveau_sonore: null,
+          terrain_risque_inondation: false,
+          terrain_exposition_vent: null,
+          terrain_ideal_utilisations: [],
+          terrain_documents_disponibles: [],
         };
     const lotissementVenteData = isLotissementVente
       ? {
@@ -1628,8 +2009,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       ...terrainVenteData,
       ...lotissementVenteData,
       ...immeubleVenteData,
-      description: descriptionWithFeatures,
-      caracteristiques: customFeatures,
+      description: formData.description || '',
+      caracteristiques: availableFeatures
+        .filter((feature) => selectedFeatureIds.includes(feature.id))
+        .map((feature) => feature.nom),
       caracteristique_ids: selectedFeatureIds,
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       media: imagesWithPositions,
@@ -1762,7 +2145,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             {generalStep >= 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 3 - Caractéristiques</h3>
-                <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Ajouter caractéristiques</button>
+                <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Gerer caractéristiques</button>
               </div>
               <div className="space-y-2">
                 <p className="text-sm text-gray-500">Caractéristiques proposées pour {modeLabels[(formData.mode || 'location_saisonniere') as BienMode]} - {typeLabels[(formData.type || 'appartement') as BienType]}</p>
@@ -1778,15 +2161,47 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               </div>
               {showFeaturePanel && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-3">
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                     <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="flex-1 rounded-lg border-gray-300 border p-2 text-sm" />
-                    <button type="button" onClick={handleAddFeature} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm">Ajouter</button>
+                    <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'choix_multiple' | 'valeur')} className="rounded-lg border-gray-300 border p-2 text-sm">
+                      <option value="simple">Simple (Oui/Non)</option>
+                      <option value="choix_multiple">Choix multiple</option>
+                      <option value="valeur">Valeur</option>
+                    </select>
+                    <button type="button" onClick={() => void handleAddFeature()} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">{featureSaving ? '...' : 'Ajouter'}</button>
                   </div>
+                  {newFeatureType === 'choix_multiple' && (
+                    <input
+                      type="text"
+                      value={newFeatureChoices}
+                      onChange={(e) => setNewFeatureChoices(e.target.value)}
+                      placeholder="Choix possibles (separes par virgule): Ex: faible, moyen, eleve"
+                      className="w-full rounded-lg border-gray-300 border p-2 text-sm"
+                    />
+                  )}
+                  {newFeatureType === 'valeur' && (
+                    <input
+                      type="text"
+                      value={newFeatureUnit}
+                      onChange={(e) => setNewFeatureUnit(e.target.value)}
+                      placeholder="Unite: Ex: m2, m, DT, kWh"
+                      className="w-full rounded-lg border-gray-300 border p-2 text-sm"
+                    />
+                  )}
                   <div className="flex flex-wrap gap-2">
-                    {customFeatures.map((feature) => (
-                      <span key={feature} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white border border-emerald-200 rounded-full">{feature}<button type="button" onClick={() => handleRemoveFeature(feature)} className="text-red-500">x</button></span>
+                    {availableFeatures.map((feature) => (
+                      <span key={feature.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white border border-emerald-200 rounded-full">
+                        <span>{feature.nom}</span>
+                        {feature.type_caracteristique && feature.type_caracteristique !== 'simple' && (
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">
+                            {feature.type_caracteristique === 'choix_multiple' ? 'Choix' : 'Valeur'}
+                            {feature.type_caracteristique === 'valeur' && feature.unite ? ` (${feature.unite})` : ''}
+                          </span>
+                        )}
+                        <button type="button" onClick={() => void handleRemoveFeature(feature)} className="text-red-500" title="Supprimer cette caracteristique du type/mode">x</button>
+                      </span>
                     ))}
-                    {customFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caractéristique personnalisée</span>}
+                    {availableFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique pour ce mode/type</span>}
                   </div>
                 </div>
               )}
@@ -1913,78 +2328,276 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               {isTerrainVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Terrain (Vente)</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Façade (m)</label>
-                      <input type="number" min={0} step="0.01" name="terrain_facade_m" value={formData.terrain_facade_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface (m²)</label>
-                      <input type="number" min={0} step="0.01" name="terrain_surface_m2" value={formData.terrain_surface_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de terrain *</label>
-                      <select name="type_terrain" value={formData.type_terrain || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
-                        <option value="">-- Choisir --</option>
-                        {Object.entries(TYPE_TERRAIN_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                      </select>
-                      <p className="text-xs text-gray-500 mt-1">Agricole: culture, Habitation: résidentiel, Industrielle: activité pro, Loisir: usage détente.</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
-                      <input name="terrain_zone" value={formData.terrain_zone || ''} onChange={handleChange} placeholder="Urbaine / touristique..." className="block w-full rounded-lg border-gray-300 border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label>
-                      <input type="number" min={0} name="terrain_distance_plage_m" value={formData.terrain_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de rue *</label>
-                      <select name="type_rue" value={formData.type_rue || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
-                        <option value="">-- Choisir --</option>
-                        {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label>
-                      <select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
-                        <option value="">-- Choisir --</option>
-                        {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Mode affichage prix</label>
-                      <select name="terrain_mode_affichage_prix" value={formData.terrain_mode_affichage_prix || 'total_et_m2'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
-                        {Object.entries(TERRAIN_PRIX_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiche total (DT)</label>
-                      <input type="number" min={0} step="0.01" name="terrain_prix_affiche_total" value={formData.terrain_prix_affiche_total ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiche / m2 (DT)</label>
-                      <input type="number" min={0} step="0.01" name="terrain_prix_affiche_par_m2" value={formData.terrain_prix_affiche_par_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
-                    </div>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                    {TERRAIN_VENTE_BOOLEAN_FIELDS.slice(0, 2).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{TERRAIN_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {TERRAIN_SECTION_TABS.map((section) => (
+                      <button
+                        key={section.id}
+                        type="button"
+                        onClick={() => setTerrainSectionTab(section.id)}
+                        className={`px-3 py-1.5 text-xs rounded-full border ${terrainSectionTab === section.id ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
+                      >
+                        {section.label}
+                      </button>
                     ))}
                   </div>
-                  {renderTypeProofUploads()}
-                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {TERRAIN_VENTE_BOOLEAN_FIELDS.slice(2).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{TERRAIN_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
-                    ))}
-                  </div>
+
+                  {terrainSectionTab === 'informations_generales' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Type de terrain *</label>
+                        <select name="type_terrain" value={formData.type_terrain || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {Object.entries(TYPE_TERRAIN_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+                        <input name="terrain_zone" value={formData.terrain_zone || ''} onChange={handleChange} placeholder="Urbaine / touristique..." className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Type de rue *</label>
+                        <select name="type_rue" value={formData.type_rue || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label>
+                        <select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        {renderTerrainMultiChoice('terrain_disponibilite_reseaux', 'Disponibilite reseaux', TERRAIN_MULTI_OPTIONS.disponibiliteReseaux)}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Hauteur de construction autorisee</label>
+                        <select name="terrain_hauteur_construction_autorisee" value={formData.terrain_hauteur_construction_autorisee || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_HAUTEUR_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Mode affichage prix</label>
+                        <select name="terrain_mode_affichage_prix" value={formData.terrain_mode_affichage_prix || 'total_et_m2'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          {Object.entries(TERRAIN_PRIX_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiche total (DT)</label>
+                        <input type="number" min={0} step="0.01" name="terrain_prix_affiche_total" value={formData.terrain_prix_affiche_total ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiche / m2 (DT)</label>
+                        <input type="number" min={0} step="0.01" name="terrain_prix_affiche_par_m2" value={formData.terrain_prix_affiche_par_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    </div>
+                  )}
+
+                  {terrainSectionTab === 'dimensions_forme' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Surface (m2) *</label>
+                        <input type="number" min={0} step="0.01" name="terrain_surface_m2" value={formData.terrain_surface_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Facade (m)</label>
+                        <input type="number" min={0} step="0.01" name="terrain_facade_m" value={formData.terrain_facade_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Route d'acces (largeur en m)</label>
+                        <input type="number" min={0} step="0.01" name="terrain_route_acces_largeur_m" value={formData.terrain_route_acces_largeur_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Forme</label>
+                        <select name="terrain_forme" value={formData.terrain_forme || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_FORME_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Terrain plat / en pente</label>
+                        <select name="terrain_topographie" value={formData.terrain_topographie || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_TOPOGRAPHIE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label>
+                        <input type="number" min={0} name="terrain_distance_plage_m" value={formData.terrain_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Terrain d'angle</label>
+                        <select value={getBooleanSelectValue(formData.terrain_angle)} onChange={(e) => handleBooleanSelectChange('terrain_angle', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="oui">Oui</option>
+                          <option value="non">Non</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {terrainSectionTab === 'situation_juridique' && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Bornage</label>
+                          <select value={getBooleanSelectValue(formData.terrain_bornage)} onChange={(e) => handleBooleanSelectChange('terrain_bornage', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="oui">Oui</option>
+                            <option value="non">Non</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Travaux autorises selon municipalite</label>
+                          <select value={getBooleanSelectValue(formData.terrain_travaux_municipalite_autorises)} onChange={(e) => handleBooleanSelectChange('terrain_travaux_municipalite_autorises', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="oui">Oui</option>
+                            <option value="non">Non</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Limites cadastrales</label>
+                          <select value={getBooleanSelectValue(formData.terrain_limites_cadastrales)} onChange={(e) => handleBooleanSelectChange('terrain_limites_cadastrales', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="oui">Oui</option>
+                            <option value="non">Non</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Si oui visualiser</label>
+                          <select value={getBooleanSelectValue(formData.terrain_visualisation_limites_cadastrales)} onChange={(e) => handleBooleanSelectChange('terrain_visualisation_limites_cadastrales', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="oui">Oui</option>
+                            <option value="non">Non</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Constructible</label>
+                          <select value={getBooleanSelectValue(formData.terrain_constructible)} onChange={(e) => handleBooleanSelectChange('terrain_constructible', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="oui">Oui</option>
+                            <option value="non">Non</option>
+                          </select>
+                        </div>
+                      </div>
+                      {renderTypeProofUploads()}
+                    </div>
+                  )}
+
+                  {terrainSectionTab === 'acces_environnement' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Voisinage</label>
+                        <select name="terrain_voisinage" value={formData.terrain_voisinage || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_VOISINAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        {renderTerrainMultiChoice('terrain_proximites_commodites', 'Proximite commodites', TERRAIN_MULTI_OPTIONS.proximites)}
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Autres proximites</label>
+                        <input name="terrain_proximites_commodites_autres" value={formData.terrain_proximites_commodites_autres || ''} onChange={handleChange} placeholder="Hopital, clinique, etc." className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    </div>
+                  )}
+
+                  {terrainSectionTab === 'viabilisation' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        {renderTerrainMultiChoice('terrain_viabilisation_eau_sources', 'Eau (sources)', TERRAIN_MULTI_OPTIONS.eauSources)}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Canalisation ONAS</label>
+                        <select name="terrain_viabilisation_onas" value={formData.terrain_viabilisation_onas || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_ONAS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">STEG</label>
+                        <select name="terrain_viabilisation_steg" value={formData.terrain_viabilisation_steg || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_STEG_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gaz de ville</label>
+                        <select value={getBooleanSelectValue(formData.terrain_viabilisation_gaz_ville)} onChange={(e) => handleBooleanSelectChange('terrain_viabilisation_gaz_ville', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="oui">Oui</option>
+                          <option value="non">Non</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Fibre optique / internet</label>
+                        <select value={getBooleanSelectValue(formData.terrain_viabilisation_fibre_optique)} onChange={(e) => handleBooleanSelectChange('terrain_viabilisation_fibre_optique', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="oui">Oui</option>
+                          <option value="non">Non</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Telephone fixe</label>
+                        <select value={getBooleanSelectValue(formData.terrain_viabilisation_telephone_fixe)} onChange={(e) => handleBooleanSelectChange('terrain_viabilisation_telephone_fixe', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="oui">Oui</option>
+                          <option value="non">Non</option>
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <h5 className="text-sm font-semibold text-gray-800 mb-2">Caractéristiques générales</h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          {TERRAIN_VENTE_BOOLEAN_FIELDS.slice(2).map((field) => (
+                            <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                              <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
+                              <span>{TERRAIN_VENTE_BOOLEAN_LABELS[field]}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {terrainSectionTab === 'environnement_naturel' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Type du sol</label>
+                        <select name="terrain_type_sol" value={formData.terrain_type_sol || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_TYPE_SOL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Vegetation</label>
+                        <input name="terrain_vegetation" value={formData.terrain_vegetation || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Niveau sonore</label>
+                        <select name="terrain_niveau_sonore" value={formData.terrain_niveau_sonore || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">-- Choisir --</option>
+                          {TERRAIN_NIVEAU_SONORE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Risque inondation</label>
+                        <select value={getBooleanSelectValue(formData.terrain_risque_inondation)} onChange={(e) => handleBooleanSelectChange('terrain_risque_inondation', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="oui">Oui</option>
+                          <option value="non">Non</option>
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Exposition au vent</label>
+                        <input name="terrain_exposition_vent" value={formData.terrain_exposition_vent || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    </div>
+                  )}
+
+                  {terrainSectionTab === 'ideal_utilisation' && (
+                    <div>
+                      {renderTerrainMultiChoice('terrain_ideal_utilisations', 'Ideal pour', TERRAIN_MULTI_OPTIONS.idealUtilisations)}
+                    </div>
+                  )}
+
+                  {terrainSectionTab === 'documents_disponibles' && (
+                    <div>
+                      {renderTerrainMultiChoice('terrain_documents_disponibles', 'Documents disponibles', TERRAIN_MULTI_OPTIONS.documents)}
+                    </div>
+                  )}
                 </div>
               )}
               {isLotissementVente && (

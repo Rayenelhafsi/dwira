@@ -52,6 +52,12 @@ export type ModeAffichagePrixTerrain = 'total_uniquement' | 'm2_uniquement' | 't
 export type ModePrixLotissement = 'm2_unique' | 'paliers';
 export type TarificationMethodeVente = 'avec_commission' | 'sans_commission';
 export type ModalitePaiementVente = 'comptant' | 'facilite';
+export type TerrainTopographie = 'plat' | 'en_pente';
+export type TerrainVoisinage = 'residentiel_calme' | 'touristique_anime' | 'agricole';
+export type TerrainNiveauSonore = 'faible' | 'moyen' | 'eleve';
+export type TerrainViabilisationOnas = 'disponible' | 'en_facade' | 'non_disponible';
+export type TerrainViabilisationSteg = 'disponible' | 'a_proximite' | 'transformateur_proche' | 'non_disponible';
+export type TerrainTypeSol = 'sablonneux' | 'rocheux' | 'terre_agricole';
 
 export interface DateStatus {
   start: string;
@@ -171,6 +177,31 @@ export interface Bien {
   terrain_prix_affiche_total?: number | null;
   terrain_prix_affiche_par_m2?: number | null;
   terrain_mode_affichage_prix?: ModeAffichagePrixTerrain | null;
+  terrain_disponibilite_reseaux?: string[] | null;
+  terrain_hauteur_construction_autorisee?: string | null;
+  terrain_route_acces_largeur_m?: number | null;
+  terrain_forme?: string | null;
+  terrain_topographie?: TerrainTopographie | null;
+  terrain_bornage?: boolean;
+  terrain_travaux_municipalite_autorises?: boolean;
+  terrain_limites_cadastrales?: boolean;
+  terrain_visualisation_limites_cadastrales?: boolean;
+  terrain_voisinage?: TerrainVoisinage | null;
+  terrain_proximites_commodites?: string[] | null;
+  terrain_proximites_commodites_autres?: string | null;
+  terrain_viabilisation_eau_sources?: string[] | null;
+  terrain_viabilisation_onas?: TerrainViabilisationOnas | null;
+  terrain_viabilisation_steg?: TerrainViabilisationSteg | null;
+  terrain_viabilisation_gaz_ville?: boolean;
+  terrain_viabilisation_fibre_optique?: boolean;
+  terrain_viabilisation_telephone_fixe?: boolean;
+  terrain_type_sol?: TerrainTypeSol | null;
+  terrain_vegetation?: string | null;
+  terrain_niveau_sonore?: TerrainNiveauSonore | null;
+  terrain_risque_inondation?: boolean;
+  terrain_exposition_vent?: string | null;
+  terrain_ideal_utilisations?: string[] | null;
+  terrain_documents_disponibles?: string[] | null;
   immeuble_surface_terrain_m2?: number | null;
   immeuble_surface_batie_m2?: number | null;
   immeuble_nb_niveaux?: number | null;
@@ -210,6 +241,9 @@ export interface Bien {
 export interface Caracteristique {
   id: string;
   nom: string;
+  type_caracteristique?: 'simple' | 'choix_multiple' | 'valeur';
+  choix_json?: string | null;
+  unite?: string | null;
 }
 
 export interface Media {

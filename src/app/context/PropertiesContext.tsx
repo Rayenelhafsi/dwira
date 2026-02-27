@@ -58,9 +58,13 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     return Number.isFinite(parsed) ? parsed : null;
   };
   const toBoolean = (val: any): boolean => val === 1 || val === true || val === '1';
+  const toStringArray = (val: any): string[] => Array.isArray(val)
+    ? val.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
 
   const parsedDescription = parseDescriptionAndCharacteristics(row.description);
   let immeubleDetails: any = {};
+  let terrainDetails: any = {};
   let immeubleAppartements: any[] = [];
   let lotissementTerrains: any[] = [];
   let lotissementPaliersPrix: any[] = [];
@@ -71,6 +75,10 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   try {
     const raw = (row as any).immeuble_appartements_json;
     if (raw) immeubleAppartements = Array.isArray(raw) ? raw : JSON.parse(raw);
+  } catch {}
+  try {
+    const raw = (row as any).terrain_details_json;
+    if (raw) terrainDetails = typeof raw === 'string' ? JSON.parse(raw) : raw;
   } catch {}
   try {
     const raw = (row as any).lotissement_terrains_json;
@@ -160,6 +168,31 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     terrain_prix_affiche_total: toNullableNumber((row as any).terrain_prix_affiche_total),
     terrain_prix_affiche_par_m2: toNullableNumber((row as any).terrain_prix_affiche_par_m2),
     terrain_mode_affichage_prix: ((row as any).terrain_mode_affichage_prix || null) as any,
+    terrain_disponibilite_reseaux: toStringArray((terrainDetails as any).disponibilite_reseaux),
+    terrain_hauteur_construction_autorisee: ((terrainDetails as any).hauteur_construction_autorisee || null) as any,
+    terrain_route_acces_largeur_m: toNullableNumber((terrainDetails as any).route_acces_largeur_m),
+    terrain_forme: ((terrainDetails as any).forme || null) as string | null,
+    terrain_topographie: ((terrainDetails as any).topographie || null) as any,
+    terrain_bornage: toBoolean((terrainDetails as any).bornage),
+    terrain_travaux_municipalite_autorises: toBoolean((terrainDetails as any).travaux_municipalite_autorises),
+    terrain_limites_cadastrales: toBoolean((terrainDetails as any).limites_cadastrales),
+    terrain_visualisation_limites_cadastrales: toBoolean((terrainDetails as any).visualisation_limites_cadastrales),
+    terrain_voisinage: ((terrainDetails as any).voisinage || null) as any,
+    terrain_proximites_commodites: toStringArray((terrainDetails as any).proximites_commodites),
+    terrain_proximites_commodites_autres: ((terrainDetails as any).proximites_commodites_autres || null) as string | null,
+    terrain_viabilisation_eau_sources: toStringArray((terrainDetails as any).viabilisation_eau_sources),
+    terrain_viabilisation_onas: ((terrainDetails as any).viabilisation_onas || null) as any,
+    terrain_viabilisation_steg: ((terrainDetails as any).viabilisation_steg || null) as any,
+    terrain_viabilisation_gaz_ville: toBoolean((terrainDetails as any).viabilisation_gaz_ville),
+    terrain_viabilisation_fibre_optique: toBoolean((terrainDetails as any).viabilisation_fibre_optique),
+    terrain_viabilisation_telephone_fixe: toBoolean((terrainDetails as any).viabilisation_telephone_fixe),
+    terrain_type_sol: ((terrainDetails as any).type_sol || null) as any,
+    terrain_vegetation: ((terrainDetails as any).vegetation || null) as string | null,
+    terrain_niveau_sonore: ((terrainDetails as any).niveau_sonore || null) as any,
+    terrain_risque_inondation: toBoolean((terrainDetails as any).risque_inondation),
+    terrain_exposition_vent: ((terrainDetails as any).exposition_vent || null) as string | null,
+    terrain_ideal_utilisations: toStringArray((terrainDetails as any).ideal_utilisations),
+    terrain_documents_disponibles: toStringArray((terrainDetails as any).documents_disponibles),
     immeuble_surface_terrain_m2: toNullableNumber((immeubleDetails as any).surface_terrain_m2),
     immeuble_surface_batie_m2: toNullableNumber((immeubleDetails as any).surface_batie_m2),
     immeuble_nb_niveaux: toNullableNumber((immeubleDetails as any).nb_niveaux),

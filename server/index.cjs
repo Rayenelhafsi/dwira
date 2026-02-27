@@ -16,15 +16,22 @@ const ALLOWED_ORIGINS = [
   ...String(process.env.FRONTEND_URL || FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
   'http://localhost:5173',
   'https://localhost:5173',
+  'http://localhost:5174',
+  'https://localhost:5174',
   'https://www.dwiraimmobilier.com',
   'https://dwiraimmobilier.com',
 ];
 app.disable('x-powered-by');
 
+function isLocalDevOrigin(origin) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || '').trim());
+}
+
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
+    if (isLocalDevOrigin(origin)) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     return callback(new Error('CORS blocked for this origin'));
   },
@@ -113,6 +120,18 @@ const TERRAIN_VENTE_RUE_TYPES = APPARTEMENT_VENTE_RUE_TYPES;
 const TERRAIN_VENTE_PAPIER_TYPES = APPARTEMENT_VENTE_PAPIER_TYPES;
 const TERRAIN_VENTE_TYPES = ['agricole', 'habitation', 'industrielle', 'loisir'];
 const TERRAIN_AFFICHAGE_PRIX_MODES = ['total_uniquement', 'm2_uniquement', 'total_et_m2'];
+const TERRAIN_HAUTEUR_CONSTRUCTION_OPTIONS = ['R+1', 'R+2', 'R+3', 'R+4', 'R+5'];
+const TERRAIN_TOPOGRAPHIE_OPTIONS = ['plat', 'en_pente'];
+const TERRAIN_VOISINAGE_OPTIONS = ['residentiel_calme', 'touristique_anime', 'agricole'];
+const TERRAIN_VIABILISATION_ONAS_OPTIONS = ['disponible', 'en_facade', 'non_disponible'];
+const TERRAIN_VIABILISATION_STEG_OPTIONS = ['disponible', 'a_proximite', 'transformateur_proche', 'non_disponible'];
+const TERRAIN_TYPE_SOL_OPTIONS = ['sablonneux', 'rocheux', 'terre_agricole'];
+const TERRAIN_NIVEAU_SONORE_OPTIONS = ['faible', 'moyen', 'eleve'];
+const TERRAIN_DISPONIBILITE_RESEAUX_OPTIONS = ['eau', 'electricite', 'onas'];
+const TERRAIN_PROXIMITES_OPTIONS = ['ecole', 'commerce', 'transport', 'centre_ville'];
+const TERRAIN_VIABILISATION_EAU_SOURCES_OPTIONS = ['sonede', 'puits', 'citerne'];
+const TERRAIN_IDEAL_UTILISATIONS_OPTIONS = ['construction_villa', 'construction_immeuble', 'projet_touristique', 'projet_commercial', 'projet_agricole', 'investissement_longue_duree'];
+const TERRAIN_DOCUMENTS_OPTIONS = ['plan_masse', 'plan_topographique', 'certificat_propriete', 'certificat_bornage', 'certificat_conformite_municipal', 'certificat_non_affectation_agricole'];
 const LOTISSEMENT_PRIX_M2_MODES = ['m2_unique', 'paliers'];
 const TARIFICATION_METHODES = ['avec_commission', 'sans_commission'];
 const MODALITES_PAIEMENT_VENTE = ['comptant', 'facilite'];
@@ -408,6 +427,19 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
     return Number.isFinite(numeric) ? numeric : null;
   };
   const toFlag = (value) => value === true || value === 1 || value === '1';
+  const toNullableString = (value) => {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    return text || null;
+  };
+  const toStringArray = (value) => Array.isArray(value)
+    ? value.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const normalizeMulti = (value, allowed = []) => {
+    const items = toStringArray(value);
+    if (!Array.isArray(allowed) || allowed.length === 0) return items;
+    return Array.from(new Set(items.filter((item) => allowed.includes(item))));
+  };
 
   if (!isTerrainVente) {
     return {
@@ -426,6 +458,7 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
       eauPuits: false,
       eauSonede: false,
       electriciteSteg: false,
+      terrainDetailsJson: null,
     };
   }
 
@@ -452,6 +485,62 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
   if (modeAffichagePrix && !TERRAIN_AFFICHAGE_PRIX_MODES.includes(modeAffichagePrix)) {
     return { error: 'terrain_mode_affichage_prix invalide' };
   }
+  const topographie = toNullableString(payload.terrain_topographie);
+  if (topographie && !TERRAIN_TOPOGRAPHIE_OPTIONS.includes(topographie)) {
+    return { error: 'terrain_topographie invalide' };
+  }
+  const hauteurConstruction = toNullableString(payload.terrain_hauteur_construction_autorisee);
+  if (hauteurConstruction && !TERRAIN_HAUTEUR_CONSTRUCTION_OPTIONS.includes(hauteurConstruction)) {
+    return { error: 'terrain_hauteur_construction_autorisee invalide' };
+  }
+  const voisinage = toNullableString(payload.terrain_voisinage);
+  if (voisinage && !TERRAIN_VOISINAGE_OPTIONS.includes(voisinage)) {
+    return { error: 'terrain_voisinage invalide' };
+  }
+  const viabilisationOnas = toNullableString(payload.terrain_viabilisation_onas);
+  if (viabilisationOnas && !TERRAIN_VIABILISATION_ONAS_OPTIONS.includes(viabilisationOnas)) {
+    return { error: 'terrain_viabilisation_onas invalide' };
+  }
+  const viabilisationSteg = toNullableString(payload.terrain_viabilisation_steg);
+  if (viabilisationSteg && !TERRAIN_VIABILISATION_STEG_OPTIONS.includes(viabilisationSteg)) {
+    return { error: 'terrain_viabilisation_steg invalide' };
+  }
+  const typeSol = toNullableString(payload.terrain_type_sol);
+  if (typeSol && !TERRAIN_TYPE_SOL_OPTIONS.includes(typeSol)) {
+    return { error: 'terrain_type_sol invalide' };
+  }
+  const niveauSonore = toNullableString(payload.terrain_niveau_sonore);
+  if (niveauSonore && !TERRAIN_NIVEAU_SONORE_OPTIONS.includes(niveauSonore)) {
+    return { error: 'terrain_niveau_sonore invalide' };
+  }
+
+  const terrainDetails = {
+    disponibilite_reseaux: normalizeMulti(payload.terrain_disponibilite_reseaux, TERRAIN_DISPONIBILITE_RESEAUX_OPTIONS),
+    hauteur_construction_autorisee: hauteurConstruction,
+    route_acces_largeur_m: toNullableNumber(payload.terrain_route_acces_largeur_m),
+    forme: toNullableString(payload.terrain_forme),
+    topographie,
+    bornage: toFlag(payload.terrain_bornage),
+    travaux_municipalite_autorises: toFlag(payload.terrain_travaux_municipalite_autorises),
+    limites_cadastrales: toFlag(payload.terrain_limites_cadastrales),
+    visualisation_limites_cadastrales: toFlag(payload.terrain_visualisation_limites_cadastrales),
+    voisinage,
+    proximites_commodites: normalizeMulti(payload.terrain_proximites_commodites, TERRAIN_PROXIMITES_OPTIONS),
+    proximites_commodites_autres: toNullableString(payload.terrain_proximites_commodites_autres),
+    viabilisation_eau_sources: normalizeMulti(payload.terrain_viabilisation_eau_sources, TERRAIN_VIABILISATION_EAU_SOURCES_OPTIONS),
+    viabilisation_onas: viabilisationOnas,
+    viabilisation_steg: viabilisationSteg,
+    viabilisation_gaz_ville: toFlag(payload.terrain_viabilisation_gaz_ville),
+    viabilisation_fibre_optique: toFlag(payload.terrain_viabilisation_fibre_optique),
+    viabilisation_telephone_fixe: toFlag(payload.terrain_viabilisation_telephone_fixe),
+    type_sol: typeSol,
+    vegetation: toNullableString(payload.terrain_vegetation),
+    niveau_sonore: niveauSonore,
+    risque_inondation: toFlag(payload.terrain_risque_inondation),
+    exposition_vent: toNullableString(payload.terrain_exposition_vent),
+    ideal_utilisations: normalizeMulti(payload.terrain_ideal_utilisations, TERRAIN_IDEAL_UTILISATIONS_OPTIONS),
+    documents_disponibles: normalizeMulti(payload.terrain_documents_disponibles, TERRAIN_DOCUMENTS_OPTIONS),
+  };
 
   return {
     typeRue,
@@ -469,6 +558,7 @@ function normalizeTerrainVenteDetails(mode, type, payload = {}) {
     eauPuits: toFlag(payload.eau_puits),
     eauSonede: toFlag(payload.eau_sonede),
     electriciteSteg: toFlag(payload.electricite_steg),
+    terrainDetailsJson: JSON.stringify(terrainDetails),
   };
 }
 
@@ -1229,8 +1319,11 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'terrain_mode_affichage_prix'))) {
     await pool.query("ALTER TABLE biens ADD COLUMN terrain_mode_affichage_prix ENUM('total_uniquement','m2_uniquement','total_et_m2') NULL DEFAULT NULL AFTER terrain_prix_affiche_par_m2");
   }
+  if (!(await columnExists('biens', 'terrain_details_json'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN terrain_details_json LONGTEXT NULL AFTER terrain_mode_affichage_prix');
+  }
   if (!(await columnExists('biens', 'lotissement_nb_terrains'))) {
-    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_nb_terrains INT NULL DEFAULT NULL AFTER terrain_mode_affichage_prix');
+    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_nb_terrains INT NULL DEFAULT NULL AFTER terrain_details_json');
   }
   if (!(await columnExists('biens', 'lotissement_prix_total'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN lotissement_prix_total DECIMAL(12,2) NULL DEFAULT NULL AFTER lotissement_nb_terrains');
@@ -1267,9 +1360,21 @@ async function ensureBiensWorkflowSchema() {
     CREATE TABLE IF NOT EXISTS caracteristiques (
       id VARCHAR(50) PRIMARY KEY,
       nom VARCHAR(100) NOT NULL UNIQUE,
+      type_caracteristique ENUM('simple','choix_multiple','valeur') NOT NULL DEFAULT 'simple',
+      choix_json LONGTEXT NULL,
+      unite VARCHAR(50) NULL,
       INDEX idx_nom (nom)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await columnExists('caracteristiques', 'type_caracteristique'))) {
+    await pool.query("ALTER TABLE caracteristiques ADD COLUMN type_caracteristique ENUM('simple','choix_multiple','valeur') NOT NULL DEFAULT 'simple' AFTER nom");
+  }
+  if (!(await columnExists('caracteristiques', 'choix_json'))) {
+    await pool.query('ALTER TABLE caracteristiques ADD COLUMN choix_json LONGTEXT NULL AFTER type_caracteristique');
+  }
+  if (!(await columnExists('caracteristiques', 'unite'))) {
+    await pool.query('ALTER TABLE caracteristiques ADD COLUMN unite VARCHAR(50) NULL AFTER choix_json');
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bien_caracteristiques (
@@ -1536,6 +1641,12 @@ app.post('/api/biens', async (req, res) => {
       surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
       type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
+      terrain_disponibilite_reseaux, terrain_hauteur_construction_autorisee, terrain_route_acces_largeur_m, terrain_forme, terrain_topographie, terrain_bornage,
+      terrain_travaux_municipalite_autorises, terrain_limites_cadastrales, terrain_visualisation_limites_cadastrales, terrain_voisinage,
+      terrain_proximites_commodites, terrain_proximites_commodites_autres,
+      terrain_viabilisation_eau_sources, terrain_viabilisation_onas, terrain_viabilisation_steg, terrain_viabilisation_gaz_ville, terrain_viabilisation_fibre_optique, terrain_viabilisation_telephone_fixe,
+      terrain_type_sol, terrain_vegetation, terrain_niveau_sonore, terrain_risque_inondation, terrain_exposition_vent,
+      terrain_ideal_utilisations, terrain_documents_disponibles,
       lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
       immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
@@ -1566,6 +1677,12 @@ app.post('/api/biens', async (req, res) => {
     const terrainDetails = normalizeTerrainVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
+      terrain_disponibilite_reseaux, terrain_hauteur_construction_autorisee, terrain_route_acces_largeur_m, terrain_forme, terrain_topographie, terrain_bornage,
+      terrain_travaux_municipalite_autorises, terrain_limites_cadastrales, terrain_visualisation_limites_cadastrales, terrain_voisinage,
+      terrain_proximites_commodites, terrain_proximites_commodites_autres,
+      terrain_viabilisation_eau_sources, terrain_viabilisation_onas, terrain_viabilisation_steg, terrain_viabilisation_gaz_ville, terrain_viabilisation_fibre_optique, terrain_viabilisation_telephone_fixe,
+      terrain_type_sol, terrain_vegetation, terrain_niveau_sonore, terrain_risque_inondation, terrain_exposition_vent,
+      terrain_ideal_utilisations, terrain_documents_disponibles,
       eau_puits, eau_sonede, electricite_steg
     });
     if (terrainDetails.error) {
@@ -1672,7 +1789,7 @@ app.post('/api/biens', async (req, res) => {
            commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
            nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
-           terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?,
+           terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?, terrain_details_json = ?,
            lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?
        WHERE id = ?`,
       [
@@ -1695,6 +1812,7 @@ app.post('/api/biens', async (req, res) => {
         terrainDetails.prixAfficheTotal,
         terrainDetails.prixAfficheParM2,
         terrainDetails.modeAffichagePrix,
+        terrainDetails.terrainDetailsJson,
         lotissementDetails.nbTerrains,
         lotissementDetails.prixTotal,
         lotissementDetails.modePrixM2,
@@ -1735,6 +1853,12 @@ app.put('/api/biens/:id', async (req, res) => {
       surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
       type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
+      terrain_disponibilite_reseaux, terrain_hauteur_construction_autorisee, terrain_route_acces_largeur_m, terrain_forme, terrain_topographie, terrain_bornage,
+      terrain_travaux_municipalite_autorises, terrain_limites_cadastrales, terrain_visualisation_limites_cadastrales, terrain_voisinage,
+      terrain_proximites_commodites, terrain_proximites_commodites_autres,
+      terrain_viabilisation_eau_sources, terrain_viabilisation_onas, terrain_viabilisation_steg, terrain_viabilisation_gaz_ville, terrain_viabilisation_fibre_optique, terrain_viabilisation_telephone_fixe,
+      terrain_type_sol, terrain_vegetation, terrain_niveau_sonore, terrain_risque_inondation, terrain_exposition_vent,
+      terrain_ideal_utilisations, terrain_documents_disponibles,
       lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
       immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
@@ -1765,6 +1889,12 @@ app.put('/api/biens/:id', async (req, res) => {
     const terrainDetails = normalizeTerrainVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
+      terrain_disponibilite_reseaux, terrain_hauteur_construction_autorisee, terrain_route_acces_largeur_m, terrain_forme, terrain_topographie, terrain_bornage,
+      terrain_travaux_municipalite_autorises, terrain_limites_cadastrales, terrain_visualisation_limites_cadastrales, terrain_voisinage,
+      terrain_proximites_commodites, terrain_proximites_commodites_autres,
+      terrain_viabilisation_eau_sources, terrain_viabilisation_onas, terrain_viabilisation_steg, terrain_viabilisation_gaz_ville, terrain_viabilisation_fibre_optique, terrain_viabilisation_telephone_fixe,
+      terrain_type_sol, terrain_vegetation, terrain_niveau_sonore, terrain_risque_inondation, terrain_exposition_vent,
+      terrain_ideal_utilisations, terrain_documents_disponibles,
       eau_puits, eau_sonede, electricite_steg
     });
     if (terrainDetails.error) {
@@ -1872,7 +2002,7 @@ app.put('/api/biens/:id', async (req, res) => {
            commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
            nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
-           terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?,
+           terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?, terrain_details_json = ?,
            lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?
        WHERE id = ?`,
       [
@@ -1895,6 +2025,7 @@ app.put('/api/biens/:id', async (req, res) => {
         terrainDetails.prixAfficheTotal,
         terrainDetails.prixAfficheParM2,
         terrainDetails.modeAffichagePrix,
+        terrainDetails.terrainDetailsJson,
         lotissementDetails.nbTerrains,
         lotissementDetails.prixTotal,
         lotissementDetails.modePrixM2,
@@ -2325,24 +2456,62 @@ app.get('/api/caracteristiques', async (req, res) => {
 
 app.post('/api/caracteristiques', async (req, res) => {
   try {
-    const { nom, mode_bien, mode, type_bien, type } = req.body;
+    const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite } = req.body;
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
     const featureName = String(nom || '').trim();
+    const featureType = ['simple', 'choix_multiple', 'valeur'].includes(String(type_caracteristique || '').trim())
+      ? String(type_caracteristique).trim()
+      : 'simple';
+    const normalizedChoices = Array.isArray(choix)
+      ? Array.from(new Set(choix.map((item) => String(item || '').trim()).filter(Boolean)))
+      : [];
+    const normalizedUnit = String(unite || '').trim() || null;
     if (!featureName) {
       return res.status(400).json({ error: 'nom requis' });
     }
+    if (featureType === 'choix_multiple' && normalizedChoices.length === 0) {
+      return res.status(400).json({ error: 'choix requis pour type choix_multiple' });
+    }
+    if (featureType !== 'choix_multiple' && normalizedChoices.length > 0) {
+      return res.status(400).json({ error: 'choix autorises uniquement pour type choix_multiple' });
+    }
+    if (featureType !== 'valeur' && normalizedUnit) {
+      return res.status(400).json({ error: 'unite autorisee uniquement pour type valeur' });
+    }
+    const featureChoicesJson = featureType === 'choix_multiple' ? JSON.stringify(normalizedChoices) : null;
+    const featureUnit = featureType === 'valeur' ? normalizedUnit : null;
 
-    const id = 'car' + Date.now();
-    await pool.query(
-      `INSERT INTO caracteristiques (id, nom)
-       VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE nom = VALUES(nom)`,
-      [id, featureName]
+    const [existingRows] = await pool.query(
+      'SELECT * FROM caracteristiques WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1',
+      [featureName]
     );
-
-    const [rows] = await pool.query('SELECT * FROM caracteristiques WHERE nom = ? LIMIT 1', [featureName]);
-    const caracteristique = rows[0];
+    let caracteristique = existingRows[0];
+    if (!caracteristique) {
+      const id = 'car' + Date.now();
+      await pool.query(
+        'INSERT INTO caracteristiques (id, nom, type_caracteristique, choix_json, unite) VALUES (?, ?, ?, ?, ?)',
+        [id, featureName, featureType, featureChoicesJson, featureUnit]
+      );
+      caracteristique = {
+        id,
+        nom: featureName,
+        type_caracteristique: featureType,
+        choix_json: featureChoicesJson,
+        unite: featureUnit,
+      };
+    } else {
+      await pool.query(
+        'UPDATE caracteristiques SET type_caracteristique = ?, choix_json = ?, unite = ? WHERE id = ?',
+        [featureType, featureChoicesJson, featureUnit, caracteristique.id]
+      );
+      caracteristique = {
+        ...caracteristique,
+        type_caracteristique: featureType,
+        choix_json: featureChoicesJson,
+        unite: featureUnit,
+      };
+    }
 
     if ((mode_bien || mode) && (type_bien || type)) {
       const validation = validateModeAndType(normalizedMode, normalizedType);
@@ -2361,6 +2530,60 @@ app.post('/api/caracteristiques', async (req, res) => {
   } catch (error) {
     console.error('Error creating caracteristique:', error);
     res.status(500).json({ error: 'Failed to create caracteristique' });
+  }
+});
+
+app.delete('/api/caracteristiques/:id', async (req, res) => {
+  try {
+    const featureId = String(req.params.id || '').trim();
+    if (!featureId) {
+      return res.status(400).json({ error: 'id requis' });
+    }
+
+    const hasMode = req.query.mode_bien || req.query.mode;
+    const hasType = req.query.type_bien || req.query.type;
+    const normalizedMode = normalizeBienMode(hasMode);
+    const normalizedType = normalizeBienType(hasType);
+
+    if ((hasMode && !hasType) || (!hasMode && hasType)) {
+      return res.status(400).json({ error: 'mode_bien et type_bien requis ensemble' });
+    }
+
+    if (hasMode && hasType) {
+      const validation = validateModeAndType(normalizedMode, normalizedType);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+      await pool.query(
+        'DELETE FROM caracteristique_contextes WHERE caracteristique_id = ? AND mode_bien = ? AND type_bien = ?',
+        [featureId, normalizedMode, normalizedType]
+      );
+    } else {
+      await pool.query('DELETE FROM caracteristique_contextes WHERE caracteristique_id = ?', [featureId]);
+      await pool.query('DELETE FROM bien_caracteristiques WHERE caracteristique_id = ?', [featureId]);
+      await pool.query('DELETE FROM caracteristiques WHERE id = ?', [featureId]);
+      return res.json({ message: 'Caracteristique supprimee' });
+    }
+
+    const [ctxRows] = await pool.query(
+      'SELECT COUNT(*) AS total FROM caracteristique_contextes WHERE caracteristique_id = ?',
+      [featureId]
+    );
+    const [linkRows] = await pool.query(
+      'SELECT COUNT(*) AS total FROM bien_caracteristiques WHERE caracteristique_id = ?',
+      [featureId]
+    );
+    const ctxCount = Number(ctxRows?.[0]?.total || 0);
+    const linkCount = Number(linkRows?.[0]?.total || 0);
+
+    if (ctxCount === 0 && linkCount === 0) {
+      await pool.query('DELETE FROM caracteristiques WHERE id = ?', [featureId]);
+    }
+
+    res.json({ message: 'Caracteristique supprimee du contexte' });
+  } catch (error) {
+    console.error('Error deleting caracteristique:', error);
+    res.status(500).json({ error: 'Failed to delete caracteristique' });
   }
 });
 
@@ -2810,3 +3033,4 @@ app.listen(PORT, () => {
   console.log('   - GET    /api/maintenance');
   console.log('   - GET    /api/notifications');
 });
+

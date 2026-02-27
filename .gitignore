@@ -23,3 +23,4 @@ server/uploads/
 server/contracts/
 site.tar.gz
 dwira.sql
+migrations/2026-02-26-add-terrain-details-json.sql
