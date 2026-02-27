@@ -1393,6 +1393,7 @@ async function ensureBiensWorkflowSchema() {
       caracteristique_id VARCHAR(50) NOT NULL,
       mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
       type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL,
+      onglet_id VARCHAR(50) NULL,
       UNIQUE KEY uq_car_context (caracteristique_id, mode_bien, type_bien),
       INDEX idx_mode_type (mode_bien, type_bien),
       FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE
@@ -1401,6 +1402,41 @@ async function ensureBiensWorkflowSchema() {
   await pool.query(
     "ALTER TABLE caracteristique_contextes MODIFY COLUMN type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL"
   );
+  if (!(await columnExists('caracteristique_contextes', 'onglet_id'))) {
+    await pool.query('ALTER TABLE caracteristique_contextes ADD COLUMN onglet_id VARCHAR(50) NULL AFTER type_bien');
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS caracteristique_onglets (
+      id VARCHAR(50) PRIMARY KEY,
+      mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
+      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL,
+      nom VARCHAR(120) NOT NULL,
+      ordre INT NOT NULL DEFAULT 0,
+      is_system TINYINT(1) NOT NULL DEFAULT 0,
+      UNIQUE KEY uq_mode_type_nom (mode_bien, type_bien, nom),
+      INDEX idx_mode_type_ordre (mode_bien, type_bien, ordre)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  const terrainTabsSeeds = [
+    ['informations_generales', 'vente', 'terrain', '1. Informations generales', 1, 1],
+    ['dimensions_forme', 'vente', 'terrain', '2. Dimensions & forme', 2, 1],
+    ['situation_juridique', 'vente', 'terrain', '3. Situation juridique', 3, 1],
+    ['acces_environnement', 'vente', 'terrain', '4. Acces & environnement', 4, 1],
+    ['viabilisation', 'vente', 'terrain', '5. Viabilisation', 5, 1],
+    ['environnement_naturel', 'vente', 'terrain', '6. Environnement naturel', 6, 1],
+    ['ideal_utilisation', 'vente', 'terrain', '7. Ideal pour', 7, 1],
+    ['documents_disponibles', 'vente', 'terrain', '8. Documents disponibles', 8, 1],
+  ];
+  for (const [id, mode_bien, type_bien, nom, ordre, is_system] of terrainTabsSeeds) {
+    await pool.query(
+      `INSERT INTO caracteristique_onglets (id, mode_bien, type_bien, nom, ordre, is_system)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE nom = VALUES(nom), ordre = VALUES(ordre), is_system = VALUES(is_system)`,
+      [id, mode_bien, type_bien, nom, ordre, is_system]
+    );
+  }
 
   await pool.query(`
     INSERT INTO caracteristiques (id, nom) VALUES
@@ -2425,6 +2461,75 @@ app.get('/api/workflow/biens-options', async (req, res) => {
   }
 });
 
+app.get('/api/caracteristique-onglets', async (req, res) => {
+  try {
+    const mode = normalizeBienMode(req.query.mode_bien || req.query.mode);
+    const type = normalizeBienType(req.query.type_bien || req.query.type);
+    const validation = validateModeAndType(mode, type);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+    const [rows] = await pool.query(
+      `SELECT id, mode_bien, type_bien, nom, ordre, is_system
+       FROM caracteristique_onglets
+       WHERE mode_bien = ? AND type_bien = ?
+       ORDER BY ordre ASC, nom ASC`,
+      [mode, type]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching caracteristique onglets:', error);
+    res.status(500).json({ error: 'Failed to fetch caracteristique onglets' });
+  }
+});
+
+app.post('/api/caracteristique-onglets', async (req, res) => {
+  try {
+    const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
+    const type = normalizeBienType(req.body.type_bien || req.body.type);
+    const nom = String(req.body.nom || '').trim();
+    const ordre = Number(req.body.ordre || 999);
+    const validation = validateModeAndType(mode, type);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+    if (!nom) {
+      return res.status(400).json({ error: 'nom requis' });
+    }
+    const id = String(req.body.id || `tab${Date.now()}`).trim();
+    await pool.query(
+      `INSERT INTO caracteristique_onglets (id, mode_bien, type_bien, nom, ordre, is_system)
+       VALUES (?, ?, ?, ?, ?, 0)
+       ON DUPLICATE KEY UPDATE nom = VALUES(nom), ordre = VALUES(ordre)`,
+      [id, mode, type, nom, Number.isFinite(ordre) ? ordre : 999]
+    );
+    const [rows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    console.error('Error creating caracteristique onglet:', error);
+    res.status(500).json({ error: 'Failed to create caracteristique onglet' });
+  }
+});
+
+app.delete('/api/caracteristique-onglets/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const [rows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
+    const onglet = rows?.[0];
+    if (!onglet) return res.status(404).json({ error: 'onglet introuvable' });
+    if (Number(onglet.is_system || 0) === 1) {
+      return res.status(400).json({ error: 'suppression onglet systeme interdite' });
+    }
+    await pool.query('UPDATE caracteristique_contextes SET onglet_id = NULL WHERE onglet_id = ?', [id]);
+    await pool.query('DELETE FROM caracteristique_onglets WHERE id = ?', [id]);
+    res.json({ message: 'Onglet supprime' });
+  } catch (error) {
+    console.error('Error deleting caracteristique onglet:', error);
+    res.status(500).json({ error: 'Failed to delete caracteristique onglet' });
+  }
+});
+
 app.get('/api/caracteristiques', async (req, res) => {
   try {
     const mode = normalizeBienMode(req.query.mode_bien || req.query.mode);
@@ -2436,9 +2541,10 @@ app.get('/api/caracteristiques', async (req, res) => {
         return res.status(400).json({ error: validation.error });
       }
       const [rows] = await pool.query(
-        `SELECT DISTINCT c.*
+        `SELECT DISTINCT c.*, cc.onglet_id, co.nom as onglet_nom
          FROM caracteristiques c
          INNER JOIN caracteristique_contextes cc ON cc.caracteristique_id = c.id
+         LEFT JOIN caracteristique_onglets co ON co.id = cc.onglet_id
          WHERE cc.mode_bien = ? AND cc.type_bien = ?
          ORDER BY c.nom ASC`,
         [mode, type]
@@ -2456,7 +2562,7 @@ app.get('/api/caracteristiques', async (req, res) => {
 
 app.post('/api/caracteristiques', async (req, res) => {
   try {
-    const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite } = req.body;
+    const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, onglet_id } = req.body;
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
     const featureName = String(nom || '').trim();
@@ -2518,11 +2624,21 @@ app.post('/api/caracteristiques', async (req, res) => {
       if (!validation.valid) {
         return res.status(400).json({ error: validation.error });
       }
+      const normalizedOngletId = String(onglet_id || '').trim() || null;
+      if (normalizedOngletId) {
+        const [ongletRows] = await pool.query(
+          'SELECT id FROM caracteristique_onglets WHERE id = ? AND mode_bien = ? AND type_bien = ? LIMIT 1',
+          [normalizedOngletId, normalizedMode, normalizedType]
+        );
+        if (!ongletRows?.[0]) {
+          return res.status(400).json({ error: 'onglet invalide pour ce mode/type' });
+        }
+      }
       await pool.query(
-        `INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_bien)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE mode_bien = VALUES(mode_bien), type_bien = VALUES(type_bien)`,
-        ['ctx' + Date.now(), caracteristique.id, normalizedMode, normalizedType]
+        `INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_bien, onglet_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE mode_bien = VALUES(mode_bien), type_bien = VALUES(type_bien), onglet_id = VALUES(onglet_id)`,
+        ['ctx' + Date.now(), caracteristique.id, normalizedMode, normalizedType, normalizedOngletId]
       );
     }
 
@@ -2584,6 +2700,60 @@ app.delete('/api/caracteristiques/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting caracteristique:', error);
     res.status(500).json({ error: 'Failed to delete caracteristique' });
+  }
+});
+
+app.put('/api/caracteristiques/:id', async (req, res) => {
+  try {
+    const featureId = String(req.params.id || '').trim();
+    const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
+    const type = normalizeBienType(req.body.type_bien || req.body.type);
+    const nom = String(req.body.nom || '').trim();
+    const featureType = ['simple', 'choix_multiple', 'valeur'].includes(String(req.body.type_caracteristique || '').trim())
+      ? String(req.body.type_caracteristique).trim()
+      : 'simple';
+    const normalizedChoices = Array.isArray(req.body.choix)
+      ? Array.from(new Set(req.body.choix.map((item) => String(item || '').trim()).filter(Boolean)))
+      : [];
+    const normalizedUnit = String(req.body.unite || '').trim() || null;
+    const normalizedOngletId = String(req.body.onglet_id || '').trim() || null;
+
+    if (!featureId) return res.status(400).json({ error: 'id requis' });
+    if (!nom) return res.status(400).json({ error: 'nom requis' });
+    const validation = validateModeAndType(mode, type);
+    if (!validation.valid) return res.status(400).json({ error: validation.error });
+    if (featureType === 'choix_multiple' && normalizedChoices.length === 0) {
+      return res.status(400).json({ error: 'choix requis pour type choix_multiple' });
+    }
+    if (featureType !== 'choix_multiple' && normalizedChoices.length > 0) {
+      return res.status(400).json({ error: 'choix autorises uniquement pour type choix_multiple' });
+    }
+    if (featureType !== 'valeur' && normalizedUnit) {
+      return res.status(400).json({ error: 'unite autorisee uniquement pour type valeur' });
+    }
+    if (normalizedOngletId) {
+      const [ongletRows] = await pool.query(
+        'SELECT id FROM caracteristique_onglets WHERE id = ? AND mode_bien = ? AND type_bien = ? LIMIT 1',
+        [normalizedOngletId, mode, type]
+      );
+      if (!ongletRows?.[0]) {
+        return res.status(400).json({ error: 'onglet invalide pour ce mode/type' });
+      }
+    }
+
+    await pool.query(
+      'UPDATE caracteristiques SET nom = ?, type_caracteristique = ?, choix_json = ?, unite = ? WHERE id = ?',
+      [nom, featureType, featureType === 'choix_multiple' ? JSON.stringify(normalizedChoices) : null, featureType === 'valeur' ? normalizedUnit : null, featureId]
+    );
+    await pool.query(
+      'UPDATE caracteristique_contextes SET onglet_id = ? WHERE caracteristique_id = ? AND mode_bien = ? AND type_bien = ?',
+      [normalizedOngletId, featureId, mode, type]
+    );
+    const [rows] = await pool.query('SELECT * FROM caracteristiques WHERE id = ? LIMIT 1', [featureId]);
+    res.json(rows[0] || null);
+  } catch (error) {
+    console.error('Error updating caracteristique:', error);
+    res.status(500).json({ error: 'Failed to update caracteristique' });
   }
 });
 

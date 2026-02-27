@@ -84,6 +84,12 @@ const TERRAIN_SECTION_TABS = [
   { id: 'documents_disponibles', label: '8. Documents disponibles' },
 ] as const;
 type TerrainSectionTab = (typeof TERRAIN_SECTION_TABS)[number]['id'];
+type CaracteristiqueOnglet = {
+  id: string;
+  nom: string;
+  ordre?: number;
+  is_system?: number | boolean;
+};
 const TERRAIN_HAUTEUR_OPTIONS = ['R+1', 'R+2', 'R+3', 'R+4', 'R+5'];
 const TERRAIN_FORME_OPTIONS = ['rectangulaire', 'irreguliere', 'carre', 'triangle', 'autre'];
 const TERRAIN_TOPOGRAPHIE_OPTIONS = [
@@ -553,6 +559,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newFeatureType, setNewFeatureType] = useState<'simple' | 'choix_multiple' | 'valeur'>('simple');
   const [newFeatureChoices, setNewFeatureChoices] = useState('');
   const [newFeatureUnit, setNewFeatureUnit] = useState('');
+  const [featureTabs, setFeatureTabs] = useState<CaracteristiqueOnglet[]>([]);
+  const [selectedFeatureTabId, setSelectedFeatureTabId] = useState<string>('');
+  const [newFeatureTabName, setNewFeatureTabName] = useState('');
+  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
@@ -749,62 +759,12 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const selectedType = normalizeLegacyType(formData.type as BienType);
     if (!selectedMode || !selectedType) {
       setAvailableFeatures([]);
+      setFeatureTabs([]);
       return;
     }
 
-    const fetchFeatures = async () => {
-      try {
-        const featureApiBases = Array.from(new Set([
-          `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
-          `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
-          `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
-          `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
-        ]));
-        let response: Response | null = null;
-        for (const base of featureApiBases) {
-          const next = await fetch(`${base}?mode_bien=${selectedMode}&type_bien=${selectedType}`);
-          if (next.ok) {
-            response = next;
-            break;
-          }
-          if (next.status !== 404) {
-            response = next;
-            break;
-          }
-        }
-        if (!response) throw new Error('No feature endpoint found');
-        if (!response.ok) throw new Error('Failed to fetch features');
-        const rows = await response.json();
-        const nextFeaturesRaw = Array.isArray(rows) ? rows : [];
-        const seenNames = new Set<string>();
-        const dedupedFeatures = nextFeaturesRaw.filter((f: Caracteristique) => {
-          const normalizedName = normalizeFeatureName(f.nom || '');
-          if (seenNames.has(normalizedName)) return false;
-          seenNames.add(normalizedName);
-          return true;
-        });
-        const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
-        const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
-        const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
-        const isImmeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
-        const nextFeatures = isAppartementVente
-          ? dedupedFeatures.filter((f: Caracteristique) => !APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-          : isLocalCommercialVente
-            ? dedupedFeatures.filter((f: Caracteristique) => !LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-            : isTerrainVente
-              ? dedupedFeatures.filter((f: Caracteristique) => !TERRAIN_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-              : isImmeubleVente
-                ? dedupedFeatures.filter((f: Caracteristique) => !IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizeFeatureName(f.nom || '')))
-          : dedupedFeatures;
-        setAvailableFeatures(nextFeatures);
-        const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
-        setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
-      } catch {
-        setAvailableFeatures([]);
-      }
-    };
-
-    fetchFeatures();
+    void loadAvailableFeatures(selectedMode, selectedType);
+    void loadFeatureTabs(selectedMode, selectedType);
   }, [formData.mode, formData.type]);
 
   useEffect(() => {
@@ -1387,13 +1347,44 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     </div>
   );
 
-  const loadAvailableFeatures = async (mode: BienMode, type: BienType) => {
-    const featureApiBases = Array.from(new Set([
-      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
-      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
-      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
-      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
+  const getFeatureApiBases = () => Array.from(new Set([
+    `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
+    `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
+    `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
+    `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
+  ]));
+
+  const loadFeatureTabs = async (mode: BienMode, type: BienType) => {
+    const tabApiBases = Array.from(new Set([
+      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique-onglets`,
+      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique-onglets`,
     ]));
+    let lastResponse: Response | null = null;
+    for (const base of tabApiBases) {
+      const response = await fetch(`${base}?mode_bien=${mode}&type_bien=${type}`);
+      lastResponse = response;
+      if (response.ok) {
+        const rows = await response.json();
+        const nextTabs = Array.isArray(rows) ? rows : [];
+        setFeatureTabs(nextTabs);
+        if (nextTabs.length > 0) {
+          const hasCurrent = nextTabs.some((tab: CaracteristiqueOnglet) => tab.id === selectedFeatureTabId);
+          if (!hasCurrent) setSelectedFeatureTabId(nextTabs[0].id);
+        } else {
+          setSelectedFeatureTabId('');
+        }
+        return;
+      }
+      if (response.status !== 404) break;
+    }
+    if (lastResponse && !lastResponse.ok) {
+      setFeatureTabs([]);
+      setSelectedFeatureTabId('');
+    }
+  };
+
+  const loadAvailableFeatures = async (mode: BienMode, type: BienType) => {
+    const featureApiBases = getFeatureApiBases();
     const fetchFromFeatureApi = async (
       buildUrl: (base: string) => string,
       init?: RequestInit
@@ -1437,18 +1428,35 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setAvailableFeatures(nextFeatures);
       const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
       setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
+      setFeatureDrafts((prev) => {
+        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string }> = {};
+        for (const feature of nextFeatures) {
+          const parsedChoices = (() => {
+            if (typeof feature.choix_json !== 'string' || !feature.choix_json.trim()) return '';
+            try {
+              const parsed = JSON.parse(feature.choix_json);
+              return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean).join(', ') : '';
+            } catch {
+              return '';
+            }
+          })();
+          nextDrafts[feature.id] = {
+            nom: feature.nom || '',
+            type_caracteristique: (feature.type_caracteristique || 'simple') as 'simple' | 'choix_multiple' | 'valeur',
+            choix: parsedChoices,
+            unite: feature.unite || '',
+            onglet_id: feature.onglet_id || '',
+          };
+        }
+        return { ...prev, ...nextDrafts };
+      });
     } catch {
       setAvailableFeatures([]);
     }
   };
 
   const handleAddFeature = async () => {
-    const featureApiBases = Array.from(new Set([
-      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
-      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
-      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
-      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
-    ]));
+    const featureApiBases = getFeatureApiBases();
     const fetchFromFeatureApi = async (
       buildUrl: (base: string) => string,
       init?: RequestInit
@@ -1489,6 +1497,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (newFeatureType === 'valeur' && !parsedUnit) {
       return toast.error('Unite requise pour type valeur');
     }
+    if (!selectedFeatureTabId) {
+      return toast.error('Choisissez un onglet');
+    }
     setFeatureSaving(true);
     try {
       const response = await fetchFromFeatureApi((base) => base, {
@@ -1501,6 +1512,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           type_caracteristique: newFeatureType,
           choix: newFeatureType === 'choix_multiple' ? parsedChoices : [],
           unite: newFeatureType === 'valeur' ? parsedUnit : null,
+          onglet_id: selectedFeatureTabId,
         }),
       });
       if (!response || !response.ok) throw new Error('Failed to create feature');
@@ -1522,28 +1534,171 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
 
   const handleRemoveFeature = async (feature: Caracteristique) => {
-    const featuresBase = `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`;
+    const featureApiBases = Array.from(new Set([
+      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristiques`,
+      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique`,
+      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
+      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
+    ]));
+    const fetchFromFeatureApi = async (
+      buildUrl: (base: string) => string,
+      init?: RequestInit
+    ) => {
+      let lastResponse: Response | null = null;
+      for (const base of featureApiBases) {
+        const response = await fetch(buildUrl(base), init);
+        lastResponse = response;
+        if (response.ok) return response;
+        if (response.status !== 404) return response;
+      }
+      return lastResponse;
+    };
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     setFeatureSaving(true);
     try {
-      const response = await fetch(
-        `${featuresBase}/${encodeURIComponent(feature.id)}?mode_bien=${selectedMode}&type_bien=${selectedType}`,
+      const response = await fetchFromFeatureApi(
+        (base) => `${base}/${encodeURIComponent(feature.id)}?mode_bien=${selectedMode}&type_bien=${selectedType}`,
         { method: 'DELETE' }
       );
-      if (!response.ok) {
-        const responseText = await response.text().catch(() => '');
-        if (response.status === 404 && responseText.includes('Cannot DELETE')) {
+      if (!response || !response.ok) {
+        const responseStatus = response?.status ?? 0;
+        const responseText = response ? await response.text().catch(() => '') : '';
+        if (responseStatus === 404 && responseText.includes('Cannot DELETE')) {
           toast.error("Suppression indisponible sur ce backend. Redemarrer l'API serveur.");
           return;
         }
-        throw new Error(`Failed to delete feature: ${response.status}`);
+        throw new Error(`Failed to delete feature: ${responseStatus}`);
       }
       setSelectedFeatureIds((prev) => prev.filter((id) => id !== feature.id));
       await loadAvailableFeatures(selectedMode, selectedType);
       toast.success('Caracteristique supprimee');
     } catch {
       toast.error('Erreur suppression caracteristique (verifier API/restart backend)');
+    } finally {
+      setFeatureSaving(false);
+    }
+  };
+
+  const handleCreateFeatureTab = async () => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const tabName = newFeatureTabName.trim();
+    if (!tabName) return toast.error("Nom d'onglet requis");
+    setFeatureSaving(true);
+    try {
+      const tabApiBases = Array.from(new Set([
+        `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique-onglets`,
+        `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique-onglets`,
+      ]));
+      let response: Response | null = null;
+      for (const base of tabApiBases) {
+        const next = await fetch(base, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode_bien: selectedMode,
+            type_bien: selectedType,
+            nom: tabName,
+          }),
+        });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!response || !response.ok) throw new Error('Failed to create tab');
+      const created = await response.json();
+      await loadFeatureTabs(selectedMode, selectedType);
+      if (created?.id) setSelectedFeatureTabId(created.id);
+      setNewFeatureTabName('');
+      toast.success('Onglet ajoute');
+    } catch {
+      toast.error("Erreur ajout onglet");
+    } finally {
+      setFeatureSaving(false);
+    }
+  };
+
+  const handleDeleteFeatureTab = async (tab: CaracteristiqueOnglet) => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    setFeatureSaving(true);
+    try {
+      const tabApiBases = Array.from(new Set([
+        `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique-onglets`,
+        `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique-onglets`,
+      ]));
+      let response: Response | null = null;
+      for (const base of tabApiBases) {
+        const next = await fetch(`${base}/${encodeURIComponent(tab.id)}`, { method: 'DELETE' });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!response || !response.ok) throw new Error('Failed to delete tab');
+      await loadFeatureTabs(selectedMode, selectedType);
+      await loadAvailableFeatures(selectedMode, selectedType);
+      toast.success('Onglet supprime');
+    } catch {
+      toast.error("Erreur suppression onglet");
+    } finally {
+      setFeatureSaving(false);
+    }
+  };
+
+  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string }>) => {
+    setFeatureDrafts((prev) => ({
+      ...prev,
+      [featureId]: {
+        nom: prev[featureId]?.nom || '',
+        type_caracteristique: prev[featureId]?.type_caracteristique || 'simple',
+        choix: prev[featureId]?.choix || '',
+        unite: prev[featureId]?.unite || '',
+        onglet_id: prev[featureId]?.onglet_id || '',
+        ...patch,
+      },
+    }));
+  };
+
+  const handleUpdateFeature = async (feature: Caracteristique) => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const draft = featureDrafts[feature.id];
+    if (!draft) return;
+    const normalizedName = String(draft.nom || '').trim();
+    const normalizedChoices = Array.from(new Set(String(draft.choix || '').split(',').map((item) => item.trim()).filter(Boolean)));
+    const normalizedUnit = String(draft.unite || '').trim();
+    if (!normalizedName) return toast.error('Nom requis');
+    if (draft.type_caracteristique === 'choix_multiple' && normalizedChoices.length === 0) {
+      return toast.error('Ajoutez au moins un choix');
+    }
+    if (draft.type_caracteristique === 'valeur' && !normalizedUnit) {
+      return toast.error('Unite requise');
+    }
+    setFeatureSaving(true);
+    try {
+      const featureApiBases = getFeatureApiBases();
+      let response: Response | null = null;
+      for (const base of featureApiBases) {
+        const next = await fetch(`${base}/${encodeURIComponent(feature.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode_bien: selectedMode,
+            type_bien: selectedType,
+            nom: normalizedName,
+            type_caracteristique: draft.type_caracteristique,
+            choix: draft.type_caracteristique === 'choix_multiple' ? normalizedChoices : [],
+            unite: draft.type_caracteristique === 'valeur' ? normalizedUnit : null,
+            onglet_id: draft.onglet_id || null,
+          }),
+        });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!response || !response.ok) throw new Error('Failed to update feature');
+      await loadAvailableFeatures(selectedMode, selectedType);
+      toast.success('Caracteristique mise a jour');
+    } catch {
+      toast.error('Erreur modification caracteristique');
     } finally {
       setFeatureSaving(false);
     }
@@ -2030,6 +2185,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
+  const visibleFeaturesForSelectedTab = selectedFeatureTabId
+    ? availableFeatures.filter((feature) => (feature.onglet_id || '') === selectedFeatureTabId)
+    : availableFeatures;
   const immeubleClientImageUnits = [
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` })),
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_garages || 0)) }, (_, idx) => ({ unitKey: `garage_${idx + 1}`, label: `Garage ${idx + 1}` })),
@@ -2154,6 +2312,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     <label key={feature.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200">
                       <input type="checkbox" checked={selectedFeatureIds.includes(feature.id)} onChange={(e) => setSelectedFeatureIds((prev) => e.target.checked ? [...prev, feature.id] : prev.filter((id) => id !== feature.id))} />
                       <span className="text-sm">{feature.nom}</span>
+                      {feature.onglet_nom && <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-600">{feature.onglet_nom}</span>}
                     </label>
                   ))}
                   {availableFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caractéristique liée a ce mode/type</span>}
@@ -2162,46 +2321,60 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               {showFeaturePanel && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="flex-1 rounded-lg border-gray-300 border p-2 text-sm" />
+                    <select value={selectedFeatureTabId} onChange={(e) => setSelectedFeatureTabId(e.target.value)} className="rounded-lg border-gray-300 border p-2 text-sm">
+                      <option value="">-- Choisir onglet --</option>
+                      {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                    </select>
+                    <input type="text" value={newFeatureTabName} onChange={(e) => setNewFeatureTabName(e.target.value)} placeholder="Ajouter un onglet (nom)" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                    <button type="button" onClick={() => void handleCreateFeatureTab()} disabled={featureSaving} className="px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg text-sm disabled:opacity-60">Ajouter onglet</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {featureTabs.map((tab) => (
+                      <span key={tab.id} className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${(selectedFeatureTabId === tab.id) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-emerald-200 text-emerald-700'}`}>
+                        <button type="button" onClick={() => setSelectedFeatureTabId(tab.id)}>{tab.nom}</button>
+                        {!Number(tab.is_system || 0) && <button type="button" onClick={() => void handleDeleteFeatureTab(tab)} className={`${selectedFeatureTabId === tab.id ? 'text-white' : 'text-red-500'}`}>x</button>}
+                      </span>
+                    ))}
+                    {featureTabs.length === 0 && <span className="text-xs text-gray-500">Aucun onglet disponible</span>}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                    <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="rounded-lg border-gray-300 border p-2 text-sm" />
                     <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'choix_multiple' | 'valeur')} className="rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="simple">Simple (Oui/Non)</option>
                       <option value="choix_multiple">Choix multiple</option>
                       <option value="valeur">Valeur</option>
                     </select>
+                    <input
+                      type="text"
+                      value={newFeatureType === 'valeur' ? newFeatureUnit : newFeatureChoices}
+                      onChange={(e) => newFeatureType === 'valeur' ? setNewFeatureUnit(e.target.value) : setNewFeatureChoices(e.target.value)}
+                      placeholder={newFeatureType === 'valeur' ? 'Unite (m2, m...)' : 'Choix (a,b,c)'}
+                      className="rounded-lg border-gray-300 border p-2 text-sm"
+                    />
                     <button type="button" onClick={() => void handleAddFeature()} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">{featureSaving ? '...' : 'Ajouter'}</button>
                   </div>
-                  {newFeatureType === 'choix_multiple' && (
-                    <input
-                      type="text"
-                      value={newFeatureChoices}
-                      onChange={(e) => setNewFeatureChoices(e.target.value)}
-                      placeholder="Choix possibles (separes par virgule): Ex: faible, moyen, eleve"
-                      className="w-full rounded-lg border-gray-300 border p-2 text-sm"
-                    />
-                  )}
-                  {newFeatureType === 'valeur' && (
-                    <input
-                      type="text"
-                      value={newFeatureUnit}
-                      onChange={(e) => setNewFeatureUnit(e.target.value)}
-                      placeholder="Unite: Ex: m2, m, DT, kWh"
-                      className="w-full rounded-lg border-gray-300 border p-2 text-sm"
-                    />
-                  )}
-                  <div className="flex flex-wrap gap-2">
-                    {availableFeatures.map((feature) => (
-                      <span key={feature.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white border border-emerald-200 rounded-full">
-                        <span>{feature.nom}</span>
-                        {feature.type_caracteristique && feature.type_caracteristique !== 'simple' && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">
-                            {feature.type_caracteristique === 'choix_multiple' ? 'Choix' : 'Valeur'}
-                            {feature.type_caracteristique === 'valeur' && feature.unite ? ` (${feature.unite})` : ''}
-                          </span>
-                        )}
-                        <button type="button" onClick={() => void handleRemoveFeature(feature)} className="text-red-500" title="Supprimer cette caracteristique du type/mode">x</button>
-                      </span>
-                    ))}
-                    {availableFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique pour ce mode/type</span>}
+                  <div className="space-y-2">
+                    {visibleFeaturesForSelectedTab.map((feature) => {
+                      const draft = featureDrafts[feature.id] || { nom: feature.nom || '', type_caracteristique: (feature.type_caracteristique || 'simple') as 'simple' | 'choix_multiple' | 'valeur', choix: '', unite: feature.unite || '', onglet_id: feature.onglet_id || '' };
+                      return (
+                        <div key={feature.id} className="grid grid-cols-1 md:grid-cols-6 gap-2 p-2 bg-white border border-emerald-200 rounded-lg">
+                          <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                          <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'valeur' })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                            <option value="simple">Simple</option>
+                            <option value="choix_multiple">Choix</option>
+                            <option value="valeur">Valeur</option>
+                          </select>
+                          <input value={draft.type_caracteristique === 'valeur' ? draft.unite : draft.choix} onChange={(e) => draft.type_caracteristique === 'valeur' ? handleFeatureDraftChange(feature.id, { unite: e.target.value }) : handleFeatureDraftChange(feature.id, { choix: e.target.value })} placeholder={draft.type_caracteristique === 'valeur' ? 'Unite' : 'Choix a,b,c'} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                          <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                            <option value="">Sans onglet</option>
+                            {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                          </select>
+                          <button type="button" onClick={() => void handleUpdateFeature(feature)} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier</button>
+                          <button type="button" onClick={() => void handleRemoveFeature(feature)} disabled={featureSaving} className="px-3 py-2 border border-red-300 text-red-600 rounded-lg text-sm disabled:opacity-60">Supprimer</button>
+                        </div>
+                      );
+                    })}
+                    {visibleFeaturesForSelectedTab.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique dans cet onglet</span>}
                   </div>
                 </div>
               )}

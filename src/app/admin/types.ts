@@ -244,6 +244,8 @@ export interface Caracteristique {
   type_caracteristique?: 'simple' | 'choix_multiple' | 'valeur';
   choix_json?: string | null;
   unite?: string | null;
+  onglet_id?: string | null;
+  onglet_nom?: string | null;
 }
 
 export interface Media {
