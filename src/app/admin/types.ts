@@ -111,6 +111,9 @@ export interface BienUiConfig {
   show_caracteristiques?: boolean;
   show_tarification_publique?: boolean;
   show_modalites_paiement?: boolean;
+  show_localisation?: boolean;
+  show_disponibilites?: boolean;
+  show_booking_card?: boolean;
   show_immeuble_appartements?: boolean;
   show_immeuble_garages?: boolean;
   show_immeuble_locaux_commerciaux?: boolean;

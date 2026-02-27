@@ -8,6 +8,7 @@ import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMont
 import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
 import PublicBienPageView from '../../ventes/components/PublicBienPageView';
+import LocationPublicBienPageView from '../../locations/components/LocationPublicBienPageView';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const resolveMediaUrl = (url?: string | null) => {
@@ -3743,16 +3744,28 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
           </label>
         </div>
       </div>
-      <PublicBienPageView
-        bien={{ ...bien, visible_sur_site: draftVisibleSurSite, ui_config: draftUiConfig }}
-        zones={zones}
-        backHref={null}
-        previewMode
-        onToggleVisibility={handleToggleVisibility}
-        onToggleFeatureVisibility={handleToggleFeatureVisibility}
-        togglingKey={togglingKey}
-        featureReloadKey={featureReloadKey}
-      />
+      {bien.mode === 'vente' ? (
+        <PublicBienPageView
+          bien={{ ...bien, visible_sur_site: draftVisibleSurSite, ui_config: draftUiConfig }}
+          zones={zones}
+          backHref={null}
+          previewMode
+          onToggleVisibility={handleToggleVisibility}
+          onToggleFeatureVisibility={handleToggleFeatureVisibility}
+          togglingKey={togglingKey}
+          featureReloadKey={featureReloadKey}
+        />
+      ) : (
+        <LocationPublicBienPageView
+          bien={{ ...bien, visible_sur_site: draftVisibleSurSite, ui_config: draftUiConfig }}
+          zones={zones}
+          previewMode
+          onToggleVisibility={handleToggleVisibility}
+          onToggleFeatureVisibility={handleToggleFeatureVisibility}
+          togglingKey={togglingKey}
+          featureReloadKey={featureReloadKey}
+        />
+      )}
     </div>
   );
 }

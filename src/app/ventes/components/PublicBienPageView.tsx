@@ -154,13 +154,16 @@ export default function PublicBienPageView({ bien, zones, backHref = '/ventes', 
       try {
         const base = String(API_URL || '').replace(/\/+$/, '');
         const normalizedBase = base.replace(/\/api$/i, '');
-        const featureUrls = [`${base}/caracteristiques?mode_bien=vente&type_bien=${encodeURIComponent(String(bien.type || ''))}&bien_id=${encodeURIComponent(String(bien.id || ''))}`, `${normalizedBase}/api/caracteristiques?mode_bien=vente&type_bien=${encodeURIComponent(String(bien.type || ''))}&bien_id=${encodeURIComponent(String(bien.id || ''))}`];
+        const currentMode = encodeURIComponent(String(bien.mode || 'vente'));
+        const currentType = encodeURIComponent(String(bien.type || ''));
+        const currentBienId = encodeURIComponent(String(bien.id || ''));
+        const featureUrls = [`${base}/caracteristiques?mode_bien=${currentMode}&type_bien=${currentType}&bien_id=${currentBienId}`, `${normalizedBase}/api/caracteristiques?mode_bien=${currentMode}&type_bien=${currentType}&bien_id=${currentBienId}`];
         let featureResponse: Response | null = null;
         for (const url of Array.from(new Set(featureUrls))) { const next = await fetch(url); featureResponse = next; if (next.ok || next.status !== 404) break; }
         const featureRows = featureResponse && featureResponse.ok ? await featureResponse.json() : [];
         if (!disposed) setAllFeatures(Array.isArray(featureRows) ? featureRows : []);
         if (bien.type === 'terrain') {
-          const tabUrls = [`${base}/caracteristique-onglets?mode_bien=vente&type_bien=${encodeURIComponent(String(bien.type || ''))}`, `${normalizedBase}/api/caracteristique-onglets?mode_bien=vente&type_bien=${encodeURIComponent(String(bien.type || ''))}`];
+          const tabUrls = [`${base}/caracteristique-onglets?mode_bien=${currentMode}&type_bien=${currentType}`, `${normalizedBase}/api/caracteristique-onglets?mode_bien=${currentMode}&type_bien=${currentType}`];
           let tabResponse: Response | null = null;
           for (const url of Array.from(new Set(tabUrls))) { const next = await fetch(url); tabResponse = next; if (next.ok || next.status !== 404) break; }
           const tabRows = tabResponse && tabResponse.ok ? await tabResponse.json() : [];
