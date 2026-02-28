@@ -6,7 +6,6 @@ import { fetchClientInteractions } from '../../utils/clientInteractions';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const DOSSIERS_STORAGE_KEY = 'dwira_clienteles_dossiers_v1';
-const AGENCY_TIME_ZONE = 'Africa/Tunis';
 
 type ClientCategory = 'locataires' | 'acheteurs' | 'proprietaires';
 type ClientRole = 'Locataire' | 'Acheteur' | 'Proprietaire';
@@ -108,53 +107,34 @@ const getTodayDate = () => new Date().toISOString().split('T')[0];
 const parseInteractionDateTime = (value?: string | null) => {
   const raw = String(value || '').trim();
   if (!raw) return null;
-
-  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
-  const utcCandidate = normalized.endsWith('Z') ? normalized : `${normalized}Z`;
-  const parsedUtc = new Date(utcCandidate);
-  if (!Number.isNaN(parsedUtc.getTime())) return parsedUtc;
-
-  const parsedLocal = new Date(normalized);
-  if (!Number.isNaN(parsedLocal.getTime())) return parsedLocal;
-
-  return null;
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!match) return null;
+  return {
+    year: match[1],
+    month: match[2],
+    day: match[3],
+    hour: match[4] || '00',
+    minute: match[5] || '00',
+    second: match[6] || '00',
+  };
 };
 
 const formatInteractionDate = (value?: string | null) => {
   const date = parseInteractionDateTime(value);
   if (!date) return String(value || '');
-  return new Intl.DateTimeFormat('fr-FR', {
-    timeZone: AGENCY_TIME_ZONE,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(date);
+  return `${date.day}/${date.month}/${date.year}`;
 };
 
 const formatInteractionTime = (value?: string | null) => {
   const date = parseInteractionDateTime(value);
   if (!date) return '';
-  return new Intl.DateTimeFormat('fr-FR', {
-    timeZone: AGENCY_TIME_ZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
+  return `${date.hour}:${date.minute}`;
 };
 
 const formatInteractionDayKey = (value?: string | null) => {
   const date = parseInteractionDateTime(value);
   if (!date) return '';
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: AGENCY_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const year = parts.find((part) => part.type === 'year')?.value || '';
-  const month = parts.find((part) => part.type === 'month')?.value || '';
-  const day = parts.find((part) => part.type === 'day')?.value || '';
-  return year && month && day ? `${year}-${month}-${day}` : '';
+  return `${date.year}-${date.month}-${date.day}`;
 };
 
 const isClientInteraction = (value: unknown): value is ClientInteraction => {

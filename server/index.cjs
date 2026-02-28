@@ -24,9 +24,30 @@ const ALLOWED_ORIGINS = [
   'https://dwiraimmobilier.com',
 ];
 app.disable('x-powered-by');
+const AGENCY_TIME_ZONE = 'Africa/Tunis';
 
 function isLocalDevOrigin(origin) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || '').trim());
+}
+
+function getAgencySqlDateTime(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: AGENCY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value || '1970';
+  const month = parts.find((part) => part.type === 'month')?.value || '01';
+  const day = parts.find((part) => part.type === 'day')?.value || '01';
+  const hour = parts.find((part) => part.type === 'hour')?.value || '00';
+  const minute = parts.find((part) => part.type === 'minute')?.value || '00';
+  const second = parts.find((part) => part.type === 'second')?.value || '00';
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
 // Middleware
@@ -3530,8 +3551,7 @@ app.post('/api/client-interactions', async (req, res) => {
     const type = String(req.body?.type || '').trim();
     const bienId = String(req.body?.bienId || '').trim();
     const propertyTitle = String(req.body?.propertyTitle || '').trim() || null;
-    const now = new Date();
-    const nowSql = now.toISOString().slice(0, 19).replace('T', ' ');
+    const nowSql = getAgencySqlDateTime();
 
     if (!clientEmail) return res.status(400).json({ error: 'Email client obligatoire' });
     if (!['visite', 'like', 'partage'].includes(type)) return res.status(400).json({ error: 'Type interaction invalide' });
@@ -3571,7 +3591,7 @@ app.put('/api/auth/social/profile/:id', async (req, res) => {
     const cin = String(req.body?.cin || '').trim();
     const cinImageUrl = String(req.body?.cinImageUrl || req.body?.cin_image_url || '').trim();
     const avatar = req.body?.avatar === undefined ? undefined : String(req.body.avatar || '').trim();
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = getAgencySqlDateTime();
 
     if (!id) return res.status(400).json({ error: 'Utilisateur introuvable' });
     if (!nom) return res.status(400).json({ error: 'Nom obligatoire' });
