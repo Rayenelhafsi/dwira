@@ -980,12 +980,12 @@ export default function ClientelesPage() {
     };
   }, [selectedClient]);
 
-  const getInteractionLabel = (interaction: ClientInteraction) => {
+  function getInteractionLabel(interaction: ClientInteraction) {
     const bienTitle = getBienDisplayLabel(interaction.bienId);
     if (interaction.type === 'visite') return `Visite du bien ${bienTitle}`;
     if (interaction.type === 'like') return `Like sur le bien ${bienTitle}`;
     return `Partage du bien ${bienTitle}`;
-  };
+  }
 
   const resetClientForm = (category: ClientCategory = activeCategory) => {
     setClientForm({
