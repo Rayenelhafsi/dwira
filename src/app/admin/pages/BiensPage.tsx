@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig } from '../types';
@@ -85,12 +85,29 @@ const TERRAIN_SECTION_TABS = [
   { id: 'ideal_utilisation', label: '7. Ideal pour' },
   { id: 'documents_disponibles', label: '8. Documents disponibles' },
 ] as const;
+const UI_SECTION_FEATURE_TAB_DEFINITIONS: Partial<Record<keyof BienUiConfig, { label: string; ordre: number }>> = {
+  show_gallery: { label: 'Galerie', ordre: 10 },
+  show_informations_generales: { label: 'Informations generales', ordre: 20 },
+  show_caracteristiques: { label: 'Caracteristiques', ordre: 30 },
+  show_tarification_publique: { label: 'Tarification publique', ordre: 40 },
+  show_modalites_paiement: { label: 'Modalites de paiement', ordre: 50 },
+  show_immeuble_appartements: { label: 'Bloc appartements', ordre: 60 },
+  show_immeuble_garages: { label: 'Bloc garages', ordre: 70 },
+  show_immeuble_locaux_commerciaux: { label: 'Bloc locaux commerciaux', ordre: 80 },
+  show_lotissement_terrains: { label: 'Bloc terrains du lotissement', ordre: 90 },
+};
 type TerrainSectionTab = string;
 type CaracteristiqueOnglet = {
   id: string;
   nom: string;
   ordre?: number;
   is_system?: number | boolean;
+};
+type ValidationIssue = {
+  step: 1 | 2 | 3 | 4 | 5;
+  fieldName: string;
+  label: string;
+  message: string;
 };
 const TERRAIN_HAUTEUR_OPTIONS = ['R+1', 'R+2', 'R+3', 'R+4', 'R+5'];
 const TERRAIN_FORME_OPTIONS = ['rectangulaire', 'irreguliere', 'carre', 'triangle', 'autre'];
@@ -600,8 +617,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [newOwnerCin, setNewOwnerCin] = useState('');
   const [draggedImageIndex, setDraggedImageIndex] = useState<string | null>(null);
-  const [stepInfoDialogOpen, setStepInfoDialogOpen] = useState(false);
-  const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : [1]));
+  const [validationDialogState, setValidationDialogState] = useState<{ open: boolean; issues: ValidationIssue[] }>({ open: false, issues: [] });
+  const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : []));
   const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
   const normalizeLegacyType = (value?: BienType): BienType => {
     if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
@@ -790,6 +807,23 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     void loadAvailableFeatures(selectedMode, selectedType);
     void loadFeatureTabs(selectedMode, selectedType);
   }, [formData.mode, formData.type]);
+
+  useEffect(() => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const isImmeubleModeType = selectedMode === 'vente' && selectedType === 'immeuble';
+    const isLotissementModeType = selectedMode === 'vente' && selectedType === 'lotissement';
+    const visibleKeys = (Object.keys(UI_SECTION_FEATURE_TAB_DEFINITIONS) as Array<keyof BienUiConfig>)
+      .filter((key) => {
+        if (key === 'show_immeuble_appartements' && !isImmeubleModeType) return false;
+        if (key === 'show_immeuble_garages' && !isImmeubleModeType) return false;
+        if (key === 'show_immeuble_locaux_commerciaux' && !isImmeubleModeType) return false;
+        if (key === 'show_lotissement_terrains' && !isLotissementModeType) return false;
+        return isUiSectionVisible(key);
+      });
+    if (visibleKeys.length === 0) return;
+    void ensureFeatureTabsForCurrentContext(visibleKeys);
+  }, [formData.mode, formData.type, formData.ui_config]);
 
   useEffect(() => {
     const targetCount = Math.max(0, Math.floor(Number(formData.immeuble_nb_appartements || 0)));
@@ -1127,6 +1161,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     setFormData((prev) => ({ ...prev, ui_config: { ...(prev.ui_config || {}), ...patch } }));
   const setUiSectionVisible = (key: keyof BienUiConfig, checked: boolean) =>
     updateUiConfig({ [key]: checked } as Partial<BienUiConfig>);
+  const getFeatureTabApiBases = () => Array.from(new Set([
+    `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique-onglets`,
+    `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique-onglets`,
+  ]));
   const setTerrainTabVisible = (tabId: string, checked: boolean) =>
     setFormData((prev) => ({
       ...prev,
@@ -1394,10 +1432,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   ]));
 
   const loadFeatureTabs = async (mode: BienMode, type: BienType) => {
-    const tabApiBases = Array.from(new Set([
-      `${String(API_URL || '').replace(/\/+$/, '')}/caracteristique-onglets`,
-      `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique-onglets`,
-    ]));
+    const tabApiBases = getFeatureTabApiBases();
     let lastResponse: Response | null = null;
     for (const base of tabApiBases) {
       const response = await fetch(`${base}?mode_bien=${mode}&type_bien=${type}`);
@@ -1417,7 +1452,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         } else {
           setSelectedFeatureTabId('');
         }
-        return;
+        return nextTabs as CaracteristiqueOnglet[];
       }
       if (response.status !== 404) break;
     }
@@ -1425,6 +1460,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setFeatureTabs([]);
       setSelectedFeatureTabId('');
     }
+    return [] as CaracteristiqueOnglet[];
   };
 
   const loadAvailableFeatures = async (mode: BienMode, type: BienType) => {
@@ -1874,145 +1910,20 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const allIssues = [1, 2, 3, 4, 5].flatMap((step) => getStepValidationIssues(step as 1 | 2 | 3 | 4 | 5));
+    if (allIssues.length > 0) {
+      openValidationDialog(allIssues);
+      return;
+    }
+
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
-    const allowedTypes = BIEN_TYPES_BY_MODE[selectedMode] || [];
-    const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
     const venteTarification = computeVenteTarification(formData);
     const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
     const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
     const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
     const isLotissementVente = selectedMode === 'vente' && selectedType === 'lotissement';
     const isImmeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
-
-    if (!formData.titre?.trim()) {
-      setGeneralStep(1);
-      return toast.error('Titre obligatoire');
-    }
-    if (!formData.reference?.trim()) {
-      setGeneralStep(1);
-      return toast.error('Reference obligatoire');
-    }
-    if (!selectedMode) {
-      setGeneralStep(1);
-      return toast.error('Mode obligatoire');
-    }
-    if (!selectedType || !allowedTypes.includes(selectedType)) {
-      setGeneralStep(2);
-      return toast.error('Type invalide pour ce mode');
-    }
-    if (isAppartementVente && !formData.type_rue) {
-      setGeneralStep(3);
-      return toast.error('Type de rue obligatoire pour Appartement en vente');
-    }
-    if (isAppartementVente && !formData.type_papier) {
-      setGeneralStep(3);
-      return toast.error('Type de papier obligatoire pour Appartement en vente');
-    }
-    if (isAppartementVente && !String(formData.configuration || '').trim()) {
-      setGeneralStep(3);
-      return toast.error('Configuration obligatoire pour Appartement en vente');
-    }
-    if (isLocalCommercialVente && !String(formData.activite_recommandee || '').trim()) {
-      setGeneralStep(3);
-      return toast.error('Activite recommandee obligatoire pour Local commercial en vente');
-    }
-    if (isLocalCommercialVente && !formData.type_rue) {
-      setGeneralStep(3);
-      return toast.error('Type de rue obligatoire pour Local commercial en vente');
-    }
-    if (isLocalCommercialVente && !formData.type_papier) {
-      setGeneralStep(3);
-      return toast.error('Type de papier obligatoire pour Local commercial en vente');
-    }
-    if (isTerrainVente && !formData.type_terrain) {
-      setGeneralStep(3);
-      return toast.error('Type de terrain obligatoire pour Terrain en vente');
-    }
-    if (isTerrainVente && (!formData.terrain_surface_m2 || Number(formData.terrain_surface_m2) <= 0)) {
-      setGeneralStep(3);
-      return toast.error('Surface terrain obligatoire (> 0)');
-    }
-    if (isTerrainVente && (formData.terrain_mode_affichage_prix === 'm2_uniquement' || formData.terrain_mode_affichage_prix === 'total_et_m2') && (!formData.terrain_prix_affiche_par_m2 || Number(formData.terrain_prix_affiche_par_m2) <= 0)) {
-      setGeneralStep(3);
-      return toast.error('Prix affiche par m2 obligatoire (> 0)');
-    }
-    if (isTerrainVente && !formData.type_rue) {
-      setGeneralStep(3);
-      return toast.error('Type de rue obligatoire pour Terrain en vente');
-    }
-    if (isTerrainVente && !formData.type_papier) {
-      setGeneralStep(3);
-      return toast.error('Type de papier obligatoire pour Terrain en vente');
-    }
-    if (isImmeubleVente && !formData.type_rue) {
-      setGeneralStep(3);
-      return toast.error('Type de rue obligatoire pour Immeuble en vente');
-    }
-    if (isImmeubleVente && !formData.type_papier) {
-      setGeneralStep(3);
-      return toast.error('Type de papier obligatoire pour Immeuble en vente');
-    }
-    if (isLotissementVente && (!formData.lotissement_nb_terrains || Number(formData.lotissement_nb_terrains) <= 0)) {
-      setGeneralStep(3);
-      return toast.error('Nombre de terrains obligatoire pour le lotissement');
-    }
-    if (isLotissementVente && (formData.lotissement_mode_prix_m2 || 'm2_unique') === 'm2_unique' && (!formData.lotissement_prix_m2_unique || Number(formData.lotissement_prix_m2_unique) <= 0)) {
-      setGeneralStep(3);
-      return toast.error('Prix m2 unique obligatoire pour le lotissement');
-    }
-    if (isLotissementVente && (formData.lotissement_mode_prix_m2 === 'paliers') && (!Array.isArray(formData.lotissement_paliers_prix_m2) || formData.lotissement_paliers_prix_m2.length === 0)) {
-      setGeneralStep(3);
-      return toast.error('Ajoutez au moins un palier de prix m2');
-    }
-    if (selectedMode === 'vente') {
-      const prixAfficheClient = Number(formData.prix_affiche_client ?? formData.prix_nuitee ?? 0);
-      const terrainPrixDerive = isTerrainVente
-        ? Number(formData.terrain_prix_affiche_total || 0) || (Number(formData.terrain_surface_m2 || 0) * Number(formData.terrain_prix_affiche_par_m2 || 0))
-        : 0;
-      const lotissementPrixDerive = isLotissementVente ? Number(formData.lotissement_prix_total || 0) : 0;
-      const prixValideVente = (isTerrainVente || isLotissementVente)
-        ? (prixAfficheClient > 0 || terrainPrixDerive > 0 || lotissementPrixDerive > 0)
-        : (prixAfficheClient > 0);
-      if (!prixValideVente) {
-        setGeneralStep(4);
-        return toast.error('Prix affiche client obligatoire et > 0 (ou prix terrain/lotissement)');
-      }
-      if (tarificationMethode === 'sans_commission') {
-        const prixFixeProprietaire = Number(formData.prix_fixe_proprietaire ?? 0);
-        const maxReduction = Number(formData.montant_max_reduction_negociation ?? 0);
-        if (!Number.isFinite(prixFixeProprietaire) || prixFixeProprietaire <= 0) {
-          setGeneralStep(4);
-          return toast.error('Prix fixe proprietaire obligatoire et > 0');
-        }
-        if (prixFixeProprietaire > prixAfficheClient) {
-          setGeneralStep(4);
-          return toast.error('Prix fixe proprietaire ne peut pas depasser le prix affiche client');
-        }
-        if (maxReduction < 0 || maxReduction > venteTarification.revenuAgence) {
-          setGeneralStep(4);
-          return toast.error('Montant max de reduction invalide');
-        }
-      }
-      const modalitePaiementVente = (formData.modalite_paiement_vente || 'comptant') as ModalitePaiementVente;
-      if (modalitePaiementVente === 'facilite') {
-        const pourcentagePromesse = Number(formData.pourcentage_premiere_partie_promesse ?? DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE);
-        const nombreTranches = Math.floor(Number(formData.nombre_tranches ?? 0));
-        const periodeMois = Math.floor(Number(formData.periode_tranches_mois ?? 0));
-        if (pourcentagePromesse <= 0 || pourcentagePromesse >= 100) {
-          setGeneralStep(5);
-          return toast.error('Le pourcentage de promesse doit etre > 0 et < 100');
-        }
-        if (nombreTranches <= 0) {
-          setGeneralStep(5);
-          return toast.error('Le nombre de tranches doit etre > 0');
-        }
-        if (periodeMois <= 0) {
-          setGeneralStep(5);
-          return toast.error('La periode (mois) doit etre > 0');
-        }
-      }
-    }
 
     try {
       await savePendingFeatureDrafts(selectedMode, selectedType);
@@ -2363,6 +2274,172 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const currentModalitePaiementVente = (formData.modalite_paiement_vente || 'comptant') as ModalitePaiementVente;
   const ventePaiementPreview = computeVentePaiement(formData, venteTarificationPreview.prixFinal);
   const requiredPrimaryStep = isModeVente ? 5 : 4;
+  const createValidationIssue = (step: 1 | 2 | 3 | 4 | 5, fieldName: string, label: string, message: string): ValidationIssue => ({
+    step,
+    fieldName,
+    label,
+    message,
+  });
+  const getStepValidationIssues = (step: 1 | 2 | 3 | 4 | 5): ValidationIssue[] => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType(formData.type as BienType);
+    const allowedTypes = BIEN_TYPES_BY_MODE[selectedMode] || [];
+    const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
+    const venteTarification = computeVenteTarification(formData);
+    const modalitePaiementVente = (formData.modalite_paiement_vente || 'comptant') as ModalitePaiementVente;
+    const appartementVente = selectedMode === 'vente' && selectedType === 'appartement';
+    const localCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
+    const terrainVente = selectedMode === 'vente' && selectedType === 'terrain';
+    const lotissementVente = selectedMode === 'vente' && selectedType === 'lotissement';
+    const immeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
+    const issues: ValidationIssue[] = [];
+
+    if (step === 1) {
+      if (!String(formData.titre || '').trim()) issues.push(createValidationIssue(1, 'titre', 'Titre', 'Titre obligatoire'));
+      if (!String(formData.reference || '').trim()) issues.push(createValidationIssue(1, 'reference', 'Reference interne', 'Reference obligatoire'));
+      if (!selectedMode) issues.push(createValidationIssue(1, 'mode', 'Mode', 'Mode obligatoire'));
+    }
+
+    if (step === 2) {
+      if (!selectedType || !allowedTypes.includes(selectedType)) {
+        issues.push(createValidationIssue(2, 'type', 'Type', 'Type invalide pour ce mode'));
+      }
+    }
+
+    if (step === 3) {
+      if (appartementVente && !formData.type_rue) issues.push(createValidationIssue(3, 'type_rue', 'Type de rue', 'Type de rue obligatoire pour Appartement en vente'));
+      if (appartementVente && !formData.type_papier) issues.push(createValidationIssue(3, 'type_papier', 'Type de papier', 'Type de papier obligatoire pour Appartement en vente'));
+      if (appartementVente && !String(formData.configuration || '').trim()) issues.push(createValidationIssue(3, 'configuration', 'Configuration', 'Configuration obligatoire pour Appartement en vente'));
+      if (localCommercialVente && !String(formData.activite_recommandee || '').trim()) issues.push(createValidationIssue(3, 'activite_recommandee', 'Activite recommandee', 'Activite recommandee obligatoire pour Local commercial en vente'));
+      if (localCommercialVente && !formData.type_rue) issues.push(createValidationIssue(3, 'type_rue', 'Type de rue', 'Type de rue obligatoire pour Local commercial en vente'));
+      if (localCommercialVente && !formData.type_papier) issues.push(createValidationIssue(3, 'type_papier', 'Type de papier', 'Type de papier obligatoire pour Local commercial en vente'));
+      if (terrainVente && !formData.type_terrain) issues.push(createValidationIssue(3, 'type_terrain', 'Type de terrain', 'Type de terrain obligatoire pour Terrain en vente'));
+      if (terrainVente && (!formData.terrain_surface_m2 || Number(formData.terrain_surface_m2) <= 0)) issues.push(createValidationIssue(3, 'terrain_surface_m2', 'Surface terrain', 'Surface terrain obligatoire (> 0)'));
+      if (terrainVente && (formData.terrain_mode_affichage_prix === 'm2_uniquement' || formData.terrain_mode_affichage_prix === 'total_et_m2') && (!formData.terrain_prix_affiche_par_m2 || Number(formData.terrain_prix_affiche_par_m2) <= 0)) issues.push(createValidationIssue(3, 'terrain_prix_affiche_par_m2', 'Prix affiche par m2', 'Prix affiche par m2 obligatoire (> 0)'));
+      if (terrainVente && !formData.type_rue) issues.push(createValidationIssue(3, 'type_rue', 'Type de rue', 'Type de rue obligatoire pour Terrain en vente'));
+      if (terrainVente && !formData.type_papier) issues.push(createValidationIssue(3, 'type_papier', 'Type de papier', 'Type de papier obligatoire pour Terrain en vente'));
+      if (immeubleVente && !formData.type_rue) issues.push(createValidationIssue(3, 'type_rue', 'Type de rue', 'Type de rue obligatoire pour Immeuble en vente'));
+      if (immeubleVente && !formData.type_papier) issues.push(createValidationIssue(3, 'type_papier', 'Type de papier', 'Type de papier obligatoire pour Immeuble en vente'));
+      if (lotissementVente && (!formData.lotissement_nb_terrains || Number(formData.lotissement_nb_terrains) <= 0)) issues.push(createValidationIssue(3, 'lotissement_nb_terrains', 'Nombre de terrains', 'Nombre de terrains obligatoire pour le lotissement'));
+      if (lotissementVente && (formData.lotissement_mode_prix_m2 || 'm2_unique') === 'm2_unique' && (!formData.lotissement_prix_m2_unique || Number(formData.lotissement_prix_m2_unique) <= 0)) issues.push(createValidationIssue(3, 'lotissement_prix_m2_unique', 'Prix m2 unique', 'Prix m2 unique obligatoire pour le lotissement'));
+      if (lotissementVente && formData.lotissement_mode_prix_m2 === 'paliers' && (!Array.isArray(formData.lotissement_paliers_prix_m2) || formData.lotissement_paliers_prix_m2.length === 0)) issues.push(createValidationIssue(3, 'lotissement_mode_prix_m2', 'Paliers prix m2', 'Ajoutez au moins un palier de prix m2'));
+    }
+
+    if (step === 4 && selectedMode === 'vente') {
+      const prixAfficheClient = Number(formData.prix_affiche_client ?? formData.prix_nuitee ?? 0);
+      const terrainPrixDerive = terrainVente
+        ? Number(formData.terrain_prix_affiche_total || 0) || (Number(formData.terrain_surface_m2 || 0) * Number(formData.terrain_prix_affiche_par_m2 || 0))
+        : 0;
+      const lotissementPrixDerive = lotissementVente ? Number(formData.lotissement_prix_total || 0) : 0;
+      const prixValideVente = (terrainVente || lotissementVente)
+        ? (prixAfficheClient > 0 || terrainPrixDerive > 0 || lotissementPrixDerive > 0)
+        : (prixAfficheClient > 0);
+      if (!prixValideVente) issues.push(createValidationIssue(4, 'prix_affiche_client', 'Prix affiche client', 'Prix affiche client obligatoire et > 0 (ou prix terrain/lotissement)'));
+      if (tarificationMethode === 'sans_commission') {
+        const prixFixeProprietaire = Number(formData.prix_fixe_proprietaire ?? 0);
+        const maxReduction = Number(formData.montant_max_reduction_negociation ?? 0);
+        if (!Number.isFinite(prixFixeProprietaire) || prixFixeProprietaire <= 0) issues.push(createValidationIssue(4, 'prix_fixe_proprietaire', 'Prix fixe proprietaire', 'Prix fixe proprietaire obligatoire et > 0'));
+        if (prixFixeProprietaire > prixAfficheClient) issues.push(createValidationIssue(4, 'prix_fixe_proprietaire', 'Prix fixe proprietaire', 'Prix fixe proprietaire ne peut pas depasser le prix affiche client'));
+        if (maxReduction < 0 || maxReduction > venteTarification.revenuAgence) issues.push(createValidationIssue(4, 'montant_max_reduction_negociation', 'Montant max a diminuer', 'Montant max de reduction invalide'));
+      }
+    }
+
+    if (step === 5 && selectedMode === 'vente' && modalitePaiementVente === 'facilite') {
+      const pourcentagePromesse = Number(formData.pourcentage_premiere_partie_promesse ?? DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE);
+      const nombreTranches = Math.floor(Number(formData.nombre_tranches ?? 0));
+      const periodeMois = Math.floor(Number(formData.periode_tranches_mois ?? 0));
+      if (pourcentagePromesse <= 0 || pourcentagePromesse >= 100) issues.push(createValidationIssue(5, 'pourcentage_premiere_partie_promesse', 'Pourcentage 1ere partie', 'Le pourcentage de promesse doit etre > 0 et < 100'));
+      if (nombreTranches <= 0) issues.push(createValidationIssue(5, 'nombre_tranches', 'Nombre de tranches', 'Le nombre de tranches doit etre > 0'));
+      if (periodeMois <= 0) issues.push(createValidationIssue(5, 'periode_tranches_mois', 'Periode totale', 'La periode (mois) doit etre > 0'));
+    }
+
+    return issues;
+  };
+
+  const ensureFeatureTabsForCurrentContext = async (keys: Array<keyof BienUiConfig>) => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const definitions = keys
+      .map((key) => UI_SECTION_FEATURE_TAB_DEFINITIONS[key])
+      .filter((definition): definition is { label: string; ordre: number } => Boolean(definition));
+    if (definitions.length === 0) return;
+
+    let knownTabs = featureTabs.length > 0 ? [...featureTabs] : await loadFeatureTabs(selectedMode, selectedType);
+    const tabApiBases = getFeatureTabApiBases();
+    let createdAny = false;
+
+    for (const definition of definitions) {
+      const existing = knownTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')) === normalizeFeatureName(definition.label));
+      if (existing) continue;
+
+      let response: Response | null = null;
+      for (const base of tabApiBases) {
+        const next = await fetch(base, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode_bien: selectedMode,
+            type_bien: selectedType,
+            nom: definition.label,
+            ordre: definition.ordre,
+          }),
+        });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!response || !response.ok) continue;
+      const createdTab = await response.json();
+      if (createdTab?.id) {
+        knownTabs = [...knownTabs, createdTab];
+        createdAny = true;
+      }
+    }
+
+    if (createdAny) {
+      await loadFeatureTabs(selectedMode, selectedType);
+    }
+  };
+
+  const handleUiSectionVisibilityChange = (key: keyof BienUiConfig, checked: boolean) => {
+    setUiSectionVisible(key, checked);
+    if (!checked) return;
+    void ensureFeatureTabsForCurrentContext([key]);
+  };
+  const openValidationDialog = (issues: ValidationIssue[]) => {
+    if (issues.length === 0) return;
+    setActiveTab('general');
+    setGeneralStep(issues[0].step);
+    setValidationDialogState({ open: true, issues });
+    toast.error(issues.length === 1 ? issues[0].message : 'Des champs obligatoires sont manquants');
+  };
+  const focusValidationIssue = (issue: ValidationIssue) => {
+    setActiveTab('general');
+    setGeneralStep(issue.step);
+    setValidationDialogState({ open: false, issues: [] });
+    window.setTimeout(() => {
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(`[name="${issue.fieldName}"], #${issue.fieldName}, [data-field="${issue.fieldName}"]`));
+      const target = candidates.find((element) => element.offsetParent !== null) || candidates[0];
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.focus();
+    }, 180);
+  };
+  const validateStepBeforeContinue = (step: 1 | 2 | 3 | 4 | 5, nextStep?: 1 | 2 | 3 | 4 | 5) => {
+    const issues = getStepValidationIssues(step);
+    if (issues.length > 0) {
+      openValidationDialog(issues);
+      return;
+    }
+    markStepValidated(step);
+    if (nextStep) {
+      setValidationDialogState({ open: false, issues: [] });
+      setGeneralStep(nextStep);
+      return;
+    }
+    setValidationDialogState({ open: false, issues: [] });
+    setActiveTab('images');
+    toast.success(`Etape ${step} validee`);
+  };
   const markStepValidated = (step: number) => {
     setValidatedSteps((prev) => {
       const next = new Set(prev);
@@ -2378,6 +2455,15 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     return true;
   };
   const goToStep = (targetStep: 1 | 2 | 3 | 4 | 5) => {
+    if (targetStep > 1) {
+      for (let step = 1 as 1 | 2 | 3 | 4 | 5; step < targetStep; step += 1) {
+        const issues = getStepValidationIssues(step);
+        if (issues.length > 0) {
+          openValidationDialog(issues);
+          return;
+        }
+      }
+    }
     if (!isStepUnlocked(targetStep)) {
       toast.error("Validez d'abord les etapes precedentes");
       return;
@@ -2405,7 +2491,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <button type="button" disabled={!isModeVente || !isStepUnlocked(5)} onClick={() => goToStep(5)} className={`px-3 py-2 rounded-lg border ${generalStep === 5 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${(!isModeVente || !isStepUnlocked(5)) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 5: Paiement</button>
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+            {generalStep === 1 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <h3 className="text-lg font-semibold"><Home className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 1 - Informations de base</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Titre *</label><input required name="titre" value={formData.titre || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
@@ -2448,9 +2534,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Numéro propriétaire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
               </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-              <div className="flex justify-end"><button type="button" onClick={() => { markStepValidated(1); setStepInfoDialogOpen(true); goToStep(2); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
-            </div>
-            {generalStep >= 2 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+              <div className="flex justify-end"><button type="button" onClick={() => validateStepBeforeContinue(1, 2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
+            </div>}
+            {generalStep === 2 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 2 - Type de bien</h3>
               </div>
@@ -2473,41 +2559,41 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                     <span className="text-sm text-gray-700">Galerie</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_gallery')} onChange={(e) => setUiSectionVisible('show_gallery', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    <input type="checkbox" checked={isUiSectionVisible('show_gallery')} onChange={(e) => handleUiSectionVisibilityChange('show_gallery', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                   </label>
                   <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                     <span className="text-sm text-gray-700">Informations generales</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_informations_generales')} onChange={(e) => setUiSectionVisible('show_informations_generales', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    <input type="checkbox" checked={isUiSectionVisible('show_informations_generales')} onChange={(e) => handleUiSectionVisibilityChange('show_informations_generales', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                   </label>
                   <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                     <span className="text-sm text-gray-700">Caracteristiques</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_caracteristiques')} onChange={(e) => setUiSectionVisible('show_caracteristiques', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    <input type="checkbox" checked={isUiSectionVisible('show_caracteristiques')} onChange={(e) => handleUiSectionVisibilityChange('show_caracteristiques', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                   </label>
                   <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                     <span className="text-sm text-gray-700">Tarification publique</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_tarification_publique')} onChange={(e) => setUiSectionVisible('show_tarification_publique', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    <input type="checkbox" checked={isUiSectionVisible('show_tarification_publique')} onChange={(e) => handleUiSectionVisibilityChange('show_tarification_publique', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                   </label>
                   <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                     <span className="text-sm text-gray-700">Modalites de paiement</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_modalites_paiement')} onChange={(e) => setUiSectionVisible('show_modalites_paiement', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    <input type="checkbox" checked={isUiSectionVisible('show_modalites_paiement')} onChange={(e) => handleUiSectionVisibilityChange('show_modalites_paiement', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                   </label>
                   {isImmeubleVente && <>
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <span className="text-sm text-gray-700">Bloc appartements</span>
-                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_appartements')} onChange={(e) => setUiSectionVisible('show_immeuble_appartements', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_appartements')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_appartements', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                     </label>
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <span className="text-sm text-gray-700">Bloc garages</span>
-                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_garages')} onChange={(e) => setUiSectionVisible('show_immeuble_garages', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_garages')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_garages', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                     </label>
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <span className="text-sm text-gray-700">Bloc locaux commerciaux</span>
-                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_locaux_commerciaux')} onChange={(e) => setUiSectionVisible('show_immeuble_locaux_commerciaux', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_locaux_commerciaux')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_locaux_commerciaux', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                     </label>
                   </>}
                   {isLotissementVente && <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                     <span className="text-sm text-gray-700">Bloc terrains du lotissement</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_lotissement_terrains')} onChange={(e) => setUiSectionVisible('show_lotissement_terrains', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    <input type="checkbox" checked={isUiSectionVisible('show_lotissement_terrains')} onChange={(e) => handleUiSectionVisibilityChange('show_lotissement_terrains', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
                   </label>}
                 </div>
                 {isTerrainVente && terrainTabsForRender.length > 0 && (
@@ -2526,10 +2612,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               </div>
               <div className="flex justify-between">
                 <button type="button" onClick={() => goToStep(1)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
-                <button type="button" onClick={() => { markStepValidated(2); goToStep(3); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 3</button>
+                <button type="button" onClick={() => validateStepBeforeContinue(2, 3)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 3</button>
               </div>
             </div>}
-            {generalStep >= 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+            {generalStep === 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 3 - Caractéristiques</h3>
                 <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Gerer caractéristiques</button>
@@ -3291,10 +3377,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               </div>
               <div className="flex justify-between">
                 <button type="button" onClick={() => goToStep(2)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
-                <button type="button" onClick={() => { markStepValidated(3); goToStep(4); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 4</button>
+                <button type="button" onClick={() => validateStepBeforeContinue(3, 4)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 4</button>
               </div>
             </div>}
-            {generalStep >= 4 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+            {generalStep === 4 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <h3 className="text-lg font-semibold"><Banknote className="h-5 w-5 inline text-emerald-600 mr-2" />Tarification</h3>
               {isModeVente ? (
                 <>
@@ -3361,11 +3447,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               <div className="flex justify-between">
                 <button type="button" onClick={() => goToStep(3)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
                 {isModeVente
-                  ? <button type="button" onClick={() => { markStepValidated(4); goToStep(5); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 5</button>
-                  : <button type="button" onClick={() => { markStepValidated(4); toast.success('Etape 4 validée'); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Valider etape 4</button>}
+                  ? <button type="button" onClick={() => validateStepBeforeContinue(4, 5)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 5</button>
+                  : <button type="button" onClick={() => validateStepBeforeContinue(4)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Valider etape 4</button>}
               </div>
             </div>}
-            {isModeVente && generalStep >= 5 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+            {isModeVente && generalStep === 5 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <h3 className="text-lg font-semibold"><Banknote className="h-5 w-5 inline text-emerald-600 mr-2" />Modalite de paiement (Vente)</h3>
               {isModeVente ? (
                 <>
@@ -3416,7 +3502,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   )}
                   <div className="flex justify-between">
                     <button type="button" onClick={() => goToStep(4)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
-                    <button type="button" onClick={() => { markStepValidated(5); toast.success('Etape 5 validée'); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Valider etape 5</button>
+                    <button type="button" onClick={() => validateStepBeforeContinue(5)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Valider etape 5</button>
                   </div>
                 </>
               ) : (
@@ -3569,6 +3655,35 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   </div>
                 </>
               )}
+              <div className="mt-6 flex justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('general');
+                    setGeneralStep(isModeVente ? 5 : 4);
+                  }}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-sm"
+                >
+                  Retour
+                </button>
+                {!isModeVente ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('calendar')}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm"
+                  >
+                    Continuer vers calendrier
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toast.success('Images validees')}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm"
+                  >
+                    Valider images
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -3578,14 +3693,30 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           </div>
         )}
       </div>
-      <Dialog.Root open={stepInfoDialogOpen} onOpenChange={setStepInfoDialogOpen}>
+      <Dialog.Root open={validationDialogState.open} onOpenChange={(open) => setValidationDialogState((prev) => ({ ...prev, open }))}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
-          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
-            <Dialog.Title className="text-lg font-semibold text-gray-900">Validation</Dialog.Title>
-            <Dialog.Description className="mt-2 text-sm text-gray-600">Étape Informations validée.</Dialog.Description>
+          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[92vw] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
+            <Dialog.Title className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+              <AlertCircle className="h-5 w-5 text-red-500" />
+              Champs obligatoires manquants
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-gray-600">Completez les champs ci-dessous avant de continuer.</Dialog.Description>
+            <div className="mt-4 space-y-3">
+              {validationDialogState.issues.map((issue, index) => (
+                <div key={`${issue.step}-${issue.fieldName}-${index}`} className="flex items-start justify-between gap-3 rounded-lg border border-red-100 bg-red-50/60 p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">Etape {issue.step} - {issue.label}</p>
+                    <p className="text-sm text-gray-600">{issue.message}</p>
+                  </div>
+                  <button type="button" onClick={() => focusValidationIssue(issue)} className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white">
+                    Allez
+                  </button>
+                </div>
+              ))}
+            </div>
             <div className="mt-4 flex justify-end">
-              <button type="button" onClick={() => setStepInfoDialogOpen(false)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">OK</button>
+              <button type="button" onClick={() => setValidationDialogState({ open: false, issues: [] })} className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700">Fermer</button>
             </div>
           </Dialog.Content>
         </Dialog.Portal>
