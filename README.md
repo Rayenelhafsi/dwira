@@ -26,7 +26,7 @@ npm run server
 npm run dev
 ```
 
-## Production Deployment (dwiraimmobilier.com)
+## Production Deployment (www.dwiraimmobilier.com)
 
 The repository includes:
 
@@ -36,6 +36,19 @@ The repository includes:
 Server keeps its own `.env` at:
 
 - `/var/www/dwiraimmobilier.com/public/.env`
+
+Use `https://www.dwiraimmobilier.com` as the canonical frontend URL.
+Keep `VITE_API_URL=/api` only if Nginx proxies `/api/*` to the Node server on port `3001`.
+An example server block is available in:
+
+- `scripts/nginx-dwiraimmobilier.conf.example`
+
+Minimum production checks:
+
+1. `https://www.dwiraimmobilier.com/api/health` must return JSON.
+2. `https://www.dwiraimmobilier.com/api/auth/providers` must return JSON.
+3. `/api`, `/uploads`, and `/contracts` must proxy to `http://127.0.0.1:3001`.
+4. `dwiraimmobilier.com` should redirect to `www.dwiraimmobilier.com`.
 
 Do not commit production secrets.
 

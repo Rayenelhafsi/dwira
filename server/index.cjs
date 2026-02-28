@@ -12,8 +12,10 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const CANONICAL_FRONTEND_URL = String(FRONTEND_URL || '').trim().replace('https://dwiraimmobilier.com', 'https://www.dwiraimmobilier.com');
 const ALLOWED_ORIGINS = [
-  ...String(process.env.FRONTEND_URL || FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
+  ...String(process.env.FRONTEND_URL || CANONICAL_FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
+  CANONICAL_FRONTEND_URL,
   'http://localhost:5173',
   'https://localhost:5173',
   'http://localhost:5174',
@@ -3326,7 +3328,7 @@ app.get('/api/auth/google/start', async (req, res) => {
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
 
   if (!clientId) {
-    return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_config_missing`);
+    return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_config_missing`);
   }
 
   const params = new URLSearchParams({
@@ -3345,7 +3347,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
   try {
     const code = req.query.code;
     if (!code) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_code_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_code_missing`);
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -3353,7 +3355,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
 
     if (!clientId || !clientSecret) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_config_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_config_missing`);
     }
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -3369,12 +3371,12 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
 
     if (!tokenResponse.ok) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_token_exchange_failed`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_token_exchange_failed`);
     }
 
     const tokenData = await tokenResponse.json();
     if (!tokenData.access_token) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_access_token_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_access_token_missing`);
     }
 
     const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
@@ -3384,12 +3386,12 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
 
     if (!profileResponse.ok) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_profile_fetch_failed`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_profile_fetch_failed`);
     }
 
     const profile = await profileResponse.json();
     if (!profile.email) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=google_email_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_email_missing`);
     }
 
     const user = await upsertSocialUser({
@@ -3401,10 +3403,10 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
 
     const socialToken = createTemporarySocialToken(user);
-    res.redirect(`${FRONTEND_URL}/login?social_token=${socialToken}`);
+    res.redirect(`${CANONICAL_FRONTEND_URL}/login?social_token=${socialToken}`);
   } catch (error) {
     console.error('Google callback error:', error);
-    res.redirect(`${FRONTEND_URL}/login?oauth_error=google_callback_failed`);
+    res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_callback_failed`);
   }
 });
 
@@ -3413,7 +3415,7 @@ app.get('/api/auth/facebook/start', async (req, res) => {
   const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
 
   if (!clientId) {
-    return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
+    return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
   }
 
   const params = new URLSearchParams({
@@ -3430,7 +3432,7 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
   try {
     const code = req.query.code;
     if (!code) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_code_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_code_missing`);
     }
 
     const clientId = process.env.FACEBOOK_CLIENT_ID;
@@ -3438,7 +3440,7 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
     const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
 
     if (!clientId || !clientSecret) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
     }
 
     const tokenUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
@@ -3449,12 +3451,12 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
 
     const tokenResponse = await fetch(tokenUrl);
     if (!tokenResponse.ok) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_token_exchange_failed`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_token_exchange_failed`);
     }
 
     const tokenData = await tokenResponse.json();
     if (!tokenData.access_token) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_access_token_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_access_token_missing`);
     }
 
     const profileUrl = new URL('https://graph.facebook.com/me');
@@ -3463,12 +3465,12 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
 
     const profileResponse = await fetch(profileUrl);
     if (!profileResponse.ok) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_profile_fetch_failed`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_profile_fetch_failed`);
     }
 
     const profile = await profileResponse.json();
     if (!profile.email) {
-      return res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_email_missing`);
+      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_email_missing`);
     }
 
     const user = await upsertSocialUser({
@@ -3480,10 +3482,10 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
     });
 
     const socialToken = createTemporarySocialToken(user);
-    res.redirect(`${FRONTEND_URL}/login?social_token=${socialToken}`);
+    res.redirect(`${CANONICAL_FRONTEND_URL}/login?social_token=${socialToken}`);
   } catch (error) {
     console.error('Facebook callback error:', error);
-    res.redirect(`${FRONTEND_URL}/login?oauth_error=facebook_callback_failed`);
+    res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_callback_failed`);
   }
 });
 

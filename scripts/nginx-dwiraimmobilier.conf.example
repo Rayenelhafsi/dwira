@@ -1,0 +1,72 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name dwiraimmobilier.com;
+
+    return 301 https://www.dwiraimmobilier.com$request_uri;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name www.dwiraimmobilier.com;
+
+    return 301 https://www.dwiraimmobilier.com$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name dwiraimmobilier.com;
+
+    ssl_certificate /etc/letsencrypt/live/www.dwiraimmobilier.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.dwiraimmobilier.com/privkey.pem;
+
+    return 301 https://www.dwiraimmobilier.com$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name www.dwiraimmobilier.com;
+
+    ssl_certificate /etc/letsencrypt/live/www.dwiraimmobilier.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.dwiraimmobilier.com/privkey.pem;
+
+    root /var/www/dwiraimmobilier.com/public/dist;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_redirect off;
+    }
+
+    location /uploads/ {
+        proxy_pass http://127.0.0.1:3001/uploads/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_redirect off;
+    }
+
+    location /contracts/ {
+        proxy_pass http://127.0.0.1:3001/contracts/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_redirect off;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
