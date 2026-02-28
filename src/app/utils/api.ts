@@ -19,16 +19,7 @@ export function getApiBaseCandidates(): string[] {
   }
 
   const relativeBase = configured.startsWith('/') ? configured : `/${configured}`;
-  const { protocol, hostname } = window.location;
   candidates.add(`${window.location.origin}${relativeBase}`.replace(/\/+$/, ''));
-
-  if (!/^(localhost|127\.0\.0\.1)$/i.test(hostname)) {
-    if (hostname.startsWith('www.')) {
-      candidates.add(`${protocol}//${hostname.slice(4)}${relativeBase}`.replace(/\/+$/, ''));
-    } else if (hostname.includes('.')) {
-      candidates.add(`${protocol}//www.${hostname}${relativeBase}`.replace(/\/+$/, ''));
-    }
-  }
 
   return Array.from(candidates);
 }
