@@ -5,8 +5,7 @@ import { Mail, Lock, Facebook, Globe, Phone, User, FileText, Upload } from 'luci
 import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
-
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { fetchWithApiFallback } from '../utils/api';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -156,7 +155,7 @@ export default function LoginPage() {
     try {
       const formData = new FormData();
       formData.append('image', file);
-      const response = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
+      const response = await fetchWithApiFallback('/upload', { method: 'POST', body: formData });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data?.error || "Upload de la carte d'identite echoue");

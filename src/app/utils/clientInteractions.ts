@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { fetchJsonWithApiFallback } from './api';
 
 export type PublicClientInteractionType = 'visite' | 'like' | 'partage';
 
@@ -17,23 +17,14 @@ export type PublicClientInteraction = {
 export const trackPublicClientInteraction = async (
   interaction: Omit<PublicClientInteraction, 'id' | 'dateTime' | 'source'>
 ) => {
-  const response = await fetch(`${API_BASE}/client-interactions`, {
+  return fetchJsonWithApiFallback<PublicClientInteraction>('/client-interactions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(interaction),
   });
-  if (!response.ok) {
-    const raw = await response.text();
-    throw new Error(raw || 'Impossible de sauvegarder l interaction client');
-  }
-  return response.json();
 };
 
 export const fetchClientInteractions = async (): Promise<PublicClientInteraction[]> => {
-  const response = await fetch(`${API_BASE}/client-interactions`);
-  if (!response.ok) {
-    throw new Error('Impossible de charger les interactions clients');
-  }
-  const rows = await response.json();
+  const rows = await fetchJsonWithApiFallback<PublicClientInteraction[]>('/client-interactions');
   return Array.isArray(rows) ? rows : [];
 };
