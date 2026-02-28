@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CalendarDays, Edit2, FileText, Mail, Phone, Plus, Search, Trash2, Upload, UserSquare2, Users, X } from 'lucide-react';
-import { Bien, Contrat, Locataire, Proprietaire, Utilisateur } from '../types';
+import { Bien, ClienteleProfile, ClienteleTask, Contrat, Locataire, Maintenance, Paiement, Proprietaire, Utilisateur } from '../types';
 import { toast } from 'sonner';
 import { fetchClientInteractions } from '../../utils/clientInteractions';
 
@@ -31,6 +31,20 @@ type ClientRecord = {
   email: string;
   cin: string;
   createdAt: string;
+};
+
+type BusinessTask = {
+  id: string;
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  detail: string;
+  dueDate?: string;
+};
+
+type BuyerMatch = {
+  bienId: string;
+  score: number;
+  reasons: string[];
 };
 
 type ClientInteractionType = 'visite' | 'like' | 'partage';
@@ -103,6 +117,135 @@ const mergeUniqueContacts = (primary?: string | null, extras?: string[]) =>
   Array.from(new Set([String(primary || '').trim(), ...(extras || []).map((item) => String(item || '').trim())].filter(Boolean)));
 
 const getTodayDate = () => new Date().toISOString().split('T')[0];
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const createEmptyProfile = (sourceTable: ClientRecord['sourceTable'], sourceId: string, linkedUserId?: string | null, email?: string): ClienteleProfile => ({
+  id: `draft_${sourceTable}_${sourceId}`,
+  sourceTable,
+  sourceId,
+  linkedUserId: linkedUserId || null,
+  email: email || '',
+  globalStatus: 'prospect',
+  scoreOverride: null,
+  canalEntree: null,
+  lastInteractionAt: null,
+  lastInteractionNote: '',
+  activeRoles: [],
+  vip: false,
+  blacklistReason: '',
+  locataireStatus: null,
+  locCinValidee: false,
+  locContratSigne: false,
+  locDepotEncaisse: false,
+  locJustificatifRevenus: false,
+  locAttestationTravail: false,
+  locNbPersonnes: null,
+  locJourEcheance: 5,
+  locPenaliteMode: 'jour',
+  locPenaliteValeur: null,
+  saisonMinNuits: null,
+  saisonMaxNuits: null,
+  saisonCapaciteMax: null,
+  saisonJoursArrivee: [],
+  saisonJoursDepart: [],
+  saisonAcomptePourcentage: 30,
+  saisonDocumentsRecus: false,
+  saisonDepotBloque: false,
+  saisonDepotRetenuMontant: null,
+  saisonDepotRetenuMotif: '',
+  acheteurStatus: null,
+  acheteurZones: [],
+  acheteurTypes: [],
+  acheteurBudgetMin: null,
+  acheteurBudgetMax: null,
+  acheteurSurfaceMin: null,
+  acheteurDistancePlageMax: null,
+  acheteurFinancementMode: '',
+  acheteurNextAction: null,
+  acheteurActionDueAt: null,
+  proprietaireStatus: null,
+  proprietaireMandatType: null,
+  proprietaireMandatStart: null,
+  proprietaireMandatEnd: null,
+  proprietaireReversementFrequence: 'mensuel',
+  proprietaireModePaiement: 'virement',
+  proprietaireCommissionPercent: 10,
+  proprietairePlafondTravaux: 200,
+  proprietaireLastStatementAt: null,
+  createdAt: '',
+  updatedAt: '',
+});
+
+const clampScore = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
+const parseDateToMs = (value?: string | null) => {
+  if (!value) return NaN;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? NaN : parsed;
+};
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return 'Non renseigne';
+  const parsed = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString('fr-FR');
+};
+
+const formatGlobalStatus = (value?: ClienteleProfile['globalStatus']) => {
+  if (value === 'actif') return 'Actif';
+  if (value === 'inactif') return 'Inactif';
+  if (value === 'blackliste') return 'Blackliste';
+  return 'Prospect';
+};
+
+const formatLocataireStatus = (value?: ClienteleProfile['locataireStatus'] | null) => {
+  if (value === 'verification') return 'En verification';
+  if (value === 'actif') return 'Locataire actif';
+  if (value === 'incident') return 'En incident';
+  if (value === 'archive') return 'Archive';
+  if (value === 'blackliste') return 'Blackliste';
+  return 'Prospect locataire';
+};
+
+const formatAcheteurStatus = (value?: ClienteleProfile['acheteurStatus'] | null) => {
+  if (value === 'qualifie') return 'Qualifie';
+  if (value === 'recherche') return 'En recherche';
+  if (value === 'visite_planifiee') return 'Visite planifiee';
+  if (value === 'offre_en_cours') return 'Offre en cours';
+  if (value === 'compromis_signe') return 'Compromis signe';
+  if (value === 'vendu') return 'Vendu';
+  if (value === 'perdu') return 'Perdu';
+  return 'Lead brut';
+};
+
+const formatProprietaireStatus = (value?: ClienteleProfile['proprietaireStatus'] | null) => {
+  if (value === 'mandat_location') return 'Sous mandat locatif';
+  if (value === 'mandat_vente') return 'Sous mandat vente';
+  if (value === 'actif') return 'Actif';
+  if (value === 'inactif') return 'Inactif';
+  if (value === 'blackliste') return 'Blackliste';
+  return 'Prospect proprietaire';
+};
+
+const formatCanalEntree = (value?: ClienteleProfile['canalEntree'] | null) => {
+  if (value === 'site_web') return 'Site web';
+  if (value === 'visite_agence') return 'Visite agence';
+  if (value === 'recommandation') return 'Recommandation';
+  if (value === 'whatsapp') return 'WhatsApp';
+  if (value === 'facebook') return 'Facebook';
+  if (value === 'google') return 'Google';
+  if (value === 'autre') return 'Autre';
+  return 'Non renseigne';
+};
+
+const formatRoleSlug = (value: string) => {
+  if (value === 'locataire') return 'Locataire';
+  if (value === 'acheteur') return 'Acheteur';
+  if (value === 'proprietaire') return 'Proprietaire';
+  return value;
+};
+
+const scoreStars = (score: number) => `${'★'.repeat(Math.max(1, Math.min(5, Math.round(score / 20))))} / ${score}`;
 
 const parseInteractionDateTime = (value?: string | null) => {
   const raw = String(value || '').trim();
@@ -156,6 +299,10 @@ export default function ClientelesPage() {
   const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>([]);
   const [contrats, setContrats] = useState<ContratApi[]>([]);
   const [biens, setBiens] = useState<Bien[]>([]);
+  const [paiements, setPaiements] = useState<Paiement[]>([]);
+  const [maintenances, setMaintenances] = useState<Maintenance[]>([]);
+  const [profiles, setProfiles] = useState<ClienteleProfile[]>([]);
+  const [persistedBusinessTasks, setPersistedBusinessTasks] = useState<ClienteleTask[] | null>(null);
   const [dossiers, setDossiers] = useState<DossierStore>({});
   const [publicInteractions, setPublicInteractions] = useState<ClientInteraction[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -186,6 +333,8 @@ export default function ClientelesPage() {
     dateFrom: '',
     dateTo: '',
   });
+  const [businessProfileDraft, setBusinessProfileDraft] = useState<ClienteleProfile | null>(null);
+  const [isSavingBusinessProfile, setIsSavingBusinessProfile] = useState(false);
 
   useEffect(() => {
     try {
@@ -239,12 +388,15 @@ export default function ClientelesPage() {
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
-      const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult] = await Promise.allSettled([
+      const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult, paiementsResult, maintenancesResult, profilesResult] = await Promise.allSettled([
         fetch(`${API_URL}/locataires`),
         fetch(`${API_URL}/proprietaires`),
         fetch(`${API_URL}/utilisateurs`),
         fetch(`${API_URL}/contrats`),
         fetch(`${API_URL}/biens`),
+        fetch(`${API_URL}/paiements`),
+        fetch(`${API_URL}/maintenance`),
+        fetch(`${API_URL}/clienteles/profiles`),
       ]);
 
       if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {
@@ -280,6 +432,27 @@ export default function ClientelesPage() {
         setBiens(Array.isArray(rows) ? rows : []);
       } else {
         setBiens([]);
+      }
+
+      if (paiementsResult.status === 'fulfilled' && paiementsResult.value.ok) {
+        const rows = await paiementsResult.value.json();
+        setPaiements(Array.isArray(rows) ? rows : []);
+      } else {
+        setPaiements([]);
+      }
+
+      if (maintenancesResult.status === 'fulfilled' && maintenancesResult.value.ok) {
+        const rows = await maintenancesResult.value.json();
+        setMaintenances(Array.isArray(rows) ? rows : []);
+      } else {
+        setMaintenances([]);
+      }
+
+      if (profilesResult.status === 'fulfilled' && profilesResult.value.ok) {
+        const rows = await profilesResult.value.json();
+        setProfiles(Array.isArray(rows) ? rows : []);
+      } else {
+        setProfiles([]);
       }
 
       setIsLoading(false);
@@ -509,6 +682,21 @@ export default function ClientelesPage() {
       });
   }, [interactionFilters.dateFrom, interactionFilters.dateTo, interactionFilters.type, selectedClient, selectedClientDossier.interactions, selectedClientEmails, selectedClientLinkedIds, publicInteractions]);
 
+  const selectedClientProfile = useMemo(() => {
+    if (!selectedClient) return null;
+    const primary = profiles.find((profile) => profile.sourceTable === selectedClient.sourceTable && profile.sourceId === selectedClient.id);
+    if (primary) return primary;
+    if (selectedClient.linkedUserId) {
+      const linked = profiles.find((profile) => profile.sourceTable === 'utilisateurs' && profile.sourceId === selectedClient.linkedUserId);
+      if (linked) return linked;
+    }
+    return createEmptyProfile(selectedClient.sourceTable, selectedClient.id, selectedClient.linkedUserId, selectedClient.email);
+  }, [profiles, selectedClient]);
+
+  useEffect(() => {
+    setBusinessProfileDraft(selectedClientProfile ? { ...selectedClientProfile } : null);
+  }, [selectedClientProfile]);
+
   const selectedClientContracts = useMemo(() => {
     if (!selectedClient) return [];
     if (selectedClient.category === 'locataires') {
@@ -521,12 +709,277 @@ export default function ClientelesPage() {
     return [];
   }, [biens, contrats, selectedClient]);
 
+  const selectedClientPayments = useMemo(() => {
+    const contractIds = new Set(selectedClientContracts.map((contrat) => contrat.id));
+    return paiements.filter((paiement) => contractIds.has(paiement.contrat_id));
+  }, [paiements, selectedClientContracts]);
+
+  const selectedOwnerBiens = useMemo(() => {
+    if (!selectedClient || selectedClient.category !== 'proprietaires') return [];
+    return biens.filter((bien) => bien.proprietaire_id === selectedClient.id);
+  }, [biens, selectedClient]);
+
   const getBienTitle = (bienId: string) => biens.find((bien) => bien.id === bienId)?.titre || `Bien #${bienId}`;
   const getBienDisplayLabel = (bienId: string) => {
     const bien = biens.find((item) => item.id === bienId);
     if (!bien) return `Bien #${bienId}`;
     return bien.reference ? `${bien.reference} - ${bien.titre}` : bien.titre;
   };
+
+  const lastTrackedInteraction = useMemo(() => {
+    if (selectedClientInteractions.length === 0) return null;
+    const [first] = selectedClientInteractions;
+    return {
+      at: `${first.date || ''}${first.heure ? ` ${first.heure}` : ''}`.trim(),
+      note: getInteractionLabel(first),
+    };
+  }, [selectedClientInteractions]);
+
+  const buyerMatches = useMemo<BuyerMatch[]>(() => {
+    if (!selectedClient || selectedClient.category !== 'acheteurs' || !businessProfileDraft) return [];
+    return biens
+      .filter((bien) => bien.mode === 'vente')
+      .map((bien) => {
+        let score = 0;
+        const reasons: string[] = [];
+        const zones = (businessProfileDraft.acheteurZones || []).map((item) => normalizeText(item));
+        const types = (businessProfileDraft.acheteurTypes || []).map((item) => normalizeText(item));
+        if (types.length > 0 && types.includes(normalizeText(bien.type))) {
+          score += 30;
+          reasons.push('Type compatible');
+        }
+        if (zones.length > 0 && zones.includes(normalizeText(String((bien as unknown as { zone_nom?: string }).zone_nom || bien.zone_id || '')))) {
+          score += 25;
+          reasons.push('Zone compatible');
+        }
+        if (businessProfileDraft.acheteurBudgetMin && (bien.prix_affiche_client || bien.prix_nuitee || 0) >= businessProfileDraft.acheteurBudgetMin) {
+          score += 10;
+        }
+        if (businessProfileDraft.acheteurBudgetMax && (bien.prix_affiche_client || bien.prix_nuitee || 0) <= businessProfileDraft.acheteurBudgetMax) {
+          score += 20;
+          reasons.push('Budget compatible');
+        }
+        if (businessProfileDraft.acheteurSurfaceMin && (bien.superficie_m2 || bien.terrain_surface_m2 || 0) >= businessProfileDraft.acheteurSurfaceMin) {
+          score += 10;
+          reasons.push('Surface suffisante');
+        }
+        if (businessProfileDraft.acheteurDistancePlageMax && (bien.distance_plage_m || bien.terrain_distance_plage_m || 0) <= businessProfileDraft.acheteurDistancePlageMax) {
+          score += 5;
+        }
+        return {
+          bienId: bien.id,
+          score: clampScore(score),
+          reasons,
+        };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+  }, [biens, businessProfileDraft, selectedClient]);
+
+  const businessInsights = useMemo(() => {
+    if (!selectedClient || !businessProfileDraft) return null;
+
+    const paidPayments = selectedClientPayments.filter((paiement) => paiement.statut === 'paye').length;
+    const latePayments = selectedClientPayments.filter((paiement) => paiement.statut === 'retard').length;
+    const pendingPayments = selectedClientPayments.filter((paiement) => paiement.statut === 'en_attente').length;
+    const totalPayments = selectedClientPayments.length;
+    const paidOnTimeRatio = totalPayments > 0 ? paidPayments / totalPayments : 1;
+    const hasActiveContract = selectedClientContracts.some((contrat) => contrat.statut === 'actif');
+    const hasEndedContract = selectedClientContracts.some((contrat) => contrat.statut === 'termine');
+    const ownerRevenue = selectedClientPayments.filter((paiement) => paiement.statut === 'paye').reduce((sum, paiement) => sum + Number(paiement.montant || 0), 0);
+    const ownerCharges = maintenances
+      .filter((maintenance) => selectedOwnerBiens.some((bien) => bien.id === maintenance.bien_id))
+      .reduce((sum, maintenance) => sum + Number(maintenance.cout || 0), 0);
+    const ownerCommissionPercent = Number(businessProfileDraft.proprietaireCommissionPercent || 10);
+    const ownerCommission = ownerRevenue * (ownerCommissionPercent / 100);
+    const ownerNet = ownerRevenue - ownerCommission - ownerCharges;
+
+    let computedLocataireStatus = businessProfileDraft.locataireStatus;
+    if (selectedClient.category === 'locataires' && !computedLocataireStatus) {
+      if (businessProfileDraft.globalStatus === 'blackliste' || businessProfileDraft.blacklistReason) computedLocataireStatus = 'blackliste';
+      else if (latePayments > 0) computedLocataireStatus = 'incident';
+      else if (hasActiveContract) computedLocataireStatus = 'actif';
+      else if (hasEndedContract) computedLocataireStatus = 'archive';
+      else if (businessProfileDraft.locCinValidee || businessProfileDraft.locContratSigne || businessProfileDraft.locDepotEncaisse) computedLocataireStatus = 'verification';
+      else computedLocataireStatus = 'prospect';
+    }
+
+    let computedAcheteurStatus = businessProfileDraft.acheteurStatus;
+    if (selectedClient.category === 'acheteurs' && !computedAcheteurStatus) {
+      if (buyerMatches.some((item) => item.score >= 80)) computedAcheteurStatus = 'recherche';
+      else if ((businessProfileDraft.acheteurZones || []).length > 0 && (businessProfileDraft.acheteurTypes || []).length > 0 && businessProfileDraft.acheteurBudgetMax && businessProfileDraft.acheteurFinancementMode) computedAcheteurStatus = 'qualifie';
+      else computedAcheteurStatus = 'lead_brut';
+    }
+
+    let computedProprietaireStatus = businessProfileDraft.proprietaireStatus;
+    if (selectedClient.category === 'proprietaires' && !computedProprietaireStatus) {
+      const hasActiveBien = selectedOwnerBiens.some((bien) => bien.visible_sur_site || bien.statut === 'disponible' || bien.statut === 'reserve');
+      if (businessProfileDraft.globalStatus === 'blackliste' || businessProfileDraft.blacklistReason) computedProprietaireStatus = 'blackliste';
+      else if (hasActiveBien) computedProprietaireStatus = 'actif';
+      else if (selectedOwnerBiens.length > 0) computedProprietaireStatus = 'inactif';
+      else if (businessProfileDraft.proprietaireMandatType === 'vente') computedProprietaireStatus = 'mandat_vente';
+      else if (businessProfileDraft.proprietaireMandatType === 'gestion_locative') computedProprietaireStatus = 'mandat_location';
+      else computedProprietaireStatus = 'prospect';
+    }
+
+    const autoRoles = Array.from(new Set([
+      ...(selectedClient.category === 'locataires' ? ['locataire'] : []),
+      ...(selectedClient.category === 'acheteurs' ? ['acheteur'] : []),
+      ...(selectedClient.category === 'proprietaires' ? ['proprietaire'] : []),
+      ...(businessProfileDraft.activeRoles || []),
+    ])) as Array<'locataire' | 'acheteur' | 'proprietaire'>;
+
+    let computedScore = businessProfileDraft.scoreOverride;
+    if (computedScore === null || computedScore === undefined) {
+      if (selectedClient.category === 'locataires') {
+        computedScore = clampScore(100 - (latePayments * 20) - (pendingPayments * 10) + (paidOnTimeRatio * 15));
+      } else if (selectedClient.category === 'acheteurs') {
+        computedScore = clampScore(30 + ((businessProfileDraft.acheteurBudgetMax ? 1 : 0) * 15) + ((businessProfileDraft.acheteurFinancementMode ? 1 : 0) * 15) + Math.min(40, buyerMatches[0]?.score || 0));
+      } else {
+        computedScore = clampScore(30 + Math.min(30, selectedOwnerBiens.length * 10) + Math.min(20, ownerRevenue / 1000) + Math.min(20, Math.max(0, (Date.now() - parseDateToMs(selectedClient.createdAt || null)) / DAY_IN_MS / 365)));
+      }
+    }
+
+    const computedGlobalStatus = businessProfileDraft.globalStatus === 'prospect' && (hasActiveContract || selectedOwnerBiens.length > 0 || buyerMatches.some((item) => item.score >= 80))
+      ? 'actif'
+      : businessProfileDraft.globalStatus;
+
+    return {
+      locataireStatus: computedLocataireStatus,
+      acheteurStatus: computedAcheteurStatus,
+      proprietaireStatus: computedProprietaireStatus,
+      activeRoles: autoRoles,
+      score: clampScore(Number(computedScore || 0)),
+      globalStatus: computedGlobalStatus,
+      ownerRevenue,
+      ownerCommission,
+      ownerCharges,
+      ownerNet,
+    };
+  }, [businessProfileDraft, buyerMatches, maintenances, selectedClient, selectedClientContracts, selectedClientPayments, selectedOwnerBiens]);
+
+  const businessTasks = useMemo<BusinessTask[]>(() => {
+    if (!selectedClient || !businessProfileDraft || !businessInsights) return [];
+    const tasks: BusinessTask[] = [];
+
+    selectedClientPayments
+      .filter((paiement) => paiement.statut === 'retard' && Math.floor((Date.now() - parseDateToMs(paiement.date_paiement)) / DAY_IN_MS) >= 7)
+      .forEach((paiement) => {
+        tasks.push({
+          id: `late-${paiement.id}`,
+          severity: 'critical',
+          title: 'Envoyer relance 1',
+          detail: `Paiement ${paiement.id} en retard depuis plus de 7 jours.`,
+          dueDate: paiement.date_paiement,
+        });
+      });
+
+    selectedClientContracts.forEach((contrat) => {
+      const endMs = parseDateToMs(contrat.date_fin);
+      const daysToEnd = Math.ceil((endMs - Date.now()) / DAY_IN_MS);
+      if (Number.isFinite(daysToEnd) && daysToEnd >= 0 && daysToEnd <= 30) {
+        tasks.push({
+          id: `renew-${contrat.id}`,
+          severity: 'warning',
+          title: 'Proposer renouvellement',
+          detail: `Contrat ${contrat.id} arrive a echeance dans ${daysToEnd} jour(s).`,
+          dueDate: contrat.date_fin,
+        });
+      }
+    });
+
+    if (selectedClient.category === 'acheteurs' && businessInsights.acheteurStatus === 'recherche') {
+      const lastInteractionMs = parseDateToMs(lastTrackedInteraction?.at || null);
+      const inactiveDays = Number.isFinite(lastInteractionMs) ? Math.floor((Date.now() - lastInteractionMs) / DAY_IN_MS) : 999;
+      if (inactiveDays > 15) {
+        tasks.push({
+          id: 'buyer-follow-up',
+          severity: 'warning',
+          title: 'Relancer l acheteur',
+          detail: 'Aucun contact recent depuis plus de 15 jours.',
+          dueDate: getTodayDate(),
+        });
+      }
+      buyerMatches.filter((item) => item.score >= 80).slice(0, 3).forEach((match) => {
+        tasks.push({
+          id: `buyer-match-${match.bienId}`,
+          severity: 'info',
+          title: 'Envoyer nouvelle offre',
+          detail: `${getBienDisplayLabel(match.bienId)} correspond a ${match.score}%.`,
+        });
+      });
+    }
+
+    if (selectedClient.category === 'proprietaires') {
+      const lastStatementMs = parseDateToMs(businessProfileDraft.proprietaireLastStatementAt || null);
+      const monthsWithoutStatement = Number.isFinite(lastStatementMs) ? (Date.now() - lastStatementMs) / DAY_IN_MS / 30 : 999;
+      if (monthsWithoutStatement >= 3) {
+        tasks.push({
+          id: 'owner-statement',
+          severity: 'warning',
+          title: 'Preparer releve',
+          detail: 'Aucun releve envoye depuis plusieurs mois.',
+        });
+      }
+      maintenances
+        .filter((maintenance) => selectedOwnerBiens.some((bien) => bien.id === maintenance.bien_id) && Number(maintenance.cout || 0) > Number(businessProfileDraft.proprietairePlafondTravaux || 200))
+        .forEach((maintenance) => {
+          tasks.push({
+            id: `maintenance-${maintenance.id}`,
+            severity: 'warning',
+            title: 'Accord proprietaire requis',
+            detail: `Maintenance ${maintenance.id} depasse le plafond autorise.`,
+          });
+        });
+    }
+
+    return tasks;
+  }, [businessInsights, businessProfileDraft, buyerMatches, lastTrackedInteraction?.at, maintenances, selectedClient, selectedClientContracts, selectedClientPayments, selectedOwnerBiens]);
+
+  const displayBusinessTasks = useMemo<BusinessTask[]>(
+    () => (
+      persistedBusinessTasks !== null
+        ? persistedBusinessTasks.map((task) => ({
+            id: task.id,
+            severity: task.severity,
+            title: task.title,
+            detail: task.detail,
+            dueDate: task.dueDate || undefined,
+          }))
+        : businessTasks
+    ),
+    [businessTasks, persistedBusinessTasks]
+  );
+
+  useEffect(() => {
+    if (!selectedClient) {
+      setPersistedBusinessTasks(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadTasks = async () => {
+      try {
+        const response = await fetch(
+          `${API_URL}/clienteles/tasks/${encodeURIComponent(selectedClient.sourceTable)}/${encodeURIComponent(selectedClient.id)}`
+        );
+        if (!response.ok) {
+          if (!cancelled) setPersistedBusinessTasks(null);
+          return;
+        }
+        const rows = await response.json();
+        if (!cancelled) setPersistedBusinessTasks(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setPersistedBusinessTasks(null);
+      }
+    };
+
+    void loadTasks();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClient]);
+
   const getInteractionLabel = (interaction: ClientInteraction) => {
     const bienTitle = getBienDisplayLabel(interaction.bienId);
     if (interaction.type === 'visite') return `Visite du bien ${bienTitle}`;
@@ -578,6 +1031,71 @@ export default function ClientelesPage() {
   const closeClientModal = () => {
     setIsClientModalOpen(false);
     resetClientForm(activeCategory);
+  };
+
+  const handleSaveBusinessProfile = async () => {
+    if (!selectedClient || !businessProfileDraft) return;
+    if (selectedClient.category === 'acheteurs' && businessProfileDraft.acheteurStatus === 'qualifie') {
+      if ((businessProfileDraft.acheteurZones || []).length === 0 || (businessProfileDraft.acheteurTypes || []).length === 0 || !businessProfileDraft.acheteurBudgetMax || !businessProfileDraft.acheteurFinancementMode) {
+        toast.error('Un acheteur qualifie doit avoir zones, type de bien, budget et mode de financement');
+        return;
+      }
+    }
+    if (selectedClient.category === 'locataires' && businessProfileDraft.locataireStatus === 'actif') {
+      if (!businessProfileDraft.locCinValidee || !businessProfileDraft.locContratSigne || !businessProfileDraft.locDepotEncaisse) {
+        toast.error('Passage en locataire actif impossible sans CIN validee, contrat signe et depot encaisse');
+        return;
+      }
+    }
+    if (selectedClient.category === 'proprietaires' && (businessProfileDraft.proprietaireStatus === 'actif' || businessProfileDraft.proprietaireStatus === 'mandat_location' || businessProfileDraft.proprietaireStatus === 'mandat_vente')) {
+      if (!businessProfileDraft.proprietaireMandatType || !businessProfileDraft.proprietaireMandatStart) {
+        toast.error('Un proprietaire actif ou sous mandat doit avoir un mandat renseigne');
+        return;
+      }
+    }
+    setIsSavingBusinessProfile(true);
+    try {
+      const response = await fetch(
+        `${API_URL}/clienteles/profiles/${encodeURIComponent(businessProfileDraft.sourceTable)}/${encodeURIComponent(businessProfileDraft.sourceId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...businessProfileDraft,
+            activeRoles: businessInsights?.activeRoles || businessProfileDraft.activeRoles,
+            scoreOverride: businessProfileDraft.scoreOverride === null || businessProfileDraft.scoreOverride === undefined || businessProfileDraft.scoreOverride === 0
+              ? null
+              : businessProfileDraft.scoreOverride,
+            linkedUserId: selectedClient.linkedUserId || null,
+            email: selectedClient.email || businessProfileDraft.email || '',
+          }),
+        }
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || 'Sauvegarde impossible');
+      }
+      const savedProfile = await response.json();
+      setProfiles((prev) => {
+        const next = prev.filter((item) => !(item.sourceTable === savedProfile.sourceTable && item.sourceId === savedProfile.sourceId));
+        return [savedProfile, ...next];
+      });
+      setBusinessProfileDraft(savedProfile);
+      if (selectedClient) {
+        const tasksResponse = await fetch(
+          `${API_URL}/clienteles/tasks/${encodeURIComponent(selectedClient.sourceTable)}/${encodeURIComponent(selectedClient.id)}`
+        );
+        if (tasksResponse.ok) {
+          const rows = await tasksResponse.json();
+          setPersistedBusinessTasks(Array.isArray(rows) ? rows : []);
+        }
+      }
+      toast.success('Profil metier enregistre');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de sauvegarder le profil metier');
+    } finally {
+      setIsSavingBusinessProfile(false);
+    }
   };
 
   const handleSaveClient = async () => {
@@ -939,6 +1457,9 @@ export default function ClientelesPage() {
               <tr>
                 <th className="px-4 py-3">Nom</th>
                 <th className="px-4 py-3">Prenom</th>
+                <th className="px-4 py-3">Statut</th>
+                <th className="px-4 py-3">Score</th>
+                <th className="px-4 py-3">Roles actifs</th>
                 <th className="px-4 py-3">Type client</th>
                 <th className="px-4 py-3">Origine</th>
                 <th className="px-4 py-3">Telephone</th>
@@ -951,6 +1472,25 @@ export default function ClientelesPage() {
             <tbody className="divide-y divide-gray-100 bg-white">
               {filteredClients.map((client) => {
                 const dossierImage = client.cinImageUrl || dossiers[client.id]?.cinImageUrl;
+                const clientProfile = profiles.find((profile) => profile.sourceTable === client.sourceTable && profile.sourceId === client.id)
+                  || (client.linkedUserId ? profiles.find((profile) => profile.sourceTable === 'utilisateurs' && profile.sourceId === client.linkedUserId) : null)
+                  || createEmptyProfile(client.sourceTable, client.id, client.linkedUserId, client.email);
+                const profileRoles = Array.from(new Set([...(clientProfile.activeRoles || []), ...(client.category === 'locataires' ? ['locataire'] : []), ...(client.category === 'acheteurs' ? ['acheteur'] : []), ...(client.category === 'proprietaires' ? ['proprietaire'] : [])]));
+                const profileStatus = clientProfile.globalStatus;
+                const clientContracts = client.category === 'locataires'
+                  ? contrats.filter((contrat) => contrat.locataire_id === client.id)
+                  : client.category === 'proprietaires'
+                    ? contrats.filter((contrat) => biens.some((bien) => bien.proprietaire_id === client.id && bien.id === contrat.bien_id))
+                    : [];
+                const contractIds = new Set(clientContracts.map((contrat) => contrat.id));
+                const clientPayments = paiements.filter((paiement) => contractIds.has(paiement.contrat_id));
+                const profileScore = clientProfile.scoreOverride ?? (
+                  client.category === 'locataires'
+                    ? clampScore(100 - (clientPayments.filter((item) => item.statut === 'retard').length * 20) - (clientPayments.filter((item) => item.statut === 'en_attente').length * 10))
+                    : client.category === 'acheteurs'
+                      ? clampScore(30 + ((clientProfile.acheteurBudgetMax ? 1 : 0) * 20) + ((clientProfile.acheteurFinancementMode ? 1 : 0) * 20))
+                      : clampScore(30 + (biens.filter((bien) => bien.proprietaire_id === client.id).length * 10))
+                );
                 return (
                   <tr key={client.id} className="hover:bg-gray-50">
                     <td className="px-4 py-4">
@@ -961,6 +1501,17 @@ export default function ClientelesPage() {
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-700">{client.prenom || '-'}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatGlobalStatus(profileStatus)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{scoreStars(profileScore)}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {profileRoles.map((role) => (
+                          <span key={`${client.id}-${role}`} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+                            {formatRoleSlug(role)}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
                     <td className="px-4 py-4 text-sm text-gray-700">{formatClientType(client.clientType)}</td>
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-1">
@@ -1003,7 +1554,7 @@ export default function ClientelesPage() {
               })}
               {filteredClients.length === 0 && (
                 <tr>
-                  <td className="px-4 py-10 text-center text-sm text-gray-500" colSpan={9}>Aucun client trouve pour cette categorie.</td>
+                  <td className="px-4 py-10 text-center text-sm text-gray-500" colSpan={12}>Aucun client trouve pour cette categorie.</td>
                 </tr>
               )}
             </tbody>
@@ -1031,7 +1582,10 @@ export default function ClientelesPage() {
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Nom" value={selectedClient.nom || '-'} />
                   <InfoRow icon={<UserSquare2 className="h-4 w-4" />} label="Prenom" value={selectedClient.prenom || '-'} />
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Type client" value={formatClientType(selectedClient.clientType)} />
+                  <InfoRow icon={<Users className="h-4 w-4" />} label="Statut global" value={businessInsights ? formatGlobalStatus(businessInsights.globalStatus) : 'Prospect'} />
+                  <InfoRow icon={<Users className="h-4 w-4" />} label="Score" value={businessInsights ? scoreStars(businessInsights.score) : '-'} />
                   <InfoListRow icon={<FileText className="h-4 w-4" />} label="Origines" values={selectedClient.origins.map(formatOriginLabel)} emptyLabel="Aucune origine" />
+                  <InfoListRow icon={<Users className="h-4 w-4" />} label="Roles actifs" values={businessInsights ? businessInsights.activeRoles.map(formatRoleSlug) : []} emptyLabel="Aucun role actif" />
                   <InfoListRow icon={<Phone className="h-4 w-4" />} label="Telephones" values={selectedClientPhones} emptyLabel="Aucun telephone" />
                   <InfoListRow icon={<Mail className="h-4 w-4" />} label="Emails" values={selectedClientEmails} emptyLabel="Aucun email" />
                   <InfoRow icon={<FileText className="h-4 w-4" />} label="Carte d'identite" value={selectedClient.cin || '-'} />
@@ -1068,6 +1622,303 @@ export default function ClientelesPage() {
               </div>
 
               <div className="p-5">
+                {businessProfileDraft && businessInsights && (
+                  <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">Logique metier client</h3>
+                        <p className="mt-1 text-xs text-gray-500">Statut global, score, canal d'entree, roles actifs et regles metier par categorie.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveBusinessProfile()}
+                        disabled={isSavingBusinessProfile}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isSavingBusinessProfile ? 'Enregistrement...' : 'Enregistrer le profil metier'}
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <div className="rounded-xl border border-white bg-white p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Vision globale</h4>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <FormField label="Statut global">
+                            <select value={businessProfileDraft.globalStatus} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, globalStatus: e.target.value as ClienteleProfile['globalStatus'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="prospect">Prospect</option>
+                              <option value="actif">Actif</option>
+                              <option value="inactif">Inactif</option>
+                              <option value="blackliste">Blackliste</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Score manuel (0-100)">
+                            <input type="number" min={0} max={100} value={businessProfileDraft.scoreOverride ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, scoreOverride: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Canal d'entree">
+                            <select value={businessProfileDraft.canalEntree || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, canalEntree: (e.target.value || null) as ClienteleProfile['canalEntree'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="">Selectionner</option>
+                              <option value="facebook">Facebook</option>
+                              <option value="site_web">Site web</option>
+                              <option value="whatsapp">WhatsApp</option>
+                              <option value="visite_agence">Visite agence</option>
+                              <option value="recommandation">Recommandation</option>
+                              <option value="google">Google</option>
+                              <option value="autre">Autre</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Derniere interaction">
+                            <input type="datetime-local" value={businessProfileDraft.lastInteractionAt ? String(businessProfileDraft.lastInteractionAt).replace(' ', 'T').slice(0, 16) : ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, lastInteractionAt: e.target.value ? `${e.target.value}:00` : null } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Note derniere interaction">
+                            <textarea value={businessProfileDraft.lastInteractionNote || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, lastInteractionNote: e.target.value } : prev)} rows={3} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <p className="text-xs uppercase tracking-wide text-gray-400">Synthese</p>
+                            <p className="mt-2 text-sm font-medium text-gray-900">{formatGlobalStatus(businessInsights.globalStatus)}</p>
+                            <p className="mt-1 text-sm text-gray-600">{scoreStars(businessInsights.score)}</p>
+                            <p className="mt-1 text-xs text-gray-500">Canal: {formatCanalEntree(businessProfileDraft.canalEntree)}</p>
+                            <p className="mt-1 text-xs text-gray-500">Derniere interaction: {businessProfileDraft.lastInteractionAt ? formatDateTime(businessProfileDraft.lastInteractionAt) : (lastTrackedInteraction?.at || 'Non renseignee')}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          {(['locataire', 'acheteur', 'proprietaire'] as const).map((role) => (
+                            <label key={role} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={(businessProfileDraft.activeRoles || businessInsights.activeRoles).includes(role)}
+                                onChange={(e) => setBusinessProfileDraft((prev) => prev ? {
+                                  ...prev,
+                                  activeRoles: e.target.checked
+                                    ? Array.from(new Set([...(prev.activeRoles || []), role]))
+                                    : (prev.activeRoles || []).filter((item) => item !== role),
+                                } : prev)}
+                              />
+                              {formatRoleSlug(role)}
+                            </label>
+                          ))}
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input type="checkbox" checked={businessProfileDraft.vip} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, vip: e.target.checked } : prev)} />
+                            VIP
+                          </label>
+                        </div>
+                        {businessProfileDraft.globalStatus === 'blackliste' && (
+                          <div className="mt-3">
+                            <FormField label="Motif blacklist">
+                              <textarea value={businessProfileDraft.blacklistReason || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, blacklistReason: e.target.value } : prev)} rows={2} className="w-full rounded-lg border border-red-200 p-2 text-sm" />
+                            </FormField>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border border-white bg-white p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Alertes & taches automatiques</h4>
+                        <div className="mt-3 space-y-3">
+                          {displayBusinessTasks.length === 0 && <p className="text-sm text-gray-500">Aucune tache automatique pour le moment.</p>}
+                          {displayBusinessTasks.map((task) => (
+                            <div key={task.id} className={`rounded-lg border p-3 ${task.severity === 'critical' ? 'border-red-200 bg-red-50' : task.severity === 'warning' ? 'border-amber-200 bg-amber-50' : 'border-sky-200 bg-sky-50'}`}>
+                              <p className="text-sm font-medium text-gray-900">{task.title}</p>
+                              <p className="mt-1 text-sm text-gray-600">{task.detail}</p>
+                              {task.dueDate ? <p className="mt-1 text-xs text-gray-500">Echeance: {formatDate(task.dueDate)}</p> : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedClient.category === 'locataires' && (
+                      <div className="mt-4 rounded-xl border border-white bg-white p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Regles locataire</h4>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <FormField label="Cycle locataire">
+                            <select value={businessProfileDraft.locataireStatus || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, locataireStatus: (e.target.value || null) as ClienteleProfile['locataireStatus'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="">Auto</option>
+                              <option value="prospect">Prospect locataire</option>
+                              <option value="verification">En verification</option>
+                              <option value="actif">Locataire actif</option>
+                              <option value="incident">En incident</option>
+                              <option value="archive">Archive</option>
+                              <option value="blackliste">Blackliste</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Jour echeance loyer">
+                            <input type="number" min={1} max={31} value={businessProfileDraft.locJourEcheance ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, locJourEcheance: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Penalite">
+                            <div className="flex gap-2">
+                              <select value={businessProfileDraft.locPenaliteMode || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, locPenaliteMode: (e.target.value || null) as ClienteleProfile['locPenaliteMode'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                                <option value="">Aucune</option>
+                                <option value="jour">DT / jour</option>
+                                <option value="mois">% / mois</option>
+                              </select>
+                              <input type="number" step="0.01" value={businessProfileDraft.locPenaliteValeur ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, locPenaliteValeur: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-32 rounded-lg border border-gray-300 p-2 text-sm" />
+                            </div>
+                          </FormField>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          {[
+                            ['locCinValidee', 'CIN validee'],
+                            ['locContratSigne', 'Contrat signe'],
+                            ['locDepotEncaisse', 'Depot encaisse'],
+                            ['locJustificatifRevenus', 'Justificatif revenus'],
+                            ['locAttestationTravail', 'Attestation travail'],
+                            ['saisonDocumentsRecus', 'Documents identite recus'],
+                            ['saisonDepotBloque', 'Depot bloque'],
+                          ].map(([field, label]) => (
+                            <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                              <input type="checkbox" checked={Boolean((businessProfileDraft as unknown as Record<string, unknown>)[field])} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, [field]: e.target.checked } as ClienteleProfile : prev)} />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                          <FormField label="Nb personnes">
+                            <input type="number" min={1} value={businessProfileDraft.locNbPersonnes ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, locNbPersonnes: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Min nuits">
+                            <input type="number" min={1} value={businessProfileDraft.saisonMinNuits ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, saisonMinNuits: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Max nuits">
+                            <input type="number" min={1} value={businessProfileDraft.saisonMaxNuits ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, saisonMaxNuits: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Capacite max">
+                            <input type="number" min={1} value={businessProfileDraft.saisonCapaciteMax ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, saisonCapaciteMax: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                        </div>
+                        <div className="mt-3 text-sm text-gray-600">
+                          <p>Statut calcule: <span className="font-medium text-gray-900">{formatLocataireStatus(businessInsights.locataireStatus)}</span></p>
+                          <p className="mt-1">Paiements a l'heure: {selectedClientPayments.filter((item) => item.statut === 'paye').length}/{selectedClientPayments.length || 0}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedClient.category === 'acheteurs' && (
+                      <div className="mt-4 rounded-xl border border-white bg-white p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Pipeline acheteur & matching</h4>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <FormField label="Statut acheteur">
+                            <select value={businessProfileDraft.acheteurStatus || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurStatus: (e.target.value || null) as ClienteleProfile['acheteurStatus'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="">Auto</option>
+                              <option value="lead_brut">Lead brut</option>
+                              <option value="qualifie">Qualifie</option>
+                              <option value="recherche">En recherche</option>
+                              <option value="visite_planifiee">Visite planifiee</option>
+                              <option value="offre_en_cours">Offre en cours</option>
+                              <option value="compromis_signe">Compromis signe</option>
+                              <option value="vendu">Vendu</option>
+                              <option value="perdu">Perdu</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Zones souhaitees">
+                            <input value={(businessProfileDraft.acheteurZones || []).join(', ')} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurZones: parseMultivalueText(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Types de bien">
+                            <input value={(businessProfileDraft.acheteurTypes || []).join(', ')} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurTypes: parseMultivalueText(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Budget min">
+                            <input type="number" value={businessProfileDraft.acheteurBudgetMin ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurBudgetMin: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Budget max">
+                            <input type="number" value={businessProfileDraft.acheteurBudgetMax ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurBudgetMax: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Mode financement">
+                            <input value={businessProfileDraft.acheteurFinancementMode || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurFinancementMode: e.target.value } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Surface min">
+                            <input type="number" value={businessProfileDraft.acheteurSurfaceMin ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurSurfaceMin: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Distance plage max">
+                            <input type="number" value={businessProfileDraft.acheteurDistancePlageMax ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurDistancePlageMax: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Prochaine action">
+                            <div className="flex gap-2">
+                              <select value={businessProfileDraft.acheteurNextAction || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurNextAction: (e.target.value || null) as ClienteleProfile['acheteurNextAction'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                                <option value="">Aucune</option>
+                                <option value="rappeler">Rappeler</option>
+                                <option value="envoyer_offres">Envoyer offres</option>
+                                <option value="programmer_visite">Programmer visite</option>
+                              </select>
+                              <input type="datetime-local" value={businessProfileDraft.acheteurActionDueAt ? String(businessProfileDraft.acheteurActionDueAt).replace(' ', 'T').slice(0, 16) : ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, acheteurActionDueAt: e.target.value ? `${e.target.value}:00` : null } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                            </div>
+                          </FormField>
+                        </div>
+                        <p className="mt-3 text-sm text-gray-600">Statut calcule: <span className="font-medium text-gray-900">{formatAcheteurStatus(businessInsights.acheteurStatus)}</span></p>
+                        <div className="mt-3 space-y-2">
+                          {buyerMatches.filter((item) => item.score >= 80).slice(0, 5).map((match) => (
+                            <div key={match.bienId} className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                              <p className="text-sm font-medium text-gray-900">{getBienDisplayLabel(match.bienId)}</p>
+                              <p className="mt-1 text-sm text-gray-600">Matching {match.score}% {match.reasons.length ? `- ${match.reasons.join(', ')}` : ''}</p>
+                            </div>
+                          ))}
+                          {buyerMatches.filter((item) => item.score >= 80).length === 0 && <p className="text-sm text-gray-500">Aucun bien recommande a 80% pour le moment.</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedClient.category === 'proprietaires' && (
+                      <div className="mt-4 rounded-xl border border-white bg-white p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Mandat, reversements & travaux</h4>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <FormField label="Statut proprietaire">
+                            <select value={businessProfileDraft.proprietaireStatus || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireStatus: (e.target.value || null) as ClienteleProfile['proprietaireStatus'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="">Auto</option>
+                              <option value="prospect">Prospect</option>
+                              <option value="mandat_location">Sous mandat locatif</option>
+                              <option value="mandat_vente">Sous mandat vente</option>
+                              <option value="actif">Actif</option>
+                              <option value="inactif">Inactif</option>
+                              <option value="blackliste">Blackliste</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Type mandat">
+                            <select value={businessProfileDraft.proprietaireMandatType || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireMandatType: (e.target.value || null) as ClienteleProfile['proprietaireMandatType'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="">Selectionner</option>
+                              <option value="gestion_locative">Gestion locative</option>
+                              <option value="vente">Mandat de vente</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Periode mandat">
+                            <div className="flex gap-2">
+                              <input type="date" value={businessProfileDraft.proprietaireMandatStart || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireMandatStart: e.target.value || null } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                              <input type="date" value={businessProfileDraft.proprietaireMandatEnd || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireMandatEnd: e.target.value || null } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                            </div>
+                          </FormField>
+                          <FormField label="Frequence reversement">
+                            <select value={businessProfileDraft.proprietaireReversementFrequence || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireReversementFrequence: (e.target.value || null) as ClienteleProfile['proprietaireReversementFrequence'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="">Selectionner</option>
+                              <option value="mensuel">Mensuel</option>
+                              <option value="trimestriel">Trimestriel</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Mode paiement">
+                            <select value={businessProfileDraft.proprietaireModePaiement || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireModePaiement: (e.target.value || null) as ClienteleProfile['proprietaireModePaiement'] } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                              <option value="">Selectionner</option>
+                              <option value="virement">Virement</option>
+                              <option value="especes">Cash</option>
+                              <option value="cheque">Cheque</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Commission agence %">
+                            <input type="number" step="0.01" value={businessProfileDraft.proprietaireCommissionPercent ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireCommissionPercent: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Plafond travaux sans validation">
+                            <input type="number" step="0.01" value={businessProfileDraft.proprietairePlafondTravaux ?? ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietairePlafondTravaux: e.target.value === '' ? null : Number(e.target.value) } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                          <FormField label="Dernier releve envoye">
+                            <input type="date" value={businessProfileDraft.proprietaireLastStatementAt || ''} onChange={(e) => setBusinessProfileDraft((prev) => prev ? { ...prev, proprietaireLastStatementAt: e.target.value || null } : prev)} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                          </FormField>
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                          <MetricCard label="Loyers encaisses" value={`${businessInsights.ownerRevenue.toFixed(2)} DT`} />
+                          <MetricCard label="Commission agence" value={`${businessInsights.ownerCommission.toFixed(2)} DT`} />
+                          <MetricCard label="Charges / maintenance" value={`${businessInsights.ownerCharges.toFixed(2)} DT`} />
+                          <MetricCard label="Net proprietaire" value={`${businessInsights.ownerNet.toFixed(2)} DT`} />
+                        </div>
+                        <p className="mt-3 text-sm text-gray-600">Statut calcule: <span className="font-medium text-gray-900">{formatProprietaireStatus(businessInsights.proprietaireStatus)}</span></p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
                   <div className="rounded-xl border border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-gray-900">Historique contrats</h3>
@@ -1286,6 +2137,15 @@ function InfoListRow({ icon, label, values, emptyLabel }: { icon: ReactNode; lab
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-gray-900">{value}</p>
     </div>
   );
 }

@@ -4,6 +4,19 @@ import { toast } from 'sonner';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
+async function getApiErrorMessage(response: Response, fallback: string) {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await response.json().catch(() => null);
+    const message = String(data?.error || data?.message || '').trim();
+    if (message) return message;
+  } else {
+    const text = await response.text().catch(() => '');
+    if (text && !text.startsWith('<!DOCTYPE')) return text;
+  }
+  return fallback;
+}
+
 type ContratApi = {
   id: string;
   bien_id: string;
@@ -195,7 +208,7 @@ export default function ContratsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url_pdf: uploadData.url }),
       });
-      if (!updateResponse.ok) throw new Error('Mise a jour contrat impossible');
+      if (!updateResponse.ok) throw new Error(await getApiErrorMessage(updateResponse, 'Mise a jour contrat impossible'));
 
       await fetchData();
       toast.success('PDF du contrat mis a jour');
@@ -232,7 +245,7 @@ export default function ContratsPage() {
           statut: newContract.statut,
         }),
       });
-      if (!response.ok) throw new Error('Creation contrat impossible');
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Creation contrat impossible'));
       toast.success('Contrat ajoute');
       setNewContract({ bien_id: '', locataire_id: '', date_debut: '', date_fin: '', montant_recu: '', statut: 'actif' });
       await fetchData();
@@ -249,7 +262,7 @@ export default function ContratsPage() {
     if (!confirmed) return;
     try {
       const response = await fetch(`${API_URL}/contrats/${contratId}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Suppression contrat impossible');
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Suppression contrat impossible'));
       toast.success('Contrat supprime');
       await fetchData();
     } catch (err: any) {

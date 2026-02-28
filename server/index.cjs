@@ -50,6 +50,13 @@ function getAgencySqlDateTime(date = new Date()) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
@@ -1760,6 +1767,408 @@ async function ensureClientInteractionsSchema() {
   `);
 }
 
+async function ensureClientelesSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clienteles_profiles (
+      id VARCHAR(80) PRIMARY KEY,
+      source_table ENUM('utilisateurs', 'locataires', 'proprietaires') NOT NULL,
+      source_id VARCHAR(50) NOT NULL,
+      linked_user_id VARCHAR(50) NULL,
+      email VARCHAR(100) NULL,
+      global_status ENUM('prospect', 'actif', 'inactif', 'blackliste') NOT NULL DEFAULT 'prospect',
+      score_override INT NULL,
+      canal_entree ENUM('facebook', 'site_web', 'whatsapp', 'visite_agence', 'recommandation', 'google', 'autre') NULL,
+      last_interaction_at DATETIME NULL,
+      last_interaction_note TEXT NULL,
+      active_roles_json LONGTEXT NULL,
+      vip TINYINT(1) NOT NULL DEFAULT 0,
+      blacklist_reason TEXT NULL,
+      locataire_status ENUM('prospect', 'verification', 'actif', 'incident', 'archive', 'blackliste') NULL,
+      loc_cin_validee TINYINT(1) NOT NULL DEFAULT 0,
+      loc_contrat_signe TINYINT(1) NOT NULL DEFAULT 0,
+      loc_depot_encaisse TINYINT(1) NOT NULL DEFAULT 0,
+      loc_justificatif_revenus TINYINT(1) NOT NULL DEFAULT 0,
+      loc_attestation_travail TINYINT(1) NOT NULL DEFAULT 0,
+      loc_nb_personnes INT NULL,
+      loc_jour_echeance INT NULL,
+      loc_penalite_mode ENUM('jour', 'mois') NULL,
+      loc_penalite_valeur DECIMAL(10,2) NULL,
+      saison_min_nuits INT NULL,
+      saison_max_nuits INT NULL,
+      saison_capacite_max INT NULL,
+      saison_jours_arrivee_json LONGTEXT NULL,
+      saison_jours_depart_json LONGTEXT NULL,
+      saison_acompte_pourcentage DECIMAL(5,2) NULL,
+      saison_documents_recus TINYINT(1) NOT NULL DEFAULT 0,
+      saison_depot_bloque TINYINT(1) NOT NULL DEFAULT 0,
+      saison_depot_retenu_montant DECIMAL(10,2) NULL,
+      saison_depot_retenu_motif TEXT NULL,
+      acheteur_status ENUM('lead_brut', 'qualifie', 'recherche', 'visite_planifiee', 'offre_en_cours', 'compromis_signe', 'vendu', 'perdu') NULL,
+      acheteur_zones_json LONGTEXT NULL,
+      acheteur_types_json LONGTEXT NULL,
+      acheteur_budget_min DECIMAL(12,2) NULL,
+      acheteur_budget_max DECIMAL(12,2) NULL,
+      acheteur_surface_min DECIMAL(10,2) NULL,
+      acheteur_distance_plage_max INT NULL,
+      acheteur_financement_mode VARCHAR(120) NULL,
+      acheteur_next_action ENUM('rappeler', 'envoyer_offres', 'programmer_visite') NULL,
+      acheteur_action_due_at DATETIME NULL,
+      proprietaire_status ENUM('prospect', 'mandat_location', 'mandat_vente', 'actif', 'inactif', 'blackliste') NULL,
+      proprietaire_mandat_type ENUM('gestion_locative', 'vente') NULL,
+      proprietaire_mandat_start DATE NULL,
+      proprietaire_mandat_end DATE NULL,
+      proprietaire_reversement_frequence ENUM('mensuel', 'trimestriel') NULL,
+      proprietaire_mode_paiement ENUM('virement', 'especes', 'cheque') NULL,
+      proprietaire_commission_percent DECIMAL(5,2) NULL DEFAULT 10.00,
+      proprietaire_plafond_travaux DECIMAL(10,2) NULL DEFAULT 200.00,
+      proprietaire_last_statement_at DATE NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      UNIQUE KEY uq_clienteles_source (source_table, source_id),
+      INDEX idx_clienteles_email (email),
+      INDEX idx_clienteles_linked_user (linked_user_id),
+      INDEX idx_clienteles_global_status (global_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+function parseJsonArrayField(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseBooleanFlag(value) {
+  return value === true || value === 1 || value === '1';
+}
+
+function normalizeClienteleProfileRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sourceTable: row.source_table,
+    sourceId: row.source_id,
+    linkedUserId: row.linked_user_id || null,
+    email: row.email || '',
+    globalStatus: row.global_status || 'prospect',
+    scoreOverride: row.score_override === null || row.score_override === undefined ? null : Number(row.score_override),
+    canalEntree: row.canal_entree || null,
+    lastInteractionAt: row.last_interaction_at || null,
+    lastInteractionNote: row.last_interaction_note || '',
+    activeRoles: parseJsonArrayField(row.active_roles_json),
+    vip: parseBooleanFlag(row.vip),
+    blacklistReason: row.blacklist_reason || '',
+    locataireStatus: row.locataire_status || null,
+    locCinValidee: parseBooleanFlag(row.loc_cin_validee),
+    locContratSigne: parseBooleanFlag(row.loc_contrat_signe),
+    locDepotEncaisse: parseBooleanFlag(row.loc_depot_encaisse),
+    locJustificatifRevenus: parseBooleanFlag(row.loc_justificatif_revenus),
+    locAttestationTravail: parseBooleanFlag(row.loc_attestation_travail),
+    locNbPersonnes: row.loc_nb_personnes === null || row.loc_nb_personnes === undefined ? null : Number(row.loc_nb_personnes),
+    locJourEcheance: row.loc_jour_echeance === null || row.loc_jour_echeance === undefined ? null : Number(row.loc_jour_echeance),
+    locPenaliteMode: row.loc_penalite_mode || null,
+    locPenaliteValeur: row.loc_penalite_valeur === null || row.loc_penalite_valeur === undefined ? null : Number(row.loc_penalite_valeur),
+    saisonMinNuits: row.saison_min_nuits === null || row.saison_min_nuits === undefined ? null : Number(row.saison_min_nuits),
+    saisonMaxNuits: row.saison_max_nuits === null || row.saison_max_nuits === undefined ? null : Number(row.saison_max_nuits),
+    saisonCapaciteMax: row.saison_capacite_max === null || row.saison_capacite_max === undefined ? null : Number(row.saison_capacite_max),
+    saisonJoursArrivee: parseJsonArrayField(row.saison_jours_arrivee_json),
+    saisonJoursDepart: parseJsonArrayField(row.saison_jours_depart_json),
+    saisonAcomptePourcentage: row.saison_acompte_pourcentage === null || row.saison_acompte_pourcentage === undefined ? null : Number(row.saison_acompte_pourcentage),
+    saisonDocumentsRecus: parseBooleanFlag(row.saison_documents_recus),
+    saisonDepotBloque: parseBooleanFlag(row.saison_depot_bloque),
+    saisonDepotRetenuMontant: row.saison_depot_retenu_montant === null || row.saison_depot_retenu_montant === undefined ? null : Number(row.saison_depot_retenu_montant),
+    saisonDepotRetenuMotif: row.saison_depot_retenu_motif || '',
+    acheteurStatus: row.acheteur_status || null,
+    acheteurZones: parseJsonArrayField(row.acheteur_zones_json),
+    acheteurTypes: parseJsonArrayField(row.acheteur_types_json),
+    acheteurBudgetMin: row.acheteur_budget_min === null || row.acheteur_budget_min === undefined ? null : Number(row.acheteur_budget_min),
+    acheteurBudgetMax: row.acheteur_budget_max === null || row.acheteur_budget_max === undefined ? null : Number(row.acheteur_budget_max),
+    acheteurSurfaceMin: row.acheteur_surface_min === null || row.acheteur_surface_min === undefined ? null : Number(row.acheteur_surface_min),
+    acheteurDistancePlageMax: row.acheteur_distance_plage_max === null || row.acheteur_distance_plage_max === undefined ? null : Number(row.acheteur_distance_plage_max),
+    acheteurFinancementMode: row.acheteur_financement_mode || '',
+    acheteurNextAction: row.acheteur_next_action || null,
+    acheteurActionDueAt: row.acheteur_action_due_at || null,
+    proprietaireStatus: row.proprietaire_status || null,
+    proprietaireMandatType: row.proprietaire_mandat_type || null,
+    proprietaireMandatStart: row.proprietaire_mandat_start || null,
+    proprietaireMandatEnd: row.proprietaire_mandat_end || null,
+    proprietaireReversementFrequence: row.proprietaire_reversement_frequence || null,
+    proprietaireModePaiement: row.proprietaire_mode_paiement || null,
+    proprietaireCommissionPercent: row.proprietaire_commission_percent === null || row.proprietaire_commission_percent === undefined ? null : Number(row.proprietaire_commission_percent),
+    proprietairePlafondTravaux: row.proprietaire_plafond_travaux === null || row.proprietaire_plafond_travaux === undefined ? null : Number(row.proprietaire_plafond_travaux),
+    proprietaireLastStatementAt: row.proprietaire_last_statement_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function fetchClienteleProfileBySource(sourceTable, sourceId) {
+  const [rows] = await pool.query(
+    'SELECT * FROM clienteles_profiles WHERE source_table = ? AND source_id = ? LIMIT 1',
+    [sourceTable, String(sourceId || '').trim()]
+  );
+  return normalizeClienteleProfileRow(rows?.[0] || null);
+}
+
+function isMandatValidForMode(profile, mode) {
+  if (!profile) return false;
+  const now = new Date().toISOString().split('T')[0];
+  const start = profile.proprietaireMandatStart || null;
+  const end = profile.proprietaireMandatEnd || null;
+  const mandatType = profile.proprietaireMandatType || null;
+  const typeMatches = mode === 'vente' ? mandatType === 'vente' : mandatType === 'gestion_locative';
+  if (!typeMatches) return false;
+  if (!start || start > now) return false;
+  if (end && end < now) return false;
+  return true;
+}
+
+function scoreBuyerMatch(profile, bien) {
+  if (!profile || !bien) return { score: 0, reasons: [] };
+  let score = 0;
+  const reasons = [];
+  const budgetMin = profile.acheteurBudgetMin == null ? null : Number(profile.acheteurBudgetMin);
+  const budgetMax = profile.acheteurBudgetMax == null ? null : Number(profile.acheteurBudgetMax);
+  const surfaceMin = profile.acheteurSurfaceMin == null ? null : Number(profile.acheteurSurfaceMin);
+  const distancePlageMax = profile.acheteurDistancePlageMax == null ? null : Number(profile.acheteurDistancePlageMax);
+  const wantedTypes = Array.isArray(profile.acheteurTypes) ? profile.acheteurTypes.map((item) => String(item).trim()).filter(Boolean) : [];
+  const wantedZones = Array.isArray(profile.acheteurZones) ? profile.acheteurZones.map((item) => normalizeText(item)).filter(Boolean) : [];
+  const bienTitle = String(bien.titre || '');
+  const bienType = String(bien.type || '');
+  const bienZone = normalizeText(bien.zone_nom || '');
+  const bienPrice = Number(bien.prix_nuitee || 0);
+  const bienSurface = bien.superficie_m2 == null ? null : Number(bien.superficie_m2);
+  const bienDistancePlage = bien.distance_plage_m == null ? null : Number(bien.distance_plage_m);
+
+  if (wantedTypes.length === 0 || wantedTypes.includes(bienType)) {
+    score += wantedTypes.length > 0 ? 30 : 10;
+    reasons.push(`Type ${bienType || bienTitle}`);
+  }
+  if (wantedZones.length === 0 || wantedZones.includes(bienZone)) {
+    score += wantedZones.length > 0 ? 25 : 10;
+    reasons.push(`Zone ${bien.zone_nom || 'compatible'}`);
+  }
+  if ((budgetMin === null || bienPrice >= budgetMin) && (budgetMax === null || bienPrice <= budgetMax)) {
+    score += 25;
+    reasons.push('Budget compatible');
+  }
+  if (surfaceMin === null || (bienSurface !== null && bienSurface >= surfaceMin)) {
+    score += 10;
+    reasons.push('Surface compatible');
+  }
+  if (distancePlageMax === null || (bienDistancePlage !== null && bienDistancePlage <= distancePlageMax)) {
+    score += 10;
+    reasons.push('Distance plage compatible');
+  }
+
+  return { score: Math.max(0, Math.min(100, Math.round(score))), reasons };
+}
+
+async function syncClienteleTasks(sourceTable, sourceId) {
+  const profile = await fetchClienteleProfileBySource(sourceTable, sourceId);
+  const now = new Date();
+  const nowSql = getAgencySqlDateTime(now);
+  const tasks = [];
+
+  if (sourceTable === 'locataires') {
+    const [contracts] = await pool.query('SELECT * FROM contrats WHERE locataire_id = ?', [sourceId]);
+    if (contracts.length > 0) {
+      const contractIds = contracts.map((item) => item.id);
+      const [payments] = await pool.query(
+        `SELECT * FROM paiements WHERE contrat_id IN (${contractIds.map(() => '?').join(', ')})`,
+        contractIds
+      );
+
+      payments
+        .filter((payment) => payment.statut === 'retard')
+        .forEach((payment) => {
+          const paymentDate = new Date(payment.date_paiement);
+          if (Number.isNaN(paymentDate.getTime())) return;
+          const daysLate = Math.floor((now.getTime() - paymentDate.getTime()) / (24 * 60 * 60 * 1000));
+          if (daysLate >= 7) {
+            tasks.push({
+              taskType: 'relance_retard_7j',
+              severity: 'critical',
+              title: 'Envoyer relance 1',
+              detail: `Paiement ${payment.id} en retard depuis ${daysLate} jour(s).`,
+              dueDate: payment.date_paiement,
+              relatedEntityType: 'paiement',
+              relatedEntityId: payment.id,
+            });
+          }
+        });
+
+      contracts.forEach((contrat) => {
+        const contractEnd = new Date(contrat.date_fin);
+        if (Number.isNaN(contractEnd.getTime())) return;
+        const daysToEnd = Math.ceil((contractEnd.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+        if (daysToEnd >= 0 && daysToEnd <= 30) {
+          tasks.push({
+            taskType: 'renouvellement_contrat',
+            severity: 'warning',
+            title: 'Proposer renouvellement',
+            detail: `Contrat ${contrat.id} arrive a echeance dans ${daysToEnd} jour(s).`,
+            dueDate: contrat.date_fin,
+            relatedEntityType: 'contrat',
+            relatedEntityId: contrat.id,
+          });
+        }
+      });
+    }
+  }
+
+  if (sourceTable === 'utilisateurs') {
+    const [userRows] = await pool.query('SELECT id, email FROM utilisateurs WHERE id = ? LIMIT 1', [sourceId]);
+    const user = userRows[0];
+    const profileStatus = String(profile?.acheteurStatus || '');
+    if (user && profileStatus === 'recherche') {
+      const [interactionRows] = await pool.query(
+        `SELECT event_at
+         FROM client_interactions
+         WHERE client_user_id = ? OR (client_email IS NOT NULL AND client_email = ?)
+         ORDER BY event_at DESC
+         LIMIT 1`,
+        [sourceId, user.email || '']
+      );
+      const lastInteractionAt = interactionRows[0]?.event_at || profile?.lastInteractionAt || null;
+      const lastInteractionDate = lastInteractionAt ? new Date(String(lastInteractionAt).replace(' ', 'T')) : null;
+      const inactiveDays = !lastInteractionDate || Number.isNaN(lastInteractionDate.getTime())
+        ? 999
+        : Math.floor((now.getTime() - lastInteractionDate.getTime()) / (24 * 60 * 60 * 1000));
+      if (inactiveDays > 15) {
+        tasks.push({
+          taskType: 'relance_acheteur',
+          severity: 'warning',
+          title: 'Relancer l acheteur',
+          detail: 'Aucun contact recent depuis plus de 15 jours.',
+          dueDate: nowSql,
+          relatedEntityType: 'utilisateur',
+          relatedEntityId: sourceId,
+        });
+      }
+    }
+
+    if (profile) {
+      const [saleBiens] = await pool.query(
+        `SELECT b.id, b.reference, b.titre, b.type, b.prix_nuitee, b.superficie_m2, b.distance_plage_m, z.nom AS zone_nom
+         FROM biens b
+         LEFT JOIN zones z ON z.id = b.zone_id
+         WHERE b.mode = 'vente'`
+      );
+      saleBiens
+        .map((bien) => ({ bien, match: scoreBuyerMatch(profile, bien) }))
+        .filter((item) => item.match.score >= 80)
+        .sort((a, b) => b.match.score - a.match.score)
+        .slice(0, 3)
+        .forEach(({ bien, match }) => {
+          tasks.push({
+            taskType: 'nouvelle_offre',
+            severity: 'info',
+            title: 'Envoyer nouvelle offre',
+            detail: `${bien.reference || bien.id} - ${bien.titre} correspond a ${match.score}%.`,
+            relatedEntityType: 'bien',
+            relatedEntityId: bien.id,
+          });
+        });
+    }
+  }
+
+  if (sourceTable === 'proprietaires') {
+    const plafond = Number(profile?.proprietairePlafondTravaux || 200);
+    const lastStatementAt = profile?.proprietaireLastStatementAt ? new Date(String(profile.proprietaireLastStatementAt).replace(' ', 'T')) : null;
+    const monthsWithoutStatement = !lastStatementAt || Number.isNaN(lastStatementAt.getTime())
+      ? 999
+      : (now.getTime() - lastStatementAt.getTime()) / (24 * 60 * 60 * 1000 * 30);
+    if (monthsWithoutStatement >= 3) {
+      tasks.push({
+        taskType: 'releve_proprietaire',
+        severity: 'warning',
+        title: 'Preparer releve',
+        detail: 'Aucun releve envoye depuis plusieurs mois.',
+        relatedEntityType: 'proprietaire',
+        relatedEntityId: sourceId,
+      });
+    }
+
+    const [ownerBiens] = await pool.query('SELECT id FROM biens WHERE proprietaire_id = ?', [sourceId]);
+    if (ownerBiens.length > 0) {
+      const bienIds = ownerBiens.map((item) => item.id);
+      const [maintenanceRows] = await pool.query(
+        `SELECT id, cout FROM maintenance WHERE bien_id IN (${bienIds.map(() => '?').join(', ')})`,
+        bienIds
+      );
+      maintenanceRows
+        .filter((item) => Number(item.cout || 0) > plafond)
+        .forEach((item) => {
+          tasks.push({
+            taskType: 'accord_travaux_proprietaire',
+            severity: 'warning',
+            title: 'Accord proprietaire requis',
+            detail: `Maintenance ${item.id} depasse le plafond autorise (${plafond} DT).`,
+            relatedEntityType: 'maintenance',
+            relatedEntityId: item.id,
+          });
+        });
+    }
+  }
+
+  await pool.query('DELETE FROM clienteles_tasks WHERE source_table = ? AND source_id = ?', [sourceTable, sourceId]);
+
+  for (const task of tasks) {
+    const taskId = `ct_${sourceTable}_${sourceId}_${task.taskType}_${task.relatedEntityId || 'none'}`
+      .replace(/[^a-zA-Z0-9_]/g, '_')
+      .slice(0, 100);
+    await pool.query(
+      `INSERT INTO clienteles_tasks (
+        id, source_table, source_id, task_type, severity, title, detail, due_date,
+        related_entity_type, related_entity_id, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
+      [
+        taskId,
+        sourceTable,
+        sourceId,
+        task.taskType,
+        task.severity,
+        task.title,
+        task.detail || null,
+        task.dueDate || null,
+        task.relatedEntityType || null,
+        task.relatedEntityId || null,
+        nowSql,
+        nowSql,
+      ]
+    );
+  }
+
+  const [rows] = await pool.query(
+    `SELECT
+      id,
+      source_table AS sourceTable,
+      source_id AS sourceId,
+      task_type AS taskType,
+      severity,
+      title,
+      detail,
+      DATE_FORMAT(due_date, '%Y-%m-%d %H:%i:%s') AS dueDate,
+      related_entity_type AS relatedEntityType,
+      related_entity_id AS relatedEntityId,
+      status,
+      DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+      DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt
+     FROM clienteles_tasks
+     WHERE source_table = ? AND source_id = ?
+     ORDER BY severity DESC, due_date IS NULL, due_date ASC, created_at DESC`,
+    [sourceTable, sourceId]
+  );
+
+  return rows || [];
+}
+
 console.log('🔄 Connecting to database...');
 pool.getConnection()
   .then(conn => {
@@ -1768,6 +2177,9 @@ pool.getConnection()
     return ensureAuthSchema();
   })
   .then(() => ensureClientInteractionsSchema())
+  .then(() => ensureClientelesSchema())
+  .then(() => ensureMaintenanceWorkflowSchema())
+  .then(() => ensureClientelesTasksSchema())
   .then(() => ensureZonesSchema())
   .then(() => ensureBiensWorkflowSchema())
   .then(() => {
@@ -1941,6 +2353,14 @@ app.post('/api/biens', async (req, res) => {
     });
     if (venteTarification.error) {
       return res.status(400).json({ error: venteTarification.error });
+    }
+
+    const shouldPublish = !(visible_sur_site === false || Number(visible_sur_site) === 0);
+    if (shouldPublish && proprietaire_id) {
+      const ownerProfile = await fetchClienteleProfileBySource('proprietaires', proprietaire_id);
+      if (!isMandatValidForMode(ownerProfile, resolvedMode)) {
+        return res.status(400).json({ error: 'Publication impossible: mandat proprietaire manquant, invalide ou expire' });
+      }
     }
 
     const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
@@ -2157,6 +2577,14 @@ app.put('/api/biens/:id', async (req, res) => {
     });
     if (venteTarification.error) {
       return res.status(400).json({ error: venteTarification.error });
+    }
+
+    const shouldPublish = !(visible_sur_site === false || Number(visible_sur_site) === 0);
+    if (shouldPublish && proprietaire_id) {
+      const ownerProfile = await fetchClienteleProfileBySource('proprietaires', proprietaire_id);
+      if (!isMandatValidForMode(ownerProfile, resolvedMode)) {
+        return res.status(400).json({ error: 'Publication impossible: mandat proprietaire manquant, invalide ou expire' });
+      }
     }
 
     const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
@@ -2436,6 +2864,10 @@ app.get('/api/contrats', async (req, res) => {
 app.post('/api/contrats', async (req, res) => {
   try {
     const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut } = req.body;
+    const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
+    if (locataireProfile && (locataireProfile.globalStatus === 'blackliste' || locataireProfile.locataireStatus === 'blackliste')) {
+      return res.status(400).json({ error: 'Creation impossible: ce locataire est blackliste' });
+    }
     const id = 'c' + Date.now();
     const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
     await pool.query(
@@ -2491,9 +2923,14 @@ app.post('/api/paiements', async (req, res) => {
 app.get('/api/maintenance', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT m.*, b.titre as bien_titre 
+      SELECT
+        m.*,
+        b.titre as bien_titre,
+        b.proprietaire_id,
+        p.nom as proprietaire_nom
       FROM maintenance m 
       LEFT JOIN biens b ON m.bien_id = b.id
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
       ORDER BY m.created_at DESC
     `);
     res.json(rows);
@@ -2505,17 +2942,129 @@ app.get('/api/maintenance', async (req, res) => {
 app.post('/api/maintenance', async (req, res) => {
   try {
     const { bien_id, description, cout, statut } = req.body;
+    if (!bien_id || !description) {
+      return res.status(400).json({ error: 'Bien et description requis' });
+    }
     const id = 'maint' + Date.now();
-    const created_at = new Date().toISOString().split('T')[0];
+    const created_at = getAgencySqlDateTime();
+    const [bienRows] = await pool.query('SELECT id, titre, proprietaire_id FROM biens WHERE id = ? LIMIT 1', [bien_id]);
+    const bien = bienRows[0];
+    if (!bien) {
+      return res.status(404).json({ error: 'Bien introuvable' });
+    }
+
+    let ownerApprovalRequired = 0;
+    let ownerApprovalStatus = 'non_requis';
+    let resolvedStatut = statut || 'en_cours';
+    if (bien.proprietaire_id) {
+      const ownerProfile = await fetchClienteleProfileBySource('proprietaires', bien.proprietaire_id);
+      const plafond = Number(ownerProfile?.proprietairePlafondTravaux || 200);
+      if (Number(cout || 0) > plafond) {
+        ownerApprovalRequired = 1;
+        ownerApprovalStatus = 'en_attente';
+        resolvedStatut = 'en_attente_accord_proprietaire';
+      }
+    }
+
     await pool.query(
-      'INSERT INTO maintenance (id, bien_id, description, cout, statut, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, bien_id, description, cout || 0, statut || 'en_cours', created_at]
+      `INSERT INTO maintenance (
+        id, bien_id, description, cout, statut, owner_approval_required, owner_approval_status, owner_approved_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, bien_id, description, cout || 0, resolvedStatut, ownerApprovalRequired, ownerApprovalStatus, null, created_at]
     );
-    const [newMaint] = await pool.query('SELECT * FROM maintenance WHERE id = ?', [id]);
+    const [newMaint] = await pool.query(`
+      SELECT
+        m.*,
+        b.titre as bien_titre,
+        b.proprietaire_id,
+        p.nom as proprietaire_nom
+      FROM maintenance m
+      LEFT JOIN biens b ON b.id = m.bien_id
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+      WHERE m.id = ?`,
+      [id]
+    );
     res.status(201).json(newMaint[0]);
   } catch (error) {
     console.error('Error creating maintenance:', error);
     res.status(500).json({ error: 'Failed to create maintenance' });
+  }
+});
+
+app.put('/api/maintenance/:id', async (req, res) => {
+  try {
+    const { description, cout, statut } = req.body || {};
+    const [rows] = await pool.query(
+      `SELECT m.*, b.proprietaire_id
+       FROM maintenance m
+       LEFT JOIN biens b ON b.id = m.bien_id
+       WHERE m.id = ?
+       LIMIT 1`,
+      [req.params.id]
+    );
+    const current = rows[0];
+    if (!current) {
+      return res.status(404).json({ error: 'Maintenance introuvable' });
+    }
+
+    let ownerApprovalRequired = Number(current.owner_approval_required || 0);
+    let ownerApprovalStatus = String(current.owner_approval_status || 'non_requis');
+    let ownerApprovedAt = current.owner_approved_at || null;
+    const nextCost = cout === undefined ? Number(current.cout || 0) : Number(cout || 0);
+    let nextStatus = statut === undefined ? String(current.statut || 'en_cours') : String(statut);
+
+    if (current.proprietaire_id) {
+      const ownerProfile = await fetchClienteleProfileBySource('proprietaires', current.proprietaire_id);
+      const plafond = Number(ownerProfile?.proprietairePlafondTravaux || 200);
+      ownerApprovalRequired = nextCost > plafond ? 1 : 0;
+      if (!ownerApprovalRequired) {
+        ownerApprovalStatus = 'non_requis';
+        ownerApprovedAt = null;
+      } else if (nextStatus === 'approuve') {
+        ownerApprovalStatus = 'approuve';
+        ownerApprovedAt = getAgencySqlDateTime();
+      } else if (ownerApprovalStatus !== 'approuve') {
+        ownerApprovalStatus = 'en_attente';
+        if (nextStatus === 'en_cours') {
+          return res.status(400).json({ error: 'Passage en cours impossible: accord proprietaire requis avant travaux' });
+        }
+        if (nextStatus !== 'termine' && nextStatus !== 'annule') {
+          nextStatus = 'en_attente_accord_proprietaire';
+        }
+      }
+    }
+
+    await pool.query(
+      `UPDATE maintenance
+       SET description = ?, cout = ?, statut = ?, owner_approval_required = ?, owner_approval_status = ?, owner_approved_at = ?
+       WHERE id = ?`,
+      [
+        description === undefined ? current.description : String(description),
+        nextCost,
+        nextStatus,
+        ownerApprovalRequired,
+        ownerApprovalStatus,
+        ownerApprovedAt,
+        req.params.id,
+      ]
+    );
+
+    const [updatedRows] = await pool.query(`
+      SELECT
+        m.*,
+        b.titre as bien_titre,
+        b.proprietaire_id,
+        p.nom as proprietaire_nom
+      FROM maintenance m
+      LEFT JOIN biens b ON b.id = m.bien_id
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+      WHERE m.id = ?`,
+      [req.params.id]
+    );
+    res.json(updatedRows[0]);
+  } catch (error) {
+    console.error('Error updating maintenance:', error);
+    res.status(500).json({ error: 'Failed to update maintenance' });
   }
 });
 
@@ -2584,6 +3133,23 @@ app.delete('/api/contrats/:id', async (req, res) => {
 app.put('/api/contrats/:id', async (req, res) => {
   try {
     const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut } = req.body;
+    if (locataire_id) {
+      const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
+      if (locataireProfile && (locataireProfile.globalStatus === 'blackliste' || locataireProfile.locataireStatus === 'blackliste')) {
+        return res.status(400).json({ error: 'Mise a jour impossible: ce locataire est blackliste' });
+      }
+    }
+    if (statut === 'termine') {
+      const [pendingPayments] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM paiements
+         WHERE contrat_id = ? AND statut IN ('en_attente', 'retard')`,
+        [req.params.id]
+      );
+      if (Number(pendingPayments?.[0]?.total || 0) > 0) {
+        return res.status(400).json({ error: 'Cloture impossible: des loyers ou penalites restent impayes' });
+      }
+    }
     const fields = [];
     const values = [];
 
@@ -2907,8 +3473,56 @@ app.post('/api/caracteristiques', async (req, res) => {
         await pool.query(
           'DELETE FROM modifier_onglets WHERE mode_bien = ? AND type_bien = ? AND caracteristique_id = ?',
           [normalizedMode, normalizedType, caracteristique.id]
-        );
-      }
+  );
+}
+
+async function ensureMaintenanceWorkflowSchema() {
+  const columnExists = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+      `,
+      [tableName, columnName]
+    );
+    return rows.length > 0;
+  };
+
+  if (!(await columnExists('maintenance', 'owner_approval_required'))) {
+    await pool.query("ALTER TABLE maintenance ADD COLUMN owner_approval_required TINYINT(1) NOT NULL DEFAULT 0 AFTER statut");
+  }
+  if (!(await columnExists('maintenance', 'owner_approval_status'))) {
+    await pool.query("ALTER TABLE maintenance ADD COLUMN owner_approval_status VARCHAR(32) NOT NULL DEFAULT 'non_requis' AFTER owner_approval_required");
+  }
+  if (!(await columnExists('maintenance', 'owner_approved_at'))) {
+    await pool.query('ALTER TABLE maintenance ADD COLUMN owner_approved_at DATETIME NULL AFTER owner_approval_status');
+  }
+}
+
+async function ensureClientelesTasksSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clienteles_tasks (
+      id VARCHAR(100) PRIMARY KEY,
+      source_table VARCHAR(50) NOT NULL,
+      source_id VARCHAR(100) NOT NULL,
+      task_type VARCHAR(100) NOT NULL,
+      severity VARCHAR(20) NOT NULL DEFAULT 'info',
+      title VARCHAR(255) NOT NULL,
+      detail TEXT NULL,
+      due_date DATETIME NULL,
+      related_entity_type VARCHAR(50) NULL,
+      related_entity_id VARCHAR(100) NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      UNIQUE KEY uniq_client_task (source_table, source_id, task_type, related_entity_type, related_entity_id)
+    )
+  `);
+}
     }
 
     res.status(201).json(caracteristique);
@@ -3579,6 +4193,177 @@ app.post('/api/client-interactions', async (req, res) => {
   } catch (error) {
     console.error('Error creating client interaction:', error);
     res.status(500).json({ error: "Impossible d'enregistrer l interaction client" });
+  }
+});
+
+app.get('/api/clienteles/profiles', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM clienteles_profiles ORDER BY updated_at DESC, created_at DESC');
+    res.json((rows || []).map((row) => normalizeClienteleProfileRow(row)));
+  } catch (error) {
+    console.error('Error fetching clienteles profiles:', error);
+    res.status(500).json({ error: 'Impossible de charger les profils clienteles' });
+  }
+});
+
+app.get('/api/clienteles/tasks/:sourceTable/:sourceId', async (req, res) => {
+  try {
+    const sourceTable = String(req.params.sourceTable || '').trim();
+    const sourceId = String(req.params.sourceId || '').trim();
+    if (!['utilisateurs', 'locataires', 'proprietaires'].includes(sourceTable)) {
+      return res.status(400).json({ error: 'sourceTable invalide' });
+    }
+    if (!sourceId) {
+      return res.status(400).json({ error: 'sourceId requis' });
+    }
+    const tasks = await syncClienteleTasks(sourceTable, sourceId);
+    res.json(tasks);
+  } catch (error) {
+    console.error('Error syncing clientele tasks:', error);
+    res.status(500).json({ error: 'Impossible de charger les taches clienteles' });
+  }
+});
+
+app.put('/api/clienteles/profiles/:sourceTable/:sourceId', async (req, res) => {
+  try {
+    const sourceTable = String(req.params.sourceTable || '').trim();
+    const sourceId = String(req.params.sourceId || '').trim();
+    if (!['utilisateurs', 'locataires', 'proprietaires'].includes(sourceTable)) {
+      return res.status(400).json({ error: 'sourceTable invalide' });
+    }
+    if (!sourceId) {
+      return res.status(400).json({ error: 'sourceId requis' });
+    }
+
+    const now = getAgencySqlDateTime();
+    const profileId = `cp_${sourceTable}_${sourceId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+    const body = req.body || {};
+    const payload = [
+      body.linkedUserId ? String(body.linkedUserId).trim() : null,
+      body.email ? String(body.email).trim().toLowerCase() : null,
+      ['prospect', 'actif', 'inactif', 'blackliste'].includes(String(body.globalStatus || '')) ? String(body.globalStatus) : 'prospect',
+      body.scoreOverride === null || body.scoreOverride === undefined || body.scoreOverride === '' ? null : Number(body.scoreOverride),
+      body.canalEntree ? String(body.canalEntree).trim() : null,
+      body.lastInteractionAt ? String(body.lastInteractionAt).trim().replace('T', ' ') : null,
+      body.lastInteractionNote ? String(body.lastInteractionNote) : null,
+      JSON.stringify(Array.isArray(body.activeRoles) ? body.activeRoles : []),
+      body.vip ? 1 : 0,
+      body.blacklistReason ? String(body.blacklistReason) : null,
+      body.locataireStatus ? String(body.locataireStatus) : null,
+      body.locCinValidee ? 1 : 0,
+      body.locContratSigne ? 1 : 0,
+      body.locDepotEncaisse ? 1 : 0,
+      body.locJustificatifRevenus ? 1 : 0,
+      body.locAttestationTravail ? 1 : 0,
+      body.locNbPersonnes === null || body.locNbPersonnes === undefined || body.locNbPersonnes === '' ? null : Number(body.locNbPersonnes),
+      body.locJourEcheance === null || body.locJourEcheance === undefined || body.locJourEcheance === '' ? null : Number(body.locJourEcheance),
+      body.locPenaliteMode ? String(body.locPenaliteMode) : null,
+      body.locPenaliteValeur === null || body.locPenaliteValeur === undefined || body.locPenaliteValeur === '' ? null : Number(body.locPenaliteValeur),
+      body.saisonMinNuits === null || body.saisonMinNuits === undefined || body.saisonMinNuits === '' ? null : Number(body.saisonMinNuits),
+      body.saisonMaxNuits === null || body.saisonMaxNuits === undefined || body.saisonMaxNuits === '' ? null : Number(body.saisonMaxNuits),
+      body.saisonCapaciteMax === null || body.saisonCapaciteMax === undefined || body.saisonCapaciteMax === '' ? null : Number(body.saisonCapaciteMax),
+      JSON.stringify(Array.isArray(body.saisonJoursArrivee) ? body.saisonJoursArrivee : []),
+      JSON.stringify(Array.isArray(body.saisonJoursDepart) ? body.saisonJoursDepart : []),
+      body.saisonAcomptePourcentage === null || body.saisonAcomptePourcentage === undefined || body.saisonAcomptePourcentage === '' ? null : Number(body.saisonAcomptePourcentage),
+      body.saisonDocumentsRecus ? 1 : 0,
+      body.saisonDepotBloque ? 1 : 0,
+      body.saisonDepotRetenuMontant === null || body.saisonDepotRetenuMontant === undefined || body.saisonDepotRetenuMontant === '' ? null : Number(body.saisonDepotRetenuMontant),
+      body.saisonDepotRetenuMotif ? String(body.saisonDepotRetenuMotif) : null,
+      body.acheteurStatus ? String(body.acheteurStatus) : null,
+      JSON.stringify(Array.isArray(body.acheteurZones) ? body.acheteurZones : []),
+      JSON.stringify(Array.isArray(body.acheteurTypes) ? body.acheteurTypes : []),
+      body.acheteurBudgetMin === null || body.acheteurBudgetMin === undefined || body.acheteurBudgetMin === '' ? null : Number(body.acheteurBudgetMin),
+      body.acheteurBudgetMax === null || body.acheteurBudgetMax === undefined || body.acheteurBudgetMax === '' ? null : Number(body.acheteurBudgetMax),
+      body.acheteurSurfaceMin === null || body.acheteurSurfaceMin === undefined || body.acheteurSurfaceMin === '' ? null : Number(body.acheteurSurfaceMin),
+      body.acheteurDistancePlageMax === null || body.acheteurDistancePlageMax === undefined || body.acheteurDistancePlageMax === '' ? null : Number(body.acheteurDistancePlageMax),
+      body.acheteurFinancementMode ? String(body.acheteurFinancementMode) : null,
+      body.acheteurNextAction ? String(body.acheteurNextAction) : null,
+      body.acheteurActionDueAt ? String(body.acheteurActionDueAt).trim().replace('T', ' ') : null,
+      body.proprietaireStatus ? String(body.proprietaireStatus) : null,
+      body.proprietaireMandatType ? String(body.proprietaireMandatType) : null,
+      body.proprietaireMandatStart ? String(body.proprietaireMandatStart) : null,
+      body.proprietaireMandatEnd ? String(body.proprietaireMandatEnd) : null,
+      body.proprietaireReversementFrequence ? String(body.proprietaireReversementFrequence) : null,
+      body.proprietaireModePaiement ? String(body.proprietaireModePaiement) : null,
+      body.proprietaireCommissionPercent === null || body.proprietaireCommissionPercent === undefined || body.proprietaireCommissionPercent === '' ? null : Number(body.proprietaireCommissionPercent),
+      body.proprietairePlafondTravaux === null || body.proprietairePlafondTravaux === undefined || body.proprietairePlafondTravaux === '' ? null : Number(body.proprietairePlafondTravaux),
+      body.proprietaireLastStatementAt ? String(body.proprietaireLastStatementAt) : null,
+      now,
+      now,
+    ];
+
+    await pool.query(
+      `INSERT INTO clienteles_profiles (
+        id, source_table, source_id, linked_user_id, email, global_status, score_override, canal_entree, last_interaction_at, last_interaction_note,
+        active_roles_json, vip, blacklist_reason, locataire_status, loc_cin_validee, loc_contrat_signe, loc_depot_encaisse, loc_justificatif_revenus,
+        loc_attestation_travail, loc_nb_personnes, loc_jour_echeance, loc_penalite_mode, loc_penalite_valeur, saison_min_nuits, saison_max_nuits,
+        saison_capacite_max, saison_jours_arrivee_json, saison_jours_depart_json, saison_acompte_pourcentage, saison_documents_recus, saison_depot_bloque,
+        saison_depot_retenu_montant, saison_depot_retenu_motif, acheteur_status, acheteur_zones_json, acheteur_types_json, acheteur_budget_min,
+        acheteur_budget_max, acheteur_surface_min, acheteur_distance_plage_max, acheteur_financement_mode, acheteur_next_action, acheteur_action_due_at,
+        proprietaire_status, proprietaire_mandat_type, proprietaire_mandat_start, proprietaire_mandat_end, proprietaire_reversement_frequence,
+        proprietaire_mode_paiement, proprietaire_commission_percent, proprietaire_plafond_travaux, proprietaire_last_statement_at, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )
+      ON DUPLICATE KEY UPDATE
+        linked_user_id = VALUES(linked_user_id),
+        email = VALUES(email),
+        global_status = VALUES(global_status),
+        score_override = VALUES(score_override),
+        canal_entree = VALUES(canal_entree),
+        last_interaction_at = VALUES(last_interaction_at),
+        last_interaction_note = VALUES(last_interaction_note),
+        active_roles_json = VALUES(active_roles_json),
+        vip = VALUES(vip),
+        blacklist_reason = VALUES(blacklist_reason),
+        locataire_status = VALUES(locataire_status),
+        loc_cin_validee = VALUES(loc_cin_validee),
+        loc_contrat_signe = VALUES(loc_contrat_signe),
+        loc_depot_encaisse = VALUES(loc_depot_encaisse),
+        loc_justificatif_revenus = VALUES(loc_justificatif_revenus),
+        loc_attestation_travail = VALUES(loc_attestation_travail),
+        loc_nb_personnes = VALUES(loc_nb_personnes),
+        loc_jour_echeance = VALUES(loc_jour_echeance),
+        loc_penalite_mode = VALUES(loc_penalite_mode),
+        loc_penalite_valeur = VALUES(loc_penalite_valeur),
+        saison_min_nuits = VALUES(saison_min_nuits),
+        saison_max_nuits = VALUES(saison_max_nuits),
+        saison_capacite_max = VALUES(saison_capacite_max),
+        saison_jours_arrivee_json = VALUES(saison_jours_arrivee_json),
+        saison_jours_depart_json = VALUES(saison_jours_depart_json),
+        saison_acompte_pourcentage = VALUES(saison_acompte_pourcentage),
+        saison_documents_recus = VALUES(saison_documents_recus),
+        saison_depot_bloque = VALUES(saison_depot_bloque),
+        saison_depot_retenu_montant = VALUES(saison_depot_retenu_montant),
+        saison_depot_retenu_motif = VALUES(saison_depot_retenu_motif),
+        acheteur_status = VALUES(acheteur_status),
+        acheteur_zones_json = VALUES(acheteur_zones_json),
+        acheteur_types_json = VALUES(acheteur_types_json),
+        acheteur_budget_min = VALUES(acheteur_budget_min),
+        acheteur_budget_max = VALUES(acheteur_budget_max),
+        acheteur_surface_min = VALUES(acheteur_surface_min),
+        acheteur_distance_plage_max = VALUES(acheteur_distance_plage_max),
+        acheteur_financement_mode = VALUES(acheteur_financement_mode),
+        acheteur_next_action = VALUES(acheteur_next_action),
+        acheteur_action_due_at = VALUES(acheteur_action_due_at),
+        proprietaire_status = VALUES(proprietaire_status),
+        proprietaire_mandat_type = VALUES(proprietaire_mandat_type),
+        proprietaire_mandat_start = VALUES(proprietaire_mandat_start),
+        proprietaire_mandat_end = VALUES(proprietaire_mandat_end),
+        proprietaire_reversement_frequence = VALUES(proprietaire_reversement_frequence),
+        proprietaire_mode_paiement = VALUES(proprietaire_mode_paiement),
+        proprietaire_commission_percent = VALUES(proprietaire_commission_percent),
+        proprietaire_plafond_travaux = VALUES(proprietaire_plafond_travaux),
+        proprietaire_last_statement_at = VALUES(proprietaire_last_statement_at),
+        updated_at = VALUES(updated_at)`,
+      [profileId, sourceTable, sourceId, ...payload]
+    );
+
+    const profile = await fetchClienteleProfileBySource(sourceTable, sourceId);
+    res.json(profile);
+  } catch (error) {
+    console.error('Error saving clientele profile:', error);
+    res.status(500).json({ error: 'Impossible de sauvegarder le profil clientele' });
   }
 });
 

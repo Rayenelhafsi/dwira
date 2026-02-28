@@ -18,6 +18,74 @@ export interface Utilisateur {
   created_at: string;
 }
 
+export type ClienteleGlobalStatus = 'prospect' | 'actif' | 'inactif' | 'blackliste';
+export type CanalEntree = 'facebook' | 'site_web' | 'whatsapp' | 'visite_agence' | 'recommandation' | 'google' | 'autre';
+export type ClienteleLocataireStatus = 'prospect' | 'verification' | 'actif' | 'incident' | 'archive' | 'blackliste';
+export type ClienteleAcheteurStatus = 'lead_brut' | 'qualifie' | 'recherche' | 'visite_planifiee' | 'offre_en_cours' | 'compromis_signe' | 'vendu' | 'perdu';
+export type ClienteleProprietaireStatus = 'prospect' | 'mandat_location' | 'mandat_vente' | 'actif' | 'inactif' | 'blackliste';
+export type ClientelePenaltyMode = 'jour' | 'mois';
+export type ClienteleAcheteurNextAction = 'rappeler' | 'envoyer_offres' | 'programmer_visite';
+export type ClienteleMandatType = 'gestion_locative' | 'vente';
+export type ClienteleReversementFrequence = 'mensuel' | 'trimestriel';
+export type ClienteleProprietaireModePaiement = 'virement' | 'especes' | 'cheque';
+
+export interface ClienteleProfile {
+  id: string;
+  sourceTable: 'utilisateurs' | 'locataires' | 'proprietaires';
+  sourceId: string;
+  linkedUserId?: string | null;
+  email?: string;
+  globalStatus: ClienteleGlobalStatus;
+  scoreOverride?: number | null;
+  canalEntree?: CanalEntree | null;
+  lastInteractionAt?: string | null;
+  lastInteractionNote?: string;
+  activeRoles: Array<'locataire' | 'acheteur' | 'proprietaire'>;
+  vip: boolean;
+  blacklistReason?: string;
+  locataireStatus?: ClienteleLocataireStatus | null;
+  locCinValidee?: boolean;
+  locContratSigne?: boolean;
+  locDepotEncaisse?: boolean;
+  locJustificatifRevenus?: boolean;
+  locAttestationTravail?: boolean;
+  locNbPersonnes?: number | null;
+  locJourEcheance?: number | null;
+  locPenaliteMode?: ClientelePenaltyMode | null;
+  locPenaliteValeur?: number | null;
+  saisonMinNuits?: number | null;
+  saisonMaxNuits?: number | null;
+  saisonCapaciteMax?: number | null;
+  saisonJoursArrivee?: string[];
+  saisonJoursDepart?: string[];
+  saisonAcomptePourcentage?: number | null;
+  saisonDocumentsRecus?: boolean;
+  saisonDepotBloque?: boolean;
+  saisonDepotRetenuMontant?: number | null;
+  saisonDepotRetenuMotif?: string;
+  acheteurStatus?: ClienteleAcheteurStatus | null;
+  acheteurZones?: string[];
+  acheteurTypes?: string[];
+  acheteurBudgetMin?: number | null;
+  acheteurBudgetMax?: number | null;
+  acheteurSurfaceMin?: number | null;
+  acheteurDistancePlageMax?: number | null;
+  acheteurFinancementMode?: string;
+  acheteurNextAction?: ClienteleAcheteurNextAction | null;
+  acheteurActionDueAt?: string | null;
+  proprietaireStatus?: ClienteleProprietaireStatus | null;
+  proprietaireMandatType?: ClienteleMandatType | null;
+  proprietaireMandatStart?: string | null;
+  proprietaireMandatEnd?: string | null;
+  proprietaireReversementFrequence?: ClienteleReversementFrequence | null;
+  proprietaireModePaiement?: ClienteleProprietaireModePaiement | null;
+  proprietaireCommissionPercent?: number | null;
+  proprietairePlafondTravaux?: number | null;
+  proprietaireLastStatementAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Zone {
   id: string;
   nom: string;
@@ -321,7 +389,7 @@ export interface Paiement {
   methode: PaiementMethode;
 }
 
-export type MaintenanceStatut = 'en_cours' | 'termine' | 'annule';
+export type MaintenanceStatut = 'en_attente_accord_proprietaire' | 'approuve' | 'en_cours' | 'termine' | 'annule';
 
 export interface Maintenance {
   id: string;
@@ -329,7 +397,32 @@ export interface Maintenance {
   description: string;
   cout: number;
   statut: MaintenanceStatut;
+  bien_titre?: string;
+  proprietaire_id?: string | null;
+  proprietaire_nom?: string | null;
+  owner_approval_required?: boolean;
+  owner_approval_status?: 'non_requis' | 'en_attente' | 'approuve';
+  owner_approved_at?: string | null;
   created_at: string;
+}
+
+export type ClienteleTaskSeverity = 'info' | 'warning' | 'critical';
+export type ClienteleTaskStatus = 'open' | 'done';
+
+export interface ClienteleTask {
+  id: string;
+  sourceTable: 'utilisateurs' | 'locataires' | 'proprietaires';
+  sourceId: string;
+  taskType: string;
+  severity: ClienteleTaskSeverity;
+  title: string;
+  detail: string;
+  dueDate?: string | null;
+  relatedEntityType?: string | null;
+  relatedEntityId?: string | null;
+  status: ClienteleTaskStatus;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Notification {

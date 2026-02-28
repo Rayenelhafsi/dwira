@@ -15,6 +15,19 @@ const LEGACY_TYPE_MAP: Record<string, BienType> = {
 };
 const DEFAULT_MODE: BienMode = 'location_saisonniere';
 
+async function getApiErrorMessage(response: Response, fallback: string) {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await response.json().catch(() => null);
+    const message = String(data?.error || data?.message || '').trim();
+    if (message) return message;
+  } else {
+    const text = await response.text().catch(() => '');
+    if (text && !text.startsWith('<!DOCTYPE')) return text;
+  }
+  return fallback;
+}
+
 function normalizeBienType(type: string): BienType {
   return (LEGACY_TYPE_MAP[type] || type || 'appartement') as BienType;
 }
@@ -580,8 +593,8 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       });
       
       if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Failed to create bien (${response.status}): ${errorBody}`);
+        const message = await getApiErrorMessage(response, 'Creation du bien impossible');
+        throw new Error(message);
       }
 
       const createdBien = await response.json();
@@ -602,8 +615,8 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       });
       
       if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Failed to update bien (${response.status}): ${errorBody}`);
+        const message = await getApiErrorMessage(response, 'Mise a jour du bien impossible');
+        throw new Error(message);
       }
       
       await fetchData(); // Refresh data
@@ -619,7 +632,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         method: 'DELETE'
       });
       
-      if (!response.ok) throw new Error('Failed to delete bien');
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Suppression du bien impossible'));
       
       await fetchData(); // Refresh data
     } catch (err: any) {
