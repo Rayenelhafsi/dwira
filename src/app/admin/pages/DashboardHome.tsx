@@ -7,7 +7,7 @@ import {
   TrendingUp,
   Activity
 } from 'lucide-react';
-import { mockBiens, mockLocataires, mockContrats, mockPaiements } from '../data/mockData';
+import { mockBiens, mockLocataires, mockContrats, mockPaiements, mockProprietaires } from '../data/mockData';
 
 export default function DashboardHome() {
   const activeContracts = mockContrats.filter(c => c.statut === 'actif').length;
@@ -48,8 +48,8 @@ export default function DashboardHome() {
           color="purple" 
         />
         <StatCard 
-          title="Locataires" 
-          value={mockLocataires.length.toString()} 
+          title="Clienteles" 
+          value={(mockLocataires.length + mockProprietaires.length).toString()} 
           trend="+1" 
           trendUp={true} 
           icon={Users} 

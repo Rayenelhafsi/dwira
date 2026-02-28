@@ -6,6 +6,11 @@ interface User {
   name: string;
   avatar?: string;
   role: 'admin' | 'user';
+  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  telephone?: string | null;
+  cin?: string | null;
+  cinImageUrl?: string | null;
+  profileCompleted?: boolean;
 }
 
 interface AuthContextType {

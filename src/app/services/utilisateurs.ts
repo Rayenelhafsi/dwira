@@ -18,6 +18,10 @@ export interface CreateUtilisateurInput {
   email: string;
   role?: 'admin' | 'user';
   avatar?: string;
+  client_type?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  telephone?: string | null;
+  cin?: string | null;
+  cin_image_url?: string | null;
   created_at: string;
 }
 
@@ -26,6 +30,10 @@ export interface UpdateUtilisateurInput {
   email?: string;
   role?: 'admin' | 'user';
   avatar?: string;
+  client_type?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  telephone?: string | null;
+  cin?: string | null;
+  cin_image_url?: string | null;
 }
 
 // ============================================
@@ -64,8 +72,8 @@ export async function getUtilisateurByEmail(email: string): Promise<Utilisateur 
  */
 export async function createUtilisateur(data: CreateUtilisateurInput): Promise<number> {
   const sql = `
-    INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const result = await execute(sql, [
     data.id,
@@ -73,6 +81,10 @@ export async function createUtilisateur(data: CreateUtilisateurInput): Promise<n
     data.email,
     data.role || 'user',
     data.avatar || null,
+    data.telephone || null,
+    data.client_type || null,
+    data.cin || null,
+    data.cin_image_url || null,
     data.created_at
   ]);
   return result.affectedRows;
@@ -100,6 +112,22 @@ export async function updateUtilisateur(id: string, data: UpdateUtilisateurInput
   if (data.avatar !== undefined) {
     fields.push('avatar = ?');
     values.push(data.avatar);
+  }
+  if (data.client_type !== undefined) {
+    fields.push('client_type = ?');
+    values.push(data.client_type);
+  }
+  if (data.telephone !== undefined) {
+    fields.push('telephone = ?');
+    values.push(data.telephone);
+  }
+  if (data.cin !== undefined) {
+    fields.push('cin = ?');
+    values.push(data.cin);
+  }
+  if (data.cin_image_url !== undefined) {
+    fields.push('cin_image_url = ?');
+    values.push(data.cin_image_url);
   }
 
   if (fields.length === 0) return 0;

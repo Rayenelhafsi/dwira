@@ -6,6 +6,15 @@ export interface Utilisateur {
   email: string;
   role: UserRole;
   avatar?: string;
+  client_type?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  telephone?: string | null;
+  cin?: string | null;
+  cin_image_url?: string | null;
+  auth_provider?: 'local' | 'google' | 'facebook';
+  provider_user_id?: string | null;
+  last_login_at?: string | null;
+  profile_completed_at?: string | null;
+  updated_at?: string | null;
   created_at: string;
 }
 

@@ -13,7 +13,7 @@ import VenteDetailsRouter from "./ventes/pages/VenteDetailsRouter";
 import { AdminLayout } from "./admin/AdminLayout";
 import DashboardHome from "./admin/pages/DashboardHome";
 import BiensPage from "./admin/pages/BiensPage";
-import LocatairesPage from "./admin/pages/LocatairesPage";
+import ClientelesPage from "./admin/pages/LocatairesPage";
 import ContratsPage from "./admin/pages/ContratsPage";
 import PaiementsPage from "./admin/pages/PaiementsPage";
 import MaintenancePage from "./admin/pages/MaintenancePage";
@@ -52,7 +52,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: DashboardHome },
       { path: "biens", Component: BiensPage },
-      { path: "locataires", Component: LocatairesPage },
+      { path: "clienteles", Component: ClientelesPage },
+      { path: "locataires", Component: ClientelesPage },
       { path: "contrats", Component: ContratsPage },
       { path: "paiements", Component: PaiementsPage },
       { path: "maintenance", Component: MaintenancePage },

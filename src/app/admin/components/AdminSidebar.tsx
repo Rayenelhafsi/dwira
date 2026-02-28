@@ -34,7 +34,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
   const navItems = [
     { name: 'Tableau de bord', path: '/admin', icon: LayoutDashboard },
     { name: 'Biens', path: '/admin/biens', icon: Home },
-    { name: 'Locataires', path: '/admin/locataires', icon: Users },
+    { name: 'Clienteles', path: '/admin/clienteles', icon: Users },
     { name: 'Contrats', path: '/admin/contrats', icon: FileText },
     { name: 'Paiements', path: '/admin/paiements', icon: CreditCard },
     { name: 'Maintenance', path: '/admin/maintenance', icon: Wrench },

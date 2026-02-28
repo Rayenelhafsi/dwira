@@ -2,20 +2,24 @@ import { useParams, Link, useSearchParams, Navigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import { format, differenceInDays, isWithinInterval, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toast } from "sonner";
+import { useAuth } from "../context/AuthContext";
+import { trackPublicClientInteraction } from "../utils/clientInteractions";
 
 export default function PropertyDetailsPage() {
   // Use shared context for properties
   const { properties } = useProperties();
+  const { user } = useAuth();
   
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => p.slug === slug);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
+  const lastTrackedVisitKeyRef = useRef<string>('');
 
   // Read filter state from URL
   const filterLocation = searchParams.get("location") || "";
@@ -49,6 +53,21 @@ export default function PropertyDetailsPage() {
       setIsSaved(savedProperties.includes(property.id));
     }
   }, [property]);
+
+  useEffect(() => {
+    if (!property || !user || user.role !== 'user' || !user.email) return;
+    const visitKey = `${user.email}:${property.id}`;
+    if (lastTrackedVisitKeyRef.current === visitKey) return;
+    lastTrackedVisitKeyRef.current = visitKey;
+    void trackPublicClientInteraction({
+      type: 'visite',
+      bienId: String(property.id),
+      propertyTitle: property.title,
+      clientUserId: user.id,
+      clientEmail: user.email,
+      clientName: user.name,
+    }).catch(() => {});
+  }, [property, user]);
 
   // Carousel for other properties
   const [otherPropertiesRef, otherPropertiesApi] = useEmblaCarousel({ 
@@ -183,6 +202,16 @@ export default function PropertyDetailsPage() {
 
   // Handle share functionality
   const handleShare = async () => {
+    if (property && user && user.role === 'user' && user.email) {
+      void trackPublicClientInteraction({
+        type: 'partage',
+        bienId: String(property.id),
+        propertyTitle: property.title,
+        clientUserId: user.id,
+        clientEmail: user.email,
+        clientName: user.name,
+      }).catch(() => {});
+    }
     const shareUrl = window.location.href;
     
     // Try Web Share API first (mobile devices)
@@ -225,6 +254,16 @@ export default function PropertyDetailsPage() {
       savedProperties.push(property.id);
       localStorage.setItem('savedProperties', JSON.stringify(savedProperties));
       setIsSaved(true);
+      if (user && user.role === 'user' && user.email) {
+        void trackPublicClientInteraction({
+          type: 'like',
+          bienId: String(property.id),
+          propertyTitle: property.title,
+          clientUserId: user.id,
+          clientEmail: user.email,
+          clientName: user.name,
+        }).catch(() => {});
+      }
       toast.success("Ajouté aux favoris");
     }
   };

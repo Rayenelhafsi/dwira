@@ -1081,6 +1081,42 @@ async function ensureAuthSchema() {
     );
   }
 
+  if (!(await columnExists('utilisateurs', 'telephone'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN telephone VARCHAR(30) NULL'
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'cin'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN cin VARCHAR(50) NULL'
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'cin_image_url'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN cin_image_url VARCHAR(500) NULL'
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'profile_completed_at'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN profile_completed_at DATETIME NULL'
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'updated_at'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN updated_at DATETIME NULL'
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'client_type'))) {
+    await pool.query(
+      "ALTER TABLE utilisateurs ADD COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur') NULL"
+    );
+  }
+
   if (!(await indexExists('utilisateurs', 'uq_provider_user'))) {
     await pool.query(
       'CREATE UNIQUE INDEX uq_provider_user ON utilisateurs (auth_provider, provider_user_id)'
@@ -1642,22 +1678,63 @@ async function upsertSocialUser({ email, name, avatar, provider, providerUserId 
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
   await pool.query(
-    `INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at)
-     VALUES (?, ?, ?, 'user', ?, CURDATE(), ?, ?, ?) AS new_user
+    `INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at, updated_at)
+     VALUES (?, ?, ?, 'user', ?, CURDATE(), ?, ?, ?, ?) AS new_user
      ON DUPLICATE KEY UPDATE
        nom = new_user.nom,
        avatar = new_user.avatar,
        auth_provider = new_user.auth_provider,
        provider_user_id = new_user.provider_user_id,
-       last_login_at = new_user.last_login_at`,
-    [userId, name, email.toLowerCase(), avatar || null, provider, providerUserId || null, now]
+       last_login_at = new_user.last_login_at,
+       updated_at = new_user.updated_at`,
+    [userId, name, email.toLowerCase(), avatar || null, provider, providerUserId || null, now, now]
   );
 
   const [rows] = await pool.query(
-    'SELECT id, nom, email, role, avatar FROM utilisateurs WHERE email = ? LIMIT 1',
+    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type,
+            auth_provider, provider_user_id, last_login_at, updated_at
+     FROM utilisateurs
+     WHERE email = ? LIMIT 1`,
     [email.toLowerCase()]
   );
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  return {
+    id: rows[0].id,
+    email: rows[0].email,
+    name: rows[0].nom,
+    role: rows[0].role,
+    avatar: rows[0].avatar || null,
+    clientType: rows[0].client_type || null,
+    telephone: rows[0].telephone || null,
+    cin: rows[0].cin || null,
+    cinImageUrl: rows[0].cin_image_url || null,
+    authProvider: rows[0].auth_provider,
+    providerUserId: rows[0].provider_user_id || null,
+    lastLoginAt: rows[0].last_login_at || null,
+    updatedAt: rows[0].updated_at || null,
+    profileCompleted: Boolean(rows[0].profile_completed_at && rows[0].telephone && rows[0].client_type),
+  };
+}
+
+async function ensureClientInteractionsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_interactions (
+      id VARCHAR(80) PRIMARY KEY,
+      client_user_id VARCHAR(50) NULL,
+      client_email VARCHAR(100) NULL,
+      client_name VARCHAR(150) NULL,
+      type ENUM('visite', 'like', 'partage') NOT NULL,
+      bien_id VARCHAR(50) NOT NULL,
+      property_title VARCHAR(255) NULL,
+      source ENUM('site_public', 'admin') NOT NULL DEFAULT 'site_public',
+      event_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL,
+      INDEX idx_client_interactions_user (client_user_id),
+      INDEX idx_client_interactions_email (client_email),
+      INDEX idx_client_interactions_bien (bien_id),
+      INDEX idx_client_interactions_event_at (event_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }
 
 console.log('🔄 Connecting to database...');
@@ -1667,6 +1744,7 @@ pool.getConnection()
     conn.release();
     return ensureAuthSchema();
   })
+  .then(() => ensureClientInteractionsSchema())
   .then(() => ensureZonesSchema())
   .then(() => ensureBiensWorkflowSchema())
   .then(() => {
@@ -2285,6 +2363,31 @@ app.post('/api/locataires', async (req, res) => {
   } catch (error) {
     console.error('Error creating locataire:', error);
     res.status(500).json({ error: 'Failed to create locataire' });
+  }
+});
+
+app.put('/api/locataires/:id', async (req, res) => {
+  try {
+    const { nom, telephone, email, cin, score_fiabilite } = req.body;
+    await pool.query(
+      'UPDATE locataires SET nom = ?, telephone = ?, email = ?, cin = ?, score_fiabilite = ? WHERE id = ?',
+      [nom, telephone, email, cin, score_fiabilite || 5, req.params.id]
+    );
+    const [updated] = await pool.query('SELECT * FROM locataires WHERE id = ?', [req.params.id]);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error updating locataire:', error);
+    res.status(500).json({ error: 'Failed to update locataire' });
+  }
+});
+
+app.delete('/api/locataires/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM locataires WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Locataire deleted' });
+  } catch (error) {
+    console.error('Error deleting locataire:', error);
+    res.status(500).json({ error: 'Failed to delete locataire' });
   }
 });
 
@@ -3392,6 +3495,144 @@ app.get('/api/auth/social/session/:token', (req, res) => {
   res.json({ user });
 });
 
+app.get('/api/client-interactions', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source, event_at
+       FROM client_interactions
+       ORDER BY event_at DESC`
+    );
+    res.json((rows || []).map((row) => ({
+      id: row.id,
+      clientUserId: row.client_user_id || undefined,
+      clientEmail: row.client_email || '',
+      clientName: row.client_name || undefined,
+      type: row.type,
+      bienId: row.bien_id,
+      propertyTitle: row.property_title || '',
+      source: row.source,
+      dateTime: row.event_at,
+    })));
+  } catch (error) {
+    console.error('Error fetching client interactions:', error);
+    res.status(500).json({ error: 'Impossible de charger les interactions clients' });
+  }
+});
+
+app.post('/api/client-interactions', async (req, res) => {
+  try {
+    const id = `ci_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const clientUserId = String(req.body?.clientUserId || '').trim() || null;
+    const clientEmail = String(req.body?.clientEmail || '').trim().toLowerCase();
+    const clientName = String(req.body?.clientName || '').trim() || null;
+    const type = String(req.body?.type || '').trim();
+    const bienId = String(req.body?.bienId || '').trim();
+    const propertyTitle = String(req.body?.propertyTitle || '').trim() || null;
+    const now = new Date();
+    const nowSql = now.toISOString().slice(0, 19).replace('T', ' ');
+
+    if (!clientEmail) return res.status(400).json({ error: 'Email client obligatoire' });
+    if (!['visite', 'like', 'partage'].includes(type)) return res.status(400).json({ error: 'Type interaction invalide' });
+    if (!bienId) return res.status(400).json({ error: 'Bien obligatoire' });
+
+    await pool.query(
+      `INSERT INTO client_interactions
+       (id, client_user_id, client_email, client_name, type, bien_id, property_title, source, event_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'site_public', ?, ?)`,
+      [id, clientUserId, clientEmail, clientName, type, bienId, propertyTitle, nowSql, nowSql]
+    );
+
+    res.status(201).json({
+      id,
+      clientUserId: clientUserId || undefined,
+      clientEmail,
+      clientName: clientName || undefined,
+      type,
+      bienId,
+      propertyTitle: propertyTitle || '',
+      source: 'site_public',
+      dateTime: nowSql,
+    });
+  } catch (error) {
+    console.error('Error creating client interaction:', error);
+    res.status(500).json({ error: "Impossible d'enregistrer l interaction client" });
+  }
+});
+
+app.put('/api/auth/social/profile/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const nom = String(req.body?.name || req.body?.nom || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const telephone = String(req.body?.telephone || '').trim();
+    const clientType = String(req.body?.clientType || req.body?.client_type || '').trim().toLowerCase();
+    const cin = String(req.body?.cin || '').trim();
+    const cinImageUrl = String(req.body?.cinImageUrl || req.body?.cin_image_url || '').trim();
+    const avatar = req.body?.avatar === undefined ? undefined : String(req.body.avatar || '').trim();
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    if (!id) return res.status(400).json({ error: 'Utilisateur introuvable' });
+    if (!nom) return res.status(400).json({ error: 'Nom obligatoire' });
+    if (!email) return res.status(400).json({ error: 'Email obligatoire' });
+    if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
+    if (!['proprietaire', 'locataire', 'acheteur'].includes(clientType)) {
+      return res.status(400).json({ error: 'Type client obligatoire' });
+    }
+
+    const [existingRows] = await pool.query('SELECT id FROM utilisateurs WHERE id = ? LIMIT 1', [id]);
+    if (!existingRows[0]) {
+      return res.status(404).json({ error: 'Utilisateur non trouve' });
+    }
+
+    const [emailRows] = await pool.query('SELECT id FROM utilisateurs WHERE email = ? AND id <> ? LIMIT 1', [email, id]);
+    if (emailRows[0]) {
+      return res.status(409).json({ error: 'Cet email est deja utilise' });
+    }
+
+    await pool.query(
+      `UPDATE utilisateurs
+       SET nom = ?, email = ?, telephone = ?, client_type = ?, cin = ?, cin_image_url = ?, avatar = COALESCE(?, avatar),
+           profile_completed_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [nom, email, telephone, clientType, cin || null, cinImageUrl || null, avatar || null, now, now, id]
+    );
+
+    const [rows] = await pool.query(
+      `SELECT id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, profile_completed_at,
+              auth_provider, provider_user_id, last_login_at, updated_at
+       FROM utilisateurs
+       WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    const user = rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'Utilisateur non trouve apres mise a jour' });
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.nom,
+        role: user.role,
+        avatar: user.avatar || null,
+        clientType: user.client_type || null,
+        telephone: user.telephone || null,
+        cin: user.cin || null,
+        cinImageUrl: user.cin_image_url || null,
+        authProvider: user.auth_provider,
+        providerUserId: user.provider_user_id || null,
+        lastLoginAt: user.last_login_at || null,
+        updatedAt: user.updated_at || null,
+        profileCompleted: Boolean(user.profile_completed_at && user.telephone && user.client_type),
+      },
+    });
+  } catch (error) {
+    console.error('Error completing social profile:', error);
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde du profil client' });
+  }
+});
+
 app.get('/api/utilisateurs', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM utilisateurs ORDER BY created_at DESC');
@@ -3403,18 +3644,57 @@ app.get('/api/utilisateurs', async (req, res) => {
 
 app.post('/api/utilisateurs', async (req, res) => {
   try {
-    const { id, nom, email, role, avatar } = req.body;
+    const { id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url } = req.body;
     const newId = id || 'u' + Date.now();
     const created_at = new Date().toISOString().split('T')[0];
     await pool.query(
-      'INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [newId, nom, email, role || 'user', avatar || null, created_at]
+      `INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, nom, email, role || 'user', avatar || null, telephone || null, client_type || null, cin || null, cin_image_url || null, created_at]
     );
     const [newUser] = await pool.query('SELECT * FROM utilisateurs WHERE id = ?', [newId]);
     res.status(201).json(newUser[0]);
   } catch (error) {
     console.error('Error creating utilisateur:', error);
     res.status(500).json({ error: 'Failed to create utilisateur' });
+  }
+});
+
+app.put('/api/utilisateurs/:id', async (req, res) => {
+  try {
+    const { nom, email, role, avatar, telephone, client_type, cin, cin_image_url } = req.body;
+    await pool.query(
+      `UPDATE utilisateurs
+       SET nom = ?, email = ?, role = ?, avatar = ?, telephone = ?, client_type = ?, cin = ?, cin_image_url = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        nom,
+        email,
+        role || 'user',
+        avatar || null,
+        telephone || null,
+        client_type || null,
+        cin || null,
+        cin_image_url || null,
+        new Date().toISOString().slice(0, 19).replace('T', ' '),
+        req.params.id,
+      ]
+    );
+    const [rows] = await pool.query('SELECT * FROM utilisateurs WHERE id = ? LIMIT 1', [req.params.id]);
+    res.json(rows[0] || null);
+  } catch (error) {
+    console.error('Error updating utilisateur:', error);
+    res.status(500).json({ error: 'Failed to update utilisateur' });
+  }
+});
+
+app.delete('/api/utilisateurs/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM utilisateurs WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting utilisateur:', error);
+    res.status(500).json({ error: 'Failed to delete utilisateur' });
   }
 });
 

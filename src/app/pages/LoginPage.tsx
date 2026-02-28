@@ -1,16 +1,28 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, Facebook, Globe } from 'lucide-react';
+import { Mail, Lock, Facebook, Globe, Phone, User, FileText, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
-import { getAuthProviders, getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
+import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isCompletingProfile, setIsCompletingProfile] = useState(false);
+  const [isUploadingCin, setIsUploadingCin] = useState(false);
   const [providers, setProviders] = useState({ google: false, facebook: false });
+  const [profileForm, setProfileForm] = useState({
+    name: '',
+    email: '',
+    clientType: '',
+    telephone: '',
+    cin: '',
+    cinImageUrl: '',
+  });
   const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -24,6 +36,17 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (authLoading || !user) return;
+    if (user.role === 'user' && !user.profileCompleted) {
+      setProfileForm({
+        name: user.name || '',
+        email: user.email || '',
+        clientType: user.clientType || '',
+        telephone: user.telephone || '',
+        cin: user.cin || '',
+        cinImageUrl: user.cinImageUrl || '',
+      });
+      return;
+    }
     navigate(user.role === 'admin' ? '/admin' : '/', { replace: true });
   }, [user, authLoading, navigate]);
 
@@ -61,10 +84,27 @@ export default function LoginPage() {
           email: socialUser.email,
           name: socialUser.name,
           avatar: socialUser.avatar || undefined,
+          clientType: socialUser.clientType || undefined,
+          telephone: socialUser.telephone || undefined,
+          cin: socialUser.cin || undefined,
+          cinImageUrl: socialUser.cinImageUrl || undefined,
+          profileCompleted: socialUser.profileCompleted,
           role: 'user',
         });
-        toast.success('Connexion reussie');
-        navigate('/', { replace: true });
+        if (socialUser.profileCompleted) {
+          toast.success('Connexion reussie');
+          navigate('/', { replace: true });
+        } else {
+          setProfileForm({
+            name: socialUser.name || '',
+            email: socialUser.email || '',
+            clientType: socialUser.clientType || '',
+            telephone: socialUser.telephone || '',
+            cin: socialUser.cin || '',
+            cinImageUrl: socialUser.cinImageUrl || '',
+          });
+          toast.info('Completez d abord votre profil client');
+        }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Session sociale expiree');
         navigate('/login', { replace: true });
@@ -85,6 +125,7 @@ export default function LoginPage() {
         email: adminUser.email,
         name: adminUser.name,
         avatar: adminUser.avatar || undefined,
+        profileCompleted: true,
         role: 'admin',
       });
       toast.success('Connexion administrateur reussie');
@@ -107,6 +148,195 @@ export default function LoginPage() {
     }
     startSocialLogin(provider);
   };
+
+  const handleCinImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsUploadingCin(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Upload de la carte d'identite echoue");
+      }
+      const imageUrl = String(data?.url || data?.imageUrl || '');
+      setProfileForm((prev) => ({ ...prev, cinImageUrl: imageUrl }));
+      toast.success("Image de la carte d'identite ajoutee");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload de la carte d'identite echoue");
+    } finally {
+      setIsUploadingCin(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleCompleteProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id) {
+      toast.error('Utilisateur introuvable');
+      return;
+    }
+    if (!profileForm.name.trim() || !profileForm.email.trim() || !profileForm.clientType || !profileForm.telephone.trim()) {
+      toast.error('Nom, email, type client et numero de telephone sont obligatoires');
+      return;
+    }
+
+    setIsCompletingProfile(true);
+    try {
+      const savedUser = await completeSocialProfile({
+        id: user.id,
+        name: profileForm.name.trim(),
+        email: profileForm.email.trim(),
+        clientType: profileForm.clientType as 'proprietaire' | 'locataire' | 'acheteur',
+        telephone: profileForm.telephone.trim(),
+        cin: profileForm.cin.trim(),
+        cinImageUrl: profileForm.cinImageUrl.trim(),
+        avatar: user.avatar || null,
+      });
+      login({
+        id: savedUser.id,
+        email: savedUser.email,
+        name: savedUser.name,
+        avatar: savedUser.avatar || undefined,
+        clientType: savedUser.clientType || undefined,
+        telephone: savedUser.telephone || undefined,
+        cin: savedUser.cin || undefined,
+        cinImageUrl: savedUser.cinImageUrl || undefined,
+        profileCompleted: savedUser.profileCompleted,
+        role: 'user',
+      });
+      toast.success('Profil client enregistre');
+      navigate('/', { replace: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de sauvegarder le profil client');
+    } finally {
+      setIsCompletingProfile(false);
+    }
+  };
+
+  if (user && user.role === 'user' && !user.profileCompleted) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-2xl">
+          <Link to="/" className="flex justify-center mb-6">
+            <img src={logo} alt="Dwira Immobilier" className="h-20 w-auto" />
+          </Link>
+          <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-100">
+            <h2 className="text-2xl font-extrabold text-gray-900">Completez votre profil client</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Confirmez les informations recuperees depuis votre login social et ajoutez les champs manquants avant de continuer.
+            </p>
+
+            <form className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={handleCompleteProfile}>
+              <div className="md:col-span-2">
+                <label htmlFor="client-name" className="block text-sm font-medium text-gray-700">Nom et prenom *</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                  </div>
+                  <input
+                    id="client-name"
+                    value={profileForm.name}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
+                    className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
+                    placeholder="Nom et prenom"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="client-email" className="block text-sm font-medium text-gray-700">Email *</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Mail className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                  </div>
+                  <input
+                    id="client-email"
+                    type="email"
+                    value={profileForm.email}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
+                    placeholder="email@exemple.com"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="client-type" className="block text-sm font-medium text-gray-700">Type client *</label>
+                <select
+                  id="client-type"
+                  value={profileForm.clientType}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, clientType: e.target.value }))}
+                  className="mt-1 block w-full rounded-md border-gray-300 py-2 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                >
+                  <option value="">Selectionner un type</option>
+                  <option value="proprietaire">Proprietaire</option>
+                  <option value="locataire">Locataire</option>
+                  <option value="acheteur">Acheteur</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="client-phone" className="block text-sm font-medium text-gray-700">Numero de telephone *</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Phone className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                  </div>
+                  <input
+                    id="client-phone"
+                    value={profileForm.telephone}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, telephone: e.target.value }))}
+                    className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
+                    placeholder="+216 ..."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="client-cin" className="block text-sm font-medium text-gray-700">Carte d'identite</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FileText className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                  </div>
+                  <input
+                    id="client-cin"
+                    value={profileForm.cin}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, cin: e.target.value }))}
+                    className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
+                    placeholder="Optionnel"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Image carte d'identite</label>
+                <label className="mt-1 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                  <Upload className="h-4 w-4" />
+                  {isUploadingCin ? 'Upload en cours...' : "Uploader l'image (optionnel)"}
+                  <input type="file" accept="image/*" className="hidden" onChange={handleCinImageUpload} />
+                </label>
+                {profileForm.cinImageUrl ? (
+                  <img src={profileForm.cinImageUrl} alt="Carte d'identite" className="mt-3 h-32 w-full rounded-md border border-gray-200 object-cover" />
+                ) : null}
+              </div>
+
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={isCompletingProfile || isUploadingCin}
+                  className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isCompletingProfile ? 'Enregistrement...' : 'Valider et continuer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">

@@ -1890,11 +1890,50 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
   const handleAddProprietaire = async () => {
     if (!newOwnerName.trim()) return toast.error('Nom du propriétaire requis');
+    if (!newOwnerEmail.trim()) return toast.error('Email du propriétaire requis');
     try {
       const payload = { nom: newOwnerName.trim(), telephone: newOwnerPhone.trim(), email: newOwnerEmail.trim(), cin: newOwnerCin.trim() };
       const response = await fetch(`${API_URL}/proprietaires`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create owner');
       const createdOwner = await response.json();
+
+      const utilisateursResponse = await fetch(`${API_URL}/utilisateurs`);
+      const utilisateurs = utilisateursResponse.ok ? await utilisateursResponse.json() : [];
+      const existingUser = Array.isArray(utilisateurs)
+        ? utilisateurs.find((item) => String(item?.email || '').trim().toLowerCase() === newOwnerEmail.trim().toLowerCase())
+        : null;
+
+      const utilisateurPayload = {
+        nom: newOwnerName.trim(),
+        email: newOwnerEmail.trim(),
+        role: 'user',
+        telephone: newOwnerPhone.trim() || null,
+        client_type: 'proprietaire',
+        cin: newOwnerCin.trim() || null,
+        cin_image_url: existingUser?.cin_image_url || null,
+        avatar: existingUser?.avatar || null,
+      };
+
+      if (existingUser?.id) {
+        const syncResponse = await fetch(`${API_URL}/utilisateurs/${encodeURIComponent(existingUser.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(utilisateurPayload),
+        });
+        if (!syncResponse.ok) {
+          throw new Error('Failed to sync owner user');
+        }
+      } else {
+        const createUserResponse = await fetch(`${API_URL}/utilisateurs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(utilisateurPayload),
+        });
+        if (!createUserResponse.ok) {
+          throw new Error('Failed to create owner user');
+        }
+      }
+
       setProprietaireOptions([...proprietaireOptions, createdOwner]);
       setFormData(prev => ({ ...prev, proprietaire_id: createdOwner.id }));
       setNewOwnerName('');
