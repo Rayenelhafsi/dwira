@@ -3521,7 +3521,8 @@ app.get('/api/auth/social/session/:token', (req, res) => {
 app.get('/api/client-interactions', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source, event_at
+      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source,
+              DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at
        FROM client_interactions
        ORDER BY event_at DESC`
     );
