@@ -6,6 +6,7 @@ import { fetchClientInteractions } from '../../utils/clientInteractions';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const DOSSIERS_STORAGE_KEY = 'dwira_clienteles_dossiers_v1';
+const AGENCY_TIME_ZONE = 'Africa/Tunis';
 
 type ClientCategory = 'locataires' | 'acheteurs' | 'proprietaires';
 type ClientRole = 'Locataire' | 'Acheteur' | 'Proprietaire';
@@ -104,6 +105,58 @@ const mergeUniqueContacts = (primary?: string | null, extras?: string[]) =>
 
 const getTodayDate = () => new Date().toISOString().split('T')[0];
 
+const parseInteractionDateTime = (value?: string | null) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const utcCandidate = normalized.endsWith('Z') ? normalized : `${normalized}Z`;
+  const parsedUtc = new Date(utcCandidate);
+  if (!Number.isNaN(parsedUtc.getTime())) return parsedUtc;
+
+  const parsedLocal = new Date(normalized);
+  if (!Number.isNaN(parsedLocal.getTime())) return parsedLocal;
+
+  return null;
+};
+
+const formatInteractionDate = (value?: string | null) => {
+  const date = parseInteractionDateTime(value);
+  if (!date) return String(value || '');
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: AGENCY_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+};
+
+const formatInteractionTime = (value?: string | null) => {
+  const date = parseInteractionDateTime(value);
+  if (!date) return '';
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: AGENCY_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+};
+
+const formatInteractionDayKey = (value?: string | null) => {
+  const date = parseInteractionDateTime(value);
+  if (!date) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: AGENCY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value || '';
+  const month = parts.find((part) => part.type === 'month')?.value || '';
+  const day = parts.find((part) => part.type === 'day')?.value || '';
+  return year && month && day ? `${year}-${month}-${day}` : '';
+};
+
 const isClientInteraction = (value: unknown): value is ClientInteraction => {
   if (!value || typeof value !== 'object') return false;
   const interaction = value as Record<string, unknown>;
@@ -180,14 +233,12 @@ export default function ClientelesPage() {
       try {
         const rows = await fetchClientInteractions();
         const nextInteractions = rows.map((interaction) => {
-          const interactionDate = new Date(interaction.dateTime);
-          const isValidDate = !Number.isNaN(interactionDate.getTime());
           return {
             id: interaction.id,
             type: interaction.type,
             bienId: interaction.bienId,
-            date: isValidDate ? String(interaction.dateTime).split('T')[0].split(' ')[0] : '',
-            heure: isValidDate ? interactionDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
+            date: formatInteractionDayKey(interaction.dateTime),
+            heure: formatInteractionTime(interaction.dateTime) || undefined,
             source: interaction.source === 'admin' ? 'admin' as const : 'site_public' as const,
             clientEmail: interaction.clientEmail,
             clientUserId: interaction.clientUserId,
@@ -1100,7 +1151,7 @@ export default function ClientelesPage() {
                             </span>
                           </div>
                           <p className="mt-1 text-sm text-gray-600">
-                            {formatDate(interaction.date)}
+                            {formatInteractionDate(interaction.date)}
                             {interaction.type === 'visite' && interaction.heure ? ` a ${interaction.heure}` : ''}
                           </p>
                         </div>
