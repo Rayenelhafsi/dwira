@@ -2008,6 +2008,15 @@ async function appendReservationDemandHistory(demandId, status, actorType, actor
   );
 }
 
+async function createAdminNotification(type, message, createdAt = getAgencySqlDateTime()) {
+  const notificationId = `n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    'INSERT INTO admin_notifications (id, type, message, lu, created_at) VALUES (?, ?, ?, 0, ?)',
+    [notificationId, type || 'info', message, createdAt]
+  );
+  return notificationId;
+}
+
 async function syncClienteleTasks(sourceTable, sourceId) {
   const profile = await fetchClienteleProfileBySource(sourceTable, sourceId);
   const now = new Date();
@@ -2290,6 +2299,7 @@ pool.getConnection()
     conn.release();
     return ensureAuthSchema();
   })
+  .then(() => ensureAdminNotificationsSchema())
   .then(() => ensureClientInteractionsSchema())
   .then(() => ensureClientelesSchema())
   .then(() => ensureMaintenanceWorkflowSchema())
@@ -3253,7 +3263,8 @@ app.put('/api/maintenance/:id', async (req, res) => {
 
 app.get('/api/notifications', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50');
+    await ensureAdminNotificationsSchema();
+    const [rows] = await pool.query('SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications ORDER BY created_at DESC LIMIT 50');
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch notifications' });
@@ -3262,14 +3273,11 @@ app.get('/api/notifications', async (req, res) => {
 
 app.post('/api/notifications', async (req, res) => {
   try {
-    const { utilisateur_id, type, message } = req.body;
-    const id = 'n' + Date.now();
+    const { type, message } = req.body;
     const created_at = new Date().toISOString();
-    await pool.query(
-      'INSERT INTO notifications (id, utilisateur_id, type, message, lu, created_at) VALUES (?, ?, ?, ?, 0, ?)',
-      [id, utilisateur_id || '1', type || 'info', message, created_at]
-    );
-    const [newNotif] = await pool.query('SELECT * FROM notifications WHERE id = ?', [id]);
+    await ensureAdminNotificationsSchema();
+    const id = await createAdminNotification(type || 'info', message, created_at);
+    const [newNotif] = await pool.query('SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications WHERE id = ?', [id]);
     res.status(201).json(newNotif[0]);
   } catch (error) {
     console.error('Error creating notification:', error);
@@ -3279,7 +3287,8 @@ app.post('/api/notifications', async (req, res) => {
 
 app.put('/api/notifications/:id/lu', async (req, res) => {
   try {
-    await pool.query('UPDATE notifications SET lu = 1 WHERE id = ?', [req.params.id]);
+    await ensureAdminNotificationsSchema();
+    await pool.query('UPDATE admin_notifications SET lu = 1 WHERE id = ?', [req.params.id]);
     res.json({ message: 'Notification marked as read' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update notification' });
@@ -3597,16 +3606,10 @@ app.post('/api/reservation-demands', async (req, res) => {
       `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
     );
 
-    const adminNotificationId = `n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    await pool.query(
-      'INSERT INTO notifications (id, utilisateur_id, type, message, lu, created_at) VALUES (?, ?, ?, ?, 0, ?)',
-      [
-        adminNotificationId,
-        'admin',
-        'warning',
-        `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${client_name || client_email || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
-        now,
-      ]
+    await createAdminNotification(
+      'warning',
+      `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${client_name || client_email || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
+      now
     );
 
     const [rows] = await pool.query(
@@ -3680,17 +3683,7 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
 
     if (body.communicateToOwner) {
       const notificationMessage = `Demande reservation a traiter pour le bien ${current.bien_id} du ${current.start_date} au ${current.end_date}`;
-      if (current.owner_user_id) {
-        await pool.query(
-          'INSERT INTO notifications (id, utilisateur_id, type, message, lu, created_at) VALUES (?, ?, ?, ?, 0, ?)',
-          [`n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, current.owner_user_id, 'info', notificationMessage, updatedAt]
-        );
-      } else if (current.proprietaire_id) {
-        await pool.query(
-          'INSERT INTO notifications (id, utilisateur_id, type, message, lu, created_at) VALUES (?, ?, ?, ?, 0, ?)',
-          [`n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, `owner:${current.proprietaire_id}`, 'info', notificationMessage, updatedAt]
-        );
-      }
+      await createAdminNotification('info', notificationMessage, updatedAt);
       await appendReservationDemandHistory(demandId, nextStatus, 'admin', body.actor_id || 'admin', body.history_note || 'Demande communiquee au proprietaire', updatedAt);
     } else if (nextStatus !== current.status || body.history_note) {
       await appendReservationDemandHistory(
@@ -3980,6 +3973,19 @@ async function ensureMaintenanceWorkflowSchema() {
   if (!(await columnExists('maintenance', 'owner_approved_at'))) {
     await pool.query('ALTER TABLE maintenance ADD COLUMN owner_approved_at DATETIME NULL AFTER owner_approval_status');
   }
+}
+
+async function ensureAdminNotificationsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_notifications (
+      id VARCHAR(100) PRIMARY KEY,
+      type VARCHAR(20) NOT NULL DEFAULT 'info',
+      message TEXT NOT NULL,
+      lu TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL,
+      KEY idx_admin_notifications_lu_created (lu, created_at)
+    )
+  `);
 }
 
 async function ensureClientelesTasksSchema() {

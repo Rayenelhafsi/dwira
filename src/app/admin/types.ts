@@ -427,7 +427,7 @@ export interface ClienteleTask {
 
 export interface Notification {
   id: string;
-  utilisateur_id: string;
+  utilisateur_id?: string | null;
   type: 'info' | 'warning' | 'success' | 'error';
   message: string;
   lu: boolean;
