@@ -5,6 +5,7 @@ import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
+import { saveReservationToCache } from "../utils/reservations";
 
 type ReservationDraft = {
   propertyId: string;
@@ -78,6 +79,7 @@ export default function ReservationConfirmationPage() {
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Impossible de confirmer la demande"));
+      saveReservationToCache(data);
       setCreatedDemand({ id: data.id });
       await refreshData();
       toast.success("Votre demande est maintenant en attente.");

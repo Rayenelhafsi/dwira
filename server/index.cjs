@@ -3434,6 +3434,7 @@ app.get('/api/caracteristique-onglets', async (req, res) => {
 
 app.get('/api/reservation-demands', async (req, res) => {
   try {
+    await ensureReservationDemandSchema();
     const where = [];
     const params = [];
     if (req.query.client_user_id) {
@@ -3475,6 +3476,7 @@ app.get('/api/reservation-demands', async (req, res) => {
 
 app.get('/api/reservation-demands/:id/history', async (req, res) => {
   try {
+    await ensureReservationDemandSchema();
     const [rows] = await pool.query(
       `SELECT
          id,
@@ -3498,6 +3500,7 @@ app.get('/api/reservation-demands/:id/history', async (req, res) => {
 
 app.post('/api/reservation-demands', async (req, res) => {
   try {
+    await ensureReservationDemandSchema();
     const {
       bien_id,
       client_user_id,
@@ -3626,6 +3629,7 @@ app.post('/api/reservation-demands', async (req, res) => {
 
 app.put('/api/reservation-demands/:id', async (req, res) => {
   try {
+    await ensureReservationDemandSchema();
     const demandId = String(req.params.id || '').trim();
     const body = req.body || {};
     const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
@@ -4403,6 +4407,7 @@ app.delete('/api/media/:id', async (req, res) => {
 
 app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
   try {
+    await ensureReservationDemandSchema();
     const [rows] = await pool.query(
       `SELECT
          id,
@@ -4424,10 +4429,13 @@ app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
 
 app.post('/api/unavailable-dates', async (req, res) => {
   try {
+    await ensureReservationDemandSchema();
     const { bien_id, start_date, end_date, status } = req.body;
     const id = 'ud' + Date.now();
-    await pool.query('INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status) VALUES (?, ?, ?, ?, ?)',
-      [id, bien_id, start_date, end_date, status || 'blocked']);
+    await pool.query(
+      'INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, bien_id, start_date, end_date, status || 'blocked', null, null]
+    );
     const [newDate] = await pool.query('SELECT * FROM unavailable_dates WHERE id = ?', [id]);
     res.status(201).json(newDate[0]);
   } catch (error) {
@@ -4438,6 +4446,7 @@ app.post('/api/unavailable-dates', async (req, res) => {
 
 app.delete('/api/unavailable-dates/:id', async (req, res) => {
   try {
+    await ensureReservationDemandSchema();
     await pool.query('DELETE FROM unavailable_dates WHERE id = ?', [req.params.id]);
     res.json({ message: 'Unavailable date deleted' });
   } catch (error) {

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { useProperties } from "../context/PropertiesContext";
 import type { ReservationDemand } from "../admin/types";
+import { getReservationsFromCache } from "../utils/reservations";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -44,6 +45,7 @@ export default function MyReservationsPage() {
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger vos reservations"));
       setReservations(Array.isArray(rows) ? rows : []);
     } catch (error) {
+      setReservations(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }));
       toast.error(error instanceof Error ? error.message : "Impossible de charger vos reservations");
     } finally {
       setIsLoading(false);

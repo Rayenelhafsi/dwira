@@ -4,6 +4,7 @@ import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut, Shoppi
 import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "../context/AuthContext";
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
+import { getReservationsFromCache } from "../utils/reservations";
 
 // Custom TikTok Icon
 const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
@@ -58,7 +59,7 @@ export function Header() {
     fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands?${query.toString()}`)
       .then((response) => response.ok ? response.json() : [])
       .then((rows) => setReservationCount(Array.isArray(rows) ? rows.length : 0))
-      .catch(() => setReservationCount(0));
+      .catch(() => setReservationCount(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }).length));
   }, [user]);
 
   const navLinks = [
