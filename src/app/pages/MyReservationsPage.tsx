@@ -45,8 +45,13 @@ export default function MyReservationsPage() {
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger vos reservations"));
       setReservations(Array.isArray(rows) ? rows : []);
     } catch (error) {
-      setReservations(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }));
-      toast.error(error instanceof Error ? error.message : "Impossible de charger vos reservations");
+      const cachedRows = getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email });
+      setReservations(cachedRows);
+      toast.error(
+        cachedRows.length > 0
+          ? "API indisponible. Historique local affiche."
+          : (error instanceof Error ? error.message : "Impossible de charger vos reservations")
+      );
     } finally {
       setIsLoading(false);
     }

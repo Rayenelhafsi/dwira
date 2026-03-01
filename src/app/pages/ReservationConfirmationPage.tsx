@@ -5,6 +5,7 @@ import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
+import type { ReservationDemand } from "../admin/types";
 import { saveReservationToCache } from "../utils/reservations";
 
 type ReservationDraft = {
@@ -84,7 +85,36 @@ export default function ReservationConfirmationPage() {
       await refreshData();
       toast.success("Votre demande est maintenant en attente.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible de confirmer la demande");
+      const fallbackId = `local_${Date.now()}`;
+      const fallbackReservation: ReservationDemand = {
+        id: fallbackId,
+        bien_id: String(property.id),
+        unavailable_date_id: null,
+        client_user_id: user.id || null,
+        client_email: user.email || null,
+        client_name: user.name || null,
+        proprietaire_id: property.proprietaire_id || null,
+        owner_user_id: null,
+        start_date: draft.startDate,
+        end_date: draft.endDate,
+        guests: draft.guests,
+        status: "en_attente_reponse_proprietaire",
+        owner_notified_at: null,
+        owner_response_at: null,
+        admin_note: "Sauvegarde locale en attente de synchronisation API",
+        client_note: draft.reservationNote || null,
+        finalization_due_at: null,
+        contract_id: null,
+        payment_id: null,
+        bien_titre: property.title,
+        bien_reference: property.reference || property.id,
+        proprietaire_nom: null,
+        created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        updated_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+      };
+      saveReservationToCache(fallbackReservation);
+      setCreatedDemand({ id: fallbackId });
+      toast.error(error instanceof Error ? `${error.message}. Reservation sauvegardee localement.` : "API indisponible. Reservation sauvegardee localement.");
     } finally {
       setIsSubmitting(false);
     }
