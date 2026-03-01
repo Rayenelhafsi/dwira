@@ -1989,6 +1989,7 @@ function formatReservationDemandRow(row) {
   if (!row) return null;
   return {
     ...row,
+    request_type: row.request_type === 'visite' ? 'visite' : 'reservation',
     guests: Number(row.guests || 1),
     owner_notified_at: row.owner_notified_at || null,
     owner_response_at: row.owner_response_at || null,
@@ -2178,7 +2179,7 @@ async function syncClienteleTasks(sourceTable, sourceId) {
     }
     if (reservationWhere.length > 0) {
       const [reservationRows] = await pool.query(
-        `SELECT id, bien_id, start_date, end_date, status
+        `SELECT id, bien_id, start_date, end_date, status, request_type
          FROM reservation_demands
          WHERE ${reservationWhere.join(' OR ')}
            AND status IN (
@@ -2193,10 +2194,11 @@ async function syncClienteleTasks(sourceTable, sourceId) {
         reservationParams
       );
       reservationRows.forEach((demand) => {
+        const requestLabel = demand.request_type === 'visite' ? 'Demande de visite' : 'Demande de reservation';
         tasks.push({
           taskType: 'demande_reservation',
           severity: demand.status === 'en_attente_reponse_proprietaire' ? 'warning' : 'info',
-          title: 'Demande de reservation en attente',
+          title: `${requestLabel} en attente`,
           detail: `Demande ${demand.id} pour le bien ${demand.bien_id} du ${demand.start_date} au ${demand.end_date}.`,
           dueDate: `${demand.start_date} 00:00:00`,
           relatedEntityType: 'reservation_demand',
@@ -2208,7 +2210,7 @@ async function syncClienteleTasks(sourceTable, sourceId) {
 
   if (sourceTable === 'proprietaires') {
     const [reservationRows] = await pool.query(
-      `SELECT id, bien_id, start_date, end_date, status
+      `SELECT id, bien_id, start_date, end_date, status, request_type
        FROM reservation_demands
        WHERE proprietaire_id = ?
          AND status IN ('en_attente_reponse_proprietaire', 'pas_de_reponse_proprietaire')
@@ -2216,11 +2218,12 @@ async function syncClienteleTasks(sourceTable, sourceId) {
       [sourceId]
     );
     reservationRows.forEach((demand) => {
+      const requestLabel = demand.request_type === 'visite' ? 'visite' : 'reservation';
       tasks.push({
         taskType: 'demande_client_proprietaire',
         severity: 'warning',
         title: 'Reponse proprietaire attendue',
-        detail: `Demande ${demand.id} sur le bien ${demand.bien_id} attend une reponse proprietaire.`,
+        detail: `Demande de ${requestLabel} ${demand.id} sur le bien ${demand.bien_id} attend une reponse proprietaire.`,
         dueDate: `${demand.start_date} 00:00:00`,
         relatedEntityType: 'reservation_demand',
         relatedEntityId: demand.id,
@@ -3455,6 +3458,7 @@ app.get('/api/reservation-demands', async (req, res) => {
         d.*,
         b.titre AS bien_titre,
         b.reference AS bien_reference,
+        b.mode AS bien_mode,
         p.nom AS proprietaire_nom,
         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
@@ -3510,6 +3514,7 @@ app.post('/api/reservation-demands', async (req, res) => {
       end_date,
       guests,
       client_note,
+      request_type,
     } = req.body || {};
 
     if (!bien_id || !start_date || !end_date) {
@@ -3522,7 +3527,7 @@ app.post('/api/reservation-demands', async (req, res) => {
     const [bienRows] = await pool.query('SELECT id, titre, reference, mode, proprietaire_id FROM biens WHERE id = ? LIMIT 1', [bien_id]);
     const bien = bienRows[0];
     if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
-    if (bien.mode === 'vente') return res.status(400).json({ error: 'Demande de reservation indisponible pour un bien de vente' });
+    const requestType = bien.mode === 'vente' ? 'visite' : (request_type === 'visite' ? 'visite' : 'reservation');
 
     const [overlapRows] = await pool.query(
       `SELECT id, status
@@ -3548,13 +3553,14 @@ app.post('/api/reservation-demands', async (req, res) => {
 
     await pool.query(
       `INSERT INTO reservation_demands (
-        id, bien_id, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
+        id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
         start_date, end_date, guests, status, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         demandId,
         bien_id,
+        requestType,
         unavailableDateId,
         client_user_id || null,
         client_email || null,
@@ -3588,7 +3594,7 @@ app.post('/api/reservation-demands', async (req, res) => {
       'en_attente_reponse_proprietaire',
       'client',
       client_user_id || client_email || null,
-      `Nouvelle demande pour ${bien.reference || bien.id} - ${bien.titre}`
+      `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
     );
 
     const adminNotificationId = `n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -3598,7 +3604,7 @@ app.post('/api/reservation-demands', async (req, res) => {
         adminNotificationId,
         'admin',
         'warning',
-        `Nouvelle demande de reservation: ${client_name || client_email || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
+        `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${client_name || client_email || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
         now,
       ]
     );
@@ -3608,6 +3614,7 @@ app.post('/api/reservation-demands', async (req, res) => {
         d.*,
         b.titre AS bien_titre,
         b.reference AS bien_reference,
+        b.mode AS bien_mode,
         p.nom AS proprietaire_nom,
         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
@@ -3937,8 +3944,16 @@ app.post('/api/caracteristiques', async (req, res) => {
         await pool.query(
           'DELETE FROM modifier_onglets WHERE mode_bien = ? AND type_bien = ? AND caracteristique_id = ?',
           [normalizedMode, normalizedType, caracteristique.id]
-  );
-}
+        );
+      }
+    }
+
+    res.status(201).json(caracteristique);
+  } catch (error) {
+    console.error('Error creating caracteristique:', error);
+    res.status(500).json({ error: 'Failed to create caracteristique' });
+  }
+});
 
 async function ensureMaintenanceWorkflowSchema() {
   const columnExists = async (tableName, columnName) => {
@@ -4008,6 +4023,7 @@ async function ensureReservationDemandSchema() {
     CREATE TABLE IF NOT EXISTS reservation_demands (
       id VARCHAR(100) PRIMARY KEY,
       bien_id VARCHAR(100) NOT NULL,
+      request_type VARCHAR(20) NOT NULL DEFAULT 'reservation',
       unavailable_date_id VARCHAR(100) NULL,
       client_user_id VARCHAR(100) NULL,
       client_email VARCHAR(255) NULL,
@@ -4053,15 +4069,10 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('unavailable_dates', 'payment_deadline'))) {
     await pool.query('ALTER TABLE unavailable_dates ADD COLUMN payment_deadline DATETIME NULL AFTER reservation_demand_id');
   }
-}
-    }
-
-    res.status(201).json(caracteristique);
-  } catch (error) {
-    console.error('Error creating caracteristique:', error);
-    res.status(500).json({ error: 'Failed to create caracteristique' });
+  if (!(await columnExists('reservation_demands', 'request_type'))) {
+    await pool.query("ALTER TABLE reservation_demands ADD COLUMN request_type VARCHAR(20) NOT NULL DEFAULT 'reservation' AFTER bien_id");
   }
-});
+}
 
 app.delete('/api/caracteristiques/:id', async (req, res) => {
   try {

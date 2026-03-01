@@ -33,3 +33,4 @@ migrations/2026-02-27-sync-vente-terrain-front-features.sql
 migrations/2026-02-23-add-zone-google-maps-url.sql
 migrations/2026-02-23-add-zone-google-maps-url.sql
 migrations/2026-03-01-create-reservation-demand-tables.sql
+migrations/2026-03-01-add-reservation-demand-request-type.sql

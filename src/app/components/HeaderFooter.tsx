@@ -109,7 +109,7 @@ export function Header() {
                       ? 'border-white/30 text-white hover:bg-white/20'
                       : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
                   }`}
-                  title="Mes reservations"
+                  title="Mes demandes"
                 >
                   <ShoppingBag size={18} />
                   {reservationCount > 0 && (
@@ -239,7 +239,7 @@ export function Header() {
                       className="text-lg text-emerald-600 hover:text-emerald-700 flex items-center gap-2"
                     >
                       <ShoppingBag size={22} />
-                      <span>Mes reservations{reservationCount > 0 ? ` (${reservationCount})` : ''}</span>
+                      <span>Mes demandes{reservationCount > 0 ? ` (${reservationCount})` : ''}</span>
                     </Link>
                   )}
                   <button

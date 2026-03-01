@@ -43,6 +43,7 @@ export default function PropertyDetailsPage() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
   const [reservationNote, setReservationNote] = useState("");
+  const isSaleProperty = property?.priceContext === 'sale';
   const formatRating = (value: number) =>
     Number.isFinite(value)
       ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
@@ -295,6 +296,7 @@ export default function PropertyDetailsPage() {
         draft: {
           propertyId: String(property.id),
           propertySlug: property.slug,
+          requestType: isSaleProperty ? 'visite' : 'reservation',
           startDate,
           endDate,
           guests,
@@ -523,7 +525,7 @@ export default function PropertyDetailsPage() {
               <form className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
                   <div className="col-span-1">
-                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Arrivée</label>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date souhaitee' : 'Arrivee'}</label>
                     <div className="relative">
                       <input 
                         type="date" 
@@ -534,7 +536,7 @@ export default function PropertyDetailsPage() {
                     </div>
                   </div>
                   <div className="col-span-1">
-                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Départ</label>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date alternative' : 'Depart'}</label>
                     <div className="relative">
                        <input 
                         type="date" 
@@ -548,7 +550,7 @@ export default function PropertyDetailsPage() {
 
                 <div>
                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                     Voyageurs <span className="text-gray-500 font-normal normal-case">(max {property.guests})</span>
+                     {isSaleProperty ? 'Visiteurs' : 'Voyageurs'} <span className="text-gray-500 font-normal normal-case">(max {property.guests})</span>
                    </label>
                    <select 
                       className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
@@ -556,13 +558,13 @@ export default function PropertyDetailsPage() {
                       onChange={(e) => setGuests(parseInt(e.target.value))}
                    >
                      {[...Array(property.guests)].map((_, i) => (
-                       <option key={i} value={i + 1}>{i + 1} voyageur{i > 0 ? 's' : ''}</option>
+                       <option key={i} value={i + 1}>{i + 1} {isSaleProperty ? `visiteur${i > 0 ? 's' : ''}` : `voyageur${i > 0 ? 's' : ''}`}</option>
                      ))}
                    </select>
                 </div>
 
                 {/* Optional Fees */}
-                {property.cleaningFee !== undefined && property.cleaningFee > 0 && (
+                {!isSaleProperty && property.cleaningFee !== undefined && property.cleaningFee > 0 && (
                   <div 
                     onClick={() => setIncludeCleaningFee(!includeCleaningFee)}
                     className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
@@ -585,7 +587,7 @@ export default function PropertyDetailsPage() {
                   </div>
                 )}
 
-                {property.serviceFee !== undefined && property.serviceFee > 0 && (
+                {!isSaleProperty && property.serviceFee !== undefined && property.serviceFee > 0 && (
                   <div 
                     onClick={() => setIncludeServiceFee(!includeServiceFee)}
                     className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
@@ -612,7 +614,7 @@ export default function PropertyDetailsPage() {
                   value={reservationNote}
                   onChange={(e) => setReservationNote(e.target.value)}
                   rows={3}
-                  placeholder="Note optionnelle pour l'agence"
+                  placeholder={isSaleProperty ? "Precisez vos disponibilites ou vos questions" : "Note optionnelle pour l'agence"}
                   className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
                 <button 
@@ -620,11 +622,11 @@ export default function PropertyDetailsPage() {
                   onClick={() => void handleReservationRequest()}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-colors shadow-md mt-4"
                 >
-                  Reserver
+                  {isSaleProperty ? 'Demander une visite' : 'Reserver'}
                 </button>
-                <p className="text-center text-xs text-gray-500 mt-2">Aucun montant ne vous sera débité pour le moment</p>
+                <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite" : "Aucun montant ne vous sera debite pour le moment"}</p>
 
-                <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
+                {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    <div className="flex justify-between">
                      <span className="underline">{property.pricePerNight} TND x {pricing.nights} nuits</span>
                      <span>{pricing.accommodationTotal} TND</span>
@@ -645,7 +647,7 @@ export default function PropertyDetailsPage() {
                      <span>Total</span>
                      <span>{pricing.total} TND</span>
                    </div>
-                </div>
+                </div>}
 
                 {/* Waiting list message for pending dates */}
                 {hasPendingDates && getPaymentDeadline() && (

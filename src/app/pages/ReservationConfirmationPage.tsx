@@ -11,6 +11,7 @@ import { saveReservationToCache } from "../utils/reservations";
 type ReservationDraft = {
   propertyId: string;
   propertySlug: string;
+  requestType?: 'reservation' | 'visite';
   startDate: string;
   endDate: string;
   guests: number;
@@ -34,6 +35,8 @@ export default function ReservationConfirmationPage() {
 
   const draft = (location.state as LocationState | null)?.draft || null;
   const property = properties.find((item) => item.slug === slug);
+  const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
+  const isVisitRequest = requestType === 'visite';
 
   const summary = useMemo(() => {
     if (!property || !draft) return null;
@@ -76,6 +79,7 @@ export default function ReservationConfirmationPage() {
           end_date: draft.endDate,
           guests: draft.guests,
           client_note: draft.reservationNote || null,
+          request_type: requestType,
         }),
       });
       const data = await response.json().catch(() => null);
@@ -83,12 +87,13 @@ export default function ReservationConfirmationPage() {
       saveReservationToCache(data);
       setCreatedDemand({ id: data.id });
       await refreshData();
-      toast.success("Votre demande est maintenant en attente.");
+      toast.success(isVisitRequest ? "Votre demande de visite est maintenant en attente." : "Votre demande est maintenant en attente.");
     } catch (error) {
       const fallbackId = `local_${Date.now()}`;
       const fallbackReservation: ReservationDemand = {
         id: fallbackId,
         bien_id: String(property.id),
+        request_type: requestType,
         unavailable_date_id: null,
         client_user_id: user.id || null,
         client_email: user.email || null,
@@ -114,7 +119,7 @@ export default function ReservationConfirmationPage() {
       };
       saveReservationToCache(fallbackReservation);
       setCreatedDemand({ id: fallbackId });
-      toast.error(error instanceof Error ? `${error.message}. Reservation sauvegardee localement.` : "API indisponible. Reservation sauvegardee localement.");
+      toast.error(error instanceof Error ? `${error.message}. Demande sauvegardee localement.` : "API indisponible. Demande sauvegardee localement.");
     } finally {
       setIsSubmitting(false);
     }
@@ -128,9 +133,9 @@ export default function ReservationConfirmationPage() {
             <div className="bg-emerald-950 px-6 py-8 text-white md:px-10">
               <div className="inline-flex items-center gap-3 rounded-full bg-white/10 px-4 py-2 text-sm font-medium">
                 <CheckCircle2 className="h-4 w-4 text-amber-300" />
-                Demande en attente
+                {isVisitRequest ? 'Visite en attente' : 'Demande en attente'}
               </div>
-              <h1 className="mt-4 text-3xl font-bold">Votre demande de reservation est en attente</h1>
+              <h1 className="mt-4 text-3xl font-bold">{isVisitRequest ? 'Votre demande de visite est en attente' : 'Votre demande de reservation est en attente'}</h1>
               <p className="mt-2 text-sm text-emerald-100/80">
                 Merci d&apos;attendre notre retour. Identifiant de demande: <span className="font-semibold text-white">{createdDemand.id}</span>
               </p>
@@ -163,46 +168,46 @@ export default function ReservationConfirmationPage() {
               </div>
 
               <div className="rounded-3xl border border-emerald-100 bg-emerald-50/50 p-6">
-                <p className="text-sm uppercase tracking-[0.24em] text-emerald-700">Details reservation</p>
+                <p className="text-sm uppercase tracking-[0.24em] text-emerald-700">{isVisitRequest ? 'Details visite' : 'Details reservation'}</p>
                 <div className="mt-5 space-y-4 text-sm text-gray-700">
                   <div className="flex items-center justify-between gap-3">
                     <span>Reference bien</span>
                     <span className="font-semibold text-gray-900">{property.id}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span>Periode</span>
+                    <span>{isVisitRequest ? 'Creneau souhaite' : 'Periode'}</span>
                     <span className="font-semibold text-gray-900">{draft.startDate} au {draft.endDate}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span>Nuits</span>
-                    <span className="font-semibold text-gray-900">{summary?.nights}</span>
+                    <span>{isVisitRequest ? 'Visiteurs' : 'Nuits'}</span>
+                    <span className="font-semibold text-gray-900">{isVisitRequest ? draft.guests : summary?.nights}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
+                  {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Voyageurs</span>
                     <span className="font-semibold text-gray-900">{draft.guests}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
+                  </div>}
+                  {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Hebergement</span>
                     <span className="font-semibold text-gray-900">{summary?.accommodationTotal} TND</span>
-                  </div>
-                  {summary?.cleaningFee ? (
+                  </div>}
+                  {!isVisitRequest && summary?.cleaningFee ? (
                     <div className="flex items-center justify-between gap-3">
                       <span>Frais de menage</span>
                       <span className="font-semibold text-gray-900">{summary.cleaningFee} TND</span>
                     </div>
                   ) : null}
-                  {summary?.serviceFee ? (
+                  {!isVisitRequest && summary?.serviceFee ? (
                     <div className="flex items-center justify-between gap-3">
                       <span>Frais de service</span>
                       <span className="font-semibold text-gray-900">{summary.serviceFee} TND</span>
                     </div>
                   ) : null}
-                  <div className="border-t border-emerald-100 pt-4">
+                  {!isVisitRequest && <div className="border-t border-emerald-100 pt-4">
                     <div className="flex items-center justify-between gap-3 text-base">
                       <span className="font-semibold text-gray-900">Montant final</span>
                       <span className="text-xl font-bold text-emerald-700">{summary?.total} TND</span>
                     </div>
-                  </div>
+                  </div>}
                 </div>
 
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -218,7 +223,7 @@ export default function ReservationConfirmationPage() {
                     className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 px-5 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                   >
                     <ShoppingBag className="h-4 w-4" />
-                    Voir mes reservations
+                    Voir mes demandes
                   </Link>
                 </div>
               </div>
@@ -239,7 +244,7 @@ export default function ReservationConfirmationPage() {
             className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-800"
           >
             <ArrowLeft className="h-4 w-4" />
-            Modifier ma reservation
+            {isVisitRequest ? 'Modifier ma demande' : 'Modifier ma reservation'}
           </button>
         </div>
 
@@ -258,9 +263,11 @@ export default function ReservationConfirmationPage() {
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">Verification finale</p>
-                <h1 className="mt-3 text-3xl font-bold text-gray-900">Confirmez votre demande de reservation</h1>
+                <h1 className="mt-3 text-3xl font-bold text-gray-900">{isVisitRequest ? 'Confirmez votre demande de visite' : 'Confirmez votre demande de reservation'}</h1>
                 <p className="mt-3 text-sm leading-6 text-gray-600">
-                  Relisez les details ci-dessous. Une fois confirmee, votre demande passera en attente de validation et la periode sera marquee en orange dans le calendrier.
+                  {isVisitRequest
+                    ? "Relisez les details ci-dessous. Une fois confirmee, votre demande de visite passera en attente de validation proprietaire."
+                    : "Relisez les details ci-dessous. Une fois confirmee, votre demande passera en attente de validation et la periode sera marquee en orange dans le calendrier."}
                 </p>
 
                 <div className="mt-6 rounded-3xl border border-emerald-100 bg-emerald-50/60 p-5">
@@ -274,10 +281,10 @@ export default function ReservationConfirmationPage() {
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     <SummaryItem label="Reference" value={property.reference || property.id} />
                     <SummaryItem label="Categorie" value={property.category} />
-                    <SummaryItem label="Arrivee" value={format(new Date(draft.startDate), "dd/MM/yyyy")} />
-                    <SummaryItem label="Depart" value={format(new Date(draft.endDate), "dd/MM/yyyy")} />
-                    <SummaryItem label="Voyageurs" value={`${draft.guests}`} icon={<Users className="h-4 w-4" />} />
-                    <SummaryItem label="Nuits" value={`${summary?.nights || 0}`} />
+                    <SummaryItem label={isVisitRequest ? "Date souhaitee" : "Arrivee"} value={format(new Date(draft.startDate), "dd/MM/yyyy")} />
+                    <SummaryItem label={isVisitRequest ? "Date alternative" : "Depart"} value={format(new Date(draft.endDate), "dd/MM/yyyy")} />
+                    <SummaryItem label={isVisitRequest ? "Visiteurs" : "Voyageurs"} value={`${draft.guests}`} icon={<Users className="h-4 w-4" />} />
+                    <SummaryItem label={isVisitRequest ? "Type demande" : "Nuits"} value={isVisitRequest ? "Visite de bien" : `${summary?.nights || 0}`} />
                   </div>
                 </div>
 
@@ -296,15 +303,23 @@ export default function ReservationConfirmationPage() {
           </div>
 
           <div className="rounded-[30px] border border-emerald-100 bg-white p-6 shadow-[0_25px_90px_rgba(15,23,42,0.08)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">Montants</p>
-            <div className="mt-6 space-y-4 text-sm text-gray-700">
-              <Line label={`${property.pricePerNight} TND x ${summary?.nights || 0} nuits`} value={`${summary?.accommodationTotal || 0} TND`} />
-              {summary?.cleaningFee ? <Line label="Frais de menage" value={`${summary.cleaningFee} TND`} /> : null}
-              {summary?.serviceFee ? <Line label="Frais de service" value={`${summary.serviceFee} TND`} /> : null}
-              <div className="border-t border-gray-100 pt-4">
-                <Line label="Montant final" value={`${summary?.total || 0} TND`} strong />
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">{isVisitRequest ? 'Synthese demande' : 'Montants'}</p>
+            {isVisitRequest ? (
+              <div className="mt-6 space-y-4 text-sm text-gray-700">
+                <Line label="Bien" value={property.reference || property.id} />
+                <Line label="Statut initial" value="En attente de reponse proprietaire" />
+                <Line label="Type" value="Planification de visite" strong />
               </div>
-            </div>
+            ) : (
+              <div className="mt-6 space-y-4 text-sm text-gray-700">
+                <Line label={`${property.pricePerNight} TND x ${summary?.nights || 0} nuits`} value={`${summary?.accommodationTotal || 0} TND`} />
+                {summary?.cleaningFee ? <Line label="Frais de menage" value={`${summary.cleaningFee} TND`} /> : null}
+                {summary?.serviceFee ? <Line label="Frais de service" value={`${summary.serviceFee} TND`} /> : null}
+                <div className="border-t border-gray-100 pt-4">
+                  <Line label="Montant final" value={`${summary?.total || 0} TND`} strong />
+                </div>
+              </div>
+            )}
 
             {draft.reservationNote ? (
               <div className="mt-6 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -321,7 +336,7 @@ export default function ReservationConfirmationPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {isSubmitting ? "Confirmation..." : "Confirmer la reservation"}
+                {isSubmitting ? "Confirmation..." : (isVisitRequest ? "Confirmer la visite" : "Confirmer la reservation")}
               </button>
               <button
                 type="button"
@@ -329,7 +344,7 @@ export default function ReservationConfirmationPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 px-5 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
               >
                 <ArrowLeft className="h-4 w-4" />
-                Modifier la reservation
+                {isVisitRequest ? 'Modifier la demande' : 'Modifier la reservation'}
               </button>
             </div>
           </div>

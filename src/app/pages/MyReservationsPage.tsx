@@ -83,8 +83,8 @@ export default function MyReservationsPage() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">Espace client</p>
-            <h1 className="mt-2 text-3xl font-bold text-gray-900">Mes reservations</h1>
-            <p className="mt-2 text-sm text-gray-500">Historique et statut de vos demandes de reservation.</p>
+            <h1 className="mt-2 text-3xl font-bold text-gray-900">Mes demandes</h1>
+            <p className="mt-2 text-sm text-gray-500">Historique et statut de vos demandes de reservation et de visite.</p>
           </div>
           <button
             type="button"
@@ -104,8 +104,8 @@ export default function MyReservationsPage() {
           ) : reservationCards.length === 0 ? (
             <div className="rounded-[28px] border border-gray-200 bg-white p-12 text-center shadow-sm">
               <ShoppingBag className="mx-auto h-10 w-10 text-gray-300" />
-              <h2 className="mt-4 text-xl font-semibold text-gray-900">Aucune reservation pour le moment</h2>
-              <p className="mt-2 text-sm text-gray-500">Explorez les logements et envoyez votre premiere demande.</p>
+              <h2 className="mt-4 text-xl font-semibold text-gray-900">Aucune demande pour le moment</h2>
+              <p className="mt-2 text-sm text-gray-500">Explorez les biens et envoyez votre premiere demande.</p>
               <Link to="/logements" className="mt-6 inline-flex rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700">
                 Voir les logements
               </Link>
@@ -127,11 +127,12 @@ export default function MyReservationsPage() {
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{reservation.bien_reference || reservation.bien_id}</span>
                         <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{statusLabels[reservation.status]}</span>
+                        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{reservation.request_type === 'visite' ? 'Visite' : 'Reservation'}</span>
                       </div>
                       <h2 className="mt-3 text-2xl font-bold text-gray-900">{reservation.bien_titre || "Bien"}</h2>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <Info label="Periode" value={`${reservation.start_date} au ${reservation.end_date}`} />
-                        <Info label="Voyageurs" value={`${reservation.guests}`} />
+                        <Info label={reservation.request_type === 'visite' ? 'Creneau' : 'Periode'} value={`${reservation.start_date} au ${reservation.end_date}`} />
+                        <Info label={reservation.request_type === 'visite' ? 'Visiteurs' : 'Voyageurs'} value={`${reservation.guests}`} />
                         <Info label="Cree le" value={formatDateTime(reservation.created_at)} icon={<CalendarClock className="h-4 w-4" />} />
                         <Info label="Derniere mise a jour" value={formatDateTime(reservation.updated_at)} />
                       </div>

@@ -444,9 +444,12 @@ export type ReservationDemandStatus =
   | 'contrat_realise'
   | 'succes_paiement';
 
+export type ReservationDemandRequestType = 'reservation' | 'visite';
+
 export interface ReservationDemand {
   id: string;
   bien_id: string;
+  request_type?: ReservationDemandRequestType;
   unavailable_date_id?: string | null;
   client_user_id?: string | null;
   client_email?: string | null;
