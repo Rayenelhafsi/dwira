@@ -7,6 +7,7 @@ export interface DateStatus {
 
 export interface Property {
   id: string;
+  reference?: string;
   title: string;
   slug: string;
   detailPath?: string;

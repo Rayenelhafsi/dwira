@@ -285,7 +285,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       start: ud.start_date,
       end: ud.end_date,
       status: ud.status,
-      color: ud.color || (ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827')
+      color: ud.color || (ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827'),
+      paymentDeadline: ud.paymentDeadline || ud.payment_deadline || undefined,
     }))
   };
 }
@@ -317,6 +318,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
 
   return {
     id: bien.id,
+    reference: bien.reference,
     title: bien.titre,
     slug: bien.titre.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     detailPath,

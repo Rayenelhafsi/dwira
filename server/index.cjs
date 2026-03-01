@@ -1969,11 +1969,59 @@ function scoreBuyerMatch(profile, bien) {
   return { score: Math.max(0, Math.min(100, Math.round(score))), reasons };
 }
 
+const RESERVATION_DEMAND_STATUSES = new Set([
+  'en_attente_reponse_proprietaire',
+  'pas_de_reponse_proprietaire',
+  'reponse_positive_attente_confirmation_client',
+  'reponse_negative_autre_proposition_meme_bien',
+  'reponse_negative_autre_proposition_bien_similaire',
+  'attente_envoi_coordonnees_contrat',
+  'contrat_realise',
+  'succes_paiement',
+]);
+
+function normalizeReservationDemandStatus(value) {
+  const normalized = String(value || '').trim();
+  return RESERVATION_DEMAND_STATUSES.has(normalized) ? normalized : 'en_attente_reponse_proprietaire';
+}
+
+function formatReservationDemandRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    guests: Number(row.guests || 1),
+    owner_notified_at: row.owner_notified_at || null,
+    owner_response_at: row.owner_response_at || null,
+    finalization_due_at: row.finalization_due_at || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+async function appendReservationDemandHistory(demandId, status, actorType, actorId, note, createdAt = getAgencySqlDateTime()) {
+  const historyId = `rdh_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO reservation_demand_history (id, demand_id, status, actor_type, actor_id, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [historyId, demandId, status, actorType, actorId || null, note || null, createdAt]
+  );
+}
+
 async function syncClienteleTasks(sourceTable, sourceId) {
   const profile = await fetchClienteleProfileBySource(sourceTable, sourceId);
   const now = new Date();
   const nowSql = getAgencySqlDateTime(now);
   const tasks = [];
+  let clientEmail = profile?.email || null;
+
+  if (sourceTable === 'locataires' && !clientEmail) {
+    const [locataireRows] = await pool.query('SELECT email FROM locataires WHERE id = ? LIMIT 1', [sourceId]);
+    clientEmail = locataireRows[0]?.email || null;
+  }
+  if (sourceTable === 'proprietaires' && !clientEmail) {
+    const [ownerRows] = await pool.query('SELECT email FROM proprietaires WHERE id = ? LIMIT 1', [sourceId]);
+    clientEmail = ownerRows[0]?.email || null;
+  }
 
   if (sourceTable === 'locataires') {
     const [contracts] = await pool.query('SELECT * FROM contrats WHERE locataire_id = ?', [sourceId]);
@@ -2117,6 +2165,69 @@ async function syncClienteleTasks(sourceTable, sourceId) {
     }
   }
 
+  if (sourceTable === 'utilisateurs' || sourceTable === 'locataires') {
+    const reservationParams = [];
+    const reservationWhere = [];
+    if (sourceTable === 'utilisateurs') {
+      reservationWhere.push('client_user_id = ?');
+      reservationParams.push(sourceId);
+    }
+    if (clientEmail) {
+      reservationWhere.push('client_email = ?');
+      reservationParams.push(clientEmail);
+    }
+    if (reservationWhere.length > 0) {
+      const [reservationRows] = await pool.query(
+        `SELECT id, bien_id, start_date, end_date, status
+         FROM reservation_demands
+         WHERE ${reservationWhere.join(' OR ')}
+           AND status IN (
+             'en_attente_reponse_proprietaire',
+             'pas_de_reponse_proprietaire',
+             'reponse_positive_attente_confirmation_client',
+             'reponse_negative_autre_proposition_meme_bien',
+             'reponse_negative_autre_proposition_bien_similaire',
+             'attente_envoi_coordonnees_contrat'
+           )
+         ORDER BY created_at DESC`,
+        reservationParams
+      );
+      reservationRows.forEach((demand) => {
+        tasks.push({
+          taskType: 'demande_reservation',
+          severity: demand.status === 'en_attente_reponse_proprietaire' ? 'warning' : 'info',
+          title: 'Demande de reservation en attente',
+          detail: `Demande ${demand.id} pour le bien ${demand.bien_id} du ${demand.start_date} au ${demand.end_date}.`,
+          dueDate: `${demand.start_date} 00:00:00`,
+          relatedEntityType: 'reservation_demand',
+          relatedEntityId: demand.id,
+        });
+      });
+    }
+  }
+
+  if (sourceTable === 'proprietaires') {
+    const [reservationRows] = await pool.query(
+      `SELECT id, bien_id, start_date, end_date, status
+       FROM reservation_demands
+       WHERE proprietaire_id = ?
+         AND status IN ('en_attente_reponse_proprietaire', 'pas_de_reponse_proprietaire')
+       ORDER BY created_at DESC`,
+      [sourceId]
+    );
+    reservationRows.forEach((demand) => {
+      tasks.push({
+        taskType: 'demande_client_proprietaire',
+        severity: 'warning',
+        title: 'Reponse proprietaire attendue',
+        detail: `Demande ${demand.id} sur le bien ${demand.bien_id} attend une reponse proprietaire.`,
+        dueDate: `${demand.start_date} 00:00:00`,
+        relatedEntityType: 'reservation_demand',
+        relatedEntityId: demand.id,
+      });
+    });
+  }
+
   await pool.query('DELETE FROM clienteles_tasks WHERE source_table = ? AND source_id = ?', [sourceTable, sourceId]);
 
   for (const task of tasks) {
@@ -2180,6 +2291,7 @@ pool.getConnection()
   .then(() => ensureClientelesSchema())
   .then(() => ensureMaintenanceWorkflowSchema())
   .then(() => ensureClientelesTasksSchema())
+  .then(() => ensureReservationDemandSchema())
   .then(() => ensureZonesSchema())
   .then(() => ensureBiensWorkflowSchema())
   .then(() => {
@@ -2874,6 +2986,43 @@ app.post('/api/contrats', async (req, res) => {
       'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, url_pdf || null, statut || 'actif', created_at]
     );
+    const [matchingDemandRows] = await pool.query(
+      `SELECT d.id
+       FROM reservation_demands d
+       LEFT JOIN locataires l ON l.id = ?
+       WHERE d.bien_id = ?
+         AND (d.client_user_id = ? OR (l.email IS NOT NULL AND d.client_email = l.email))
+         AND d.start_date <= ?
+         AND d.end_date >= ?
+         AND d.status IN (
+           'en_attente_reponse_proprietaire',
+           'pas_de_reponse_proprietaire',
+           'reponse_positive_attente_confirmation_client',
+           'reponse_negative_autre_proposition_meme_bien',
+           'reponse_negative_autre_proposition_bien_similaire',
+           'attente_envoi_coordonnees_contrat'
+         )
+       ORDER BY d.created_at DESC
+       LIMIT 1`,
+      [locataire_id, bien_id, locataire_id, date_fin, date_debut]
+    );
+    if (matchingDemandRows[0]) {
+      const demandUpdatedAt = getAgencySqlDateTime();
+      await pool.query(
+        `UPDATE reservation_demands
+         SET status = 'contrat_realise', contract_id = ?, updated_at = ?
+         WHERE id = ?`,
+        [id, demandUpdatedAt, matchingDemandRows[0].id]
+      );
+      await appendReservationDemandHistory(
+        matchingDemandRows[0].id,
+        'contrat_realise',
+        'system',
+        id,
+        `Contrat ${id} cree automatiquement depuis la demande`,
+        demandUpdatedAt
+      );
+    }
     const [newContrat] = await pool.query('SELECT * FROM contrats WHERE id = ?', [id]);
     res.status(201).json(newContrat[0]);
   } catch (error) {
@@ -2908,6 +3057,33 @@ app.post('/api/paiements', async (req, res) => {
       'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
       [id, contrat_id, montant, date_paiement, statut || 'en_attente', methode || 'virement']
     );
+    if ((statut || 'en_attente') === 'paye' && contrat_id) {
+      const [demandRows] = await pool.query(
+        `SELECT id
+         FROM reservation_demands
+         WHERE contract_id = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [contrat_id]
+      );
+      if (demandRows[0]) {
+        const demandUpdatedAt = getAgencySqlDateTime();
+        await pool.query(
+          `UPDATE reservation_demands
+           SET status = 'succes_paiement', payment_id = ?, updated_at = ?
+           WHERE id = ?`,
+          [id, demandUpdatedAt, demandRows[0].id]
+        );
+        await appendReservationDemandHistory(
+          demandRows[0].id,
+          'succes_paiement',
+          'system',
+          id,
+          `Paiement ${id} enregistre avec succes`,
+          demandUpdatedAt
+        );
+      }
+    }
     const [newPaiement] = await pool.query('SELECT * FROM paiements WHERE id = ?', [id]);
     res.status(201).json(newPaiement[0]);
   } catch (error) {
@@ -3256,6 +3432,290 @@ app.get('/api/caracteristique-onglets', async (req, res) => {
   }
 });
 
+app.get('/api/reservation-demands', async (req, res) => {
+  try {
+    const where = [];
+    const params = [];
+    if (req.query.client_user_id) {
+      where.push('d.client_user_id = ?');
+      params.push(String(req.query.client_user_id));
+    }
+    if (req.query.client_email) {
+      where.push('d.client_email = ?');
+      params.push(String(req.query.client_email).trim().toLowerCase());
+    }
+    if (req.query.proprietaire_id) {
+      where.push('d.proprietaire_id = ?');
+      params.push(String(req.query.proprietaire_id));
+    }
+
+    const [rows] = await pool.query(`
+      SELECT
+        d.*,
+        b.titre AS bien_titre,
+        b.reference AS bien_reference,
+        p.nom AS proprietaire_nom,
+        DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+        DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+        DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      FROM reservation_demands d
+      LEFT JOIN biens b ON b.id = d.bien_id
+      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      ${where.length > 0 ? `WHERE ${where.join(' OR ')}` : ''}
+      ORDER BY d.created_at DESC
+    `, params);
+    res.json((rows || []).map((row) => formatReservationDemandRow(row)));
+  } catch (error) {
+    console.error('Error fetching reservation demands:', error);
+    res.status(500).json({ error: 'Impossible de charger les demandes de reservation' });
+  }
+});
+
+app.get('/api/reservation-demands/:id/history', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         demand_id,
+         status,
+         actor_type,
+         actor_id,
+         note,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM reservation_demand_history
+       WHERE demand_id = ?
+       ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    res.json(rows || []);
+  } catch (error) {
+    console.error('Error fetching reservation demand history:', error);
+    res.status(500).json({ error: 'Impossible de charger l historique de la demande' });
+  }
+});
+
+app.post('/api/reservation-demands', async (req, res) => {
+  try {
+    const {
+      bien_id,
+      client_user_id,
+      client_email,
+      client_name,
+      start_date,
+      end_date,
+      guests,
+      client_note,
+    } = req.body || {};
+
+    if (!bien_id || !start_date || !end_date) {
+      return res.status(400).json({ error: 'Bien, date de debut et date de fin requis' });
+    }
+    if (String(end_date) < String(start_date)) {
+      return res.status(400).json({ error: 'La date de fin doit etre apres la date de debut' });
+    }
+
+    const [bienRows] = await pool.query('SELECT id, titre, reference, mode, proprietaire_id FROM biens WHERE id = ? LIMIT 1', [bien_id]);
+    const bien = bienRows[0];
+    if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+    if (bien.mode === 'vente') return res.status(400).json({ error: 'Demande de reservation indisponible pour un bien de vente' });
+
+    const [overlapRows] = await pool.query(
+      `SELECT id, status
+       FROM unavailable_dates
+       WHERE bien_id = ?
+         AND start_date <= ?
+         AND end_date >= ?
+         AND status IN ('blocked', 'booked', 'pending')
+       LIMIT 1`,
+      [bien_id, end_date, start_date]
+    );
+    if (overlapRows[0]) {
+      return res.status(400).json({ error: 'Bien deja indisponible ou deja en attente sur cette periode' });
+    }
+
+    const now = getAgencySqlDateTime();
+    const demandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const unavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const paymentDeadline = getAgencySqlDateTime(new Date(Date.now() + (48 * 60 * 60 * 1000)));
+    const ownerUserId = bien.proprietaire_id
+      ? (await fetchClienteleProfileBySource('proprietaires', bien.proprietaire_id))?.linkedUserId || null
+      : null;
+
+    await pool.query(
+      `INSERT INTO reservation_demands (
+        id, bien_id, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
+        start_date, end_date, guests, status, owner_notified_at, owner_response_at, admin_note, client_note,
+        finalization_due_at, contract_id, payment_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        demandId,
+        bien_id,
+        unavailableDateId,
+        client_user_id || null,
+        client_email || null,
+        client_name || null,
+        bien.proprietaire_id || null,
+        ownerUserId,
+        start_date,
+        end_date,
+        Number(guests || 1),
+        'en_attente_reponse_proprietaire',
+        null,
+        null,
+        null,
+        client_note || null,
+        paymentDeadline,
+        null,
+        null,
+        now,
+        now,
+      ]
+    );
+
+    await pool.query(
+      `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+      [unavailableDateId, bien_id, start_date, end_date, demandId, paymentDeadline]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      'en_attente_reponse_proprietaire',
+      'client',
+      client_user_id || client_email || null,
+      `Nouvelle demande pour ${bien.reference || bien.id} - ${bien.titre}`
+    );
+
+    const adminNotificationId = `n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      'INSERT INTO notifications (id, utilisateur_id, type, message, lu, created_at) VALUES (?, ?, ?, ?, 0, ?)',
+      [
+        adminNotificationId,
+        'admin',
+        'warning',
+        `Nouvelle demande de reservation: ${client_name || client_email || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
+        now,
+      ]
+    );
+
+    const [rows] = await pool.query(
+      `SELECT
+        d.*,
+        b.titre AS bien_titre,
+        b.reference AS bien_reference,
+        p.nom AS proprietaire_nom,
+        DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+        DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+        DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      FROM reservation_demands d
+      LEFT JOIN biens b ON b.id = d.bien_id
+      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      WHERE d.id = ? LIMIT 1`,
+      [demandId]
+    );
+    res.status(201).json(formatReservationDemandRow(rows[0]));
+  } catch (error) {
+    console.error('Error creating reservation demand:', error);
+    res.status(500).json({ error: 'Impossible de creer la demande de reservation' });
+  }
+});
+
+app.put('/api/reservation-demands/:id', async (req, res) => {
+  try {
+    const demandId = String(req.params.id || '').trim();
+    const body = req.body || {};
+    const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows[0];
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+
+    const nextStatus = normalizeReservationDemandStatus(body.status || current.status);
+    const ownerNotifiedAt = body.communicateToOwner
+      ? getAgencySqlDateTime()
+      : (body.owner_notified_at !== undefined ? body.owner_notified_at : current.owner_notified_at);
+    const ownerResponseAt = body.owner_response_at !== undefined
+      ? body.owner_response_at
+      : (nextStatus !== current.status && (
+          nextStatus === 'pas_de_reponse_proprietaire' ||
+          nextStatus === 'reponse_positive_attente_confirmation_client' ||
+          nextStatus === 'reponse_negative_autre_proposition_meme_bien' ||
+          nextStatus === 'reponse_negative_autre_proposition_bien_similaire'
+        ) ? getAgencySqlDateTime() : current.owner_response_at);
+    const updatedAt = getAgencySqlDateTime();
+    const adminNote = body.admin_note !== undefined ? body.admin_note : current.admin_note;
+    const clientNote = body.client_note !== undefined ? body.client_note : current.client_note;
+    const finalizationDueAt = body.finalization_due_at !== undefined ? body.finalization_due_at : current.finalization_due_at;
+    const contractId = body.contract_id !== undefined ? body.contract_id : current.contract_id;
+    const paymentId = body.payment_id !== undefined ? body.payment_id : current.payment_id;
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?, owner_notified_at = ?, owner_response_at = ?, admin_note = ?, client_note = ?,
+           finalization_due_at = ?, contract_id = ?, payment_id = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, ownerNotifiedAt || null, ownerResponseAt || null, adminNote || null, clientNote || null, finalizationDueAt || null, contractId || null, paymentId || null, updatedAt, demandId]
+    );
+
+    if (current.unavailable_date_id) {
+      const unavailableStatus = (nextStatus === 'contrat_realise' || nextStatus === 'succes_paiement') ? 'booked' : 'pending';
+      await pool.query(
+        'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
+        [unavailableStatus, finalizationDueAt || current.finalization_due_at || null, current.unavailable_date_id]
+      );
+    }
+
+    if (body.communicateToOwner) {
+      const notificationMessage = `Demande reservation a traiter pour le bien ${current.bien_id} du ${current.start_date} au ${current.end_date}`;
+      if (current.owner_user_id) {
+        await pool.query(
+          'INSERT INTO notifications (id, utilisateur_id, type, message, lu, created_at) VALUES (?, ?, ?, ?, 0, ?)',
+          [`n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, current.owner_user_id, 'info', notificationMessage, updatedAt]
+        );
+      } else if (current.proprietaire_id) {
+        await pool.query(
+          'INSERT INTO notifications (id, utilisateur_id, type, message, lu, created_at) VALUES (?, ?, ?, ?, 0, ?)',
+          [`n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, `owner:${current.proprietaire_id}`, 'info', notificationMessage, updatedAt]
+        );
+      }
+      await appendReservationDemandHistory(demandId, nextStatus, 'admin', body.actor_id || 'admin', body.history_note || 'Demande communiquee au proprietaire', updatedAt);
+    } else if (nextStatus !== current.status || body.history_note) {
+      await appendReservationDemandHistory(
+        demandId,
+        nextStatus,
+        body.actor_type || 'admin',
+        body.actor_id || 'admin',
+        body.history_note || `Etat mis a jour vers ${nextStatus}`,
+        updatedAt
+      );
+    }
+
+    const [updatedRows] = await pool.query(
+      `SELECT
+        d.*,
+        b.titre AS bien_titre,
+        b.reference AS bien_reference,
+        p.nom AS proprietaire_nom,
+        DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+        DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+        DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      FROM reservation_demands d
+      LEFT JOIN biens b ON b.id = d.bien_id
+      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      WHERE d.id = ? LIMIT 1`,
+      [demandId]
+    );
+    res.json(formatReservationDemandRow(updatedRows[0]));
+  } catch (error) {
+    console.error('Error updating reservation demand:', error);
+    res.status(500).json({ error: 'Impossible de mettre a jour la demande de reservation' });
+  }
+});
+
 app.post('/api/caracteristique-onglets', async (req, res) => {
   try {
     const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
@@ -3522,6 +3982,73 @@ async function ensureClientelesTasksSchema() {
       UNIQUE KEY uniq_client_task (source_table, source_id, task_type, related_entity_type, related_entity_id)
     )
   `);
+}
+
+async function ensureReservationDemandSchema() {
+  const columnExists = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+      `,
+      [tableName, columnName]
+    );
+    return rows.length > 0;
+  };
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reservation_demands (
+      id VARCHAR(100) PRIMARY KEY,
+      bien_id VARCHAR(100) NOT NULL,
+      unavailable_date_id VARCHAR(100) NULL,
+      client_user_id VARCHAR(100) NULL,
+      client_email VARCHAR(255) NULL,
+      client_name VARCHAR(255) NULL,
+      proprietaire_id VARCHAR(100) NULL,
+      owner_user_id VARCHAR(100) NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      guests INT NOT NULL DEFAULT 1,
+      status VARCHAR(80) NOT NULL,
+      owner_notified_at DATETIME NULL,
+      owner_response_at DATETIME NULL,
+      admin_note TEXT NULL,
+      client_note TEXT NULL,
+      finalization_due_at DATETIME NULL,
+      contract_id VARCHAR(100) NULL,
+      payment_id VARCHAR(100) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_reservation_demands_client (client_user_id, client_email),
+      KEY idx_reservation_demands_bien (bien_id),
+      KEY idx_reservation_demands_owner (proprietaire_id, owner_user_id),
+      KEY idx_reservation_demands_status (status)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reservation_demand_history (
+      id VARCHAR(100) PRIMARY KEY,
+      demand_id VARCHAR(100) NOT NULL,
+      status VARCHAR(80) NOT NULL,
+      actor_type VARCHAR(30) NOT NULL,
+      actor_id VARCHAR(100) NULL,
+      note TEXT NULL,
+      created_at DATETIME NOT NULL,
+      KEY idx_reservation_demand_history_demand (demand_id, created_at)
+    )
+  `);
+
+  if (!(await columnExists('unavailable_dates', 'reservation_demand_id'))) {
+    await pool.query('ALTER TABLE unavailable_dates ADD COLUMN reservation_demand_id VARCHAR(100) NULL AFTER status');
+  }
+  if (!(await columnExists('unavailable_dates', 'payment_deadline'))) {
+    await pool.query('ALTER TABLE unavailable_dates ADD COLUMN payment_deadline DATETIME NULL AFTER reservation_demand_id');
+  }
 }
     }
 
@@ -3876,7 +4403,19 @@ app.delete('/api/media/:id', async (req, res) => {
 
 app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM unavailable_dates WHERE bien_id = ?', [req.params.bien_id]);
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         bien_id,
+         start_date,
+         end_date,
+         status,
+         reservation_demand_id,
+         DATE_FORMAT(payment_deadline, '%Y-%m-%d %H:%i:%s') AS paymentDeadline
+       FROM unavailable_dates
+       WHERE bien_id = ?`,
+      [req.params.bien_id]
+    );
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch unavailable dates' });

@@ -433,3 +433,50 @@ export interface Notification {
   lu: boolean;
   created_at: string;
 }
+
+export type ReservationDemandStatus =
+  | 'en_attente_reponse_proprietaire'
+  | 'pas_de_reponse_proprietaire'
+  | 'reponse_positive_attente_confirmation_client'
+  | 'reponse_negative_autre_proposition_meme_bien'
+  | 'reponse_negative_autre_proposition_bien_similaire'
+  | 'attente_envoi_coordonnees_contrat'
+  | 'contrat_realise'
+  | 'succes_paiement';
+
+export interface ReservationDemand {
+  id: string;
+  bien_id: string;
+  unavailable_date_id?: string | null;
+  client_user_id?: string | null;
+  client_email?: string | null;
+  client_name?: string | null;
+  proprietaire_id?: string | null;
+  owner_user_id?: string | null;
+  start_date: string;
+  end_date: string;
+  guests: number;
+  status: ReservationDemandStatus;
+  owner_notified_at?: string | null;
+  owner_response_at?: string | null;
+  admin_note?: string | null;
+  client_note?: string | null;
+  finalization_due_at?: string | null;
+  contract_id?: string | null;
+  payment_id?: string | null;
+  bien_titre?: string | null;
+  bien_reference?: string | null;
+  proprietaire_nom?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReservationDemandHistory {
+  id: string;
+  demand_id: string;
+  status: ReservationDemandStatus;
+  actor_type: 'client' | 'admin' | 'system' | 'proprietaire';
+  actor_id?: string | null;
+  note?: string | null;
+  created_at: string;
+}

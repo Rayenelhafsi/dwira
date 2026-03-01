@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams, Navigate } from "react-router";
+import { useParams, Link, useSearchParams, Navigate, useNavigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
@@ -14,6 +14,7 @@ export default function PropertyDetailsPage() {
   // Use shared context for properties
   const { properties } = useProperties();
   const { user } = useAuth();
+  const navigate = useNavigate();
   
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
@@ -41,6 +42,7 @@ export default function PropertyDetailsPage() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
+  const [reservationNote, setReservationNote] = useState("");
   const formatRating = (value: number) =>
     Number.isFinite(value)
       ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
@@ -266,6 +268,42 @@ export default function PropertyDetailsPage() {
       }
       toast.success("Ajouté aux favoris");
     }
+  };
+
+  const handleReservationRequest = async () => {
+    if (!property) return;
+    if (!user || user.role !== 'user' || !user.email) {
+      toast.error('Connectez-vous en tant que client pour envoyer une demande');
+      return;
+    }
+    if (!selectedStart || !selectedEnd) {
+      toast.error('Selectionnez une periode');
+      return;
+    }
+
+    const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
+    const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
+    const startDate = format(start, 'yyyy-MM-dd');
+    const endDate = format(end, 'yyyy-MM-dd');
+    if (startDate === endDate) {
+      toast.error('Choisissez au moins une nuit');
+      return;
+    }
+
+    navigate(`/reservation/confirmation/${property.slug}`, {
+      state: {
+        draft: {
+          propertyId: String(property.id),
+          propertySlug: property.slug,
+          startDate,
+          endDate,
+          guests,
+          includeCleaningFee,
+          includeServiceFee,
+          reservationNote: reservationNote.trim(),
+        },
+      },
+    });
   };
 
   // Auto-play for embla carousel
@@ -570,13 +608,20 @@ export default function PropertyDetailsPage() {
                   </div>
                 )}
 
+                <textarea
+                  value={reservationNote}
+                  onChange={(e) => setReservationNote(e.target.value)}
+                  rows={3}
+                  placeholder="Note optionnelle pour l'agence"
+                  className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
                 <button 
-                  type="button" 
+                  type="button"
+                  onClick={() => void handleReservationRequest()}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-colors shadow-md mt-4"
                 >
-                  Réserver
+                  Reserver
                 </button>
-                
                 <p className="text-center text-xs text-gray-500 mt-2">Aucun montant ne vous sera débité pour le moment</p>
 
                 <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">

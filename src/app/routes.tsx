@@ -3,6 +3,8 @@ import { Layout } from "./Layout";
 import HomePage from "./pages/HomePage";
 import PropertiesPage from "./pages/PropertiesPage";
 import PropertyDetailsPage from "./pages/PropertyDetailsPage";
+import ReservationConfirmationPage from "./pages/ReservationConfirmationPage";
+import MyReservationsPage from "./pages/MyReservationsPage";
 import ImmeubleVenteDetailsPage from "./pages/ImmeubleVenteDetailsPage";
 import LotissementVenteDetailsPage from "./pages/LotissementVenteDetailsPage";
 import ContactPage from "./pages/ContactPage";
@@ -17,6 +19,7 @@ import ClientelesPage from "./admin/pages/LocatairesPage";
 import ContratsPage from "./admin/pages/ContratsPage";
 import PaiementsPage from "./admin/pages/PaiementsPage";
 import MaintenancePage from "./admin/pages/MaintenancePage";
+import NotificationsPage from "./admin/pages/NotificationsPage";
 import StatistiquesPage from "./admin/pages/StatistiquesPage";
 import MarketingPage from "./admin/pages/MarketingPage";
 import UtilisateursPage from "./admin/pages/UtilisateursPage";
@@ -30,6 +33,8 @@ export const router = createBrowserRouter([
       { index: true, Component: HomePage },
       { path: "logements", Component: PropertiesPage },
       { path: "properties/:slug", Component: PropertyDetailsPage },
+      { path: "reservation/confirmation/:slug", Component: ReservationConfirmationPage },
+      { path: "mes-reservations", Component: MyReservationsPage },
       { path: "vente/immeuble/:slug", Component: ImmeubleVenteDetailsPage },
       { path: "vente/lotissement/:slug", Component: LotissementVenteDetailsPage },
       {
@@ -57,6 +62,7 @@ export const router = createBrowserRouter([
       { path: "contrats", Component: ContratsPage },
       { path: "paiements", Component: PaiementsPage },
       { path: "maintenance", Component: MaintenancePage },
+      { path: "notifications", Component: NotificationsPage },
       { path: "statistiques", Component: StatistiquesPage },
       { path: "marketing", Component: MarketingPage },
       { path: "utilisateurs", Component: UtilisateursPage },

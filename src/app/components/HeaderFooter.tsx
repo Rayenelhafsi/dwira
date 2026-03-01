@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut } from "lucide-react";
+import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut, ShoppingBag } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "../context/AuthContext";
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
@@ -25,6 +25,7 @@ export function Header() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
+  const [reservationCount, setReservationCount] = useState(0);
   const isHomePage = location.pathname === "/";
   const useLightText = isHomePage && !isScrolled && !isOpen;
 
@@ -45,6 +46,20 @@ export function Header() {
   useEffect(() => {
     setIsOpen(false);
   }, [location]);
+
+  useEffect(() => {
+    if (!user || user.role !== "user" || !user.email) {
+      setReservationCount(0);
+      return;
+    }
+    const query = new URLSearchParams();
+    if (user.id) query.set("client_user_id", user.id);
+    query.set("client_email", user.email);
+    fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands?${query.toString()}`)
+      .then((response) => response.ok ? response.json() : [])
+      .then((rows) => setReservationCount(Array.isArray(rows) ? rows.length : 0))
+      .catch(() => setReservationCount(0));
+  }, [user]);
 
   const navLinks = [
     { name: "Accueil", path: "/" },
@@ -85,6 +100,24 @@ export function Header() {
           {/* Auth Section */}
           {user ? (
             <div className="flex items-center gap-3">
+              {user.role === 'user' && (
+                <Link
+                  to="/mes-reservations"
+                  className={`relative flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
+                    useLightText
+                      ? 'border-white/30 text-white hover:bg-white/20'
+                      : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                  }`}
+                  title="Mes reservations"
+                >
+                  <ShoppingBag size={18} />
+                  {reservationCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                      {reservationCount}
+                    </span>
+                  )}
+                </Link>
+              )}
               <Link 
                 to={user.role === 'admin' ? '/admin' : '/'}
                 className="flex items-center gap-2"
@@ -199,6 +232,15 @@ export function Header() {
                   >
                     Mon espace
                   </Link>
+                  {user.role === 'user' && (
+                    <Link
+                      to="/mes-reservations"
+                      className="text-lg text-emerald-600 hover:text-emerald-700 flex items-center gap-2"
+                    >
+                      <ShoppingBag size={22} />
+                      <span>Mes reservations{reservationCount > 0 ? ` (${reservationCount})` : ''}</span>
+                    </Link>
+                  )}
                   <button
                     onClick={handleLogout}
                     className="flex items-center gap-2 px-6 py-2 bg-red-100 text-red-600 rounded-full font-medium hover:bg-red-200 transition-colors"
