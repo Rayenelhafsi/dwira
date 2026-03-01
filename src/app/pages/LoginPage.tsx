@@ -7,6 +7,19 @@ import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
 
+const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
+
+function readPendingReservationDraft() {
+  try {
+    const raw = sessionStorage.getItem(PENDING_RESERVATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,6 +37,13 @@ export default function LoginPage() {
   });
   const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  const redirectToPendingReservation = () => {
+    const pendingDraft = readPendingReservationDraft();
+    if (!pendingDraft || typeof pendingDraft.propertySlug !== 'string') return false;
+    window.location.replace(`/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`);
+    return true;
+  };
 
   useEffect(() => {
     const loadProviders = async () => {
@@ -46,6 +66,7 @@ export default function LoginPage() {
       });
       return;
     }
+    if (user.role === 'user' && redirectToPendingReservation()) return;
     navigate(user.role === 'admin' ? '/admin' : '/', { replace: true });
   }, [user, authLoading, navigate]);
 
@@ -92,7 +113,9 @@ export default function LoginPage() {
         });
         if (socialUser.profileCompleted) {
           toast.success('Connexion reussie');
-          navigate('/', { replace: true });
+          if (!redirectToPendingReservation()) {
+            navigate('/', { replace: true });
+          }
         } else {
           setProfileForm({
             name: socialUser.name || '',
@@ -207,7 +230,9 @@ export default function LoginPage() {
         role: 'user',
       });
       toast.success('Profil client enregistre');
-      navigate('/', { replace: true });
+      if (!redirectToPendingReservation()) {
+        navigate('/', { replace: true });
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Impossible de sauvegarder le profil client');
     } finally {

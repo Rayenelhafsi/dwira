@@ -8,6 +8,8 @@ import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
 import { saveReservationToCache } from "../utils/reservations";
 
+const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
+
 type ReservationDraft = {
   propertyId: string;
   propertySlug: string;
@@ -33,7 +35,18 @@ export default function ReservationConfirmationPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdDemand, setCreatedDemand] = useState<{ id: string } | null>(null);
 
-  const draft = (location.state as LocationState | null)?.draft || null;
+  const draftFromState = (location.state as LocationState | null)?.draft || null;
+  const draftFromStorage = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem(PENDING_RESERVATION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed as ReservationDraft : null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const draft = draftFromState || draftFromStorage || null;
   const property = properties.find((item) => item.slug === slug);
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
@@ -85,6 +98,9 @@ export default function ReservationConfirmationPage() {
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Impossible de confirmer la demande"));
       saveReservationToCache(data);
+      try {
+        sessionStorage.removeItem(PENDING_RESERVATION_KEY);
+      } catch {}
       setCreatedDemand({ id: data.id });
       await refreshData();
       toast.success(isVisitRequest ? "Votre demande de visite est maintenant en attente." : "Votre demande est maintenant en attente.");
@@ -118,6 +134,9 @@ export default function ReservationConfirmationPage() {
         updated_at: new Date().toISOString().slice(0, 19).replace("T", " "),
       };
       saveReservationToCache(fallbackReservation);
+      try {
+        sessionStorage.removeItem(PENDING_RESERVATION_KEY);
+      } catch {}
       setCreatedDemand({ id: fallbackId });
       toast.error(error instanceof Error ? `${error.message}. Demande sauvegardee localement.` : "API indisponible. Demande sauvegardee localement.");
     } finally {

@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, Navigate, useNavigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
@@ -9,6 +9,9 @@ import { fr } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
+import { getAuthProviders, startSocialLogin } from "../services/auth";
+
+const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
 
 export default function PropertyDetailsPage() {
   // Use shared context for properties
@@ -43,6 +46,9 @@ export default function PropertyDetailsPage() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
   const [reservationNote, setReservationNote] = useState("");
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [providers, setProviders] = useState({ google: false, facebook: false });
+  const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
   const formatRating = (value: number) =>
     Number.isFinite(value)
@@ -56,6 +62,17 @@ export default function PropertyDetailsPage() {
       setIsSaved(savedProperties.includes(property.id));
     }
   }, [property]);
+
+  useEffect(() => {
+    if (!showLoginPrompt) return;
+    let isMounted = true;
+    void getAuthProviders().then((availableProviders) => {
+      if (isMounted) setProviders(availableProviders);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [showLoginPrompt]);
 
   useEffect(() => {
     if (!property || !user || user.role !== 'user' || !user.email) return;
@@ -273,10 +290,6 @@ export default function PropertyDetailsPage() {
 
   const handleReservationRequest = async () => {
     if (!property) return;
-    if (!user || user.role !== 'user' || !user.email) {
-      toast.error('Connectez-vous en tant que client pour envoyer une demande');
-      return;
-    }
     if (!selectedStart || !selectedEnd) {
       toast.error('Selectionnez une periode');
       return;
@@ -291,21 +304,49 @@ export default function PropertyDetailsPage() {
       return;
     }
 
+    const draft = {
+      propertyId: String(property.id),
+      propertySlug: property.slug,
+      requestType: isSaleProperty ? 'visite' : 'reservation',
+      startDate,
+      endDate,
+      guests,
+      includeCleaningFee,
+      includeServiceFee,
+      reservationNote: reservationNote.trim(),
+    };
+
+    if (!user || user.role !== 'user' || !user.email) {
+      try {
+        sessionStorage.setItem(PENDING_RESERVATION_KEY, JSON.stringify(draft));
+      } catch {}
+      setPendingDraft(draft);
+      setShowLoginPrompt(true);
+      return;
+    }
+
     navigate(`/reservation/confirmation/${property.slug}`, {
       state: {
-        draft: {
-          propertyId: String(property.id),
-          propertySlug: property.slug,
-          requestType: isSaleProperty ? 'visite' : 'reservation',
-          startDate,
-          endDate,
-          guests,
-          includeCleaningFee,
-          includeServiceFee,
-          reservationNote: reservationNote.trim(),
-        },
+        draft,
       },
     });
+  };
+
+  const handlePromptSocialLogin = (provider: 'google' | 'facebook') => {
+    if (provider === 'google' && !providers.google) {
+      toast.error('Google login indisponible pour le moment');
+      return;
+    }
+    if (provider === 'facebook' && !providers.facebook) {
+      toast.error('Facebook login indisponible pour le moment');
+      return;
+    }
+    if (pendingDraft) {
+      try {
+        sessionStorage.setItem(PENDING_RESERVATION_KEY, JSON.stringify(pendingDraft));
+      } catch {}
+    }
+    startSocialLogin(provider);
   };
 
   // Auto-play for embla carousel
@@ -812,6 +853,57 @@ export default function PropertyDetailsPage() {
                 <img src={img} alt="" className="w-full h-full object-cover" />
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {showLoginPrompt && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 px-4" onClick={() => setShowLoginPrompt(false)}>
+          <div
+            className="w-full max-w-md rounded-[28px] border border-white/60 bg-white p-6 shadow-[0_30px_80px_rgba(15,23,42,0.24)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">Connexion client</p>
+                <h3 className="mt-2 text-2xl font-bold text-gray-900">Connectez-vous pour continuer</h3>
+                <p className="mt-2 text-sm leading-6 text-gray-500">
+                  Connectez-vous en tant que client pour {isSaleProperty ? 'envoyer une demande de visite' : 'envoyer une demande de reservation'}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLoginPrompt(false)}
+                className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-3">
+              <button
+                type="button"
+                disabled={!providers.google}
+                onClick={() => handlePromptSocialLogin('google')}
+                className="inline-flex items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Globe className="h-5 w-5 text-emerald-700" />
+                Continuer avec Google
+              </button>
+              <button
+                type="button"
+                disabled={!providers.facebook}
+                onClick={() => handlePromptSocialLogin('facebook')}
+                className="inline-flex items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Facebook className="h-5 w-5 text-blue-600" />
+                Continuer avec Facebook
+              </button>
+            </div>
+
+            <p className="mt-4 text-center text-xs text-gray-500">
+              Votre compte sera utilise pour suivre vos demandes, visites et interactions.
+            </p>
           </div>
         </div>
       )}
