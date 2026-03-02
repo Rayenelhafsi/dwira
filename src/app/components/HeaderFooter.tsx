@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "../context/AuthContext";
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { getReservationsFromCache } from "../utils/reservations";
+import { buildTelLink, openPhoneApp } from "../utils/deepLinks";
 
 // Custom TikTok Icon
 const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
@@ -162,15 +163,14 @@ export function Header() {
             </Link>
           )}
           
-          <a
-            href="https://wa.me/21652080695"
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
+            onClick={() => openPhoneApp('+21652080695')}
             className="px-5 py-2.5 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-colors shadow-lg flex items-center gap-2"
           >
             <Phone size={16} />
             <span>+216 52 080 695</span>
-          </a>
+          </button>
         </nav>
 
         {/* Mobile Menu Button */}
@@ -322,7 +322,7 @@ export function Footer() {
             <ul className="space-y-4">
               <li className="flex items-start gap-3 text-emerald-100/70">
                 <Phone className="shrink-0 text-amber-400" size={20} />
-                <a href="tel:+21652080695" className="hover:text-white transition-colors">+216 52 080 695</a>
+                <a href={buildTelLink('+21652080695')} className="hover:text-white transition-colors">+216 52 080 695</a>
               </li>
               <li className="flex items-start gap-3 text-emerald-100/70">
                 <MapPin className="shrink-0 text-amber-400" size={20} />

@@ -79,5 +79,5 @@ export async function completeSocialProfile(input: CompleteSocialProfileInput): 
 }
 
 export function startSocialLogin(provider: 'google' | 'facebook') {
-  window.location.href = buildApiUrl(`/auth/${provider}/start`);
+  window.location.replace(buildApiUrl(`/auth/${provider}/start`));
 }

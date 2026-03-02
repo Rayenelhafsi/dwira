@@ -4,6 +4,7 @@ import { Bien } from '../../admin/types';
 import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
+import { buildTelLink, openMessengerApp, openWhatsAppApp } from '../../utils/deepLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -35,14 +36,8 @@ const statusLabel: Record<string, string> = {
 };
 
 const DEFAULT_CONTACT_PHONE = '+21652080695';
-const MESSENGER_LINK = 'https://m.me/dwiraimmo2';
 
 const normalizePhone = (value?: string | null) => String(value || '').replace(/[^\d+]/g, '');
-
-const buildWhatsappLink = (phone: string) => {
-  const digits = String(phone || '').replace(/\D/g, '');
-  return `https://wa.me/${digits || '21652080695'}`;
-};
 
 function getPublicPrice(bien: Bien) {
   if (bien.type === 'terrain') {
@@ -221,18 +216,18 @@ export default function VentesListPage() {
 
                   <div className="px-6 pb-6 -mt-2">
                     <div className="grid grid-cols-3 gap-2">
-                      <a href={`tel:${contactPhone}`} className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-600 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
+                      <a href={buildTelLink(contactPhone)} className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-600 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
                         <Phone className="w-4 h-4" />
                         Tel
                       </a>
-                      <a href={buildWhatsappLink(contactPhone)} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                      <button type="button" onClick={() => openWhatsAppApp(contactPhone)} className="inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                         <MessageCircle className="w-4 h-4" />
                         WhatsApp
-                      </a>
-                      <a href={MESSENGER_LINK} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-500 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50">
+                      </button>
+                      <button type="button" onClick={() => openMessengerApp()} className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-500 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50">
                         <MessageCircle className="w-4 h-4" />
                         Messenger
-                      </a>
+                      </button>
                     </div>
                   </div>
                 </Card>

@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
 import { Property } from "../data/properties";
+import { buildTelLink, openMessengerApp, openWhatsAppApp } from "../utils/deepLinks";
 
 interface PropertyCardProps {
   property: Property;
@@ -8,8 +9,6 @@ interface PropertyCardProps {
 }
 
 const CONTACT_PHONE_RAW = "+21652080695";
-const WHATSAPP_LINK = "https://wa.me/21652080695";
-const MESSENGER_LINK = "https://m.me/dwiraimmo2";
 
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const baseDetailPath = property.detailPath || `/properties/${property.slug}`;
@@ -73,18 +72,18 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
 
       <div className="px-5 pb-5">
         <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
-          <a href={`tel:${CONTACT_PHONE_RAW}`} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
+          <a href={buildTelLink(CONTACT_PHONE_RAW)} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
             <Phone size={14} />
             <span>Telephone</span>
           </a>
-          <a href={WHATSAPP_LINK} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap">
+          <button type="button" onClick={() => openWhatsAppApp(CONTACT_PHONE_RAW)} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap">
             <MessageCircle size={14} />
             <span>WhatsApp</span>
-          </a>
-          <a href={MESSENGER_LINK} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap">
+          </button>
+          <button type="button" onClick={() => openMessengerApp()} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap">
             <MessageCircle size={14} />
             <span>Messenger</span>
-          </a>
+          </button>
         </div>
       </div>
     </div>
