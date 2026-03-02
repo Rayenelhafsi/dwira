@@ -136,6 +136,7 @@ const dbConfig = {
 const pool = mysql.createPool(dbConfig);
 let mediaHasPositionColumn = true;
 const socialAuthSessions = new Map();
+const phoneOtpSessions = new Map();
 const BIEN_MODES = ['vente', 'location_annuelle', 'location_saisonniere'];
 const BIEN_TYPES_BY_MODE = {
   vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'lotissement', 'local_commercial'],
@@ -1099,6 +1100,21 @@ async function ensureAuthSchema() {
     );
   }
 
+  const [authProviderRows] = await pool.query(
+    `SELECT COLUMN_TYPE AS column_type
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'utilisateurs'
+       AND COLUMN_NAME = 'auth_provider'
+     LIMIT 1`
+  );
+  const authProviderColumnType = String(authProviderRows?.[0]?.column_type || '');
+  if (authProviderColumnType && !authProviderColumnType.includes("'phone'")) {
+    await pool.query(
+      "ALTER TABLE utilisateurs MODIFY COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone') NOT NULL DEFAULT 'local'"
+    );
+  }
+
   if (!(await columnExists('utilisateurs', 'provider_user_id'))) {
     await pool.query(
       'ALTER TABLE utilisateurs ADD COLUMN provider_user_id VARCHAR(150) NULL'
@@ -1744,6 +1760,119 @@ async function upsertSocialUser({ email, name, avatar, provider, providerUserId 
     updatedAt: rows[0].updated_at || null,
     profileCompleted: Boolean(rows[0].profile_completed_at && rows[0].telephone && rows[0].client_type),
   };
+}
+
+function normalizePhoneNumber(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const hasPlus = raw.startsWith('+');
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  return `${hasPlus ? '+' : ''}${digits}`;
+}
+
+function buildPhonePlaceholderEmail(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return `phone_${digits || Date.now()}@phone.dwira.local`;
+}
+
+function maskPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length <= 4) return digits;
+  return `${digits.slice(0, 2)}***${digits.slice(-2)}`;
+}
+
+async function upsertPhoneUser({ telephone }) {
+  const normalizedPhone = normalizePhoneNumber(telephone);
+  const now = getAgencySqlDateTime();
+  const [existingRows] = await pool.query(
+    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type,
+            auth_provider, provider_user_id, last_login_at, updated_at
+     FROM utilisateurs
+     WHERE telephone = ?
+     LIMIT 1`,
+    [normalizedPhone]
+  );
+
+  if (existingRows[0]) {
+    await pool.query(
+      `UPDATE utilisateurs
+       SET auth_provider = 'phone',
+           provider_user_id = ?,
+           last_login_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [normalizedPhone.replace(/\D/g, ''), now, now, existingRows[0].id]
+    );
+    return {
+      id: existingRows[0].id,
+      email: existingRows[0].email,
+      name: existingRows[0].nom,
+      role: existingRows[0].role,
+      avatar: existingRows[0].avatar || null,
+      clientType: existingRows[0].client_type || null,
+      telephone: existingRows[0].telephone || null,
+      cin: existingRows[0].cin || null,
+      cinImageUrl: existingRows[0].cin_image_url || null,
+      profileCompleted: Boolean(
+        existingRows[0].profile_completed_at &&
+        existingRows[0].telephone &&
+        existingRows[0].client_type &&
+        existingRows[0].email &&
+        !String(existingRows[0].email).endsWith('@phone.dwira.local')
+      ),
+    };
+  }
+
+  const userId = `u${Date.now()}`;
+  const placeholderEmail = buildPhonePlaceholderEmail(normalizedPhone);
+  const displayName = `Client ${maskPhone(normalizedPhone)}`;
+  await pool.query(
+    `INSERT INTO utilisateurs (
+      id, nom, email, role, avatar, telephone, created_at, auth_provider, provider_user_id, last_login_at, updated_at
+    ) VALUES (?, ?, ?, 'user', NULL, ?, CURDATE(), 'phone', ?, ?, ?)`,
+    [userId, displayName, placeholderEmail, normalizedPhone, normalizedPhone.replace(/\D/g, ''), now, now]
+  );
+
+  return {
+    id: userId,
+    email: placeholderEmail,
+    name: displayName,
+    role: 'user',
+    avatar: null,
+    clientType: null,
+    telephone: normalizedPhone,
+    cin: null,
+    cinImageUrl: null,
+    profileCompleted: false,
+  };
+}
+
+async function deliverPhoneOtp({ telephone, code }) {
+  const webhookUrl = String(process.env.OTP_PROVIDER_WEBHOOK_URL || '').trim();
+  if (webhookUrl) {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telephone,
+        code,
+        brand: 'Dwira Immobilier',
+        message: `Votre code OTP Dwira Immobilier est ${code}. Il expire dans 5 minutes.`,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error('OTP provider request failed');
+    }
+    return { delivered: true, debugCode: null };
+  }
+
+  if (process.env.ALLOW_OTP_IN_RESPONSE === '1') {
+    console.log(`OTP fallback for ${telephone}: ${code}`);
+    return { delivered: false, debugCode: code };
+  }
+
+  throw new Error('otp_provider_missing');
 }
 
 async function ensureClientInteractionsSchema() {
@@ -4517,10 +4646,80 @@ app.post('/api/auth/admin/login', async (req, res) => {
 app.get('/api/auth/providers', (req, res) => {
   const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
   const facebookConfigured = Boolean(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET);
+  const phoneOtpConfigured = Boolean(process.env.OTP_PROVIDER_WEBHOOK_URL || process.env.ALLOW_OTP_IN_RESPONSE === '1');
   res.json({
     google: googleConfigured,
     facebook: facebookConfigured,
+    phoneOtp: phoneOtpConfigured,
   });
+});
+
+app.post('/api/auth/phone/request-otp', async (req, res) => {
+  try {
+    const telephone = normalizePhoneNumber(req.body?.telephone);
+    if (!telephone || telephone.replace(/\D/g, '').length < 8) {
+      return res.status(400).json({ error: 'Numero de telephone invalide' });
+    }
+
+    const code = String(process.env.OTP_STATIC_CODE || Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+    phoneOtpSessions.set(telephone, {
+      code,
+      expiresAt,
+      attempts: 0,
+    });
+
+    const delivery = await deliverPhoneOtp({ telephone, code });
+    res.json({
+      success: true,
+      expiresInSeconds: 300,
+      ...(delivery.debugCode ? { debugCode: delivery.debugCode } : {}),
+    });
+  } catch (error) {
+    if (String(error?.message || '') === 'otp_provider_missing') {
+      return res.status(503).json({
+        error: "OTP telephone indisponible pour le moment. Configurez OTP_PROVIDER_WEBHOOK_URL ou ALLOW_OTP_IN_RESPONSE.",
+      });
+    }
+    console.error('Error requesting phone OTP:', error);
+    res.status(500).json({ error: 'Impossible d envoyer le code OTP' });
+  }
+});
+
+app.post('/api/auth/phone/verify-otp', async (req, res) => {
+  try {
+    await ensureAuthSchema();
+    const telephone = normalizePhoneNumber(req.body?.telephone);
+    const code = String(req.body?.code || '').trim();
+    if (!telephone || !code) {
+      return res.status(400).json({ error: 'Telephone et code OTP obligatoires' });
+    }
+
+    const session = phoneOtpSessions.get(telephone);
+    if (!session) {
+      return res.status(404).json({ error: 'Code OTP introuvable ou expire' });
+    }
+    if (Date.now() > Number(session.expiresAt || 0)) {
+      phoneOtpSessions.delete(telephone);
+      return res.status(410).json({ error: 'Code OTP expire' });
+    }
+    if (String(session.code) !== code) {
+      session.attempts = Number(session.attempts || 0) + 1;
+      if (session.attempts >= 5) {
+        phoneOtpSessions.delete(telephone);
+      } else {
+        phoneOtpSessions.set(telephone, session);
+      }
+      return res.status(401).json({ error: 'Code OTP invalide' });
+    }
+
+    phoneOtpSessions.delete(telephone);
+    const user = await upsertPhoneUser({ telephone });
+    res.json({ user });
+  } catch (error) {
+    console.error('Error verifying phone OTP:', error);
+    res.status(500).json({ error: 'Impossible de verifier le code OTP' });
+  }
 });
 
 app.get('/api/auth/google/start', async (req, res) => {
