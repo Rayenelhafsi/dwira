@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 
@@ -137,6 +138,7 @@ const pool = mysql.createPool(dbConfig);
 let mediaHasPositionColumn = true;
 const socialAuthSessions = new Map();
 const phoneOtpSessions = new Map();
+const emailOtpSessions = new Map();
 const BIEN_MODES = ['vente', 'location_annuelle', 'location_saisonniere'];
 const BIEN_TYPES_BY_MODE = {
   vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'lotissement', 'local_commercial'],
@@ -1096,7 +1098,7 @@ async function ensureAuthSchema() {
 
   if (!(await columnExists('utilisateurs', 'auth_provider'))) {
     await pool.query(
-      "ALTER TABLE utilisateurs ADD COLUMN auth_provider ENUM('local', 'google', 'facebook') NOT NULL DEFAULT 'local'"
+      "ALTER TABLE utilisateurs ADD COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email') NOT NULL DEFAULT 'local'"
     );
   }
 
@@ -1109,9 +1111,9 @@ async function ensureAuthSchema() {
      LIMIT 1`
   );
   const authProviderColumnType = String(authProviderRows?.[0]?.column_type || '');
-  if (authProviderColumnType && !authProviderColumnType.includes("'phone'")) {
+  if (authProviderColumnType && (!authProviderColumnType.includes("'phone'") || !authProviderColumnType.includes("'email'"))) {
     await pool.query(
-      "ALTER TABLE utilisateurs MODIFY COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone') NOT NULL DEFAULT 'local'"
+      "ALTER TABLE utilisateurs MODIFY COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email') NOT NULL DEFAULT 'local'"
     );
   }
 
@@ -1814,13 +1816,7 @@ async function upsertPhoneUser({ telephone }) {
       telephone: existingRows[0].telephone || null,
       cin: existingRows[0].cin || null,
       cinImageUrl: existingRows[0].cin_image_url || null,
-      profileCompleted: Boolean(
-        existingRows[0].profile_completed_at &&
-        existingRows[0].telephone &&
-        existingRows[0].client_type &&
-        existingRows[0].email &&
-        !String(existingRows[0].email).endsWith('@phone.dwira.local')
-      ),
+      profileCompleted: Boolean(existingRows[0].profile_completed_at && existingRows[0].telephone && existingRows[0].client_type),
     };
   }
 
@@ -1846,6 +1842,103 @@ async function upsertPhoneUser({ telephone }) {
     cinImageUrl: null,
     profileCompleted: false,
   };
+}
+
+async function upsertEmailOtpUser({ email }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const now = getAgencySqlDateTime();
+  const [existingRows] = await pool.query(
+    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+     FROM utilisateurs
+     WHERE email = ?
+     LIMIT 1`,
+    [normalizedEmail]
+  );
+
+  if (existingRows[0]) {
+    await pool.query(
+      `UPDATE utilisateurs
+       SET auth_provider = 'email',
+           provider_user_id = ?,
+           last_login_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [normalizedEmail, now, now, existingRows[0].id]
+    );
+    return {
+      id: existingRows[0].id,
+      email: existingRows[0].email,
+      name: existingRows[0].nom,
+      role: existingRows[0].role,
+      avatar: existingRows[0].avatar || null,
+      clientType: existingRows[0].client_type || null,
+      telephone: existingRows[0].telephone || null,
+      cin: existingRows[0].cin || null,
+      cinImageUrl: existingRows[0].cin_image_url || null,
+      profileCompleted: Boolean(existingRows[0].profile_completed_at && existingRows[0].telephone && existingRows[0].client_type),
+    };
+  }
+
+  const userId = `u${Date.now()}`;
+  const displayName = normalizedEmail.split('@')[0] || 'Client';
+  await pool.query(
+    `INSERT INTO utilisateurs (
+      id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at, updated_at
+    ) VALUES (?, ?, ?, 'user', NULL, CURDATE(), 'email', ?, ?, ?)`,
+    [userId, displayName, normalizedEmail, normalizedEmail, now, now]
+  );
+
+  return {
+    id: userId,
+    email: normalizedEmail,
+    name: displayName,
+    role: 'user',
+    avatar: null,
+    clientType: null,
+    telephone: null,
+    cin: null,
+    cinImageUrl: null,
+    profileCompleted: false,
+  };
+}
+
+function createSmtpTransporter() {
+  const host = String(process.env.SMTP_HOST || '').trim();
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = String(process.env.SMTP_USER || '').trim();
+  const pass = String(process.env.SMTP_PASS || '').trim();
+  if (!host || !user || !pass) return null;
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user, pass },
+  });
+}
+
+async function deliverEmailOtp({ email, code }) {
+  const transporter = createSmtpTransporter();
+  const fromAddress = String(process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+  if (transporter && fromAddress) {
+    await transporter.sendMail({
+      from: fromAddress,
+      to: email,
+      subject: 'Code OTP Dwira Immobilier',
+      text: `Votre code OTP Dwira Immobilier est ${code}. Il expire dans 5 minutes.`,
+      html: `<div style="font-family:Arial,sans-serif;line-height:1.5">
+        <h2>Dwira Immobilier</h2>
+        <p>Votre code OTP est :</p>
+        <p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>
+        <p>Ce code expire dans 5 minutes.</p>
+      </div>`,
+    });
+    return { delivered: true, debugCode: null };
+  }
+  if (process.env.ALLOW_EMAIL_OTP_IN_RESPONSE === '1') {
+    console.log(`Email OTP fallback for ${email}: ${code}`);
+    return { delivered: false, debugCode: code };
+  }
+  throw new Error('email_otp_provider_missing');
 }
 
 async function deliverPhoneOtp({ telephone, code }) {
@@ -4646,12 +4739,81 @@ app.post('/api/auth/admin/login', async (req, res) => {
 app.get('/api/auth/providers', (req, res) => {
   const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
   const facebookConfigured = Boolean(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET);
-  const phoneOtpConfigured = Boolean(process.env.OTP_PROVIDER_WEBHOOK_URL || process.env.ALLOW_OTP_IN_RESPONSE === '1');
+  const phoneOtpConfigured = false;
+  const emailOtpConfigured = Boolean((process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.ALLOW_EMAIL_OTP_IN_RESPONSE === '1');
   res.json({
     google: googleConfigured,
     facebook: facebookConfigured,
     phoneOtp: phoneOtpConfigured,
+    emailOtp: emailOtpConfigured,
   });
+});
+
+app.post('/api/auth/phone/direct-login', async (req, res) => {
+  return res.status(403).json({ error: 'Connexion par telephone desactivee pour le moment' });
+});
+
+app.post('/api/auth/email/request-otp', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Email invalide' });
+    }
+    const code = String(process.env.EMAIL_OTP_STATIC_CODE || Math.floor(100000 + Math.random() * 900000));
+    emailOtpSessions.set(email, {
+      code,
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      attempts: 0,
+    });
+    const delivery = await deliverEmailOtp({ email, code });
+    res.json({
+      success: true,
+      expiresInSeconds: 300,
+      ...(delivery.debugCode ? { debugCode: delivery.debugCode } : {}),
+    });
+  } catch (error) {
+    if (String(error?.message || '') === 'email_otp_provider_missing') {
+      return res.status(503).json({
+        error: "OTP email indisponible pour le moment. Configurez SMTP_HOST/SMTP_USER/SMTP_PASS ou ALLOW_EMAIL_OTP_IN_RESPONSE.",
+      });
+    }
+    console.error('Error requesting email OTP:', error);
+    res.status(500).json({ error: 'Impossible d envoyer le code OTP par email' });
+  }
+});
+
+app.post('/api/auth/email/verify-otp', async (req, res) => {
+  try {
+    await ensureAuthSchema();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '').trim();
+    if (!email || !code) {
+      return res.status(400).json({ error: 'Email et code OTP obligatoires' });
+    }
+    const session = emailOtpSessions.get(email);
+    if (!session) {
+      return res.status(404).json({ error: 'Code OTP introuvable ou expire' });
+    }
+    if (Date.now() > Number(session.expiresAt || 0)) {
+      emailOtpSessions.delete(email);
+      return res.status(410).json({ error: 'Code OTP expire' });
+    }
+    if (String(session.code) !== code) {
+      session.attempts = Number(session.attempts || 0) + 1;
+      if (session.attempts >= 5) {
+        emailOtpSessions.delete(email);
+      } else {
+        emailOtpSessions.set(email, session);
+      }
+      return res.status(401).json({ error: 'Code OTP invalide' });
+    }
+    emailOtpSessions.delete(email);
+    const user = await upsertEmailOtpUser({ email });
+    res.json({ user });
+  } catch (error) {
+    console.error('Error verifying email OTP:', error);
+    res.status(500).json({ error: 'Impossible de verifier le code OTP email' });
+  }
 });
 
 app.post('/api/auth/phone/request-otp', async (req, res) => {
@@ -5145,7 +5307,6 @@ app.put('/api/auth/social/profile/:id', async (req, res) => {
 
     if (!id) return res.status(400).json({ error: 'Utilisateur introuvable' });
     if (!nom) return res.status(400).json({ error: 'Nom obligatoire' });
-    if (!email) return res.status(400).json({ error: 'Email obligatoire' });
     if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
     if (!['proprietaire', 'locataire', 'acheteur'].includes(clientType)) {
       return res.status(400).json({ error: 'Type client obligatoire' });
@@ -5156,17 +5317,23 @@ app.put('/api/auth/social/profile/:id', async (req, res) => {
       return res.status(404).json({ error: 'Utilisateur non trouve' });
     }
 
-    const [emailRows] = await pool.query('SELECT id FROM utilisateurs WHERE email = ? AND id <> ? LIMIT 1', [email, id]);
-    if (emailRows[0]) {
-      return res.status(409).json({ error: 'Cet email est deja utilise' });
+    if (email) {
+      const [emailRows] = await pool.query('SELECT id FROM utilisateurs WHERE email = ? AND id <> ? LIMIT 1', [email, id]);
+      if (emailRows[0]) {
+        return res.status(409).json({ error: 'Cet email est deja utilise' });
+      }
     }
+
+    const [currentRows] = await pool.query('SELECT email FROM utilisateurs WHERE id = ? LIMIT 1', [id]);
+    const currentEmail = String(currentRows?.[0]?.email || '').trim().toLowerCase();
+    const resolvedEmail = email || currentEmail;
 
     await pool.query(
       `UPDATE utilisateurs
        SET nom = ?, email = ?, telephone = ?, client_type = ?, cin = ?, cin_image_url = ?, avatar = COALESCE(?, avatar),
            profile_completed_at = ?, updated_at = ?
        WHERE id = ?`,
-      [nom, email, telephone, clientType, cin || null, cinImageUrl || null, avatar || null, now, now, id]
+      [nom, resolvedEmail, telephone, clientType, cin || null, cinImageUrl || null, avatar || null, now, now, id]
     );
 
     const [rows] = await pool.query(

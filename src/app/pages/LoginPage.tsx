@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, Facebook, Globe, Phone, User, FileText, Upload } from 'lucide-react';
+import { Mail, Lock, Facebook, Globe, User, FileText, Upload, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
-import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, requestPhoneOtp, startSocialLogin, verifyPhoneOtp } from '../services/auth';
+import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '../components/ui/input-otp';
+import { openWhatsAppApp } from '../utils/deepLinks';
 
 const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
 
@@ -25,14 +25,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isCompletingProfile, setIsCompletingProfile] = useState(false);
   const [isUploadingCin, setIsUploadingCin] = useState(false);
-  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false });
-  const [phoneLoginForm, setPhoneLoginForm] = useState({ telephone: '', code: '' });
-  const [otpRequested, setOtpRequested] = useState(false);
-  const [otpDebugCode, setOtpDebugCode] = useState('');
+  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [profileForm, setProfileForm] = useState({
     name: '',
     email: '',
@@ -177,64 +172,11 @@ export default function LoginPage() {
     startSocialLogin(provider);
   };
 
-  const handleRequestOtp = async () => {
-    if (!phoneLoginForm.telephone.trim()) {
-      toast.error('Numero de telephone obligatoire');
-      return;
-    }
-    setIsRequestingOtp(true);
-    try {
-      const response = await requestPhoneOtp(phoneLoginForm.telephone.trim());
-      setOtpRequested(true);
-      setOtpDebugCode(String(response.debugCode || ''));
-      toast.success(response.debugCode ? `Code OTP genere: ${response.debugCode}` : 'Code OTP envoye');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Impossible d envoyer le code OTP');
-    } finally {
-      setIsRequestingOtp(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    if (!phoneLoginForm.telephone.trim() || phoneLoginForm.code.trim().length !== 6) {
-      toast.error('Entrez le numero et le code OTP complet');
-      return;
-    }
-    setIsVerifyingOtp(true);
-    try {
-      const otpUser = await verifyPhoneOtp(phoneLoginForm.telephone.trim(), phoneLoginForm.code.trim());
-      login({
-        id: otpUser.id,
-        email: otpUser.email,
-        name: otpUser.name,
-        avatar: otpUser.avatar || undefined,
-        clientType: otpUser.clientType || undefined,
-        telephone: otpUser.telephone || undefined,
-        cin: otpUser.cin || undefined,
-        cinImageUrl: otpUser.cinImageUrl || undefined,
-        profileCompleted: otpUser.profileCompleted,
-        role: 'user',
-      });
-      toast.success('Connexion telephone reussie');
-      if (otpUser.profileCompleted) {
-        if (!redirectToPendingReservation()) {
-          navigate('/', { replace: true });
-        }
-      } else {
-        setProfileForm({
-          name: otpUser.name || '',
-          email: String(otpUser.email || '').endsWith('@phone.dwira.local') ? '' : (otpUser.email || ''),
-          clientType: otpUser.clientType || '',
-          telephone: otpUser.telephone || phoneLoginForm.telephone,
-          cin: otpUser.cin || '',
-          cinImageUrl: otpUser.cinImageUrl || '',
-        });
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Verification OTP echouee');
-    } finally {
-      setIsVerifyingOtp(false);
-    }
+  const handleWhatsAppLogin = () => {
+    openWhatsAppApp(
+      '+21652080695',
+      'Bonjour, je souhaite me connecter comme client sur Dwira Immobilier et finaliser ma demande.'
+    );
   };
 
   const handleCinImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -266,8 +208,8 @@ export default function LoginPage() {
       toast.error('Utilisateur introuvable');
       return;
     }
-    if (!profileForm.name.trim() || !profileForm.email.trim() || !profileForm.clientType || !profileForm.telephone.trim()) {
-      toast.error('Nom, email, type client et numero de telephone sont obligatoires');
+    if (!profileForm.name.trim() || !profileForm.clientType || !profileForm.telephone.trim()) {
+      toast.error('Nom, type client et numero de telephone sont obligatoires');
       return;
     }
 
@@ -276,7 +218,7 @@ export default function LoginPage() {
       const savedUser = await completeSocialProfile({
         id: user.id,
         name: profileForm.name.trim(),
-        email: profileForm.email.trim(),
+        email: profileForm.email.trim() || undefined,
         clientType: profileForm.clientType as 'proprietaire' | 'locataire' | 'acheteur',
         telephone: profileForm.telephone.trim(),
         cin: profileForm.cin.trim(),
@@ -337,7 +279,7 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label htmlFor="client-email" className="block text-sm font-medium text-gray-700">Email *</label>
+                <label htmlFor="client-email" className="block text-sm font-medium text-gray-700">Email</label>
                 <div className="mt-1 relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Mail className="h-5 w-5 text-gray-400" aria-hidden="true" />
@@ -348,7 +290,7 @@ export default function LoginPage() {
                     value={profileForm.email}
                     onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
                     className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
-                    placeholder="email@exemple.com"
+                    placeholder="Optionnel"
                   />
                 </div>
               </div>
@@ -511,70 +453,22 @@ export default function LoginPage() {
             </div>
 
             <div className="mt-6 grid grid-cols-2 gap-3">
-              <div className="col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 md:hidden">
+              <div className="col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
-                  <Phone className="h-4 w-4" />
-                  Connexion mobile par telephone
+                  <MessageCircle className="h-4 w-4" />
+                  Continuer avec WhatsApp
                 </div>
                 <p className="mt-1 text-xs text-emerald-800/80">
-                  Recevez un code OTP sur votre telephone puis connectez-vous sans quitter le mobile.
+                  Pour le moment, la methode telephone est desactivee. Vous pouvez nous ecrire directement sur WhatsApp.
                 </p>
-                <div className="mt-3 space-y-3">
-                  <input
-                    type="tel"
-                    value={phoneLoginForm.telephone}
-                    onChange={(e) => setPhoneLoginForm((prev) => ({ ...prev, telephone: e.target.value }))}
-                    className="w-full rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                    placeholder="+216 52 000 000"
-                  />
-                  {otpRequested && (
-                    <div className="rounded-lg border border-emerald-100 bg-white p-3">
-                      <InputOTP
-                        maxLength={6}
-                        value={phoneLoginForm.code}
-                        onChange={(value) => setPhoneLoginForm((prev) => ({ ...prev, code: value }))}
-                        containerClassName="justify-center"
-                      >
-                        <InputOTPGroup>
-                          <InputOTPSlot index={0} />
-                          <InputOTPSlot index={1} />
-                          <InputOTPSlot index={2} />
-                          <InputOTPSlot index={3} />
-                          <InputOTPSlot index={4} />
-                          <InputOTPSlot index={5} />
-                        </InputOTPGroup>
-                      </InputOTP>
-                      {otpDebugCode ? (
-                        <p className="mt-2 text-center text-xs text-amber-700">
-                          Code temporaire: <span className="font-bold">{otpDebugCode}</span>
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={isRequestingOtp || !providers.phoneOtp}
-                      onClick={handleRequestOtp}
-                      className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isRequestingOtp ? 'Envoi...' : 'Envoyer OTP'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isVerifyingOtp || !otpRequested}
-                      onClick={handleVerifyOtp}
-                      className="inline-flex items-center justify-center rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isVerifyingOtp ? 'Verification...' : 'Valider code'}
-                    </button>
-                  </div>
-                  {!providers.phoneOtp && (
-                    <p className="text-xs text-amber-700">
-                      OTP telephone indisponible tant que le fournisseur SMS/OTP n'est pas configure.
-                    </p>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={handleWhatsAppLogin}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Ouvrir WhatsApp
+                </button>
               </div>
 
               <div>

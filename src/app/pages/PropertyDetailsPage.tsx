@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, Navigate, useNavigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, Phone } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
+import { openWhatsAppApp } from "../utils/deepLinks";
 
 const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
 
@@ -47,7 +48,7 @@ export default function PropertyDetailsPage() {
   const [isSaved, setIsSaved] = useState(false);
   const [reservationNote, setReservationNote] = useState("");
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false });
+  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
   const formatRating = (value: number) =>
@@ -347,6 +348,13 @@ export default function PropertyDetailsPage() {
       } catch {}
     }
     startSocialLogin(provider);
+  };
+
+  const handlePromptWhatsApp = () => {
+    openWhatsAppApp(
+      '+21652080695',
+      `Bonjour, je souhaite me connecter comme client sur Dwira Immobilier pour ${isSaleProperty ? 'une demande de visite' : 'une demande de reservation'} concernant ${property?.title || 'un bien'}.`
+    );
   };
 
   // Auto-play for embla carousel
@@ -883,12 +891,11 @@ export default function PropertyDetailsPage() {
             <div className="mt-6 grid gap-3">
               <button
                 type="button"
-                disabled={!providers.phoneOtp}
-                onClick={() => navigate('/login')}
-                className="inline-flex items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 md:hidden"
+                onClick={handlePromptWhatsApp}
+                className="inline-flex items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
               >
-                <Phone className="h-5 w-5 text-emerald-700" />
-                Continuer avec telephone
+                <MessageCircle className="h-5 w-5 text-emerald-700" />
+                Continuer avec WhatsApp
               </button>
               <button
                 type="button"

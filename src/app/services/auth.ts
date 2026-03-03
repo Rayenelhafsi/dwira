@@ -24,7 +24,7 @@ interface SocialSessionResponse {
 export interface CompleteSocialProfileInput {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   clientType: 'proprietaire' | 'locataire' | 'acheteur';
   telephone: string;
   cin?: string;
@@ -36,12 +36,7 @@ interface AuthProvidersResponse {
   google: boolean;
   facebook: boolean;
   phoneOtp?: boolean;
-}
-
-interface PhoneOtpRequestResponse {
-  success: boolean;
-  expiresInSeconds: number;
-  debugCode?: string;
+  emailOtp?: boolean;
 }
 
 interface PhoneOtpVerifyResponse {
@@ -65,9 +60,10 @@ export async function getAuthProviders(): Promise<AuthProvidersResponse> {
       google: Boolean(data?.google),
       facebook: Boolean(data?.facebook),
       phoneOtp: Boolean(data?.phoneOtp),
+      emailOtp: Boolean(data?.emailOtp),
     };
   } catch {
-    return { google: false, facebook: false, phoneOtp: false };
+    return { google: false, facebook: false, phoneOtp: false, emailOtp: false };
   }
 }
 
@@ -90,19 +86,11 @@ export async function completeSocialProfile(input: CompleteSocialProfileInput): 
   return data.user;
 }
 
-export async function requestPhoneOtp(telephone: string): Promise<PhoneOtpRequestResponse> {
-  return fetchJsonWithApiFallback<PhoneOtpRequestResponse>('/auth/phone/request-otp', {
+export async function loginWithPhone(telephone: string): Promise<AuthUser> {
+  const data = await fetchJsonWithApiFallback<PhoneOtpVerifyResponse>('/auth/phone/direct-login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ telephone }),
-  });
-}
-
-export async function verifyPhoneOtp(telephone: string, code: string): Promise<AuthUser> {
-  const data = await fetchJsonWithApiFallback<PhoneOtpVerifyResponse>('/auth/phone/verify-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ telephone, code }),
   });
   return data.user;
 }
