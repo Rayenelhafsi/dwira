@@ -43,6 +43,12 @@ interface PhoneOtpVerifyResponse {
   user: AuthUser;
 }
 
+interface PhoneOtpRequestResponse {
+  success: boolean;
+  expiresInSeconds?: number;
+  debugCode?: string;
+}
+
 export async function loginAdmin(email: string, password: string): Promise<AuthUser> {
   const data = await fetchJsonWithApiFallback<AdminLoginResponse>('/auth/admin/login', {
     method: 'POST',
@@ -91,6 +97,23 @@ export async function loginWithPhone(telephone: string): Promise<AuthUser> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ telephone }),
+  });
+  return data.user;
+}
+
+export async function requestPhoneOtp(telephone: string): Promise<PhoneOtpRequestResponse> {
+  return fetchJsonWithApiFallback<PhoneOtpRequestResponse>('/auth/phone/request-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telephone }),
+  });
+}
+
+export async function verifyPhoneOtp(telephone: string, code: string): Promise<AuthUser> {
+  const data = await fetchJsonWithApiFallback<PhoneOtpVerifyResponse>('/auth/phone/verify-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telephone, code }),
   });
   return data.user;
 }

@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, Facebook, Globe, User, FileText, Upload, MessageCircle } from 'lucide-react';
+import { Mail, Lock, Facebook, Globe, User, FileText, Upload, MessageCircle, Phone } from 'lucide-react';
 import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
-import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin } from '../services/auth';
+import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin, AuthUser } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
-import { openWhatsAppApp } from '../utils/deepLinks';
 
 const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
 
@@ -38,6 +37,21 @@ export default function LoginPage() {
   });
   const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  const loginUser = (authUser: AuthUser) => {
+    login({
+      id: authUser.id,
+      email: authUser.email,
+      name: authUser.name,
+      avatar: authUser.avatar || undefined,
+      clientType: authUser.clientType || undefined,
+      telephone: authUser.telephone || undefined,
+      cin: authUser.cin || undefined,
+      cinImageUrl: authUser.cinImageUrl || undefined,
+      profileCompleted: authUser.profileCompleted,
+      role: 'user',
+    });
+  };
 
   const redirectToPendingReservation = () => {
     const pendingDraft = readPendingReservationDraft();
@@ -100,18 +114,7 @@ export default function LoginPage() {
     const restoreSocialSession = async () => {
       try {
         const socialUser = await getSocialSession(socialToken);
-        login({
-          id: socialUser.id,
-          email: socialUser.email,
-          name: socialUser.name,
-          avatar: socialUser.avatar || undefined,
-          clientType: socialUser.clientType || undefined,
-          telephone: socialUser.telephone || undefined,
-          cin: socialUser.cin || undefined,
-          cinImageUrl: socialUser.cinImageUrl || undefined,
-          profileCompleted: socialUser.profileCompleted,
-          role: 'user',
-        });
+        loginUser(socialUser);
         if (socialUser.profileCompleted) {
           toast.success('Connexion reussie');
           if (!redirectToPendingReservation()) {
@@ -172,13 +175,6 @@ export default function LoginPage() {
     startSocialLogin(provider);
   };
 
-  const handleWhatsAppLogin = () => {
-    openWhatsAppApp(
-      '+21652080695',
-      'Bonjour, je souhaite me connecter comme client sur Dwira Immobilier et finaliser ma demande.'
-    );
-  };
-
   const handleCinImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -225,18 +221,7 @@ export default function LoginPage() {
         cinImageUrl: profileForm.cinImageUrl.trim(),
         avatar: user.avatar || null,
       });
-      login({
-        id: savedUser.id,
-        email: savedUser.email,
-        name: savedUser.name,
-        avatar: savedUser.avatar || undefined,
-        clientType: savedUser.clientType || undefined,
-        telephone: savedUser.telephone || undefined,
-        cin: savedUser.cin || undefined,
-        cinImageUrl: savedUser.cinImageUrl || undefined,
-        profileCompleted: savedUser.profileCompleted,
-        role: 'user',
-      });
+      loginUser(savedUser);
       toast.success('Profil client enregistre');
       if (!redirectToPendingReservation()) {
         navigate('/', { replace: true });
@@ -453,24 +438,6 @@ export default function LoginPage() {
             </div>
 
             <div className="mt-6 grid grid-cols-2 gap-3">
-              <div className="col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
-                  <MessageCircle className="h-4 w-4" />
-                  Continuer avec WhatsApp
-                </div>
-                <p className="mt-1 text-xs text-emerald-800/80">
-                  Pour le moment, la methode telephone est desactivee. Vous pouvez nous ecrire directement sur WhatsApp.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleWhatsAppLogin}
-                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  Ouvrir WhatsApp
-                </button>
-              </div>
-
               <div>
                 <button
                   type="button"
@@ -500,6 +467,9 @@ export default function LoginPage() {
                 Certains fournisseurs sociaux sont indisponibles car OAuth n'est pas configure sur le serveur.
               </p>
             )}
+            <p className="mt-3 text-xs text-gray-500">
+              La connexion WhatsApp est desactivee pour le moment.
+            </p>
           </div>
         </div>
       </div>

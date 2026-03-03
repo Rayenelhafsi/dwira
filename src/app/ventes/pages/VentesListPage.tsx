@@ -4,7 +4,7 @@ import { Bien } from '../../admin/types';
 import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
-import { buildTelLink, openMessengerApp, openWhatsAppApp } from '../../utils/deepLinks';
+import { buildMessengerWebLink, buildTelLink, openWhatsAppApp } from '../../utils/deepLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -224,10 +224,10 @@ export default function VentesListPage() {
                         <MessageCircle className="w-4 h-4" />
                         WhatsApp
                       </button>
-                      <button type="button" onClick={() => openMessengerApp()} className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-500 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50">
+                      <a href={buildMessengerWebLink()} className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-500 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50">
                         <MessageCircle className="w-4 h-4" />
                         Messenger
-                      </button>
+                      </a>
                     </div>
                   </div>
                 </Card>

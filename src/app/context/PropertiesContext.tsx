@@ -14,6 +14,11 @@ const LEGACY_TYPE_MAP: Record<string, BienType> = {
   local: 'local_commercial',
 };
 const DEFAULT_MODE: BienMode = 'location_saisonniere';
+const DEFAULT_MODE_PRIORITIES: Record<BienMode, number> = {
+  location_saisonniere: 1,
+  vente: 2,
+  location_annuelle: 3,
+};
 
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get('content-type') || '';
@@ -322,6 +327,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     title: bien.titre,
     slug: bien.titre.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     detailPath,
+    mode: bien.mode,
     location: zoneNames[bien.zone_id || ''] || 'KÃ©libia',
     pricePerNight: bien.prix_nuitee,
     priceContext: bien.mode === 'vente' ? 'sale' : 'night',
@@ -374,12 +380,14 @@ interface PropertiesContextType {
   properties: Property[];
   zones: Zone[];
   proprietaires: Proprietaire[];
+  modePriorities: Record<BienMode, number>;
   loading: boolean;
   isLoading: boolean;
   error: string | null;
   addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<string>;
   updateBien: (updatedBien: Bien) => Promise<void>;
   deleteBien: (id: string) => Promise<void>;
+  saveModePriorities: (next: Record<BienMode, number>) => Promise<void>;
   getBienById: (id: string) => Bien | undefined;
   getPropertyById: (id: string) => Property | undefined;
   refreshData: () => Promise<void>;
@@ -396,6 +404,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   const [properties, setProperties] = useState<Property[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [proprietaires, setProprietaires] = useState<Proprietaire[]>([]);
+  const [modePriorities, setModePriorities] = useState<Record<BienMode, number>>(DEFAULT_MODE_PRIORITIES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -404,15 +413,17 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const [biensResponse, zonesResponse, propsResponse] = await Promise.all([
+      const [biensResponse, zonesResponse, propsResponse, modePrioritiesResponse] = await Promise.all([
         fetch(`${API_URL}/biens`),
         fetch(`${API_URL}/zones`),
         fetch(`${API_URL}/proprietaires`),
+        fetch(`${API_URL}/site-mode-priorities`),
       ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
       const zonesData = zonesResponse.ok ? await zonesResponse.json() : [];
       const propsData = propsResponse.ok ? await propsResponse.json() : [];
+      const modePrioritiesData = modePrioritiesResponse.ok ? await modePrioritiesResponse.json() : null;
       
       // Fetch media and unavailable dates for each bien
       const mappedBiens = await Promise.all(biensData.map(async (bien: any) => {
@@ -450,6 +461,11 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       setProperties(mappedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zoneNameById)));
       setZones(Array.isArray(zonesData) ? zonesData : []);
       setProprietaires(Array.isArray(propsData) ? propsData : []);
+      setModePriorities({
+        location_saisonniere: Number(modePrioritiesData?.location_saisonniere || DEFAULT_MODE_PRIORITIES.location_saisonniere),
+        vente: Number(modePrioritiesData?.vente || DEFAULT_MODE_PRIORITIES.vente),
+        location_annuelle: Number(modePrioritiesData?.location_annuelle || DEFAULT_MODE_PRIORITIES.location_annuelle),
+      });
     } catch (err: any) {
       console.warn('API unavailable, using local mock data:', err.message);
       // Fall back to local mock data when API is unavailable
@@ -575,6 +591,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         { id: 'p2', nom: 'PropriÃ©taire 2', telephone: '', email: '', cin: '' },
         { id: 'p3', nom: 'PropriÃ©taire 3', telephone: '', email: '', cin: '' }
       ]);
+      setModePriorities(DEFAULT_MODE_PRIORITIES);
       setError(null);
     } finally {
       setLoading(false);
@@ -643,6 +660,23 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const saveModePriorities = async (next: Record<BienMode, number>) => {
+    const response = await fetch(`${API_URL}/site-mode-priorities`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    });
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Mise a jour des priorites impossible'));
+    }
+    const data = await response.json().catch(() => null);
+    setModePriorities({
+      location_saisonniere: Number(data?.location_saisonniere || next.location_saisonniere || DEFAULT_MODE_PRIORITIES.location_saisonniere),
+      vente: Number(data?.vente || next.vente || DEFAULT_MODE_PRIORITIES.vente),
+      location_annuelle: Number(data?.location_annuelle || next.location_annuelle || DEFAULT_MODE_PRIORITIES.location_annuelle),
+    });
+  };
+
   const getBienById = (id: string) => {
     return biens.find(b => b.id === id);
   };
@@ -660,12 +694,14 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     properties,
     zones,
     proprietaires,
+    modePriorities,
     loading,
     isLoading: loading,
     error,
     addBien,
     updateBien,
     deleteBien,
+    saveModePriorities,
     getBienById,
     getPropertyById,
     refreshData

@@ -30,7 +30,7 @@ export function buildMessengerWebLink(page: string = DEFAULT_MESSENGER_PAGE) {
 }
 
 export function buildMessengerAppLink(page: string = DEFAULT_MESSENGER_PAGE) {
-  return `fb-messenger://user-thread/${page}`;
+  return buildMessengerWebLink(page);
 }
 
 export function openDeepLink(appUrl: string, fallbackUrl: string) {
@@ -63,5 +63,6 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 }
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
-  openDeepLink(buildMessengerAppLink(page), buildMessengerWebLink(page));
+  const threadUrl = buildMessengerWebLink(page);
+  openDeepLink(buildMessengerAppLink(page), threadUrl);
 }

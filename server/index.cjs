@@ -1705,6 +1705,61 @@ async function ensureBiensWorkflowSchema() {
       [id, caracteristiqueId, mode, type]
     );
   }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS site_mode_priorities (
+      mode ENUM('vente','location_annuelle','location_saisonniere') PRIMARY KEY,
+      priority_order INT NOT NULL,
+      updated_at DATETIME NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  const now = getAgencySqlDateTime();
+  await pool.query(
+    `INSERT INTO site_mode_priorities (mode, priority_order, updated_at)
+     VALUES
+       ('location_saisonniere', 1, ?),
+       ('vente', 2, ?),
+       ('location_annuelle', 3, ?)
+     ON DUPLICATE KEY UPDATE
+       priority_order = priority_order,
+       updated_at = updated_at`,
+    [now, now, now]
+  );
+}
+
+async function readSiteModePriorities() {
+  const [rows] = await pool.query(
+    'SELECT mode, priority_order FROM site_mode_priorities ORDER BY priority_order ASC, mode ASC'
+  );
+  const defaults = {
+    location_saisonniere: 1,
+    vente: 2,
+    location_annuelle: 3,
+  };
+  for (const row of rows || []) {
+    const mode = String(row.mode || '').trim();
+    const priority = Number(row.priority_order || 0);
+    if ((mode === 'vente' || mode === 'location_annuelle' || mode === 'location_saisonniere') && priority > 0) {
+      defaults[mode] = priority;
+    }
+  }
+  return defaults;
+}
+
+function normalizeSiteModePriorities(input = {}) {
+  const modes = ['location_saisonniere', 'vente', 'location_annuelle'];
+  const normalized = {};
+  for (const mode of modes) {
+    normalized[mode] = Number(input?.[mode]);
+  }
+  const values = modes.map((mode) => normalized[mode]);
+  const uniqueValues = new Set(values);
+  const isValid = values.every((value) => Number.isInteger(value) && value >= 1 && value <= 3) && uniqueValues.size === 3;
+  if (!isValid) {
+    return { error: 'Les priorites doivent etre 1, 2 et 3, sans doublon.' };
+  }
+  return { values: normalized };
 }
 
 async function ensureZonesSchema() {
@@ -1944,9 +1999,13 @@ async function deliverEmailOtp({ email, code }) {
 async function deliverPhoneOtp({ telephone, code }) {
   const webhookUrl = String(process.env.OTP_PROVIDER_WEBHOOK_URL || '').trim();
   if (webhookUrl) {
+    const webhookSecret = String(process.env.OTP_PROVIDER_WEBHOOK_SECRET || '').trim();
     const response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(webhookSecret ? { 'x-webhook-secret': webhookSecret } : {}),
+      },
       body: JSON.stringify({
         telephone,
         code,
@@ -2541,6 +2600,40 @@ pool.getConnection()
 // ============================================
 
 // GET all biens
+app.get('/api/site-mode-priorities', async (req, res) => {
+  try {
+    await ensureBiensWorkflowSchema();
+    const priorities = await readSiteModePriorities();
+    res.json(priorities);
+  } catch (error) {
+    console.error('Error fetching site mode priorities:', error);
+    res.status(500).json({ error: 'Impossible de charger les priorites des modes' });
+  }
+});
+
+app.put('/api/site-mode-priorities', async (req, res) => {
+  try {
+    await ensureBiensWorkflowSchema();
+    const normalized = normalizeSiteModePriorities(req.body || {});
+    if (normalized.error) {
+      return res.status(400).json({ error: normalized.error });
+    }
+    const now = getAgencySqlDateTime();
+    for (const [mode, priority] of Object.entries(normalized.values)) {
+      await pool.query(
+        `INSERT INTO site_mode_priorities (mode, priority_order, updated_at)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE priority_order = VALUES(priority_order), updated_at = VALUES(updated_at)`,
+        [mode, priority, now]
+      );
+    }
+    res.json(await readSiteModePriorities());
+  } catch (error) {
+    console.error('Error updating site mode priorities:', error);
+    res.status(500).json({ error: 'Impossible de sauvegarder les priorites des modes' });
+  }
+});
+
 app.get('/api/biens', async (req, res) => {
   try {
     const [rows] = await pool.query(`

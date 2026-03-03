@@ -11,6 +11,7 @@ export interface Property {
   title: string;
   slug: string;
   detailPath?: string;
+  mode?: 'vente' | 'location_annuelle' | 'location_saisonniere';
   location: string;
   pricePerNight: number;
   priceContext?: 'night' | 'sale';

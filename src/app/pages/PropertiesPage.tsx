@@ -6,15 +6,22 @@ import { Search, SlidersHorizontal, MapPin, Calendar, Check, X } from "lucide-re
 import { motion, AnimatePresence } from "motion/react";
 
 const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
+type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
+const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
+  { value: "location_saisonniere", label: "Location saisonniere" },
+  { value: "vente", label: "Vente" },
+  { value: "location_annuelle", label: "Location annuelle" },
+];
 
 export default function PropertiesPage() {
   // Use shared context for properties
-  const { properties } = useProperties();
+  const { properties, modePriorities } = useProperties();
   
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   
   const [isFilterOpen, setIsFilterOpen] = useState(true);
+  const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
 
   // Initialize filter states from URL params
   const [location, setLocation] = useState(searchParams.get("location") || "");
@@ -32,10 +39,22 @@ export default function PropertiesPage() {
     parseInt(searchParams.get("maxPrice") || "1000")
   ]);
 
+  useEffect(() => {
+    const requestedMode = searchParams.get("mode");
+    if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
+      setSelectedMode(requestedMode);
+      return;
+    }
+    const defaultMode = [...MODE_TABS]
+      .sort((a, b) => (modePriorities[a.value] || 99) - (modePriorities[b.value] || 99))[0]?.value || "location_saisonniere";
+    setSelectedMode(defaultMode);
+  }, [modePriorities, searchParams]);
+
   // Update URL params when filters change
   useEffect(() => {
     const params = new URLSearchParams();
     
+    params.set("mode", selectedMode);
     if (location) params.set("location", location);
     if (checkIn) params.set("checkIn", checkIn);
     if (checkOut) params.set("checkOut", checkOut);
@@ -46,7 +65,7 @@ export default function PropertiesPage() {
     if (priceRange[1] < 1000) params.set("maxPrice", priceRange[1].toString());
     
     setSearchParams(params, { replace: true });
-  }, [location, checkIn, checkOut, selectedCategories, selectedAmenities, isFeaturedOnly, priceRange, setSearchParams]);
+  }, [location, checkIn, checkOut, selectedCategories, selectedAmenities, isFeaturedOnly, priceRange, selectedMode, setSearchParams]);
 
   // Derived Data
   const uniqueLocations = useMemo(() => {
@@ -78,11 +97,12 @@ export default function PropertiesPage() {
     setSelectedAmenities([]);
     setIsFeaturedOnly(false);
     setPriceRange([0, 1000]);
-    setSearchParams(new URLSearchParams());
+    setSearchParams(new URLSearchParams(`mode=${selectedMode}`));
   };
 
   // Filtering Logic
   const filteredProperties = properties.filter((property) => {
+    const matchMode = (property.mode || "location_saisonniere") === selectedMode;
     // Location
     const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
     
@@ -102,7 +122,7 @@ export default function PropertiesPage() {
     // For now, we just ensure dates are valid if provided, but don't filter out unless we had availability data.
     // We could mock random unavailability if we wanted, but better to show all for this demo.
     
-    return matchLocation && matchCategory && matchAmenities && matchPrice && matchFeatured;
+    return matchMode && matchLocation && matchCategory && matchAmenities && matchPrice && matchFeatured;
   });
 
   // Sort featured first if not filtering exclusively
@@ -128,6 +148,25 @@ export default function PropertiesPage() {
             <SlidersHorizontal size={18} />
             <span>{isFilterOpen ? "Masquer les filtres" : "Afficher les filtres"}</span>
           </button>
+        </div>
+
+        <div className="mb-2">
+          <div className="grid grid-cols-3 gap-2">
+          {MODE_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setSelectedMode(tab.value)}
+              className={`relative min-w-0 rounded-[18px] border px-2 py-3 text-xs font-semibold leading-tight transition-all duration-200 sm:px-3 sm:text-sm md:rounded-[22px] md:px-5 ${
+                selectedMode === tab.value
+                  ? 'z-10 border-white/70 bg-white/78 text-emerald-800 shadow-[0_10px_30px_rgba(15,23,42,0.10)] backdrop-blur-xl'
+                  : 'border-gray-300/40 bg-white/40 text-gray-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl hover:bg-white/65'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+          </div>
         </div>
 
         <AnimatePresence>

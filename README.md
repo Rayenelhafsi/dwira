@@ -79,4 +79,12 @@ Apply manually:
 ```bash
 mysql -u USER -p DB_NAME < migrations/2026-02-23-add-zone-google-maps-url.sql
 ```
+
+## Phone OTP via n8n
+
+For WhatsApp OTP delivery through `n8n`, see:
+
+- `guidelines/whatsapp-otp-n8n.md`
+
+Backend-side OTP generation and verification already exist. `n8n` is only the delivery layer.
   

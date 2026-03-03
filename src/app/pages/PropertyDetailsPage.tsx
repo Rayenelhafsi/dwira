@@ -10,7 +10,6 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
-import { openWhatsAppApp } from "../utils/deepLinks";
 
 const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
 
@@ -348,13 +347,6 @@ export default function PropertyDetailsPage() {
       } catch {}
     }
     startSocialLogin(provider);
-  };
-
-  const handlePromptWhatsApp = () => {
-    openWhatsAppApp(
-      '+21652080695',
-      `Bonjour, je souhaite me connecter comme client sur Dwira Immobilier pour ${isSaleProperty ? 'une demande de visite' : 'une demande de reservation'} concernant ${property?.title || 'un bien'}.`
-    );
   };
 
   // Auto-play for embla carousel
@@ -891,14 +883,6 @@ export default function PropertyDetailsPage() {
             <div className="mt-6 grid gap-3">
               <button
                 type="button"
-                onClick={handlePromptWhatsApp}
-                className="inline-flex items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
-              >
-                <MessageCircle className="h-5 w-5 text-emerald-700" />
-                Continuer avec WhatsApp
-              </button>
-              <button
-                type="button"
                 disabled={!providers.google}
                 onClick={() => handlePromptSocialLogin('google')}
                 className="inline-flex items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -918,7 +902,7 @@ export default function PropertyDetailsPage() {
             </div>
 
             <p className="mt-4 text-center text-xs text-gray-500">
-              Votre compte sera utilise pour suivre vos demandes, visites et interactions.
+              La connexion WhatsApp est desactivee pour le moment. Utilisez Google ou Facebook pour continuer.
             </p>
           </div>
         </div>

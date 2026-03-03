@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
 import { Property } from "../data/properties";
-import { buildTelLink, openMessengerApp, openWhatsAppApp } from "../utils/deepLinks";
+import { buildMessengerWebLink, buildTelLink, openWhatsAppApp } from "../utils/deepLinks";
 
 interface PropertyCardProps {
   property: Property;
@@ -80,10 +80,10 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             <MessageCircle size={14} />
             <span>WhatsApp</span>
           </button>
-          <button type="button" onClick={() => openMessengerApp()} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap">
+          <a href={buildMessengerWebLink()} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap">
             <MessageCircle size={14} />
             <span>Messenger</span>
-          </button>
+          </a>
         </div>
       </div>
     </div>

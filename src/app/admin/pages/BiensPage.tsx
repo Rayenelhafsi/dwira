@@ -383,7 +383,7 @@ function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) 
 }
 
 export default function BiensPage() {
-  const { biens, zones, proprietaires, addBien, updateBien, deleteBien, refreshData, isLoading } = useProperties();
+  const { biens, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, refreshData, isLoading } = useProperties();
   const zoneOptions = zones.length > 0 ? zones : mockZones;
   const proprietaireOptions = proprietaires.length > 0 ? proprietaires : mockProprietaires;
   const [searchTerm, setSearchTerm] = useState('');
@@ -394,6 +394,18 @@ export default function BiensPage() {
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
   const [editorInitialStep, setEditorInitialStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [saveSuccessDialogOpen, setSaveSuccessDialogOpen] = useState(false);
+  const [priorityDraft, setPriorityDraft] = useState<Record<BienMode, number>>(modePriorities);
+  const [isSavingPriorities, setIsSavingPriorities] = useState(false);
+
+  useEffect(() => {
+    setPriorityDraft(modePriorities);
+  }, [modePriorities]);
+
+  const priorityValues = Object.values(priorityDraft);
+  const hasValidPrioritySet =
+    priorityValues.length === 3 &&
+    priorityValues.every((value) => Number.isInteger(value) && value >= 1 && value <= 3) &&
+    new Set(priorityValues).size === 3;
 
   const filteredBiens = biens.filter((bien) => {
     const query = searchTerm.toLowerCase();
@@ -463,6 +475,22 @@ export default function BiensPage() {
       toast.error(message ? `Erreur visibilite: ${message}` : 'Erreur visibilite');
     }
   };
+  const handleSaveModePriorities = async () => {
+    if (!hasValidPrioritySet) {
+      toast.error('Choisissez exactement 1, 2 et 3, sans doublon.');
+      return;
+    }
+    try {
+      setIsSavingPriorities(true);
+      await saveModePriorities(priorityDraft);
+      toast.success('Priorites des modes mises a jour');
+    } catch (error: any) {
+      const message = String(error?.message || '').trim();
+      toast.error(message ? `Erreur priorites: ${message}` : 'Erreur priorites');
+    } finally {
+      setIsSavingPriorities(false);
+    }
+  };
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div></div>;
 
@@ -493,6 +521,49 @@ export default function BiensPage() {
             </button>
           ))}
         </div>
+      </div>
+      <div className="bg-white p-4 sm:p-5 rounded-lg shadow-sm border border-gray-100">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Priorite des modes sur l'accueil</h2>
+            <p className="text-sm text-gray-500">Le mode avec priorite 1 sera affiche en premier sur `https://dwiraimmobilier.com`.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[540px]">
+            {([
+              { key: 'location_saisonniere', label: 'Location saisonniere' },
+              { key: 'vente', label: 'Vente' },
+              { key: 'location_annuelle', label: 'Location annuelle' },
+            ] as Array<{ key: BienMode; label: string }>).map((item) => (
+              <label key={item.key} className="block">
+                <span className="mb-1 block text-sm font-medium text-gray-700">{item.label}</span>
+                <select
+                  value={priorityDraft[item.key]}
+                  onChange={(event) => setPriorityDraft((prev) => ({ ...prev, [item.key]: Number(event.target.value) }))}
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value={1}>Priorite 1</option>
+                  <option value={2}>Priorite 2</option>
+                  <option value={3}>Priorite 3</option>
+                </select>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => void handleSaveModePriorities()}
+            disabled={isSavingPriorities || !hasValidPrioritySet}
+            className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSavingPriorities ? 'Enregistrement...' : 'Enregistrer les priorites'}
+          </button>
+        </div>
+        {!hasValidPrioritySet && (
+          <p className="mt-3 text-sm text-amber-700">
+            Les trois modes doivent avoir les priorites 1, 2 et 3, sans doublon.
+          </p>
+        )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} onEdit={() => { setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}

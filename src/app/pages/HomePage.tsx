@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -22,14 +22,22 @@ import {
 } from "date-fns";
 import { fr } from "date-fns/locale";
 
+type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
+const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
+  { value: "location_saisonniere", label: "Location saisonniere" },
+  { value: "vente", label: "Vente" },
+  { value: "location_annuelle", label: "Location annuelle" },
+];
+
 const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
 const LOCATIONS_LIST = ["Kélibia", "Plage El Mansoura", "Petit Paris", "Front de mer"];
 
 export default function HomePage() {
   // Use shared context for properties
-  const { properties } = useProperties();
+  const { properties, modePriorities } = useProperties();
   
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const resultsRef = useRef<HTMLDivElement>(null);
   const filterControlsRef = useRef<HTMLDivElement>(null);
   
@@ -43,8 +51,25 @@ export default function HomePage() {
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
 
   const today = startOfDay(new Date());
+
+  useEffect(() => {
+    const requestedMode = searchParams.get("mode");
+    if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
+      setSelectedMode(requestedMode);
+      return;
+    }
+    const defaultMode = [...MODE_TABS]
+      .sort((a, b) => (modePriorities[a.value] || 99) - (modePriorities[b.value] || 99))[0]?.value || "location_saisonniere";
+    setSelectedMode(defaultMode);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("mode", defaultMode);
+      return next;
+    }, { replace: true });
+  }, [modePriorities, searchParams, setSearchParams]);
 
   // Calendar calculations
   const monthStart = startOfMonth(currentMonth);
@@ -109,6 +134,7 @@ export default function HomePage() {
     setHasSearched(true);
     
     const params = new URLSearchParams();
+    params.set("mode", selectedMode);
     if (location) params.set("location", location);
     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
     if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
@@ -122,19 +148,20 @@ export default function HomePage() {
   };
 
   const filteredProperties = useMemo(() => {
+    const modeProperties = properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode);
     const baseProperties = hasSearched
-      ? properties.filter((property) => {
+      ? modeProperties.filter((property) => {
           const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
           const matchCategory = selectedCategories.length === 0 || selectedCategories.includes(property.category);
           return matchLocation && matchCategory;
         })
-      : properties;
+      : modeProperties;
 
     return [...baseProperties].sort((a, b) => {
       if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
       return b.rating - a.rating;
     });
-  }, [hasSearched, location, selectedCategories, properties]);
+  }, [hasSearched, location, selectedCategories, properties, selectedMode]);
 
   const dateRangeText = () => {
     if (checkIn && checkOut) {
@@ -208,7 +235,34 @@ export default function HomePage() {
           </motion.p>
 
           {/* Filter Bar */}
-          <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto">
+          <div className="relative z-10 -mb-3 px-4 pb-0 md:px-6">
+            <div className="grid grid-cols-3 gap-2">
+            {MODE_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => {
+                  setSelectedMode(tab.value);
+                  setHasSearched(false);
+                  setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set("mode", tab.value);
+                    return next;
+                  }, { replace: true });
+                }}
+                className={`relative min-w-0 rounded-[18px] border px-2 py-3 text-xs font-semibold leading-tight transition-all duration-200 sm:px-3 sm:text-sm md:rounded-[22px] md:px-5 ${
+                  selectedMode === tab.value
+                    ? "z-10 border-white/70 bg-white/78 text-emerald-800 shadow-[0_10px_30px_rgba(15,23,42,0.18)] backdrop-blur-xl"
+                    : "border-white/18 bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl hover:bg-white/20"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto overflow-hidden">
             {/* Selected Filters Display - Green Boxes */}
             {(location || selectedCategories.length > 0 || (checkIn && checkOut)) && (
               <div className="bg-emerald-50 px-6 py-3 border-b border-emerald-100">
@@ -445,11 +499,11 @@ export default function HomePage() {
               </h2>
               <p className="text-gray-600 max-w-xl">
                 {hasSearched 
-                  ? `${filteredProperties.length} logement${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
-                  : "Tous les biens sont affichés. Les biens en vedette apparaissent en premier."}
+                  ? `${filteredProperties.length} bien${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
+                  : `Affichage du mode ${MODE_TABS.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
-            <Link to="/logements" className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">
+            <Link to={`/logements?mode=${encodeURIComponent(selectedMode)}`} className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">
               Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </Link>
           </div>
@@ -461,6 +515,7 @@ export default function HomePage() {
                 property={property} 
                 searchParams={(() => {
                   const params = new URLSearchParams();
+                  params.set("mode", selectedMode);
                   if (location) params.set("location", location);
                   if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
                   if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
@@ -473,7 +528,7 @@ export default function HomePage() {
           
           {filteredProperties.length === 0 && hasSearched && (
             <div className="text-center py-16">
-              <p className="text-gray-500 text-lg mb-4">Aucun logement ne correspond à vos critères</p>
+              <p className="text-gray-500 text-lg mb-4">Aucun bien ne correspond à vos critères pour ce mode</p>
               <button 
                 onClick={() => {
                   setLocation("");
@@ -490,7 +545,7 @@ export default function HomePage() {
           )}
           
           <div className="mt-12 text-center md:hidden">
-            <Link to="/logements" className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
+            <Link to={`/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
               Voir tous les logements <ArrowRight size={20} />
             </Link>
           </div>
