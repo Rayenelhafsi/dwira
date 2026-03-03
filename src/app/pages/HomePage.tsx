@@ -34,7 +34,7 @@ const LOCATIONS_LIST = ["Kélibia", "Plage El Mansoura", "Petit Paris", "Front d
 
 export default function HomePage() {
   // Use shared context for properties
-  const { properties, modePriorities } = useProperties();
+  const { properties, modePriorities, loading } = useProperties();
   
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -54,22 +54,34 @@ export default function HomePage() {
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
 
   const today = startOfDay(new Date());
+  const orderedModeTabs = useMemo(
+    () =>
+      [...MODE_TABS].sort(
+        (a, b) => (modePriorities[a.value] || 99) - (modePriorities[b.value] || 99)
+      ),
+    [modePriorities]
+  );
 
   useEffect(() => {
+    if (loading) {
+      return;
+    }
     const requestedMode = searchParams.get("mode");
     if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
       setSelectedMode(requestedMode);
       return;
     }
-    const defaultMode = [...MODE_TABS]
-      .sort((a, b) => (modePriorities[a.value] || 99) - (modePriorities[b.value] || 99))[0]?.value || "location_saisonniere";
+    const defaultMode = orderedModeTabs[0]?.value || "location_saisonniere";
     setSelectedMode(defaultMode);
     setSearchParams((prev) => {
+      if (prev.get("mode") === defaultMode) {
+        return prev;
+      }
       const next = new URLSearchParams(prev);
       next.set("mode", defaultMode);
       return next;
     }, { replace: true });
-  }, [modePriorities, searchParams, setSearchParams]);
+  }, [loading, orderedModeTabs, searchParams, setSearchParams]);
 
   // Calendar calculations
   const monthStart = startOfMonth(currentMonth);
@@ -236,8 +248,13 @@ export default function HomePage() {
 
           {/* Filter Bar */}
           <div className="relative z-10 -mb-3 px-4 pb-0 md:px-6">
-            <div className="grid grid-cols-3 gap-2">
-            {MODE_TABS.map((tab) => (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: loading ? 0 : 1, y: loading ? 8 : 0 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+              className="grid grid-cols-3 gap-2"
+            >
+            {orderedModeTabs.map((tab) => (
               <button
                 key={tab.value}
                 type="button"
@@ -259,7 +276,7 @@ export default function HomePage() {
                 {tab.label}
               </button>
             ))}
-            </div>
+            </motion.div>
           </div>
 
           <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto overflow-hidden">
@@ -500,7 +517,7 @@ export default function HomePage() {
               <p className="text-gray-600 max-w-xl">
                 {hasSearched 
                   ? `${filteredProperties.length} bien${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
-                  : `Affichage du mode ${MODE_TABS.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
+                  : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
             <Link to={`/logements?mode=${encodeURIComponent(selectedMode)}`} className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">

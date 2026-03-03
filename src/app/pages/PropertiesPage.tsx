@@ -15,13 +15,20 @@ const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
 
 export default function PropertiesPage() {
   // Use shared context for properties
-  const { properties, modePriorities } = useProperties();
+  const { properties, modePriorities, loading } = useProperties();
   
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   
   const [isFilterOpen, setIsFilterOpen] = useState(true);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
+  const orderedModeTabs = useMemo(
+    () =>
+      [...MODE_TABS].sort(
+        (a, b) => (modePriorities[a.value] || 99) - (modePriorities[b.value] || 99)
+      ),
+    [modePriorities]
+  );
 
   // Initialize filter states from URL params
   const [location, setLocation] = useState(searchParams.get("location") || "");
@@ -40,15 +47,17 @@ export default function PropertiesPage() {
   ]);
 
   useEffect(() => {
+    if (loading) {
+      return;
+    }
     const requestedMode = searchParams.get("mode");
     if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
       setSelectedMode(requestedMode);
       return;
     }
-    const defaultMode = [...MODE_TABS]
-      .sort((a, b) => (modePriorities[a.value] || 99) - (modePriorities[b.value] || 99))[0]?.value || "location_saisonniere";
+    const defaultMode = orderedModeTabs[0]?.value || "location_saisonniere";
     setSelectedMode(defaultMode);
-  }, [modePriorities, searchParams]);
+  }, [loading, orderedModeTabs, searchParams]);
 
   // Update URL params when filters change
   useEffect(() => {
@@ -151,8 +160,13 @@ export default function PropertiesPage() {
         </div>
 
         <div className="mb-2">
-          <div className="grid grid-cols-3 gap-2">
-          {MODE_TABS.map((tab) => (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: loading ? 0 : 1, y: loading ? 8 : 0 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="grid grid-cols-3 gap-2"
+          >
+          {orderedModeTabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
@@ -166,7 +180,7 @@ export default function PropertiesPage() {
               {tab.label}
             </button>
           ))}
-          </div>
+          </motion.div>
         </div>
 
         <AnimatePresence>
