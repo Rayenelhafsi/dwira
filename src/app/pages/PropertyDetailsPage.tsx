@@ -22,6 +22,7 @@ export default function PropertyDetailsPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => p.slug === slug);
+  const propertyVideos = property?.videos || [];
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
 
@@ -469,6 +470,33 @@ export default function PropertyDetailsPage() {
             </div>
           </div>
         </div>
+
+        {propertyVideos.length > 0 && (
+          <div className="mb-12 rounded-3xl border border-emerald-100 bg-emerald-50/40 p-6 md:p-8">
+            <div className="flex items-center justify-between gap-3 mb-5">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Visite vidéo</h2>
+                <p className="text-sm text-gray-600 mt-1">Regardez le bien avant de réserver ou demander une visite.</p>
+              </div>
+              <div className="text-sm font-medium text-emerald-700">
+                {propertyVideos.length} vidéo{propertyVideos.length > 1 ? "s" : ""}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              {propertyVideos.map((videoUrl, index) => (
+                <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-2xl bg-black shadow-lg">
+                  <video
+                    src={videoUrl}
+                    controls
+                    preload="metadata"
+                    playsInline
+                    className="w-full h-[240px] md:h-[360px] object-cover"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Left Column: Info */}

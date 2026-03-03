@@ -663,6 +663,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
   const [unavailableDates, setUnavailableDates] = useState<DateStatus[]>(initialData?.unavailableDates || []);
   const [newImageUrl, setNewImageUrl] = useState('');
+  const [newVideoUrl, setNewVideoUrl] = useState('');
   const [newImageMotif, setNewImageMotif] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
@@ -787,7 +788,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     normalizeLegacyType((formData.type || 'appartement') as BienType)
   );
   const isProofImage = (img: Media) => isProofMotif(img.motif_upload);
-  const clientVisibleImages = images.filter((img) => !isProofImage(img));
+  const clientVisibleImages = images.filter((img) => img.type === 'image' && !isProofImage(img));
+  const clientVisibleVideos = images.filter((img) => img.type === 'video');
   const typeRueProofImages = images.filter((img) => img.motif_upload === currentProofTypeRueMotif);
   const typePapierProofImages = images.filter((img) => img.motif_upload === currentProofTypePapierMotif);
   const getLotissementTerrainProofs = (
@@ -1374,11 +1376,25 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     toast.success('Image ajoutée');
   };
 
-  const handleRemoveImage = (id: string) => { setImages(images.filter(img => img.id !== id)); toast.success('Image supprimée'); };
+  const handleAddVideo = () => {
+    if (!newVideoUrl.trim()) return;
+    const newMedia: Media = {
+      id: Math.random().toString(36).substr(2, 9),
+      bien_id: formData.id || '',
+      type: 'video',
+      url: newVideoUrl.trim(),
+      motif_upload: null,
+    };
+    setImages([...images, newMedia]);
+    setNewVideoUrl('');
+    toast.success('Vidéo ajoutée');
+  };
+
+  const handleRemoveImage = (id: string) => { setImages(images.filter(img => img.id !== id)); toast.success('Média supprimé'); };
 
   const reorderClientImages = (fromId: string, toId: string) => {
     if (fromId === toId) return;
-    const clientImages = images.filter((img) => !isProofImage(img));
+    const clientImages = images.filter((img) => img.type === 'image' && !isProofImage(img));
     const fromIndex = clientImages.findIndex((img) => img.id === fromId);
     const toIndex = clientImages.findIndex((img) => img.id === toId);
     if (fromIndex < 0 || toIndex < 0) return;
@@ -1386,7 +1402,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const [movedImage] = nextClientImages.splice(fromIndex, 1);
     nextClientImages.splice(toIndex, 0, movedImage);
     let clientCursor = 0;
-    setImages(images.map((img) => (isProofImage(img) ? img : nextClientImages[clientCursor++])));
+    setImages(images.map((img) => (isProofImage(img) || img.type === 'video' ? img : nextClientImages[clientCursor++])));
   };
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, imageId: string) => {
@@ -1420,8 +1436,35 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const [movedImage] = newImages.splice(index, 1);
     newImages.unshift(movedImage);
     let clientCursor = 0;
-    setImages(images.map((img) => (isProofImage(img) ? img : newImages[clientCursor++])));
+    setImages(images.map((img) => (isProofImage(img) || img.type === 'video' ? img : newImages[clientCursor++])));
     toast.success('Image principale définie');
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const uploadFormData = new FormData();
+    uploadFormData.append('image', file);
+    try {
+      const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
+      if (!response.ok) throw new Error('Upload failed');
+      const data = await response.json();
+      const newMedia: Media = {
+        id: Math.random().toString(36).substr(2, 9),
+        bien_id: formData.id || '',
+        type: 'video',
+        url: data.url,
+        motif_upload: null,
+      };
+      setImages((prev) => [...prev, newMedia]);
+      toast.success('Vidéo uploadée');
+    } catch {
+      toast.error('Erreur upload vidéo');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
   };
 
   const renderTypeProofUploads = () => (
@@ -2043,7 +2086,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       return toast.error('Erreur sauvegarde des modifications de caracteristiques');
     }
 
-    const orderedMediaForSave = [...clientVisibleImages, ...images.filter((img) => isProofImage(img))];
+    const orderedMediaForSave = [...clientVisibleImages, ...clientVisibleVideos, ...images.filter((img) => isProofImage(img))];
     const imagesWithPositions = orderedMediaForSave.map((img, idx) => ({ ...img, position: idx }));
     const ventePaiement = computeVentePaiement(formData, venteTarification.prixFinal);
     const deriveBedroomsFromConfiguration = (configuration?: string | null): number => {
@@ -3762,6 +3805,57 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </div>
                     ))}
                     {clientVisibleImages.length === 0 && <div className="col-span-full text-center py-8 text-gray-500">Aucune image</div>}
+                  </div>
+                  <div className="mt-8 border-t border-gray-200 pt-6">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-3">Vidéos du bien</h4>
+                    <div className="flex gap-2 mb-4">
+                      <input
+                        type="text"
+                        value={newVideoUrl}
+                        onChange={(e) => setNewVideoUrl(e.target.value)}
+                        placeholder="URL de la vidéo"
+                        className="flex-1 rounded-lg border-gray-300 border p-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddVideo}
+                        disabled={!newVideoUrl.trim()}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                    <div className="mb-6">
+                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                        <Upload className="h-4 w-4 text-emerald-600" />
+                        <span>Uploader une vidéo</span>
+                      </label>
+                      <input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={handleVideoUpload} disabled={uploading} className="block w-full text-sm" />
+                      <p className="mt-2 text-xs text-gray-500">Formats conseillés: MP4, WebM ou MOV. Taille max: 50 MB.</p>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {clientVisibleVideos.map((video, index) => (
+                        <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
+                          <video
+                            src={resolveMediaUrl(video.url)}
+                            controls
+                            preload="metadata"
+                            className="w-full h-56 rounded-lg bg-black object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(video.id)}
+                            className="absolute top-4 right-4 p-2 bg-red-500 text-white rounded-full shadow"
+                            aria-label="Supprimer la vidéo"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          <span className="absolute bottom-4 right-4 bg-black/60 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{clientVisibleVideos.length}</span>
+                        </div>
+                      ))}
+                      {clientVisibleVideos.length === 0 && <div className="col-span-full text-center py-6 text-gray-500">Aucune vidéo</div>}
+                    </div>
                   </div>
                 </>
               )}

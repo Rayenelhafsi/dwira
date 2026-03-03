@@ -338,6 +338,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     bathrooms: bien.nb_salle_bain,
     images: bien.media && bien.media.length > 0 
       ? bien.media.filter((m: any) => {
+        if (m.type === 'video') return false;
         const motif = String(m.motif_upload || '');
         const isProof = motif === 'preuve_type_rue'
           || motif === 'preuve_type_papier'
@@ -346,6 +347,9 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
         return !m.motif_upload || !isProof;
       }).map((m: any) => m.url) 
       : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'],
+    videos: bien.media && bien.media.length > 0
+      ? bien.media.filter((m: any) => m.type === 'video' && m.url).map((m: any) => m.url)
+      : [],
     description: bien.description || `Superbe ${bien.type}`,
     amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),
     category: typeToCategory[bien.type] || 'S+1',

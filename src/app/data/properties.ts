@@ -21,6 +21,7 @@ export interface Property {
   bedrooms: number;
   bathrooms: number;
   images: string[];
+  videos?: string[];
   description: string;
   amenities: string[];
   // Updated type definition to match client request

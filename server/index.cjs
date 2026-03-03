@@ -110,17 +110,36 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    if (extname && mimetype) {
+    const imageTypes = /jpeg|jpg|png|gif|webp/;
+    const videoTypes = /mp4|webm|mov|m4v|quicktime/;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const normalizedExt = ext.replace('.', '');
+    const mime = String(file.mimetype || '').toLowerCase();
+    const extAllowed = imageTypes.test(normalizedExt) || videoTypes.test(normalizedExt);
+    const mimeAllowed = mime.startsWith('image/') || mime.startsWith('video/') || imageTypes.test(mime) || videoTypes.test(mime);
+    if (extAllowed && mimeAllowed) {
       return cb(null, true);
     }
-    cb(new Error('Only image files are allowed'));
+    cb(new Error('Only image and video files are allowed'));
   }
 });
+
+function uploadMediaMiddleware(req, res, next) {
+  upload.single('image')(req, res, (error) => {
+    if (!error) {
+      return next();
+    }
+    if (error instanceof multer.MulterError) {
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File too large. Maximum size is 50 MB.' });
+      }
+      return res.status(400).json({ error: error.message || 'Invalid upload request' });
+    }
+    return res.status(400).json({ error: error.message || 'Invalid file upload' });
+  });
+}
 
 
 // Database configuration
@@ -4610,22 +4629,24 @@ app.post('/api/biens/:id/caracteristiques', async (req, res) => {
   }
 });
 
-// Upload image endpoint
-app.post('/api/upload', upload.single('image'), async (req, res) => {
+// Upload media endpoint
+app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    const imageUrl = `/uploads/${req.file.filename}`;
+    const mediaUrl = `/uploads/${req.file.filename}`;
     res.json({ 
       success: true, 
-      url: imageUrl,
-      filename: req.file.filename
+      url: mediaUrl,
+      filename: req.file.filename,
+      mimetype: req.file.mimetype,
+      mediaType: String(req.file.mimetype || '').startsWith('video/') ? 'video' : 'image'
     });
   } catch (error) {
-    console.error('Error uploading image:', error);
-    res.status(500).json({ error: 'Failed to upload image' });
+    console.error('Error uploading media:', error);
+    res.status(500).json({ error: 'Failed to upload media' });
   }
 });
 
