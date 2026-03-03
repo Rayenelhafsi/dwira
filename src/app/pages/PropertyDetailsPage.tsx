@@ -23,6 +23,13 @@ export default function PropertyDetailsPage() {
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => p.slug === slug);
   const propertyVideos = property?.videos || [];
+  const galleryItems = useMemo(
+    () => [
+      ...propertyVideos.map((url, index) => ({ type: "video" as const, url, key: `video-${index}` })),
+      ...(property?.images || []).map((url, index) => ({ type: "image" as const, url, key: `image-${index}` })),
+    ],
+    [property?.images, propertyVideos]
+  );
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
 
@@ -429,44 +436,75 @@ export default function PropertyDetailsPage() {
         <div className="mb-12">
           {/* Desktop Grid */}
           <div className="hidden md:grid grid-cols-4 grid-rows-2 gap-2 h-[500px] rounded-xl overflow-hidden">
-            <div className="col-span-2 row-span-2" onClick={() => openLightbox(0)}>
-              <img src={property.images[0]} alt={property.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer" />
-            </div>
-            <div className="col-span-1 row-span-1" onClick={() => openLightbox(1)}>
-              <img src={property.images[1] || property.images[0]} alt={property.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer" />
-            </div>
-            <div className="col-span-1 row-span-1" onClick={() => openLightbox(2)}>
-              <img src={property.images[2] || property.images[0]} alt={property.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer" />
-            </div>
-             <div className="col-span-1 row-span-1" onClick={() => openLightbox(3)}>
-              <img src={property.images[3] || property.images[0]} alt={property.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer" />
-            </div>
-            <div className="col-span-1 row-span-1 relative" onClick={() => openLightbox(0)}>
-              <img src={property.images[4] || property.images[0]} alt={property.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer" />
-              <div className="absolute inset-0 bg-black/30 flex items-center justify-center hover:bg-black/40 transition-colors cursor-pointer">
-                 <span className="text-white font-semibold text-lg">Voir tout</span>
-              </div>
-            </div>
+            {galleryItems.slice(0, 5).map((item, index) => {
+              const isPrimary = index === 0;
+              const wrapperClass = isPrimary ? "col-span-2 row-span-2" : "col-span-1 row-span-1";
+              const fallbackImage = property.images[0];
+              const imageIndex = property.images.findIndex((img) => img === item.url);
+              const openImage = () => {
+                if (item.type === "image" && imageIndex >= 0) {
+                  openLightbox(imageIndex);
+                }
+              };
+
+              return (
+                <div key={item.key} className={`${wrapperClass} relative`} onClick={openImage}>
+                  {item.type === "video" ? (
+                    <>
+                      <video src={item.url} controls playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
+                      <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
+                        Vidéo
+                      </div>
+                    </>
+                  ) : (
+                    <img
+                      src={item.url || fallbackImage}
+                      alt={property.title}
+                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
+                    />
+                  )}
+                  {index === 4 && galleryItems.length > 5 && item.type === "image" && (
+                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center hover:bg-black/40 transition-colors cursor-pointer">
+                      <span className="text-white font-semibold text-lg">Voir tout</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Mobile Slider using Embla Carousel */}
           <div className="md:hidden rounded-xl overflow-hidden shadow-lg relative group">
             <div className="overflow-hidden" ref={emblaRef}>
               <div className="flex">
-                {property.images.map((img, idx) => (
+                {galleryItems.map((item, idx) => (
                   <div 
                     className="flex-[0_0_100%] min-w-0 relative h-[250px] sm:h-[300px]" 
-                    key={idx}
-                    onClick={() => openLightbox(idx)}
+                    key={item.key}
+                    onClick={() => {
+                      if (item.type === "image") {
+                        const imageIndex = property.images.findIndex((img) => img === item.url);
+                        if (imageIndex >= 0) openLightbox(imageIndex);
+                      }
+                    }}
                   >
-                    <img src={img} alt={`${property.title} - ${idx + 1}`} className="w-full h-full object-cover cursor-pointer" />
+                    {item.type === "video" ? (
+                      <>
+                        <video src={item.url} controls playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
+                        <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
+                          Vidéo
+                        </div>
+                      </>
+                    ) : (
+                      <img src={item.url} alt={`${property.title} - ${idx + 1}`} className="w-full h-full object-cover cursor-pointer" />
+                    )}
                   </div>
                 ))}
               </div>
             </div>
             {/* Navigation Buttons for Slider could be added here */}
             <div className="absolute bottom-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-sm">
-               {property.images.length} photos
+               {galleryItems.length} média{galleryItems.length > 1 ? "s" : ""}
             </div>
           </div>
         </div>

@@ -2814,11 +2814,12 @@ app.post('/api/biens', async (req, res) => {
       return res.status(400).json({ error: venteTarification.error });
     }
 
-    const shouldPublish = !(visible_sur_site === false || Number(visible_sur_site) === 0);
+    let resolvedVisibleSurSite = visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1;
+    const shouldPublish = resolvedVisibleSurSite === 1;
     if (shouldPublish && proprietaire_id) {
       const ownerProfile = await fetchClienteleProfileBySource('proprietaires', proprietaire_id);
       if (!isMandatValidForMode(ownerProfile, resolvedMode)) {
-        return res.status(400).json({ error: 'Publication impossible: mandat proprietaire manquant, invalide ou expire' });
+        resolvedVisibleSurSite = 0;
       }
     }
 
@@ -2872,7 +2873,7 @@ app.post('/api/biens', async (req, res) => {
        terrainDetails.typeTerrain, terrainDetails.facadeM, terrainDetails.surfaceM2, terrainDetails.distancePlageM, terrainDetails.zoneTerrain, terrainDetails.constructible ? 1 : 0, terrainDetails.terrainAngle ? 1 : 0,
        immeubleDetails.detailsJson, immeubleDetails.appartementsJson,
        statut || 'disponible',
-       visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1,
+       resolvedVisibleSurSite,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
@@ -3038,11 +3039,12 @@ app.put('/api/biens/:id', async (req, res) => {
       return res.status(400).json({ error: venteTarification.error });
     }
 
-    const shouldPublish = !(visible_sur_site === false || Number(visible_sur_site) === 0);
+    let resolvedVisibleSurSite = visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1;
+    const shouldPublish = resolvedVisibleSurSite === 1;
     if (shouldPublish && proprietaire_id) {
       const ownerProfile = await fetchClienteleProfileBySource('proprietaires', proprietaire_id);
       if (!isMandatValidForMode(ownerProfile, resolvedMode)) {
-        return res.status(400).json({ error: 'Publication impossible: mandat proprietaire manquant, invalide ou expire' });
+        resolvedVisibleSurSite = 0;
       }
     }
 
@@ -3095,7 +3097,7 @@ app.put('/api/biens/:id', async (req, res) => {
        terrainDetails.typeTerrain, terrainDetails.facadeM, terrainDetails.surfaceM2, terrainDetails.distancePlageM, terrainDetails.zoneTerrain, terrainDetails.constructible ? 1 : 0, terrainDetails.terrainAngle ? 1 : 0,
        immeubleDetails.detailsJson, immeubleDetails.appartementsJson,
        statut || 'disponible',
-       visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1,
+       resolvedVisibleSurSite,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, req.params.id]

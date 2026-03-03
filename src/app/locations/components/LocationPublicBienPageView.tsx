@@ -55,7 +55,11 @@ const resolveMediaUrl = (url?: string | null) => {
   const value = String(url || '').trim();
   if (!value) return '';
   if (/^https?:\/\//i.test(value)) return value;
-  const base = /^https?:\/\//i.test(API_URL) ? API_URL : window.location.origin;
+  const base = /^https?:\/\//i.test(API_URL)
+    ? API_URL
+    : (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
+        ? `${window.location.protocol}//${window.location.hostname}:3001`
+        : window.location.origin);
   const origin = new URL(base, window.location.origin).origin;
   return value.startsWith('/') ? `${origin}${value}` : value;
 };
