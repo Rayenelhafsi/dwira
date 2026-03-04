@@ -2455,6 +2455,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const unassignedFeatures = availableFeatures.filter((feature) => !String(feature.onglet_id || '').trim());
   const terrainTabFeatures = availableFeatures.filter((feature) => (feature.onglet_id || '') === terrainSectionTab);
   const detailTabFeatures = availableFeatures.filter((feature) => String(feature.onglet_id || '') === detailSectionTabId);
+  const preferredDetailTabId =
+    detailTabsForRender.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('information'))?.id
+    || detailTabsForRender.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('caracteristique'))?.id
+    || detailTabsForRender[0]?.id
+    || 'informations_generales';
   const renderTerrainTabFeatures = () => (
     <div className="mt-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2497,11 +2502,30 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   useEffect(() => {
     if (isTerrainVente) return;
     const hasTab = detailTabsForRender.some((tab) => tab.id === detailSectionTabId);
-    if (!hasTab) setDetailSectionTabId(detailTabsForRender[0]?.id || 'informations_generales');
-  }, [isTerrainVente, detailSectionTabId, detailTabsForRender]);
+    if (!hasTab) setDetailSectionTabId(preferredDetailTabId);
+  }, [isTerrainVente, detailSectionTabId, detailTabsForRender, preferredDetailTabId]);
   const activeDetailTabLabel = normalizeFeatureName(String(detailTabsForRender.find((tab) => tab.id === detailSectionTabId)?.label || ''));
   const isInfoDetailTab = activeDetailTabLabel.includes('information');
   const isCharacteristicsDetailTab = activeDetailTabLabel.includes('caracteristique');
+  const isImmeubleAppartementsDetailTab = activeDetailTabLabel.includes('appartement');
+  const isImmeubleGaragesDetailTab = activeDetailTabLabel.includes('garage');
+  const isImmeubleLocauxDetailTab = activeDetailTabLabel.includes('local');
+  const isLotissementTerrainsDetailTab = activeDetailTabLabel.includes('terrain');
+  const detailSectionHeading = `Details ${typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || 'Bien'} (${modeLabels[(formData.mode || 'location_saisonniere') as BienMode] || 'Location saisonniere'})`;
+  const renderDetailTabsNavigation = () => (
+    <div className="flex flex-wrap gap-2 mb-4">
+      {detailTabsForRender.map((section) => (
+        <button
+          key={section.id}
+          type="button"
+          onClick={() => setDetailSectionTabId(section.id)}
+          className={`px-3 py-1.5 text-xs rounded-full border ${detailSectionTabId === section.id ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
+        >
+          {section.label}
+        </button>
+      ))}
+    </div>
+  );
   const immeubleClientImageUnits = [
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` })),
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_garages || 0)) }, (_, idx) => ({ unitKey: `garage_${idx + 1}`, label: `Garage ${idx + 1}` })),
@@ -3023,7 +3047,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               )}
               {isAppartementVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Appartement (Vente)</h4>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">{detailSectionHeading}</h4>
+                  {renderDetailTabsNavigation()}
+                  {isInfoDetailTab && (
+                    <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Superficie (m²)</label>
@@ -3064,6 +3091,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       <input type="number" min={0} name="distance_plage_m" value={formData.distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                   </div>
+                  {renderTypeProofUploads()}
+                    </>
+                  )}
+                  {isCharacteristicsDetailTab && (
+                    <>
                   <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
                     {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(0, 13).map((field) => (
                       <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -3072,8 +3104,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </label>
                     ))}
                   </div>
-                  {renderTypeProofUploads()}
-                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(13).map((field) => (
                       <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -3082,11 +3112,18 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </label>
                     ))}
                   </div>
+                  {renderDetailTabFeatures()}
+                    </>
+                  )}
+                  {!isInfoDetailTab && !isCharacteristicsDetailTab && renderDetailTabFeatures()}
                 </div>
               )}
               {isLocalCommercialVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Local commercial (Vente)</h4>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">{detailSectionHeading}</h4>
+                  {renderDetailTabsNavigation()}
+                  {isInfoDetailTab && (
+                    <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Surface (m²)</label>
@@ -3121,6 +3158,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </select>
                     </div>
                   </div>
+                  {renderTypeProofUploads()}
+                    </>
+                  )}
+                  {isCharacteristicsDetailTab && (
+                    <>
                   <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
                     {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(0, 7).map((field) => (
                       <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -3129,8 +3171,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </label>
                     ))}
                   </div>
-                  {renderTypeProofUploads()}
-                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(7).map((field) => (
                       <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -3139,6 +3179,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </label>
                     ))}
                   </div>
+                  {renderDetailTabFeatures()}
+                    </>
+                  )}
+                  {!isInfoDetailTab && !isCharacteristicsDetailTab && renderDetailTabFeatures()}
                 </div>
               )}
               {isTerrainVente && (
@@ -3441,7 +3485,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               )}
               {isLotissementVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Lotissement (Vente)</h4>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">{detailSectionHeading}</h4>
+                  {renderDetailTabsNavigation()}
+                  {isInfoDetailTab && (
+                    <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de terrains *</label>
@@ -3480,6 +3527,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       ))}
                     </div>
                   )}
+                    </>
+                  )}
+                  {isLotissementTerrainsDetailTab && (
+                    <>
                   <div className="mt-4 space-y-2">
                     <h5 className="text-sm font-semibold text-gray-800">Terrains du lotissement</h5>
                     {(formData.lotissement_terrains || []).map((row, idx) => (
@@ -3555,11 +3606,18 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </div>
                     ))}
                   </div>
+                  {renderDetailTabFeatures()}
+                    </>
+                  )}
+                  {!isInfoDetailTab && !isLotissementTerrainsDetailTab && renderDetailTabFeatures()}
                 </div>
               )}
               {isImmeubleVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Immeuble (Vente)</h4>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">{detailSectionHeading}</h4>
+                  {renderDetailTabsNavigation()}
+                  {isInfoDetailTab && (
+                    <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface terrain (m²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_terrain_m2" value={formData.immeuble_surface_terrain_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface bâtie (m²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_batie_m2" value={formData.immeuble_surface_batie_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
@@ -3571,6 +3629,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label><select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option>{Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label><input type="number" min={0} name="immeuble_distance_plage_m" value={formData.immeuble_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                   </div>
+                    </>
+                  )}
+                  {isImmeubleAppartementsDetailTab && (
+                    <>
                   <div className="mt-4">
                     <h5 className="text-sm font-semibold text-gray-800 mb-2">Appartements de l'immeuble</h5>
                     <div className="space-y-2">
@@ -3639,6 +3701,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       {(formData.immeuble_appartements || []).length === 0 && <span className="text-xs text-gray-500">Le nombre de lignes suit le champ "Nombre d'appartements".</span>}
                     </div>
                   </div>
+                  {renderDetailTabFeatures()}
+                    </>
+                  )}
+                  {isImmeubleGaragesDetailTab && (
+                    <>
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-lg border border-gray-200 bg-white p-3">
                       <h6 className="text-sm font-semibold text-gray-800 mb-2">Références garages</h6>
@@ -3659,6 +3726,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </div>
                     </div>
                   </div>
+                  {renderDetailTabFeatures()}
+                    </>
+                  )}
+                  {isCharacteristicsDetailTab && (
+                    <>
                   <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
                     {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(0, 6).map((field) => (
                       <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -3667,7 +3739,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </label>
                     ))}
                   </div>
-                  <h5 className="mt-4 text-sm font-semibold text-gray-800">Caractéristiques générales</h5>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(6).map((field) => (
                       <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -3676,12 +3747,28 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </label>
                     ))}
                   </div>
+                  {renderDetailTabFeatures()}
+                    </>
+                  )}
+                  {(isImmeubleLocauxDetailTab && !isImmeubleGaragesDetailTab) && renderDetailTabFeatures()}
+                  {!isInfoDetailTab && !isCharacteristicsDetailTab && !isImmeubleAppartementsDetailTab && !isImmeubleGaragesDetailTab && !isImmeubleLocauxDetailTab && renderDetailTabFeatures()}
+                </div>
+              )}
+              {!isAppartementVente && !isLocalCommercialVente && !isTerrainVente && !isLotissementVente && !isImmeubleVente && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">{detailSectionHeading}</h4>
+                  {renderDetailTabsNavigation()}
+                  {isInfoDetailTab && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    </div>
+                  )}
+                  {!isInfoDetailTab && renderDetailTabFeatures()}
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {!isAppartementVente && !isLocalCommercialVente && !isTerrainVente && !isLotissementVente && !isImmeubleVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
-                {!isAppartementVente && !isLocalCommercialVente && !isTerrainVente && !isLotissementVente && !isImmeubleVente && <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
-                {!isTerrainVente && !isLotissementVente && <label htmlFor="menage_en_cours" className="md:col-span-2 flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
+                {!isTerrainVente && !isLotissementVente && isInfoDetailTab && <label htmlFor="menage_en_cours" className="md:col-span-2 flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
                   <div>
                     <span className="block text-sm font-medium text-gray-800">Ménage en cours</span>
                     <span className="block text-xs text-gray-500">Indique si le bien est en préparation</span>
