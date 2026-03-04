@@ -108,6 +108,10 @@ type CaracteristiqueOnglet = {
   ordre?: number;
   is_system?: number | boolean;
 };
+const DEFAULT_DETAILS_TABS: CaracteristiqueOnglet[] = [
+  { id: 'informations_generales', nom: 'Informations generales', ordre: 20, is_system: 1 },
+  { id: 'caracteristiques', nom: 'Caracteristiques', ordre: 30, is_system: 1 },
+];
 type ValidationIssue = {
   step: 1 | 2 | 3 | 4 | 5;
   fieldName: string;
@@ -746,6 +750,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [validationDialogState, setValidationDialogState] = useState<{ open: boolean; issues: ValidationIssue[] }>({ open: false, issues: [] });
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : []));
   const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
+  const [detailSectionTabId, setDetailSectionTabId] = useState<string>('informations_generales');
   const normalizeLegacyType = (value?: BienType): BienType => {
     if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
     if (value === 'villa') return 'villa_maison';
@@ -2438,6 +2443,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     .slice()
     .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
     .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }));
+  const detailTabsForRender = (featureTabs.length > 0 ? featureTabs : DEFAULT_DETAILS_TABS)
+    .slice()
+    .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
+    .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }));
   const uiConfig = (formData.ui_config || {}) as BienUiConfig;
   const isUiSectionVisible = (key: keyof BienUiConfig) => uiConfig[key] !== false;
   const visibleFeaturesForSelectedTab = selectedFeatureTabId
@@ -2445,9 +2454,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     : [];
   const unassignedFeatures = availableFeatures.filter((feature) => !String(feature.onglet_id || '').trim());
   const terrainTabFeatures = availableFeatures.filter((feature) => (feature.onglet_id || '') === terrainSectionTab);
+  const detailTabFeatures = availableFeatures.filter((feature) => String(feature.onglet_id || '') === detailSectionTabId);
   const renderTerrainTabFeatures = () => (
-    <div className="mt-4 rounded-lg border border-emerald-200 bg-white p-3">
-      <h5 className="text-sm font-semibold text-gray-800 mb-2">Caracteristiques personnalisees</h5>
+    <div className="mt-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {terrainTabFeatures.map((feature) => (
           <label key={`terrain-tab-${feature.id}`} className="inline-flex items-center gap-2 text-sm text-gray-700 p-2 rounded border border-gray-200">
@@ -2463,11 +2472,36 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       </div>
     </div>
   );
+  const renderDetailTabFeatures = () => (
+    <div className="mt-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {detailTabFeatures.map((feature) => (
+          <label key={`detail-tab-${feature.id}`} className="inline-flex items-center gap-2 text-sm text-gray-700 p-2 rounded border border-gray-200">
+            <input
+              type="checkbox"
+              checked={selectedFeatureIds.includes(feature.id)}
+              onChange={(e) => setSelectedFeatureIds((prev) => e.target.checked ? [...prev, feature.id] : prev.filter((id) => id !== feature.id))}
+            />
+            <span>{feature.nom}</span>
+          </label>
+        ))}
+        {detailTabFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique dans cet onglet</span>}
+      </div>
+    </div>
+  );
   useEffect(() => {
     if (!isTerrainVente) return;
     const hasTab = terrainTabsForRender.some((tab) => tab.id === terrainSectionTab);
     if (!hasTab) setTerrainSectionTab(terrainTabsForRender[0]?.id || '');
   }, [isTerrainVente, terrainSectionTab, terrainTabsForRender]);
+  useEffect(() => {
+    if (isTerrainVente) return;
+    const hasTab = detailTabsForRender.some((tab) => tab.id === detailSectionTabId);
+    if (!hasTab) setDetailSectionTabId(detailTabsForRender[0]?.id || 'informations_generales');
+  }, [isTerrainVente, detailSectionTabId, detailTabsForRender]);
+  const activeDetailTabLabel = normalizeFeatureName(String(detailTabsForRender.find((tab) => tab.id === detailSectionTabId)?.label || ''));
+  const isInfoDetailTab = activeDetailTabLabel.includes('information');
+  const isCharacteristicsDetailTab = activeDetailTabLabel.includes('caracteristique');
   const immeubleClientImageUnits = [
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` })),
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_garages || 0)) }, (_, idx) => ({ unitKey: `garage_${idx + 1}`, label: `Garage ${idx + 1}` })),
