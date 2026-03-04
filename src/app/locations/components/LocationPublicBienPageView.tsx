@@ -116,7 +116,7 @@ export default function LocationPublicBienPageView({
   const selectedFeatureIds = new Set((Array.isArray(bien.caracteristique_ids) ? bien.caracteristique_ids : []).map((item) => String(item)));
   const selectedFeatureNames = new Set((Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []).map((item) => normalizeFeatureName(String(item))));
   const selectedFeatures = allFeatures.filter((item) => selectedFeatureIds.has(String(item.id || '')) || selectedFeatureNames.has(normalizeFeatureName(String(item.nom || ''))));
-  const visibleSelectedFeatures = selectedFeatures.filter((item) => Number(item.visibilite_client) !== 0);
+  const visibleSelectedFeatures = selectedFeatures.filter((item) => Number(item.visibilite_client) !== 0 && String(item.onglet_id || '').trim().length > 0);
   const booleanFeatureTags = Object.entries(FEATURE_LABELS)
     .filter(([key]) => isTruthy((bien as unknown as Record<string, unknown>)[key]))
     .map(([, label]) => label)
@@ -157,7 +157,9 @@ export default function LocationPublicBienPageView({
     );
   };
 
-  const amenityRows = previewMode ? selectedFeatures : visibleSelectedFeatures;
+  const amenityRows = previewMode
+    ? selectedFeatures.filter((item) => String(item.onglet_id || '').trim().length > 0)
+    : visibleSelectedFeatures;
   const showBookingCard = isVisible('show_booking_card') && isVisible('show_tarification_publique');
 
   const block = (key: string, title: string, content: React.ReactNode, className = '') => {

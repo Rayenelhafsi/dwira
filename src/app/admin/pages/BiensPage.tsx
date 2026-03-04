@@ -1703,9 +1703,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (newFeatureType === 'choix_multiple' && parsedChoices.length === 0) {
       return toast.error('Ajoutez au moins un choix');
     }
-    if (!selectedFeatureTabId) {
-      return toast.error('Choisissez un onglet');
-    }
     setFeatureSaving(true);
     try {
       const response = await fetchFromFeatureApi((base) => base, {
@@ -1718,7 +1715,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           type_caracteristique: newFeatureType,
           choix: newFeatureType === 'choix_multiple' ? parsedChoices : [],
           unite: newFeatureType === 'valeur' ? parsedUnit : null,
-          onglet_id: selectedFeatureTabId,
+          onglet_id: selectedFeatureTabId || null,
           visibilite_client: newFeatureVisibilite,
         }),
       });
@@ -2444,8 +2441,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const uiConfig = (formData.ui_config || {}) as BienUiConfig;
   const isUiSectionVisible = (key: keyof BienUiConfig) => uiConfig[key] !== false;
   const visibleFeaturesForSelectedTab = selectedFeatureTabId
-    ? availableFeatures.filter((feature) => (feature.onglet_id || '') === selectedFeatureTabId)
-    : availableFeatures;
+    ? availableFeatures.filter((feature) => String(feature.onglet_id || '') === selectedFeatureTabId)
+    : [];
+  const unassignedFeatures = availableFeatures.filter((feature) => !String(feature.onglet_id || '').trim());
   const terrainTabFeatures = availableFeatures.filter((feature) => (feature.onglet_id || '') === terrainSectionTab);
   const renderTerrainTabFeatures = () => (
     <div className="mt-4 rounded-lg border border-emerald-200 bg-white p-3">
@@ -2904,6 +2902,48 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       className="rounded-lg border-gray-300 border p-2 text-sm"
                     />
                   )}
+                  {unassignedFeatures.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                      <div>
+                        <h5 className="text-sm font-semibold text-amber-900">Caracteristiques sans onglet</h5>
+                        <p className="text-xs text-amber-800">Associez chaque caracteristique a un onglet existant pour ce mode et type de bien.</p>
+                      </div>
+                      <div className="space-y-2">
+                        {unassignedFeatures.map((feature) => {
+                          const draft = featureDrafts[feature.id] || {
+                            nom: feature.nom || '',
+                            type_caracteristique: (
+                              feature.type_caracteristique === 'valeur'
+                                ? 'valeur'
+                                : feature.type_caracteristique === 'choix_multiple'
+                                  ? 'choix_multiple'
+                                  : 'simple'
+                            ) as 'simple' | 'choix_multiple' | 'valeur',
+                            choix: stringifyFeatureChoices(feature.choix_json),
+                            unite: feature.unite || '',
+                            onglet_id: '',
+                            visibilite_client: (Number(feature.visibilite_client) === 0 ? 0 : 1) as 0 | 1
+                          };
+                          return (
+                            <div key={`unassigned-${feature.id}`} className="grid grid-cols-1 md:grid-cols-5 gap-2 rounded-lg border border-amber-200 bg-white p-2">
+                              <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                              <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                                <option value="">Choisir onglet</option>
+                                {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                              </select>
+                              <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'valeur' })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                                <option value="simple">Simple</option>
+                                <option value="choix_multiple">Choix multiple</option>
+                                <option value="valeur">Valeur</option>
+                              </select>
+                              <input value={draft.type_caracteristique === 'choix_multiple' ? draft.choix : draft.unite} onChange={(e) => handleFeatureDraftChange(feature.id, draft.type_caracteristique === 'choix_multiple' ? { choix: e.target.value } : { unite: e.target.value })} placeholder={draft.type_caracteristique === 'choix_multiple' ? 'Choix (si multiple)' : 'Unite (si valeur)'} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                              <button type="button" onClick={() => void handleUpdateFeature(feature)} disabled={featureSaving || !draft.onglet_id} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Associer</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     {visibleFeaturesForSelectedTab.map((feature) => {
                       const draft = featureDrafts[feature.id] || {
@@ -2933,7 +2973,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                             <option value={0}>Interne</option>
                           </select>
                           <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm">
-                            <option value="">Sans onglet</option>
                             {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                           </select>
                           <input value={draft.choix} onChange={(e) => handleFeatureDraftChange(feature.id, { choix: e.target.value })} placeholder="Choix (si multiple)" className="rounded-lg border-gray-300 border p-2 text-sm" />
