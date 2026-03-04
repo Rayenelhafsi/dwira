@@ -3092,26 +3092,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     </div>
                   </div>
                   {renderTypeProofUploads()}
+                  {renderDetailTabFeatures()}
                     </>
                   )}
                   {isCharacteristicsDetailTab && (
                     <>
-                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                    {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(0, 13).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{APPARTEMENT_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {APPARTEMENT_VENTE_BOOLEAN_FIELDS.slice(13).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{APPARTEMENT_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
-                    ))}
-                  </div>
                   {renderDetailTabFeatures()}
                     </>
                   )}
@@ -3159,26 +3144,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     </div>
                   </div>
                   {renderTypeProofUploads()}
+                  {renderDetailTabFeatures()}
                     </>
                   )}
                   {isCharacteristicsDetailTab && (
                     <>
-                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                    {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(0, 7).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS.slice(7).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
-                    ))}
-                  </div>
                   {renderDetailTabFeatures()}
                     </>
                   )}
@@ -3527,6 +3497,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       ))}
                     </div>
                   )}
+                  {renderDetailTabFeatures()}
                     </>
                   )}
                   {isLotissementTerrainsDetailTab && (
@@ -3629,6 +3600,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label><select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option>{Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label><input type="number" min={0} name="immeuble_distance_plage_m" value={formData.immeuble_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                   </div>
+                  {renderDetailTabFeatures()}
                     </>
                   )}
                   {isImmeubleAppartementsDetailTab && (
@@ -3731,22 +3703,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   )}
                   {isCharacteristicsDetailTab && (
                     <>
-                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                    {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(0, 6).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{IMMEUBLE_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {IMMEUBLE_VENTE_BOOLEAN_FIELDS.slice(6).map((field) => (
-                      <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name={field} checked={!!formData[field]} onChange={handleCheckboxChange} />
-                        <span>{IMMEUBLE_VENTE_BOOLEAN_LABELS[field]}</span>
-                      </label>
-                    ))}
-                  </div>
                   {renderDetailTabFeatures()}
                     </>
                   )}
@@ -3759,10 +3715,13 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   <h4 className="text-sm font-semibold text-gray-800 mb-3">{detailSectionHeading}</h4>
                   {renderDetailTabsNavigation()}
                   {isInfoDetailTab && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                    </div>
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                      </div>
+                      {renderDetailTabFeatures()}
+                    </>
                   )}
                   {!isInfoDetailTab && renderDetailTabFeatures()}
                 </div>
