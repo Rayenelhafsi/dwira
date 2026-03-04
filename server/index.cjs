@@ -1558,7 +1558,7 @@ async function ensureBiensWorkflowSchema() {
       id VARCHAR(50) PRIMARY KEY,
       caracteristique_id VARCHAR(50) NOT NULL,
       mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
-      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL,
+      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL,
       onglet_id VARCHAR(50) NULL,
       UNIQUE KEY uq_car_context (caracteristique_id, mode_bien, type_bien),
       INDEX idx_mode_type (mode_bien, type_bien),
@@ -1566,7 +1566,7 @@ async function ensureBiensWorkflowSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await pool.query(
-    "ALTER TABLE caracteristique_contextes MODIFY COLUMN type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL"
+    "ALTER TABLE caracteristique_contextes MODIFY COLUMN type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
   );
   if (!(await columnExists('caracteristique_contextes', 'onglet_id'))) {
     await pool.query('ALTER TABLE caracteristique_contextes ADD COLUMN onglet_id VARCHAR(50) NULL AFTER type_bien');
@@ -1576,7 +1576,7 @@ async function ensureBiensWorkflowSchema() {
     CREATE TABLE IF NOT EXISTS caracteristique_onglets (
       id VARCHAR(50) PRIMARY KEY,
       mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
-      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL,
+      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL,
       nom VARCHAR(120) NOT NULL,
       ordre INT NOT NULL DEFAULT 0,
       is_system TINYINT(1) NOT NULL DEFAULT 0,
@@ -1584,12 +1584,15 @@ async function ensureBiensWorkflowSchema() {
       INDEX idx_mode_type_ordre (mode_bien, type_bien, ordre)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await pool.query(
+    "ALTER TABLE caracteristique_onglets MODIFY COLUMN type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
+  );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS modifier_onglets (
       id VARCHAR(50) PRIMARY KEY,
       mode_bien ENUM('vente','location_annuelle','location_saisonniere') NOT NULL,
-      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow') NOT NULL,
+      type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL,
       onglet_id VARCHAR(50) NOT NULL,
       caracteristique_id VARCHAR(50) NOT NULL,
       ordre INT NOT NULL DEFAULT 0,
@@ -1599,6 +1602,9 @@ async function ensureBiensWorkflowSchema() {
       FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await pool.query(
+    "ALTER TABLE modifier_onglets MODIFY COLUMN type_bien ENUM('appartement','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
+  );
 
   await pool.query(
     `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
@@ -4058,6 +4064,7 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
 
 app.post('/api/caracteristique-onglets', async (req, res) => {
   try {
+    await ensureBiensWorkflowSchema();
     const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
     const type = normalizeBienType(req.body.type_bien || req.body.type);
     const nom = String(req.body.nom || '').trim();
@@ -4086,6 +4093,7 @@ app.post('/api/caracteristique-onglets', async (req, res) => {
 
 app.delete('/api/caracteristique-onglets/:id', async (req, res) => {
   try {
+    await ensureBiensWorkflowSchema();
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ error: 'id requis' });
     const [rows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
@@ -4102,6 +4110,7 @@ app.delete('/api/caracteristique-onglets/:id', async (req, res) => {
 
 app.put('/api/caracteristique-onglets/:id', async (req, res) => {
   try {
+    await ensureBiensWorkflowSchema();
     const id = String(req.params.id || '').trim();
     const nom = String(req.body.nom || '').trim();
     const ordre = Number(req.body.ordre || 999);
@@ -4125,6 +4134,7 @@ app.put('/api/caracteristique-onglets/:id', async (req, res) => {
 
 app.get('/api/caracteristiques', async (req, res) => {
   try {
+    await ensureBiensWorkflowSchema();
     const mode = normalizeBienMode(req.query.mode_bien || req.query.mode);
     const type = normalizeBienType(req.query.type_bien || req.query.type);
     const bienId = String(req.query.bien_id || '').trim() || null;
@@ -4181,6 +4191,7 @@ app.get('/api/caracteristiques', async (req, res) => {
 
 app.post('/api/caracteristiques', async (req, res) => {
   try {
+    await ensureBiensWorkflowSchema();
     const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, onglet_id, visibilite_client } = req.body;
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
@@ -4418,6 +4429,7 @@ async function ensureReservationDemandSchema() {
 
 app.delete('/api/caracteristiques/:id', async (req, res) => {
   try {
+    await ensureBiensWorkflowSchema();
     const featureId = String(req.params.id || '').trim();
     if (!featureId) {
       return res.status(400).json({ error: 'id requis' });
@@ -4477,6 +4489,7 @@ app.delete('/api/caracteristiques/:id', async (req, res) => {
 
 app.put('/api/caracteristiques/:id', async (req, res) => {
   try {
+    await ensureBiensWorkflowSchema();
     const featureId = String(req.params.id || '').trim();
     const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
     const type = normalizeBienType(req.body.type_bien || req.body.type);

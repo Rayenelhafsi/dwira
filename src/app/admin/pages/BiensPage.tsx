@@ -204,6 +204,16 @@ const APPARTEMENT_VENTE_BOOLEAN_LABELS: Record<(typeof APPARTEMENT_VENTE_BOOLEAN
   electricite_steg: 'Électricité STEG',
 };
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+const parseFeatureChoices = (value: string) =>
+  Array.from(new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean)));
+const stringifyFeatureChoices = (value?: string | null) => {
+  try {
+    const parsed = JSON.parse(String(value || '[]'));
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean).join(', ') : '';
+  } catch {
+    return '';
+  }
+};
 const APPARTEMENT_VENTE_DETAIL_FEATURES = new Set(
   Object.values(APPARTEMENT_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
 );
@@ -712,13 +722,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
   const [newFeatureType, setNewFeatureType] = useState<'simple' | 'choix_multiple' | 'valeur'>('simple');
+  const [newFeatureChoices, setNewFeatureChoices] = useState('');
   const [newFeatureUnit, setNewFeatureUnit] = useState('');
   const [newFeatureVisibilite, setNewFeatureVisibilite] = useState<0 | 1>(1);
   const [featureTabs, setFeatureTabs] = useState<CaracteristiqueOnglet[]>([]);
   const [featureTabDrafts, setFeatureTabDrafts] = useState<Record<string, string>>({});
   const [selectedFeatureTabId, setSelectedFeatureTabId] = useState<string>('');
   const [newFeatureTabName, setNewFeatureTabName] = useState('');
-  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
+  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
@@ -1633,7 +1644,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
       setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
       setFeatureDrafts((prev) => {
-        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
+        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
         for (const feature of nextFeatures) {
           nextDrafts[feature.id] = {
             nom: feature.nom || '',
@@ -1642,6 +1653,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               : feature.type_caracteristique === 'choix_multiple'
                 ? 'choix_multiple'
                 : 'simple',
+            choix: stringifyFeatureChoices(feature.choix_json),
             unite: feature.unite || '',
             onglet_id: feature.onglet_id || '',
             visibilite_client: Number(feature.visibilite_client) === 0 ? 0 : 1,
@@ -1674,6 +1686,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const value = newFeature.trim();
+    const parsedChoices = parseFeatureChoices(newFeatureChoices);
     const parsedUnit = newFeatureUnit.trim();
     if (!value) return toast.error('Nom de caracteristique requis');
     const normalizedValue = normalizeFeatureName(value);
@@ -1686,6 +1699,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
     if (newFeatureType === 'valeur' && !parsedUnit) {
       return toast.error('Unite requise pour type valeur');
+    }
+    if (newFeatureType === 'choix_multiple' && parsedChoices.length === 0) {
+      return toast.error('Ajoutez au moins un choix');
     }
     if (!selectedFeatureTabId) {
       return toast.error('Choisissez un onglet');
@@ -1700,7 +1716,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           mode_bien: selectedMode,
           type_bien: selectedType,
           type_caracteristique: newFeatureType,
-          choix: [],
+          choix: newFeatureType === 'choix_multiple' ? parsedChoices : [],
           unite: newFeatureType === 'valeur' ? parsedUnit : null,
           onglet_id: selectedFeatureTabId,
           visibilite_client: newFeatureVisibilite,
@@ -1714,6 +1730,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       }
       setNewFeature('');
       setNewFeatureType('simple');
+      setNewFeatureChoices('');
       setNewFeatureUnit('');
       setNewFeatureVisibilite(1);
       toast.success('Caracteristique ajoutee');
@@ -1886,12 +1903,13 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
   };
 
-  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>) => {
+  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; choix: string; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>) => {
     setFeatureDrafts((prev) => ({
       ...prev,
       [featureId]: {
         nom: prev[featureId]?.nom || '',
         type_caracteristique: prev[featureId]?.type_caracteristique || 'simple',
+        choix: prev[featureId]?.choix || '',
         unite: prev[featureId]?.unite || '',
         onglet_id: prev[featureId]?.onglet_id || '',
         visibilite_client: prev[featureId]?.visibilite_client ?? 1,
@@ -1910,10 +1928,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const draft = featureDrafts[feature.id];
     if (!draft) return;
     const normalizedName = String(draft.nom || '').trim();
+    const normalizedChoices = parseFeatureChoices(draft.choix);
     const normalizedUnit = String(draft.unite || '').trim();
     if (!normalizedName) return toast.error('Nom requis');
     if (draft.type_caracteristique === 'valeur' && !normalizedUnit) {
       return toast.error('Unite requise');
+    }
+    if (draft.type_caracteristique === 'choix_multiple' && normalizedChoices.length === 0) {
+      return toast.error('Ajoutez au moins un choix');
     }
     setFeatureSaving(true);
     try {
@@ -1930,7 +1952,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             apply_to_all: applyToAll,
             nom: normalizedName,
             type_caracteristique: draft.type_caracteristique,
-            choix: [],
+            choix: draft.type_caracteristique === 'choix_multiple' ? normalizedChoices : [],
             unite: draft.type_caracteristique === 'valeur' ? normalizedUnit : null,
             onglet_id: draft.onglet_id || null,
             visibilite_client: draft.visibilite_client,
@@ -1963,23 +1985,27 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         : feature.type_caracteristique === 'choix_multiple'
           ? 'choix_multiple'
           : 'simple';
+      const currentChoices = stringifyFeatureChoices(feature.choix_json);
       const currentUnit = String(feature.unite || '').trim();
       const currentTab = String(feature.onglet_id || '').trim();
       const currentVisibility = Number(feature.visibilite_client) === 0 ? 0 : 1;
       const nextName = String(draft.nom || '').trim();
       const nextType = draft.type_caracteristique;
+      const nextChoices = parseFeatureChoices(draft.choix);
       const nextUnit = String(draft.unite || '').trim();
       const nextTab = String(draft.onglet_id || '').trim();
       const nextVisibility = draft.visibilite_client;
       const unchanged =
         nextName === String(feature.nom || '').trim() &&
         nextType === currentType &&
+        draft.choix.trim() === currentChoices &&
         nextUnit === currentUnit &&
         nextTab === currentTab &&
         nextVisibility === currentVisibility;
       if (unchanged) continue;
       if (!nextName) continue;
       if (nextType === 'valeur' && !nextUnit) continue;
+      if (nextType === 'choix_multiple' && nextChoices.length === 0) continue;
 
       let response: Response | null = null;
       for (const base of featureApiBases) {
@@ -1992,7 +2018,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             bien_id: initialData?.id || null,
             nom: nextName,
             type_caracteristique: nextType,
-            choix: [],
+            choix: nextType === 'choix_multiple' ? nextChoices : [],
             unite: nextType === 'valeur' ? nextUnit : null,
             onglet_id: nextTab || null,
             visibilite_client: nextVisibility,
@@ -2587,6 +2613,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (!checked) return;
     void ensureFeatureTabsForCurrentContext([key]);
   };
+  const canAddFeature =
+    String(newFeature || '').trim().length > 0
+    && String(selectedFeatureTabId || '').trim().length > 0
+    && (
+      newFeatureType === 'simple'
+      || (newFeatureType === 'valeur' && String(newFeatureUnit || '').trim().length > 0)
+      || (newFeatureType === 'choix_multiple' && parseFeatureChoices(newFeatureChoices).length > 0)
+    );
   const openValidationDialog = (issues: ValidationIssue[]) => {
     if (issues.length === 0) return;
     setActiveTab('general');
@@ -2850,8 +2884,17 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       <option value="">-- Choisir onglet details --</option>
                       {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                     </select>
-                    <button type="button" onClick={() => void handleAddFeature()} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">{featureSaving ? '...' : 'Ajouter'}</button>
+                    <button type="button" onClick={() => void handleAddFeature()} disabled={featureSaving || !canAddFeature} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">{featureSaving ? '...' : 'Ajouter'}</button>
                   </div>
+                  {newFeatureType === 'choix_multiple' && (
+                    <input
+                      type="text"
+                      value={newFeatureChoices}
+                      onChange={(e) => setNewFeatureChoices(e.target.value)}
+                      placeholder="Choix separes par virgules: Wifi, Clim, Vue mer"
+                      className="rounded-lg border-gray-300 border p-2 text-sm"
+                    />
+                  )}
                   {newFeatureType === 'valeur' && (
                     <input
                       type="text"
@@ -2872,6 +2915,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                               ? 'choix_multiple'
                               : 'simple'
                         ) as 'simple' | 'choix_multiple' | 'valeur',
+                        choix: stringifyFeatureChoices(feature.choix_json),
                         unite: feature.unite || '',
                         onglet_id: feature.onglet_id || '',
                         visibilite_client: (Number(feature.visibilite_client) === 0 ? 0 : 1) as 0 | 1
@@ -2892,6 +2936,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                             <option value="">Sans onglet</option>
                             {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                           </select>
+                          <input value={draft.choix} onChange={(e) => handleFeatureDraftChange(feature.id, { choix: e.target.value })} placeholder="Choix (si multiple)" className="rounded-lg border-gray-300 border p-2 text-sm" />
                           <input value={draft.unite} onChange={(e) => handleFeatureDraftChange(feature.id, { unite: e.target.value })} placeholder="Unite (si type valeur)" className="rounded-lg border-gray-300 border p-2 text-sm" />
                           <button type="button" onClick={() => void handleUpdateFeature(feature)} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier</button>
                           <button type="button" onClick={() => void handleUpdateFeatureWithScope(feature, true)} disabled={featureSaving} className="px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg text-sm disabled:opacity-60">Appliquer a tous</button>
