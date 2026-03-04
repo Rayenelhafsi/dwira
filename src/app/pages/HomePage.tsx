@@ -152,7 +152,7 @@ export default function HomePage() {
     if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
     if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
     
-    navigate(`/logements?${params.toString()}`);
+    navigate(selectedMode === "vente" ? `/ventes` : `/logements?${params.toString()}`);
     
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -520,7 +520,7 @@ export default function HomePage() {
                   : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
-            <Link to={`/logements?mode=${encodeURIComponent(selectedMode)}`} className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">
+            <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">
               Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </Link>
           </div>
@@ -562,7 +562,7 @@ export default function HomePage() {
           )}
           
           <div className="mt-12 text-center md:hidden">
-            <Link to={`/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
+            <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
               Voir tous les logements <ArrowRight size={20} />
             </Link>
           </div>

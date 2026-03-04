@@ -1,5 +1,21 @@
 export const DEFAULT_CONTACT_PHONE = '+21652080695';
 export const DEFAULT_MESSENGER_PAGE = 'dwiraimmo2';
+export const LOCATION_CONTACT_PHONE = '+21629879227';
+export const LOCATION_MESSENGER_PAGE = 'Dwiraimmobilier';
+
+export function getPublicContactForMode(mode?: string | null) {
+  const normalizedMode = String(mode || '').trim();
+  if (normalizedMode === 'location_saisonniere' || normalizedMode === 'location_annuelle') {
+    return {
+      phone: LOCATION_CONTACT_PHONE,
+      messengerPage: LOCATION_MESSENGER_PAGE,
+    };
+  }
+  return {
+    phone: DEFAULT_CONTACT_PHONE,
+    messengerPage: DEFAULT_MESSENGER_PAGE,
+  };
+}
 
 function normalizePhone(value?: string | null) {
   return String(value || '').replace(/[^\d+]/g, '');

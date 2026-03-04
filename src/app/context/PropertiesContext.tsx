@@ -1,10 +1,25 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente } from '../admin/types';
 import { Property } from '../data/properties';
+import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
 
 // API Base URL
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
+function resolvePublicMediaUrl(url?: string | null): string {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  if (typeof window === 'undefined') return value;
+  const base = /^https?:\/\//i.test(API_URL)
+    ? API_URL
+    : (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
+        ? `${window.location.protocol}//${window.location.hostname}:3001`
+        : window.location.origin);
+  const origin = new URL(base, window.location.origin).origin;
+  return value.startsWith('/') ? `${origin}${value}` : value;
+}
+
 const LEGACY_TYPE_MAP: Record<string, BienType> = {
   S1: 'appartement',
   S2: 'appartement',
@@ -320,6 +335,21 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     : bien.mode === 'vente' && bien.type === 'lotissement'
       ? `/vente/lotissement/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`
       : `/properties/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`;
+  const imageUrls = bien.media && bien.media.length > 0
+    ? bien.media.filter((m: any) => {
+      if (m.type === 'video') return false;
+      const motif = String(m.motif_upload || '');
+      const isProof = motif === 'preuve_type_rue'
+        || motif === 'preuve_type_papier'
+        || motif.startsWith('preuve_type_rue|')
+        || motif.startsWith('preuve_type_papier|');
+      return !m.motif_upload || !isProof;
+    }).map((m: any) => resolvePublicMediaUrl(m.url)).filter(Boolean)
+    : [];
+  const videoUrls = bien.media && bien.media.length > 0
+    ? bien.media.filter((m: any) => m.type === 'video' && m.url).map((m: any) => resolvePublicMediaUrl(m.url)).filter(Boolean)
+    : [];
+  const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop';
 
   return {
     id: bien.id,
@@ -336,20 +366,8 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     guests: bien.nb_chambres + 1,
     bedrooms: bien.nb_chambres,
     bathrooms: bien.nb_salle_bain,
-    images: bien.media && bien.media.length > 0 
-      ? bien.media.filter((m: any) => {
-        if (m.type === 'video') return false;
-        const motif = String(m.motif_upload || '');
-        const isProof = motif === 'preuve_type_rue'
-          || motif === 'preuve_type_papier'
-          || motif.startsWith('preuve_type_rue|')
-          || motif.startsWith('preuve_type_papier|');
-        return !m.motif_upload || !isProof;
-      }).map((m: any) => m.url) 
-      : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop'],
-    videos: bien.media && bien.media.length > 0
-      ? bien.media.filter((m: any) => m.type === 'video' && m.url).map((m: any) => m.url)
-      : [],
+    images: imageUrls.length > 0 ? imageUrls : [fallbackImage],
+    videos: videoUrls,
     description: bien.description || `Superbe ${bien.type}`,
     amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),
     category: typeToCategory[bien.type] || 'S+1',
@@ -389,7 +407,7 @@ interface PropertiesContextType {
   isLoading: boolean;
   error: string | null;
   addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<string>;
-  updateBien: (updatedBien: Bien) => Promise<void>;
+  updateBien: (updatedBien: Bien) => Promise<any>;
   deleteBien: (id: string) => Promise<void>;
   saveModePriorities: (next: Record<BienMode, number>) => Promise<void>;
   getBienById: (id: string) => Bien | undefined;
@@ -641,8 +659,9 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         const message = await getApiErrorMessage(response, 'Mise a jour du bien impossible');
         throw new Error(message);
       }
-      
+      const data = await response.json().catch(() => null);
       await fetchData(); // Refresh data
+      return data;
     } catch (err: any) {
       console.error('Error updating bien:', err);
       throw err;

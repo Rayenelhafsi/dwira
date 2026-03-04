@@ -9,7 +9,6 @@ const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
   { value: "location_saisonniere", label: "Location saisonniere" },
-  { value: "vente", label: "Vente" },
   { value: "location_annuelle", label: "Location annuelle" },
 ];
 
@@ -51,13 +50,18 @@ export default function PropertiesPage() {
       return;
     }
     const requestedMode = searchParams.get("mode");
-    if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
+    if (requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
       setSelectedMode(requestedMode);
       return;
     }
     const defaultMode = orderedModeTabs[0]?.value || "location_saisonniere";
     setSelectedMode(defaultMode);
-  }, [loading, orderedModeTabs, searchParams]);
+    if (requestedMode === "vente" || !requestedMode) {
+      const params = new URLSearchParams(searchParams);
+      params.set("mode", defaultMode);
+      setSearchParams(params, { replace: true });
+    }
+  }, [loading, orderedModeTabs, searchParams, setSearchParams]);
 
   // Update URL params when filters change
   useEffect(() => {
@@ -164,7 +168,7 @@ export default function PropertiesPage() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: loading ? 0 : 1, y: loading ? 8 : 0 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
-            className="grid grid-cols-3 gap-2"
+            className="grid grid-cols-2 gap-2"
           >
           {orderedModeTabs.map((tab) => (
             <button

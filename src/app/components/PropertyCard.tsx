@@ -1,20 +1,19 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
 import { Property } from "../data/properties";
-import { buildMessengerWebLink, buildTelLink, openWhatsAppApp } from "../utils/deepLinks";
+import { buildMessengerWebLink, buildTelLink, getPublicContactForMode, openWhatsAppApp } from "../utils/deepLinks";
 
 interface PropertyCardProps {
   property: Property;
   searchParams?: string;
 }
 
-const CONTACT_PHONE_RAW = "+21652080695";
-
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const baseDetailPath = property.detailPath || `/properties/${property.slug}`;
   const linkTo = searchParams 
     ? `${baseDetailPath}?${searchParams}`
     : baseDetailPath;
+  const contactConfig = getPublicContactForMode(property.mode);
   const ratingDisplay = Number.isFinite(property.rating)
     ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
     : "0,0";
@@ -72,15 +71,15 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
 
       <div className="px-5 pb-5">
         <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
-          <a href={buildTelLink(CONTACT_PHONE_RAW)} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
+          <a href={buildTelLink(contactConfig.phone)} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
             <Phone size={14} />
             <span>Telephone</span>
           </a>
-          <button type="button" onClick={() => openWhatsAppApp(CONTACT_PHONE_RAW)} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap">
+          <button type="button" onClick={() => openWhatsAppApp(contactConfig.phone)} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap">
             <MessageCircle size={14} />
             <span>WhatsApp</span>
           </button>
-          <a href={buildMessengerWebLink()} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap">
+          <a href={buildMessengerWebLink(contactConfig.messengerPage)} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap">
             <MessageCircle size={14} />
             <span>Messenger</span>
           </a>

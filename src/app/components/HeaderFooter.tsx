@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "../context/AuthContext";
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { getReservationsFromCache } from "../utils/reservations";
-import { buildTelLink, openPhoneApp } from "../utils/deepLinks";
+import { buildTelLink, getPublicContactForMode, openPhoneApp } from "../utils/deepLinks";
 
 // Custom TikTok Icon
 const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
@@ -30,6 +30,24 @@ export function Header() {
   const [reservationCount, setReservationCount] = useState(0);
   const isHomePage = location.pathname === "/";
   const useLightText = isHomePage && !isScrolled && !isOpen;
+  const routeMode = (() => {
+    const params = new URLSearchParams(location.search);
+    const modeParam = params.get("mode");
+    if (location.pathname.startsWith("/ventes") || location.pathname.startsWith("/vente/")) {
+      return "vente";
+    }
+    if (location.pathname.startsWith("/logements") || location.pathname.startsWith("/properties")) {
+      if (modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
+        return modeParam;
+      }
+      return "location_saisonniere";
+    }
+    if (modeParam === "vente" || modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
+      return modeParam;
+    }
+    return null;
+  })();
+  const headerContact = getPublicContactForMode(routeMode);
 
   const handleLogout = () => {
     logout();
@@ -165,11 +183,11 @@ export function Header() {
           
           <button
             type="button"
-            onClick={() => openPhoneApp('+21652080695')}
-            className="px-5 py-2.5 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-colors shadow-lg flex items-center gap-2"
+            onClick={() => openPhoneApp(headerContact.phone)}
+            className="min-w-[196px] px-6 py-3 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-colors shadow-lg flex items-center justify-center gap-2 whitespace-nowrap"
           >
             <Phone size={16} />
-            <span>+216 52 080 695</span>
+            <span>{headerContact.phone.replace("+216", "+216 ")}</span>
           </button>
         </nav>
 
@@ -322,7 +340,7 @@ export function Footer() {
             <ul className="space-y-4">
               <li className="flex items-start gap-3 text-emerald-100/70">
                 <Phone className="shrink-0 text-amber-400" size={20} />
-                <a href={buildTelLink('+21652080695')} className="hover:text-white transition-colors">+216 52 080 695</a>
+                <a href={buildTelLink('+21629879227')} className="hover:text-white transition-colors">+216 29 879 227</a>
               </li>
               <li className="flex items-start gap-3 text-emerald-100/70">
                 <MapPin className="shrink-0 text-amber-400" size={20} />

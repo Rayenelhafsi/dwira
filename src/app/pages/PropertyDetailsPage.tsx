@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
+import { toYouTubeEmbedUrl } from "../utils/videoLinks";
 
 const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
 
@@ -451,7 +452,14 @@ export default function PropertyDetailsPage() {
                 <div key={item.key} className={`${wrapperClass} relative`} onClick={openImage}>
                   {item.type === "video" ? (
                     <>
-                      <video src={item.url} controls playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
+                      <iframe
+                        src={toYouTubeEmbedUrl(item.url) || ""}
+                        title={`${property.title} video ${index + 1}`}
+                        className="w-full h-full bg-black"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        allowFullScreen
+                      />
                       <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
                         Vidéo
                       </div>
@@ -490,7 +498,14 @@ export default function PropertyDetailsPage() {
                   >
                     {item.type === "video" ? (
                       <>
-                        <video src={item.url} controls playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
+                        <iframe
+                          src={toYouTubeEmbedUrl(item.url) || ""}
+                          title={`${property.title} video mobile ${idx + 1}`}
+                          className="w-full h-full bg-black"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          referrerPolicy="strict-origin-when-cross-origin"
+                          allowFullScreen
+                        />
                         <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
                           Vidéo
                         </div>
@@ -523,12 +538,13 @@ export default function PropertyDetailsPage() {
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
               {propertyVideos.map((videoUrl, index) => (
                 <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-2xl bg-black shadow-lg">
-                  <video
-                    src={videoUrl}
-                    controls
-                    preload="metadata"
-                    playsInline
-                    className="w-full h-[240px] md:h-[360px] object-cover"
+                  <iframe
+                    src={toYouTubeEmbedUrl(videoUrl) || ""}
+                    title={`${property.title} visite video ${index + 1}`}
+                    className="w-full h-[240px] md:h-[360px] bg-black"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    allowFullScreen
                   />
                 </div>
               ))}

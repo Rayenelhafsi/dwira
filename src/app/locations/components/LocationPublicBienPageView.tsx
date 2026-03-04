@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Calendar, Check, Eye, EyeOff, MapPin, Star } from 'lucide-react';
 import { Bien, BienUiConfig, Zone } from '../../admin/types';
+import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -109,7 +110,8 @@ export default function LocationPublicBienPageView({
     return () => { disposed = true; };
   }, [bien.id, bien.mode, bien.type, featureReloadKey]);
 
-  const images = (bien.media || []).map((item) => resolveMediaUrl(item.url)).filter(Boolean);
+  const images = (bien.media || []).filter((item) => item.type !== 'video').map((item) => resolveMediaUrl(item.url)).filter(Boolean);
+  const videos = (bien.media || []).filter((item) => item.type === 'video').map((item) => String(item.url || '').trim()).filter(Boolean);
   const zoneName = zones.find((item) => item.id === bien.zone_id)?.nom || 'Zone non definie';
   const selectedFeatureIds = new Set((Array.isArray(bien.caracteristique_ids) ? bien.caracteristique_ids : []).map((item) => String(item)));
   const selectedFeatureNames = new Set((Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []).map((item) => normalizeFeatureName(String(item))));
@@ -197,7 +199,7 @@ export default function LocationPublicBienPageView({
           {previewMode ? sectionToggle('show_booking_card') : null}
         </div>
 
-        {block('show_gallery', 'Galerie', (
+        {images.length > 0 ? block('show_gallery', 'Galerie', (
           <div className="mb-12">
             <div className="hidden md:grid grid-cols-4 grid-rows-2 gap-2 h-[500px] rounded-xl overflow-hidden">
               <div className="col-span-2 row-span-2"><img src={images[0] || ''} alt={bien.titre} className="w-full h-full object-cover" /></div>
@@ -207,7 +209,29 @@ export default function LocationPublicBienPageView({
             <div className="md:hidden rounded-xl overflow-hidden shadow-lg relative"><img src={images[0] || ''} alt={bien.titre} className="w-full h-[250px] object-cover" /></div>
             {previewMode ? <div className="mt-4 flex justify-start">{sectionToggle('show_gallery')}</div> : null}
           </div>
-        ))}
+        )) : null}
+
+        {videos.length > 0 && (
+          <div className="mb-12 rounded-2xl border border-gray-200 bg-white p-4 md:p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h3 className="text-xl font-bold text-gray-900">Video</h3>
+              {previewMode ? sectionToggle('show_gallery') : null}
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {videos.map((videoUrl, index) => (
+                <iframe
+                  key={`${videoUrl}-${index}`}
+                  src={toYouTubeEmbedUrl(videoUrl) || ''}
+                  title={`${bien.titre} video ${index + 1}`}
+                  className="w-full h-[240px] md:h-[360px] rounded-2xl bg-black"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           <div className="lg:col-span-2">

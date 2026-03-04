@@ -9,6 +9,7 @@ import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
 import PublicBienPageView from '../../ventes/components/PublicBienPageView';
 import LocationPublicBienPageView from '../../locations/components/LocationPublicBienPageView';
+import { isYouTubeUrl, toYouTubeEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const resolveMediaUrl = (url?: string | null) => {
@@ -494,11 +495,22 @@ export default function BiensPage() {
     const currentBien = biens.find((item) => item.id === bienId) || viewingBien;
     if (!currentBien) return;
     try {
-      await updateBien({ ...currentBien, ...patch } as any);
+      const savedBien = await updateBien({ ...currentBien, ...patch } as any);
       await refreshData();
-      setViewingBien((prev) => prev && prev.id === bienId ? { ...prev, ...patch } : prev);
-      setEditingBien((prev) => prev && prev.id === bienId ? { ...prev, ...patch } : prev);
-      toast.success('Visibilite mise a jour');
+      const savedVisible = savedBien?.visible_sur_site === 1 || savedBien?.visible_sur_site === true || savedBien?.visible_sur_site === '1';
+      const resolvedPatch = {
+        visible_sur_site: savedVisible,
+        ui_config: savedBien?.ui_config_json && typeof savedBien.ui_config_json === 'string'
+          ? JSON.parse(savedBien.ui_config_json)
+          : (savedBien?.ui_config || patch.ui_config || null),
+      };
+      setViewingBien((prev) => prev && prev.id === bienId ? { ...prev, ...resolvedPatch } : prev);
+      setEditingBien((prev) => prev && prev.id === bienId ? { ...prev, ...resolvedPatch } : prev);
+      if (patch.visible_sur_site !== resolvedPatch.visible_sur_site) {
+        toast.info('Le bien a ete sauvegarde hors site. Le mandat proprietaire ne permet pas la publication.');
+      } else {
+        toast.success('Visibilite mise a jour');
+      }
     } catch (error: any) {
       const message = String(error?.message || '').trim();
       toast.error(message ? `Erreur visibilite: ${message}` : 'Erreur visibilite');
@@ -644,7 +656,9 @@ export default function BiensPage() {
 }
 
 function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
-  const mainImage = resolveMediaUrl(bien.media?.[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
+  const firstImageMedia = (bien.media || []).find((media) => media.type !== 'video');
+  const firstVideoMedia = (bien.media || []).find((media) => media.type === 'video');
+  const mainImage = resolveMediaUrl(firstImageMedia?.url) || toYouTubeThumbnailUrl(firstVideoMedia?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
   const imageCount = bien.media?.length || 0;
   const terrainMode = bien.terrain_mode_affichage_prix || 'total_et_m2';
   const terrainTotal = Number(bien.terrain_prix_affiche_total ?? bien.prix_affiche_client ?? bien.prix_nuitee ?? 0);
@@ -1407,6 +1421,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
   const handleAddVideo = () => {
     if (!newVideoUrl.trim()) return;
+    if (!isYouTubeUrl(newVideoUrl)) {
+      toast.error('Ajoutez un lien YouTube valide');
+      return;
+    }
     const newMedia: Media = {
       id: Math.random().toString(36).substr(2, 9),
       bien_id: formData.id || '',
@@ -1469,32 +1487,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     toast.success('Image principale définie');
   };
 
-  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    const uploadFormData = new FormData();
-    uploadFormData.append('image', file);
-    try {
-      const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
-      if (!response.ok) throw new Error('Upload failed');
-      const data = await response.json();
-      const newMedia: Media = {
-        id: Math.random().toString(36).substr(2, 9),
-        bien_id: formData.id || '',
-        type: 'video',
-        url: data.url,
-        motif_upload: null,
-      };
-      setImages((prev) => [...prev, newMedia]);
-      toast.success('Vidéo uploadée');
-    } catch {
-      toast.error('Erreur upload vidéo');
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
-  };
 
   const renderTypeProofUploads = () => (
     <div className="mt-4 rounded-lg border border-dashed border-gray-300 bg-white p-3 sm:p-4">
@@ -3842,7 +3834,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         type="text"
                         value={newVideoUrl}
                         onChange={(e) => setNewVideoUrl(e.target.value)}
-                        placeholder="URL de la vidéo"
+                        placeholder="Lien YouTube"
                         className="flex-1 rounded-lg border-gray-300 border p-2"
                       />
                       <button
@@ -3854,22 +3846,17 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         Ajouter
                       </button>
                     </div>
-                    <div className="mb-6">
-                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
-                        <Upload className="h-4 w-4 text-emerald-600" />
-                        <span>Uploader une vidéo</span>
-                      </label>
-                      <input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={handleVideoUpload} disabled={uploading} className="block w-full text-sm" />
-                      <p className="mt-2 text-xs text-gray-500">Formats conseillés: MP4, WebM ou MOV. Taille max: 50 MB.</p>
-                    </div>
+                    <p className="mb-6 text-xs text-gray-500">Collez un lien YouTube classique, `youtu.be` ou `shorts`. La vidéo sera affichée directement dans la page du bien.</p>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {clientVisibleVideos.map((video, index) => (
                         <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
-                          <video
-                            src={resolveMediaUrl(video.url)}
-                            controls
-                            preload="metadata"
-                            className="w-full h-56 rounded-lg bg-black object-cover"
+                          <iframe
+                            src={toYouTubeEmbedUrl(video.url) || ''}
+                            title={`Video ${index + 1}`}
+                            className="w-full h-56 rounded-lg bg-black"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            referrerPolicy="strict-origin-when-cross-origin"
+                            allowFullScreen
                           />
                           <button
                             type="button"
