@@ -82,3 +82,7 @@ export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
   const threadUrl = buildMessengerWebLink(page);
   openDeepLink(buildMessengerAppLink(page), threadUrl);
 }
+
+export function buildPropertyShareMessage(title: string, url: string) {
+  return `Bonjour, je suis interesse par ce bien : ${title}\n${url}`;
+}

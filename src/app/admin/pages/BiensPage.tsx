@@ -711,14 +711,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [uploading, setUploading] = useState(false);
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
-  const [newFeatureType, setNewFeatureType] = useState<'simple' | 'valeur'>('simple');
+  const [newFeatureType, setNewFeatureType] = useState<'simple' | 'choix_multiple' | 'valeur'>('simple');
   const [newFeatureUnit, setNewFeatureUnit] = useState('');
   const [newFeatureVisibilite, setNewFeatureVisibilite] = useState<0 | 1>(1);
   const [featureTabs, setFeatureTabs] = useState<CaracteristiqueOnglet[]>([]);
   const [featureTabDrafts, setFeatureTabDrafts] = useState<Record<string, string>>({});
   const [selectedFeatureTabId, setSelectedFeatureTabId] = useState<string>('');
   const [newFeatureTabName, setNewFeatureTabName] = useState('');
-  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
+  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
@@ -1633,11 +1633,15 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
       setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
       setFeatureDrafts((prev) => {
-        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
+        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
         for (const feature of nextFeatures) {
           nextDrafts[feature.id] = {
             nom: feature.nom || '',
-            type_caracteristique: feature.type_caracteristique === 'valeur' ? 'valeur' : 'simple',
+            type_caracteristique: feature.type_caracteristique === 'valeur'
+              ? 'valeur'
+              : feature.type_caracteristique === 'choix_multiple'
+                ? 'choix_multiple'
+                : 'simple',
             unite: feature.unite || '',
             onglet_id: feature.onglet_id || '',
             visibilite_client: Number(feature.visibilite_client) === 0 ? 0 : 1,
@@ -1882,7 +1886,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
   };
 
-  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>) => {
+  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'valeur'; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>) => {
     setFeatureDrafts((prev) => ({
       ...prev,
       [featureId]: {
@@ -1954,7 +1958,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     for (const feature of availableFeatures) {
       const draft = featureDrafts[feature.id];
       if (!draft) continue;
-      const currentType = feature.type_caracteristique === 'valeur' ? 'valeur' : 'simple';
+      const currentType = feature.type_caracteristique === 'valeur'
+        ? 'valeur'
+        : feature.type_caracteristique === 'choix_multiple'
+          ? 'choix_multiple'
+          : 'simple';
       const currentUnit = String(feature.unite || '').trim();
       const currentTab = String(feature.onglet_id || '').trim();
       const currentVisibility = Number(feature.visibilite_client) === 0 ? 0 : 1;
@@ -2829,8 +2837,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
                     <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="rounded-lg border-gray-300 border p-2 text-sm" />
-                    <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'valeur')} className="rounded-lg border-gray-300 border p-2 text-sm">
+                    <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'choix_multiple' | 'valeur')} className="rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="simple">Simple (Oui/Non)</option>
+                      <option value="choix_multiple">Choix multiple</option>
                       <option value="valeur">Valeur</option>
                     </select>
                     <select value={newFeatureVisibilite} onChange={(e) => setNewFeatureVisibilite((Number(e.target.value) === 0 ? 0 : 1) as 0 | 1)} className="rounded-lg border-gray-300 border p-2 text-sm">
@@ -2854,12 +2863,25 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   )}
                   <div className="space-y-2">
                     {visibleFeaturesForSelectedTab.map((feature) => {
-                      const draft = featureDrafts[feature.id] || { nom: feature.nom || '', type_caracteristique: (feature.type_caracteristique === 'valeur' ? 'valeur' : 'simple') as 'simple' | 'valeur', unite: feature.unite || '', onglet_id: feature.onglet_id || '', visibilite_client: (Number(feature.visibilite_client) === 0 ? 0 : 1) as 0 | 1 };
+                      const draft = featureDrafts[feature.id] || {
+                        nom: feature.nom || '',
+                        type_caracteristique: (
+                          feature.type_caracteristique === 'valeur'
+                            ? 'valeur'
+                            : feature.type_caracteristique === 'choix_multiple'
+                              ? 'choix_multiple'
+                              : 'simple'
+                        ) as 'simple' | 'choix_multiple' | 'valeur',
+                        unite: feature.unite || '',
+                        onglet_id: feature.onglet_id || '',
+                        visibilite_client: (Number(feature.visibilite_client) === 0 ? 0 : 1) as 0 | 1
+                      };
                       return (
                         <div key={feature.id} className="grid grid-cols-1 md:grid-cols-8 gap-2 p-2 bg-white border border-emerald-200 rounded-lg">
                           <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
-                          <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'valeur' })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                          <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'valeur' })} className="rounded-lg border-gray-300 border p-2 text-sm">
                             <option value="simple">Simple</option>
+                            <option value="choix_multiple">Choix multiple</option>
                             <option value="valeur">Valeur</option>
                           </select>
                           <select value={draft.visibilite_client} onChange={(e) => handleFeatureDraftChange(feature.id, { visibilite_client: (Number(e.target.value) === 0 ? 0 : 1) as 0 | 1 })} className="rounded-lg border-gray-300 border p-2 text-sm">
