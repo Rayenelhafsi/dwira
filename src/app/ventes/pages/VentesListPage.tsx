@@ -2,7 +2,6 @@ import { Link } from 'react-router';
 import { useProperties } from '../../context/PropertiesContext';
 import { Bien } from '../../admin/types';
 import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle } from 'lucide-react';
-import { toast } from 'sonner';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
 import { buildTelLink, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from '../../utils/deepLinks';
@@ -112,14 +111,13 @@ export default function VentesListPage() {
               const propertyUrl = typeof window !== 'undefined'
                 ? new URL(`/ventes/${bien.type}/${bien.id}`, window.location.origin).toString()
                 : `/ventes/${bien.type}/${bien.id}`;
-              const handleMessengerClick = async () => {
-                await openMessengerPropertyConversation({
+              const handleMessengerClick = () => {
+                void openMessengerPropertyConversation({
                   page: contactConfig.messengerPage,
                   propertyUrl,
                   title: bien.titre,
                   imageUrl,
                 });
-                toast.info('Message copié. Collez-le dans Messenger (Ctrl+V) puis envoyez.');
               };
 
               return (
@@ -244,7 +242,7 @@ export default function VentesListPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => { void handleMessengerClick(); }}
+                        onClick={handleMessengerClick}
                         className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-500 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50"
                       >
                         <MessageCircle className="w-4 h-4" />

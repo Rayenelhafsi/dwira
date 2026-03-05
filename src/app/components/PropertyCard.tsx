@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
-import { toast } from "sonner";
 import { Property } from "../data/properties";
 import { buildTelLink, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
 
@@ -19,14 +18,13 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const ratingDisplay = Number.isFinite(property.rating)
     ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
     : "0,0";
-  const handleMessengerClick = async () => {
-    await openMessengerPropertyConversation({
+  const handleMessengerClick = () => {
+    void openMessengerPropertyConversation({
       page: contactConfig.messengerPage,
       propertyUrl,
       title: property.title,
       imageUrl: property.images?.[0] || null,
     });
-    toast.info("Message copié. Collez-le dans Messenger (Ctrl+V) puis envoyez.");
   };
     
   return (
@@ -92,7 +90,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
           </button>
           <button
             type="button"
-            onClick={() => { void handleMessengerClick(); }}
+            onClick={handleMessengerClick}
             className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap"
           >
             <MessageCircle size={14} />

@@ -107,32 +107,10 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
     });
     return `https://www.facebook.com/dialog/send?${params.toString()}`;
   }
-
-  const lines = [
-    payload.title ? `Bien: ${payload.title}` : '',
-    propertyUrl,
-    payload.imageUrl ? `Image: ${payload.imageUrl}` : '',
-  ].filter(Boolean);
-  const refPayload = lines.join('\n');
-  return `${buildMessengerWebLink(page)}?ref=${encodeURIComponent(refPayload)}`;
+  return buildMessengerWebLink(page);
 }
 
 export async function openMessengerPropertyConversation(payload: MessengerPropertyPayload) {
-  const messageLines = [
-    payload.title ? `Bonjour, je suis interesse par ce bien : ${payload.title}` : 'Bonjour, je suis interesse par ce bien',
-    payload.propertyUrl,
-    payload.imageUrl ? `Image: ${payload.imageUrl}` : '',
-  ].filter(Boolean);
-  const message = messageLines.join('\n');
-
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(message);
-    } catch {
-      // ignore clipboard failures
-    }
-  }
-
   const target = buildMessengerPropertyLink(payload);
   openDeepLink(target, target);
 }
