@@ -5324,7 +5324,7 @@ app.post('/api/messenger/webhook', async (req, res) => {
         if (replyPropertyUrl) {
           const link = replyPropertyUrl;
           const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
-          const text = `Bonjour, voici le lien du bien${title}\n${link}`;
+          const text = `Vous etes interesse par le logement${title} dans notre site ?\n${link}`;
           try {
             if (replyImageUrl) {
               await sendMessengerImage(senderId, replyImageUrl, pageId);
