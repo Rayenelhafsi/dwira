@@ -86,6 +86,9 @@ function isMobileDevice() {
   if (typeof navigator === 'undefined') return false;
   const ua = String(navigator.userAgent || '');
   const mobileHint = Boolean((navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile);
+  const platform = String(navigator.platform || '').toLowerCase();
+  const isDesktopPlatform = /win32|win64|macintel|linux x86_64|x11/.test(platform);
+  if (isDesktopPlatform) return false;
   return mobileHint || /Android|iPhone|iPad|iPod/i.test(ua);
 }
 
@@ -104,7 +107,7 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 }
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
-  const threadUrl = buildMessengerWebLink(page);
+  const threadUrl = `https://www.facebook.com/messages/t/${page}`;
   if (!isMobileDevice() || isRestrictedInAppBrowser()) {
     window.location.assign(threadUrl);
     return;
@@ -139,14 +142,15 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
   const page = payload.page || DEFAULT_MESSENGER_PAGE;
   const pageId = String(payload.pageId || '').trim();
   const propertyUrl = String(payload.propertyUrl || '').trim();
-  if (!propertyUrl) return buildMessengerWebLink(page);
+  const webThreadBase = pageId ? `https://www.facebook.com/messages/t/${pageId}` : buildMessengerWebLink(page);
+  if (!propertyUrl) return webThreadBase;
   const ref = encodeMessengerRef({
     propertyUrl,
     title: payload.title,
     imageUrl: payload.imageUrl || null,
     reference: payload.reference || null,
   });
-  const webUrl = `${buildMessengerWebLink(page)}?${new URLSearchParams({ ref }).toString()}`;
+  const webUrl = `${webThreadBase}?${new URLSearchParams({ ref }).toString()}`;
   const appUrl = buildMessengerAppLink(page, pageId, ref);
   return `${appUrl}|||${webUrl}`;
 }
@@ -154,7 +158,9 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
 export async function openMessengerPropertyConversation(payload: MessengerPropertyPayload) {
   const target = buildMessengerPropertyLink(payload);
   if (!target) {
-    window.location.assign(buildMessengerWebLink(payload.page || DEFAULT_MESSENGER_PAGE));
+    const page = payload.page || DEFAULT_MESSENGER_PAGE;
+    const pageId = String(payload.pageId || '').trim();
+    window.location.assign(pageId ? `https://www.facebook.com/messages/t/${pageId}` : buildMessengerWebLink(page));
     return;
   }
   const [appUrl, webUrl] = target.split('|||');
