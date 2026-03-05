@@ -741,8 +741,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [featureValueById, setFeatureValueById] = useState<Record<string, string>>({});
   const [showAddZone, setShowAddZone] = useState(false);
   const [showAddProprietaire, setShowAddProprietaire] = useState(false);
-  const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneDescription, setNewZoneDescription] = useState('');
+  const [newZonePays, setNewZonePays] = useState('');
+  const [newZoneGouvernerat, setNewZoneGouvernerat] = useState('');
+  const [newZoneRegion, setNewZoneRegion] = useState('');
+  const [newZoneQuartier, setNewZoneQuartier] = useState('');
   const [newZoneGoogleMapsUrl, setNewZoneGoogleMapsUrl] = useState('');
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
@@ -2056,12 +2058,19 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
 
   const handleAddZone = async () => {
-    if (!newZoneName.trim()) return toast.error('Nom de zone requis');
+    if (!newZonePays.trim()) return toast.error('Pays requis');
+    if (!newZoneGouvernerat.trim()) return toast.error('Gouvernerat requis');
+    if (!newZoneRegion.trim()) return toast.error('Region requise');
+    if (!newZoneQuartier.trim()) return toast.error('Zone/Quartier requis');
     try {
+      const computedNom = [newZoneQuartier.trim(), newZoneRegion.trim(), newZoneGouvernerat.trim(), newZonePays.trim()].filter(Boolean).join(', ');
       const payload = {
         id: `z${Date.now()}`,
-        nom: newZoneName.trim(),
-        description: newZoneDescription.trim(),
+        nom: computedNom,
+        pays: newZonePays.trim(),
+        gouvernerat: newZoneGouvernerat.trim(),
+        region: newZoneRegion.trim(),
+        quartier: newZoneQuartier.trim(),
         google_maps_url: newZoneGoogleMapsUrl.trim() || null
       };
       const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -2069,8 +2078,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       const createdZone = await response.json();
       setZonesOptions([...zonesOptions, createdZone]);
       setFormData(prev => ({ ...prev, zone_id: createdZone.id }));
-      setNewZoneName('');
-      setNewZoneDescription('');
+      setNewZonePays('');
+      setNewZoneGouvernerat('');
+      setNewZoneRegion('');
+      setNewZoneQuartier('');
       setNewZoneGoogleMapsUrl('');
       setShowAddZone(false);
       toast.success('Zone ajoutée');
@@ -2866,8 +2877,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   <button type="button" onClick={() => setShowAddZone(!showAddZone)} className="text-xs text-emerald-700 hover:underline">+ Ajouter une zone</button>
                   {showAddZone && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                      <input type="text" value={newZoneName} onChange={(e) => setNewZoneName(e.target.value)} placeholder="Nom de la zone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newZoneDescription} onChange={(e) => setNewZoneDescription(e.target.value)} placeholder="Description" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newZonePays} onChange={(e) => setNewZonePays(e.target.value)} placeholder="Pays" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newZoneGouvernerat} onChange={(e) => setNewZoneGouvernerat(e.target.value)} placeholder="Gouvernerat" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newZoneRegion} onChange={(e) => setNewZoneRegion(e.target.value)} placeholder="Region" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newZoneQuartier} onChange={(e) => setNewZoneQuartier(e.target.value)} placeholder="Zone/Quartier" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="url" value={newZoneGoogleMapsUrl} onChange={(e) => setNewZoneGoogleMapsUrl(e.target.value)} placeholder="Lien Google Maps (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <button type="button" onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer zone</button>
                     </div>

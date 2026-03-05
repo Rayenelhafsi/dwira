@@ -1796,16 +1796,31 @@ function normalizeSiteModePriorities(input = {}) {
 }
 
 async function ensureZonesSchema() {
-  const [rows] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'zones'
-       AND COLUMN_NAME = 'google_maps_url'`
-  );
-  const hasGoogleMapsUrl = Number(rows[0]?.total || 0) > 0;
-  if (!hasGoogleMapsUrl) {
+  const hasColumn = async (columnName) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'zones'
+         AND COLUMN_NAME = ?`,
+      [columnName]
+    );
+    return Number(rows[0]?.total || 0) > 0;
+  };
+  if (!(await hasColumn('google_maps_url'))) {
     await pool.query('ALTER TABLE zones ADD COLUMN google_maps_url VARCHAR(500) NULL AFTER description');
+  }
+  if (!(await hasColumn('pays'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN pays VARCHAR(120) NULL AFTER description');
+  }
+  if (!(await hasColumn('gouvernerat'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN gouvernerat VARCHAR(120) NULL AFTER pays');
+  }
+  if (!(await hasColumn('region'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN region VARCHAR(120) NULL AFTER gouvernerat');
+  }
+  if (!(await hasColumn('quartier'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN quartier VARCHAR(160) NULL AFTER region');
   }
 }
 
@@ -3200,9 +3215,29 @@ app.get('/api/zones', async (req, res) => {
 
 app.post('/api/zones', async (req, res) => {
   try {
-    const { id, nom, description, google_maps_url } = req.body;
-    await pool.query('INSERT INTO zones (id, nom, description, google_maps_url) VALUES (?, ?, ?, ?)', 
-      [id, nom, description || '', google_maps_url || null]);
+    await ensureZonesSchema();
+    const {
+      id,
+      nom,
+      description,
+      pays,
+      gouvernerat,
+      region,
+      quartier,
+      google_maps_url
+    } = req.body;
+    const normalizedPays = String(pays || '').trim();
+    const normalizedGouvernerat = String(gouvernerat || '').trim();
+    const normalizedRegion = String(region || '').trim();
+    const normalizedQuartier = String(quartier || '').trim();
+    const normalizedNom = String(nom || '').trim() || [normalizedQuartier, normalizedRegion, normalizedGouvernerat, normalizedPays].filter(Boolean).join(', ');
+    if (!normalizedNom) {
+      return res.status(400).json({ error: 'Nom de zone requis' });
+    }
+    await pool.query(
+      'INSERT INTO zones (id, nom, description, pays, gouvernerat, region, quartier, google_maps_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, normalizedNom, description || '', normalizedPays || null, normalizedGouvernerat || null, normalizedRegion || null, normalizedQuartier || null, google_maps_url || null]
+    );
     const [newZone] = await pool.query('SELECT * FROM zones WHERE id = ?', [id]);
     res.status(201).json(newZone[0]);
   } catch (error) {

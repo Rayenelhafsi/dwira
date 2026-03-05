@@ -90,6 +90,10 @@ export interface Zone {
   id: string;
   nom: string;
   description: string;
+  pays?: string | null;
+  gouvernerat?: string | null;
+  region?: string | null;
+  quartier?: string | null;
   google_maps_url?: string;
 }
 
