@@ -93,15 +93,16 @@ function parseMessengerRef(rawRef) {
       const parsed = JSON.parse(decoded);
       const propertyUrl = String(parsed?.u || '').trim();
       const title = String(parsed?.t || '').trim();
+      const imageUrl = String(parsed?.i || '').trim();
       if (!propertyUrl) return null;
-      return { propertyUrl, title: title || null };
+      return { propertyUrl, title: title || null, imageUrl: imageUrl || null };
     } catch (error) {
       console.warn('Failed to parse Messenger ref payload:', error.message);
       return null;
     }
   }
   if (/^https?:\/\//i.test(ref)) {
-    return { propertyUrl: ref, title: null };
+    return { propertyUrl: ref, title: null, imageUrl: null };
   }
   return null;
 }
@@ -159,6 +160,44 @@ async function sendMessengerText(psid, text, pageId = null) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.error) {
     const errorMessage = payload?.error?.message || `Messenger Send API failed (${response.status})`;
+    throw new Error(errorMessage);
+  }
+  return payload;
+}
+
+async function sendMessengerImage(psid, imageUrl, pageId = null) {
+  const pageAccessToken = resolveMessengerPageAccessToken(pageId);
+  if (!pageAccessToken) {
+    throw new Error('Messenger page access token missing');
+  }
+  const recipientId = String(psid || '').trim();
+  const mediaUrl = String(imageUrl || '').trim();
+  if (!recipientId || !/^https?:\/\//i.test(mediaUrl)) return null;
+
+  const endpoint = new URL(`https://graph.facebook.com/${MESSENGER_API_VERSION}/me/messages`);
+  endpoint.searchParams.set('access_token', pageAccessToken);
+  const response = await fetch(endpoint.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_type: 'RESPONSE',
+      recipient: { id: recipientId },
+      message: {
+        attachment: {
+          type: 'image',
+          payload: {
+            url: mediaUrl,
+            is_reusable: false,
+          },
+        },
+      },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.error) {
+    const errorMessage = payload?.error?.message || `Messenger image send failed (${response.status})`;
     throw new Error(errorMessage);
   }
   return payload;
@@ -5273,10 +5312,13 @@ app.post('/api/messenger/webhook', async (req, res) => {
 
         let replyPropertyUrl = parsedRef?.propertyUrl || null;
         let replyPropertyTitle = parsedRef?.title || null;
+        let replyImageUrl = parsedRef?.imageUrl || null;
         if (!replyPropertyUrl) {
           const existingContact = await getMessengerContactByPsid(senderId);
           replyPropertyUrl = String(existingContact?.last_property_url || '').trim() || null;
           replyPropertyTitle = String(existingContact?.last_property_title || '').trim() || null;
+          const parsedLastRef = parseMessengerRef(String(existingContact?.last_ref || '').trim());
+          replyImageUrl = parsedLastRef?.imageUrl || null;
         }
 
         if (replyPropertyUrl) {
@@ -5284,6 +5326,9 @@ app.post('/api/messenger/webhook', async (req, res) => {
           const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
           const text = `Bonjour, voici le lien du bien${title}\n${link}`;
           try {
+            if (replyImageUrl) {
+              await sendMessengerImage(senderId, replyImageUrl, pageId);
+            }
             await sendMessengerText(senderId, text, pageId);
           } catch (sendError) {
             console.error('Messenger auto-reply failed:', sendError.message);

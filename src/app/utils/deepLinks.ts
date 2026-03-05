@@ -94,10 +94,11 @@ type MessengerPropertyPayload = {
   imageUrl?: string | null;
 };
 
-function encodeMessengerRef(payload: { propertyUrl: string; title?: string }) {
+function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imageUrl?: string | null }) {
   const json = JSON.stringify({
     u: String(payload.propertyUrl || '').trim(),
     t: String(payload.title || '').trim(),
+    i: String(payload.imageUrl || '').trim(),
   });
   return `dwira_prop:${btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
 }
@@ -106,7 +107,7 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
   const page = payload.page || DEFAULT_MESSENGER_PAGE;
   const propertyUrl = String(payload.propertyUrl || '').trim();
   if (!propertyUrl) return buildMessengerWebLink(page);
-  const ref = encodeMessengerRef({ propertyUrl, title: payload.title });
+  const ref = encodeMessengerRef({ propertyUrl, title: payload.title, imageUrl: payload.imageUrl || null });
   const params = new URLSearchParams({ ref });
   return `${buildMessengerWebLink(page)}?${params.toString()}`;
 }
