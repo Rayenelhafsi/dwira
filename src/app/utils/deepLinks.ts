@@ -82,6 +82,19 @@ export function openDeepLink(appUrl: string, fallbackUrl: string) {
   window.location.href = appUrl;
 }
 
+function isMobileDevice() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = String(navigator.userAgent || '');
+  const mobileHint = Boolean((navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile);
+  return mobileHint || /Android|iPhone|iPad|iPod/i.test(ua);
+}
+
+function isRestrictedInAppBrowser() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = String(navigator.userAgent || '');
+  return /FBAN|FBAV|FB_IAB|Instagram|Line\/|Twitter/i.test(ua);
+}
+
 export function openPhoneApp(phone?: string | null) {
   window.location.href = buildTelLink(phone);
 }
@@ -92,6 +105,10 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
   const threadUrl = buildMessengerWebLink(page);
+  if (!isMobileDevice() || isRestrictedInAppBrowser()) {
+    window.location.assign(threadUrl);
+    return;
+  }
   openDeepLink(buildMessengerAppLink(page), threadUrl);
 }
 
@@ -141,5 +158,11 @@ export async function openMessengerPropertyConversation(payload: MessengerProper
     return;
   }
   const [appUrl, webUrl] = target.split('|||');
-  openDeepLink(appUrl || webUrl, webUrl || appUrl);
+  const appTarget = appUrl || webUrl;
+  const webTarget = webUrl || appUrl;
+  if (!isMobileDevice() || isRestrictedInAppBrowser()) {
+    window.location.assign(webTarget);
+    return;
+  }
+  openDeepLink(appTarget, webTarget);
 }
