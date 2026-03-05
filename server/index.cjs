@@ -326,6 +326,14 @@ function normalizeBienMode(rawMode) {
   return rawMode;
 }
 
+function buildShortId(prefix, ...parts) {
+  const normalized = parts
+    .map((part) => String(part || '').trim().toLowerCase())
+    .join('|');
+  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 20);
+  return `${prefix}_${hash}`;
+}
+
 function validateModeAndType(mode, type) {
   if (!BIEN_MODES.includes(mode)) {
     return { valid: false, error: 'mode invalide' };
@@ -1608,7 +1616,7 @@ async function ensureBiensWorkflowSchema() {
 
   await pool.query(
     `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
-     SELECT CONCAT('mo_', cc.mode_bien, '_', cc.type_bien, '_', cc.caracteristique_id), cc.mode_bien, cc.type_bien, cc.onglet_id, cc.caracteristique_id, 0
+     SELECT CONCAT('mo_', LEFT(SHA1(CONCAT(cc.mode_bien, '|', cc.type_bien, '|', cc.caracteristique_id)), 20)), cc.mode_bien, cc.type_bien, cc.onglet_id, cc.caracteristique_id, 0
      FROM caracteristique_contextes cc
      WHERE cc.onglet_id IS NOT NULL AND cc.onglet_id <> ''
      ON DUPLICATE KEY UPDATE onglet_id = VALUES(onglet_id), ordre = VALUES(ordre)`
@@ -4225,7 +4233,7 @@ app.post('/api/caracteristiques', async (req, res) => {
     );
     let caracteristique = existingRows[0];
     if (!caracteristique) {
-      const id = 'car' + Date.now();
+      const id = buildShortId('car', featureName, normalizedMode, normalizedType, Date.now(), Math.random());
       await pool.query(
         'INSERT INTO caracteristiques (id, nom, type_caracteristique, choix_json, unite, visibilite_client) VALUES (?, ?, ?, ?, ?, ?)',
         [id, featureName, featureType, featureChoicesJson, featureUnit, visibleClient]
@@ -4271,14 +4279,14 @@ app.post('/api/caracteristiques', async (req, res) => {
         `INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_bien, onglet_id)
          VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE mode_bien = VALUES(mode_bien), type_bien = VALUES(type_bien), onglet_id = VALUES(onglet_id)`,
-        ['ctx' + Date.now(), caracteristique.id, normalizedMode, normalizedType, normalizedOngletId]
+        [buildShortId('ctx', caracteristique.id, normalizedMode, normalizedType), caracteristique.id, normalizedMode, normalizedType, normalizedOngletId]
       );
       if (normalizedOngletId) {
         await pool.query(
           `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
            VALUES (?, ?, ?, ?, ?, 0)
            ON DUPLICATE KEY UPDATE onglet_id = VALUES(onglet_id), ordre = VALUES(ordre)`,
-          [`mo_${normalizedMode}_${normalizedType}_${caracteristique.id}`, normalizedMode, normalizedType, normalizedOngletId, caracteristique.id]
+          [buildShortId('mo', normalizedMode, normalizedType, caracteristique.id), normalizedMode, normalizedType, normalizedOngletId, caracteristique.id]
         );
       } else {
         await pool.query(
@@ -4594,7 +4602,7 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
         `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
          VALUES (?, ?, ?, ?, ?, 0)
          ON DUPLICATE KEY UPDATE onglet_id = VALUES(onglet_id), ordre = VALUES(ordre)`,
-        [`mo_${mode}_${type}_${featureId}`, mode, type, normalizedOngletId, featureId]
+        [buildShortId('mo', mode, type, featureId), mode, type, normalizedOngletId, featureId]
       );
     } else {
       await pool.query(
