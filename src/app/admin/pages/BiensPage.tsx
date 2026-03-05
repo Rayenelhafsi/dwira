@@ -118,6 +118,22 @@ type ValidationIssue = {
   label: string;
   message: string;
 };
+type LinkedBienPreview = {
+  id: string;
+  reference?: string | null;
+  titre?: string | null;
+  mode?: BienMode | string | null;
+  type?: BienType | string | null;
+};
+type DeleteRelationDialogState = {
+  open: boolean;
+  sourceId: string;
+  sourceLabel: string;
+  linkedBiens: LinkedBienPreview[];
+  targetId: string;
+  loading: boolean;
+  submitting: boolean;
+};
 const TERRAIN_HAUTEUR_OPTIONS = ['R+1', 'R+2', 'R+3', 'R+4', 'R+5'];
 const TERRAIN_FORME_OPTIONS = ['rectangulaire', 'irreguliere', 'carre', 'triangle', 'autre'];
 const TERRAIN_TOPOGRAPHIE_OPTIONS = [
@@ -751,6 +767,24 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newOwnerCin, setNewOwnerCin] = useState('');
   const [draggedImageIndex, setDraggedImageIndex] = useState<string | null>(null);
   const [validationDialogState, setValidationDialogState] = useState<{ open: boolean; issues: ValidationIssue[] }>({ open: false, issues: [] });
+  const [zoneDeleteDialog, setZoneDeleteDialog] = useState<DeleteRelationDialogState>({
+    open: false,
+    sourceId: '',
+    sourceLabel: '',
+    linkedBiens: [],
+    targetId: '',
+    loading: false,
+    submitting: false,
+  });
+  const [ownerDeleteDialog, setOwnerDeleteDialog] = useState<DeleteRelationDialogState>({
+    open: false,
+    sourceId: '',
+    sourceLabel: '',
+    linkedBiens: [],
+    targetId: '',
+    loading: false,
+    submitting: false,
+  });
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : []));
   const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
   const [detailSectionTabId, setDetailSectionTabId] = useState<string>('informations_generales');
@@ -2789,35 +2823,119 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
   const handleDeleteSelectedZone = async () => {
     const zoneId = String(formData.zone_id || '').trim();
-    if (!zoneId) return toast.error('Aucune zone selectionnee');
-    if (!window.confirm('Supprimer cette zone ?')) return;
+    if (!zoneId) return toast.error('Aucune zone sélectionnée');
+    const sourceZone = zonesOptions.find((item) => item.id === zoneId);
+    const fallbackTarget = zonesOptions.find((item) => item.id !== zoneId)?.id || '';
     try {
-      const response = await fetch(`${API_URL}/zones/${encodeURIComponent(zoneId)}`, { method: 'DELETE' });
-      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
-      if (!response.ok) throw new Error(payload?.error || 'Suppression zone impossible');
-      const nextZones = zonesOptions.filter((item) => item.id !== zoneId);
-      setZonesOptions(nextZones);
-      setFormData((prev) => ({ ...prev, zone_id: nextZones[0]?.id || '' }));
-      toast.success('Zone supprimee');
+      setZoneDeleteDialog({
+        open: true,
+        sourceId: zoneId,
+        sourceLabel: sourceZone?.nom || zoneId,
+        linkedBiens: [],
+        targetId: fallbackTarget,
+        loading: true,
+        submitting: false,
+      });
+      const response = await fetch(`${API_URL}/zones/${encodeURIComponent(zoneId)}/linked-biens`);
+      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : [];
+      if (!response.ok) throw new Error(payload?.error || 'Chargement des biens liés impossible');
+      setZoneDeleteDialog((prev) => ({
+        ...prev,
+        linkedBiens: Array.isArray(payload) ? payload : [],
+        loading: false,
+      }));
     } catch (error) {
+      setZoneDeleteDialog((prev) => ({ ...prev, open: false, loading: false }));
       const message = error instanceof Error ? error.message : 'Erreur suppression zone';
       toast.error(message);
     }
   };
   const handleDeleteSelectedProprietaire = async () => {
     const ownerId = String(formData.proprietaire_id || '').trim();
-    if (!ownerId) return toast.error('Aucun proprietaire selectionne');
-    if (!window.confirm('Supprimer ce proprietaire ?')) return;
+    if (!ownerId) return toast.error('Aucun propriétaire sélectionné');
+    const sourceOwner = proprietaireOptions.find((item) => item.id === ownerId);
+    const fallbackTarget = proprietaireOptions.find((item) => item.id !== ownerId)?.id || '';
     try {
-      const response = await fetch(`${API_URL}/proprietaires/${encodeURIComponent(ownerId)}`, { method: 'DELETE' });
-      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
-      if (!response.ok) throw new Error(payload?.error || 'Suppression proprietaire impossible');
-      const nextOwners = proprietaireOptions.filter((item) => item.id !== ownerId);
-      setProprietaireOptions(nextOwners);
-      setFormData((prev) => ({ ...prev, proprietaire_id: nextOwners[0]?.id || '' }));
-      toast.success('Proprietaire supprime');
+      setOwnerDeleteDialog({
+        open: true,
+        sourceId: ownerId,
+        sourceLabel: sourceOwner?.nom || ownerId,
+        linkedBiens: [],
+        targetId: fallbackTarget,
+        loading: true,
+        submitting: false,
+      });
+      const response = await fetch(`${API_URL}/proprietaires/${encodeURIComponent(ownerId)}/linked-biens`);
+      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : [];
+      if (!response.ok) throw new Error(payload?.error || 'Chargement des biens liés impossible');
+      setOwnerDeleteDialog((prev) => ({
+        ...prev,
+        linkedBiens: Array.isArray(payload) ? payload : [],
+        loading: false,
+      }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erreur suppression proprietaire';
+      setOwnerDeleteDialog((prev) => ({ ...prev, open: false, loading: false }));
+      const message = error instanceof Error ? error.message : 'Erreur suppression propriétaire';
+      toast.error(message);
+    }
+  };
+  const handleConfirmDeleteZone = async () => {
+    if (!zoneDeleteDialog.sourceId) return;
+    if (zoneDeleteDialog.linkedBiens.length > 0 && !zoneDeleteDialog.targetId) {
+      toast.error('Sélectionnez une zone cible pour réaffecter les biens');
+      return;
+    }
+    try {
+      setZoneDeleteDialog((prev) => ({ ...prev, submitting: true }));
+      const response = await fetch(`${API_URL}/zones/${encodeURIComponent(zoneDeleteDialog.sourceId)}/reassign-and-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_zone_id: zoneDeleteDialog.targetId || null }),
+      });
+      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+      if (!response.ok) throw new Error(payload?.error || 'Suppression zone impossible');
+      const nextZones = zonesOptions.filter((item) => item.id !== zoneDeleteDialog.sourceId);
+      setZonesOptions(nextZones);
+      setFormData((prev) => {
+        const currentZoneId = String(prev.zone_id || '');
+        if (currentZoneId !== zoneDeleteDialog.sourceId) return prev;
+        return { ...prev, zone_id: zoneDeleteDialog.targetId || nextZones[0]?.id || '' };
+      });
+      setZoneDeleteDialog((prev) => ({ ...prev, open: false, submitting: false }));
+      toast.success('Zone supprimée');
+    } catch (error) {
+      setZoneDeleteDialog((prev) => ({ ...prev, submitting: false }));
+      const message = error instanceof Error ? error.message : 'Erreur suppression zone';
+      toast.error(message);
+    }
+  };
+  const handleConfirmDeleteProprietaire = async () => {
+    if (!ownerDeleteDialog.sourceId) return;
+    if (ownerDeleteDialog.linkedBiens.length > 0 && !ownerDeleteDialog.targetId) {
+      toast.error('Sélectionnez un propriétaire cible pour réaffecter les biens');
+      return;
+    }
+    try {
+      setOwnerDeleteDialog((prev) => ({ ...prev, submitting: true }));
+      const response = await fetch(`${API_URL}/proprietaires/${encodeURIComponent(ownerDeleteDialog.sourceId)}/reassign-and-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_proprietaire_id: ownerDeleteDialog.targetId || null }),
+      });
+      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+      if (!response.ok) throw new Error(payload?.error || 'Suppression propriétaire impossible');
+      const nextOwners = proprietaireOptions.filter((item) => item.id !== ownerDeleteDialog.sourceId);
+      setProprietaireOptions(nextOwners);
+      setFormData((prev) => {
+        const currentOwnerId = String(prev.proprietaire_id || '');
+        if (currentOwnerId !== ownerDeleteDialog.sourceId) return prev;
+        return { ...prev, proprietaire_id: ownerDeleteDialog.targetId || nextOwners[0]?.id || '' };
+      });
+      setOwnerDeleteDialog((prev) => ({ ...prev, open: false, submitting: false }));
+      toast.success('Propriétaire supprimé');
+    } catch (error) {
+      setOwnerDeleteDialog((prev) => ({ ...prev, submitting: false }));
+      const message = error instanceof Error ? error.message : 'Erreur suppression propriétaire';
       toast.error(message);
     }
   };
@@ -4276,6 +4394,138 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           </div>
         )}
       </div>
+      <Dialog.Root open={zoneDeleteDialog.open} onOpenChange={(open) => setZoneDeleteDialog((prev) => ({ ...prev, open }))}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
+          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[92vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
+            <Dialog.Title className="text-lg font-semibold text-gray-900">Supprimer une zone</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-gray-600">
+              Zone: <span className="font-medium text-gray-900">{zoneDeleteDialog.sourceLabel}</span>
+            </Dialog.Description>
+            <div className="mt-4 space-y-3">
+              {zoneDeleteDialog.loading ? (
+                <div className="text-sm text-gray-500">Chargement des biens liés...</div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-700">
+                    {zoneDeleteDialog.linkedBiens.length > 0
+                      ? `${zoneDeleteDialog.linkedBiens.length} bien(s) utilisent cette zone.`
+                      : 'Aucun bien lié. La zone peut être supprimée directement.'}
+                  </p>
+                  {zoneDeleteDialog.linkedBiens.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Réaffecter tous les biens vers</label>
+                      <select
+                        value={zoneDeleteDialog.targetId}
+                        onChange={(e) => setZoneDeleteDialog((prev) => ({ ...prev, targetId: e.target.value }))}
+                        className="block w-full rounded-lg border border-gray-300 p-2"
+                      >
+                        <option value="">-- Choisir une zone --</option>
+                        {zonesOptions.filter((item) => item.id !== zoneDeleteDialog.sourceId).map((item) => (
+                          <option key={item.id} value={item.id}>{item.nom}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-200">
+                    {zoneDeleteDialog.linkedBiens.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-500">Aucun bien</div>
+                    ) : (
+                      <ul className="divide-y divide-gray-200">
+                        {zoneDeleteDialog.linkedBiens.map((bien) => (
+                          <li key={bien.id} className="p-3 text-sm">
+                            <p className="font-medium text-gray-900">{bien.titre || '(Sans titre)'}</p>
+                            <p className="text-gray-500">
+                              Ref: {bien.reference || '-'} • Mode: {modeLabels[(bien.mode as BienMode)] || bien.mode || '-'} • Type: {typeLabels[(bien.type as BienType)] || bien.type || '-'}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setZoneDeleteDialog((prev) => ({ ...prev, open: false }))} className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700">Annuler</button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteZone}
+                disabled={zoneDeleteDialog.loading || zoneDeleteDialog.submitting || (zoneDeleteDialog.linkedBiens.length > 0 && !zoneDeleteDialog.targetId)}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm disabled:opacity-50"
+              >
+                {zoneDeleteDialog.submitting ? 'Suppression...' : 'Réaffecter et supprimer'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root open={ownerDeleteDialog.open} onOpenChange={(open) => setOwnerDeleteDialog((prev) => ({ ...prev, open }))}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
+          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[92vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
+            <Dialog.Title className="text-lg font-semibold text-gray-900">Supprimer un propriétaire</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-gray-600">
+              Propriétaire: <span className="font-medium text-gray-900">{ownerDeleteDialog.sourceLabel}</span>
+            </Dialog.Description>
+            <div className="mt-4 space-y-3">
+              {ownerDeleteDialog.loading ? (
+                <div className="text-sm text-gray-500">Chargement des biens liés...</div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-700">
+                    {ownerDeleteDialog.linkedBiens.length > 0
+                      ? `${ownerDeleteDialog.linkedBiens.length} bien(s) utilisent ce propriétaire.`
+                      : 'Aucun bien lié. Le propriétaire peut être supprimé directement.'}
+                  </p>
+                  {ownerDeleteDialog.linkedBiens.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Réaffecter tous les biens vers</label>
+                      <select
+                        value={ownerDeleteDialog.targetId}
+                        onChange={(e) => setOwnerDeleteDialog((prev) => ({ ...prev, targetId: e.target.value }))}
+                        className="block w-full rounded-lg border border-gray-300 p-2"
+                      >
+                        <option value="">-- Choisir un propriétaire --</option>
+                        {proprietaireOptions.filter((item) => item.id !== ownerDeleteDialog.sourceId).map((item) => (
+                          <option key={item.id} value={item.id}>{item.nom}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-200">
+                    {ownerDeleteDialog.linkedBiens.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-500">Aucun bien</div>
+                    ) : (
+                      <ul className="divide-y divide-gray-200">
+                        {ownerDeleteDialog.linkedBiens.map((bien) => (
+                          <li key={bien.id} className="p-3 text-sm">
+                            <p className="font-medium text-gray-900">{bien.titre || '(Sans titre)'}</p>
+                            <p className="text-gray-500">
+                              Ref: {bien.reference || '-'} • Mode: {modeLabels[(bien.mode as BienMode)] || bien.mode || '-'} • Type: {typeLabels[(bien.type as BienType)] || bien.type || '-'}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setOwnerDeleteDialog((prev) => ({ ...prev, open: false }))} className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700">Annuler</button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteProprietaire}
+                disabled={ownerDeleteDialog.loading || ownerDeleteDialog.submitting || (ownerDeleteDialog.linkedBiens.length > 0 && !ownerDeleteDialog.targetId)}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm disabled:opacity-50"
+              >
+                {ownerDeleteDialog.submitting ? 'Suppression...' : 'Réaffecter et supprimer'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <Dialog.Root open={validationDialogState.open} onOpenChange={(open) => setValidationDialogState((prev) => ({ ...prev, open }))}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />

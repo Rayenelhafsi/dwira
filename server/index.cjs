@@ -3327,6 +3327,67 @@ app.post('/api/locataires', async (req, res) => {
   }
 });
 
+app.get('/api/proprietaires/:id/linked-biens', async (req, res) => {
+  try {
+    const ownerId = String(req.params.id || '').trim();
+    if (!ownerId) return res.status(400).json({ error: 'id proprietaire requis' });
+    const [rows] = await pool.query(
+      'SELECT id, reference, titre, mode, type FROM biens WHERE proprietaire_id = ? ORDER BY created_at DESC',
+      [ownerId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching linked biens for proprietaire:', error);
+    res.status(500).json({ error: 'Failed to fetch linked biens' });
+  }
+});
+
+app.post('/api/proprietaires/:id/reassign-and-delete', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const ownerId = String(req.params.id || '').trim();
+    const targetOwnerId = String(req.body?.target_proprietaire_id || '').trim();
+    if (!ownerId) return res.status(400).json({ error: 'id proprietaire requis' });
+    if (targetOwnerId && targetOwnerId === ownerId) {
+      return res.status(400).json({ error: 'Le proprietaire cible doit etre different' });
+    }
+
+    await connection.beginTransaction();
+
+    const [sourceOwner] = await connection.query('SELECT id FROM proprietaires WHERE id = ? LIMIT 1', [ownerId]);
+    if (!Array.isArray(sourceOwner) || sourceOwner.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+
+    const [linkedRows] = await connection.query('SELECT id FROM biens WHERE proprietaire_id = ?', [ownerId]);
+    const linkedCount = Array.isArray(linkedRows) ? linkedRows.length : 0;
+
+    if (linkedCount > 0) {
+      if (!targetOwnerId) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Selectionnez un proprietaire cible' });
+      }
+      const [targetOwner] = await connection.query('SELECT id FROM proprietaires WHERE id = ? LIMIT 1', [targetOwnerId]);
+      if (!Array.isArray(targetOwner) || targetOwner.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Proprietaire cible introuvable' });
+      }
+      await connection.query('UPDATE biens SET proprietaire_id = ? WHERE proprietaire_id = ?', [targetOwnerId, ownerId]);
+    }
+
+    await connection.query('DELETE FROM proprietaires WHERE id = ?', [ownerId]);
+    await connection.commit();
+    res.json({ message: 'Proprietaire deleted', reassigned_biens: linkedCount, target_proprietaire_id: targetOwnerId || null });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error reassigning/deleting proprietaire:', error);
+    res.status(500).json({ error: 'Failed to reassign/delete proprietaire' });
+  } finally {
+    connection.release();
+  }
+});
+
 app.delete('/api/zones/:id', async (req, res) => {
   try {
     const zoneId = String(req.params.id || '').trim();
@@ -3340,6 +3401,67 @@ app.delete('/api/zones/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting zone:', error);
     res.status(500).json({ error: 'Failed to delete zone' });
+  }
+});
+
+app.get('/api/zones/:id/linked-biens', async (req, res) => {
+  try {
+    const zoneId = String(req.params.id || '').trim();
+    if (!zoneId) return res.status(400).json({ error: 'id zone requis' });
+    const [rows] = await pool.query(
+      'SELECT id, reference, titre, mode, type FROM biens WHERE zone_id = ? ORDER BY created_at DESC',
+      [zoneId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching linked biens for zone:', error);
+    res.status(500).json({ error: 'Failed to fetch linked biens' });
+  }
+});
+
+app.post('/api/zones/:id/reassign-and-delete', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const zoneId = String(req.params.id || '').trim();
+    const targetZoneId = String(req.body?.target_zone_id || '').trim();
+    if (!zoneId) return res.status(400).json({ error: 'id zone requis' });
+    if (targetZoneId && targetZoneId === zoneId) {
+      return res.status(400).json({ error: 'La zone cible doit etre differente' });
+    }
+
+    await connection.beginTransaction();
+
+    const [sourceZone] = await connection.query('SELECT id FROM zones WHERE id = ? LIMIT 1', [zoneId]);
+    if (!Array.isArray(sourceZone) || sourceZone.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Zone introuvable' });
+    }
+
+    const [linkedRows] = await connection.query('SELECT id FROM biens WHERE zone_id = ?', [zoneId]);
+    const linkedCount = Array.isArray(linkedRows) ? linkedRows.length : 0;
+
+    if (linkedCount > 0) {
+      if (!targetZoneId) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Selectionnez une zone cible' });
+      }
+      const [targetZone] = await connection.query('SELECT id FROM zones WHERE id = ? LIMIT 1', [targetZoneId]);
+      if (!Array.isArray(targetZone) || targetZone.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Zone cible introuvable' });
+      }
+      await connection.query('UPDATE biens SET zone_id = ? WHERE zone_id = ?', [targetZoneId, zoneId]);
+    }
+
+    await connection.query('DELETE FROM zones WHERE id = ?', [zoneId]);
+    await connection.commit();
+    res.json({ message: 'Zone deleted', reassigned_biens: linkedCount, target_zone_id: targetZoneId || null });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error reassigning/deleting zone:', error);
+    res.status(500).json({ error: 'Failed to reassign/delete zone' });
+  } finally {
+    connection.release();
   }
 });
 
