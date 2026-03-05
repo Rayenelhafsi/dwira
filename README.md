@@ -87,4 +87,33 @@ For WhatsApp OTP delivery through `n8n`, see:
 - `guidelines/whatsapp-otp-n8n.md`
 
 Backend-side OTP generation and verification already exist. `n8n` is only the delivery layer.
+
+## Messenger Auto-Reply (Official Meta)
+
+This project now supports Messenger webhook + Send API for property-link auto reply.
+
+Required `.env` values:
+
+- `MESSENGER_VERIFY_TOKEN`
+- `MESSENGER_PAGE_ACCESS_TOKEN`
+- `MESSENGER_APP_SECRET`
+- `MESSENGER_API_VERSION` (default `v21.0`)
+
+Meta App Webhook URL:
+
+- `https://www.dwiraimmobilier.com/api/messenger/webhook`
+
+Verification endpoint:
+
+- `GET /api/messenger/webhook`
+
+Events endpoint:
+
+- `POST /api/messenger/webhook`
+
+Important:
+
+- Messenger still requires user interaction before page messages are allowed.
+- The card button opens `m.me` with `ref` context of the property URL.
+- The backend webhook replies with the property link so Messenger renders the link preview image.
   

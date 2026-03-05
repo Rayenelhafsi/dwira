@@ -134,6 +134,24 @@ type DeleteRelationDialogState = {
   loading: boolean;
   submitting: boolean;
 };
+type PendingFeatureAddition = {
+  nom: string;
+  mode_bien: BienMode;
+  type_bien: BienType;
+  type_caracteristique: 'simple' | 'choix_multiple' | 'valeur';
+  choix: string[];
+  unite: string | null;
+  onglet_id: string | null;
+  visibilite_client: 0 | 1;
+};
+type FeatureExistsDialogState = {
+  open: boolean;
+  featureName: string;
+  mode: BienMode;
+  type: BienType;
+  canAddToCurrentContext: boolean;
+  payload: PendingFeatureAddition | null;
+};
 const TERRAIN_HAUTEUR_OPTIONS = ['R+1', 'R+2', 'R+3', 'R+4', 'R+5'];
 const TERRAIN_FORME_OPTIONS = ['rectangulaire', 'irreguliere', 'carre', 'triangle', 'autre'];
 const TERRAIN_TOPOGRAPHIE_OPTIONS = [
@@ -784,6 +802,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     targetId: '',
     loading: false,
     submitting: false,
+  });
+  const [featureExistsDialog, setFeatureExistsDialog] = useState<FeatureExistsDialogState>({
+    open: false,
+    featureName: '',
+    mode: 'location_saisonniere',
+    type: 'appartement',
+    canAddToCurrentContext: false,
+    payload: null,
   });
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : []));
   const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
@@ -1728,7 +1754,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
   };
 
-  const handleAddFeature = async () => {
+  const createFeatureWithContext = async (payload: PendingFeatureAddition, options?: { skipExistingCheck?: boolean }) => {
     const featureApiBases = getFeatureApiBases();
     const fetchFromFeatureApi = async (
       buildUrl: (base: string) => string,
@@ -1743,6 +1769,70 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       }
       return lastResponse;
     };
+    if (!options?.skipExistingCheck) {
+      try {
+        const existingResponse = await fetchFromFeatureApi((base) => base);
+        if (existingResponse?.ok) {
+          const existingRows = await existingResponse.json();
+          const existingFeature = Array.isArray(existingRows)
+            ? existingRows.find((feature: Caracteristique) => normalizeFeatureName(feature.nom || '') === normalizeFeatureName(payload.nom))
+            : null;
+          if (existingFeature) {
+            setFeatureExistsDialog({
+              open: true,
+              featureName: payload.nom,
+              mode: payload.mode_bien,
+              type: payload.type_bien,
+              canAddToCurrentContext: true,
+              payload,
+            });
+            return;
+          }
+        }
+      } catch {
+        // If this lookup fails, keep the old flow and try creating directly.
+      }
+    }
+
+    setFeatureSaving(true);
+    try {
+      const response = await fetchFromFeatureApi((base) => base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response || !response.ok) {
+        const payloadError = response && response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+        throw new Error(payloadError?.error || 'Failed to create feature');
+      }
+      const createdFeature = await response.json();
+      await loadAvailableFeatures(payload.mode_bien, payload.type_bien);
+      if (createdFeature?.id) {
+        setSelectedFeatureIds((prev) => (prev.includes(createdFeature.id) ? prev : [...prev, createdFeature.id]));
+      }
+      setNewFeature('');
+      setNewFeatureType('simple');
+      setNewFeatureChoices('');
+      setNewFeatureUnit('');
+      setNewFeatureVisibilite(1);
+      setFeatureExistsDialog({
+        open: false,
+        featureName: '',
+        mode: payload.mode_bien,
+        type: payload.type_bien,
+        canAddToCurrentContext: false,
+        payload: null,
+      });
+      toast.success('Caracteristique ajoutee');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur ajout caracteristique';
+      toast.error(message);
+    } finally {
+      setFeatureSaving(false);
+    }
+  };
+
+  const handleAddFeature = async () => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const value = newFeature.trim();
@@ -1755,7 +1845,15 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (TERRAIN_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
     if (IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
     if (availableFeatures.some((feature) => normalizeFeatureName(feature.nom || '') === normalizedValue)) {
-      return toast.error('Caracteristique deja existante');
+      setFeatureExistsDialog({
+        open: true,
+        featureName: value,
+        mode: selectedMode,
+        type: selectedType,
+        canAddToCurrentContext: false,
+        payload: null,
+      });
+      return;
     }
     if (newFeatureType === 'valeur' && !parsedUnit) {
       return toast.error('Unite requise pour type valeur');
@@ -1763,39 +1861,17 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (newFeatureType === 'choix_multiple' && parsedChoices.length === 0) {
       return toast.error('Ajoutez au moins un choix');
     }
-    setFeatureSaving(true);
-    try {
-      const response = await fetchFromFeatureApi((base) => base, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nom: value,
-          mode_bien: selectedMode,
-          type_bien: selectedType,
-          type_caracteristique: newFeatureType,
-          choix: newFeatureType === 'choix_multiple' ? parsedChoices : [],
-          unite: newFeatureType === 'valeur' ? parsedUnit : null,
-          onglet_id: selectedFeatureTabId || null,
-          visibilite_client: newFeatureVisibilite,
-        }),
-      });
-      if (!response || !response.ok) throw new Error('Failed to create feature');
-      const createdFeature = await response.json();
-      await loadAvailableFeatures(selectedMode, selectedType);
-      if (createdFeature?.id) {
-        setSelectedFeatureIds((prev) => (prev.includes(createdFeature.id) ? prev : [...prev, createdFeature.id]));
-      }
-      setNewFeature('');
-      setNewFeatureType('simple');
-      setNewFeatureChoices('');
-      setNewFeatureUnit('');
-      setNewFeatureVisibilite(1);
-      toast.success('Caracteristique ajoutee');
-    } catch {
-      toast.error('Erreur ajout caracteristique');
-    } finally {
-      setFeatureSaving(false);
-    }
+    const payload: PendingFeatureAddition = {
+      nom: value,
+      mode_bien: selectedMode,
+      type_bien: selectedType,
+      type_caracteristique: newFeatureType,
+      choix: newFeatureType === 'choix_multiple' ? parsedChoices : [],
+      unite: newFeatureType === 'valeur' ? parsedUnit : null,
+      onglet_id: selectedFeatureTabId || null,
+      visibilite_client: newFeatureVisibilite,
+    };
+    await createFeatureWithContext(payload);
   };
 
   const handleRemoveFeature = async (feature: Caracteristique) => {
@@ -4550,6 +4626,46 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             </div>
             <div className="mt-4 flex justify-end">
               <button type="button" onClick={() => setValidationDialogState({ open: false, issues: [] })} className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700">Fermer</button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root
+        open={featureExistsDialog.open}
+        onOpenChange={(open) => setFeatureExistsDialog((prev) => ({ ...prev, open }))}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
+          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[92vw] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
+            <Dialog.Title className="text-lg font-semibold text-gray-900">Caracteristique existante</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-gray-600">
+              {featureExistsDialog.canAddToCurrentContext
+                ? `La caracteristique "${featureExistsDialog.featureName}" existe deja dans un autre mode/type.`
+                : `La caracteristique "${featureExistsDialog.featureName}" existe deja pour ce mode/type.`}
+            </Dialog.Description>
+            {featureExistsDialog.canAddToCurrentContext && (
+              <p className="mt-2 text-sm text-gray-700">
+                Voulez-vous l&apos;ajouter pour {modeLabels[featureExistsDialog.mode]} / {typeLabels[featureExistsDialog.type]} ?
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setFeatureExistsDialog((prev) => ({ ...prev, open: false }))}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700"
+              >
+                Fermer
+              </button>
+              {featureExistsDialog.canAddToCurrentContext && featureExistsDialog.payload && (
+                <button
+                  type="button"
+                  onClick={() => void createFeatureWithContext(featureExistsDialog.payload as PendingFeatureAddition, { skipExistingCheck: true })}
+                  disabled={featureSaving}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm disabled:opacity-50"
+                >
+                  {featureSaving ? 'Ajout...' : 'Ajouter pour ce mode/type'}
+                </button>
+              )}
             </div>
           </Dialog.Content>
         </Dialog.Portal>

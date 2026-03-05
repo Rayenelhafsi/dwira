@@ -14,6 +14,10 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const CANONICAL_FRONTEND_URL = String(FRONTEND_URL || '').trim().replace('https://dwiraimmobilier.com', 'https://www.dwiraimmobilier.com');
+const MESSENGER_VERIFY_TOKEN = String(process.env.MESSENGER_VERIFY_TOKEN || '').trim();
+const MESSENGER_PAGE_ACCESS_TOKEN = String(process.env.MESSENGER_PAGE_ACCESS_TOKEN || '').trim();
+const MESSENGER_APP_SECRET = String(process.env.MESSENGER_APP_SECRET || '').trim();
+const MESSENGER_API_VERSION = String(process.env.MESSENGER_API_VERSION || 'v21.0').trim();
 const ALLOWED_ORIGINS = [
   ...String(process.env.FRONTEND_URL || CANONICAL_FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
   CANONICAL_FRONTEND_URL,
@@ -58,6 +62,105 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function decodeBase64Url(value) {
+  const input = String(value || '').trim();
+  if (!input) return '';
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return Buffer.from(`${normalized}${padding}`, 'base64').toString('utf8');
+}
+
+function parseMessengerRef(rawRef) {
+  const ref = String(rawRef || '').trim();
+  if (!ref) return null;
+  if (ref.startsWith('dwira_prop:')) {
+    try {
+      const encoded = ref.slice('dwira_prop:'.length);
+      const decoded = decodeBase64Url(encoded);
+      const parsed = JSON.parse(decoded);
+      const propertyUrl = String(parsed?.u || '').trim();
+      const title = String(parsed?.t || '').trim();
+      if (!propertyUrl) return null;
+      return { propertyUrl, title: title || null };
+    } catch (error) {
+      console.warn('Failed to parse Messenger ref payload:', error.message);
+      return null;
+    }
+  }
+  if (/^https?:\/\//i.test(ref)) {
+    return { propertyUrl: ref, title: null };
+  }
+  return null;
+}
+
+function isMessengerSignatureValid(req) {
+  if (!MESSENGER_APP_SECRET) return true;
+  const signatureHeader = String(req.headers['x-hub-signature-256'] || '');
+  if (!signatureHeader.startsWith('sha256=')) return false;
+  const expected = signatureHeader.slice('sha256='.length);
+  const body = Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from('');
+  const digest = crypto.createHmac('sha256', MESSENGER_APP_SECRET).update(body).digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(digest, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+async function sendMessengerText(psid, text) {
+  if (!MESSENGER_PAGE_ACCESS_TOKEN) {
+    throw new Error('MESSENGER_PAGE_ACCESS_TOKEN missing');
+  }
+  const recipientId = String(psid || '').trim();
+  const messageText = String(text || '').trim();
+  if (!recipientId || !messageText) return null;
+
+  const endpoint = new URL(`https://graph.facebook.com/${MESSENGER_API_VERSION}/me/messages`);
+  endpoint.searchParams.set('access_token', MESSENGER_PAGE_ACCESS_TOKEN);
+  const response = await fetch(endpoint.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_type: 'RESPONSE',
+      recipient: { id: recipientId },
+      message: { text: messageText },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.error) {
+    const errorMessage = payload?.error?.message || `Messenger Send API failed (${response.status})`;
+    throw new Error(errorMessage);
+  }
+  return payload;
+}
+
+async function upsertMessengerContact({ pagePsid, pageId, lastRef, propertyUrl, propertyTitle }) {
+  const psid = String(pagePsid || '').trim();
+  if (!psid) return;
+  const now = getAgencySqlDateTime();
+  await pool.query(
+    `INSERT INTO messenger_contacts (page_psid, page_id, last_ref, last_property_url, last_property_title, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       page_id = VALUES(page_id),
+       last_ref = VALUES(last_ref),
+       last_property_url = VALUES(last_property_url),
+       last_property_title = VALUES(last_property_title),
+       updated_at = VALUES(updated_at)`,
+    [
+      psid,
+      String(pageId || '').trim() || null,
+      String(lastRef || '').trim() || null,
+      String(propertyUrl || '').trim() || null,
+      String(propertyTitle || '').trim() || null,
+      now,
+      now,
+    ]
+  );
+}
+
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
@@ -68,7 +171,11 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buffer) => {
+    req.rawBody = buffer;
+  },
+}));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -1824,6 +1931,24 @@ async function ensureZonesSchema() {
   }
 }
 
+async function ensureMessengerSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messenger_contacts (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      page_psid VARCHAR(64) NOT NULL,
+      page_id VARCHAR(64) NULL,
+      last_ref VARCHAR(512) NULL,
+      last_property_url VARCHAR(500) NULL,
+      last_property_title VARCHAR(255) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_messenger_psid (page_psid),
+      KEY idx_messenger_updated_at (updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 async function upsertSocialUser({ email, name, avatar, provider, providerUserId }) {
   const userId = `u${Date.now()}`;
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -2635,6 +2760,7 @@ pool.getConnection()
   .then(() => ensureClientelesTasksSchema())
   .then(() => ensureReservationDemandSchema())
   .then(() => ensureZonesSchema())
+  .then(() => ensureMessengerSchema())
   .then(() => ensureBiensWorkflowSchema())
   .then(() => {
     console.log('✅ Auth schema and bien workflow ready');
@@ -5057,6 +5183,71 @@ app.get('/api/auth/providers', (req, res) => {
     phoneOtp: phoneOtpConfigured,
     emailOtp: emailOtpConfigured,
   });
+});
+
+app.get('/api/messenger/webhook', (req, res) => {
+  const mode = String(req.query['hub.mode'] || '').trim();
+  const token = String(req.query['hub.verify_token'] || '').trim();
+  const challenge = String(req.query['hub.challenge'] || '').trim();
+
+  if (mode === 'subscribe' && MESSENGER_VERIFY_TOKEN && token === MESSENGER_VERIFY_TOKEN) {
+    return res.status(200).send(challenge || 'ok');
+  }
+  return res.status(403).json({ error: 'Webhook verification failed' });
+});
+
+app.post('/api/messenger/webhook', async (req, res) => {
+  try {
+    if (!isMessengerSignatureValid(req)) {
+      return res.status(401).json({ error: 'Invalid Messenger signature' });
+    }
+
+    const body = req.body || {};
+    if (body.object !== 'page') {
+      return res.status(200).json({ ok: true, ignored: true });
+    }
+
+    const entries = Array.isArray(body.entry) ? body.entry : [];
+    for (const entry of entries) {
+      const pageId = String(entry?.id || '').trim();
+      const messagingEvents = Array.isArray(entry?.messaging) ? entry.messaging : [];
+      for (const event of messagingEvents) {
+        const senderId = String(event?.sender?.id || '').trim();
+        if (!senderId) continue;
+        if (event?.message?.is_echo) continue;
+
+        const rawRef =
+          String(event?.referral?.ref || '').trim()
+          || String(event?.postback?.referral?.ref || '').trim()
+          || '';
+        const parsedRef = parseMessengerRef(rawRef);
+
+        await upsertMessengerContact({
+          pagePsid: senderId,
+          pageId,
+          lastRef: rawRef || null,
+          propertyUrl: parsedRef?.propertyUrl || null,
+          propertyTitle: parsedRef?.title || null,
+        });
+
+        if (parsedRef?.propertyUrl) {
+          const link = parsedRef.propertyUrl;
+          const title = parsedRef.title ? ` : ${parsedRef.title}` : '';
+          const text = `Bonjour, voici le lien du bien${title}\n${link}`;
+          try {
+            await sendMessengerText(senderId, text);
+          } catch (sendError) {
+            console.error('Messenger auto-reply failed:', sendError.message);
+          }
+        }
+      }
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error('Messenger webhook error:', error);
+    return res.status(500).json({ error: 'Messenger webhook failed' });
+  }
 });
 
 app.post('/api/auth/phone/direct-login', async (req, res) => {

@@ -80,7 +80,7 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
   const threadUrl = buildMessengerWebLink(page);
-  openDeepLink(buildMessengerAppLink(page), threadUrl);
+  window.location.assign(threadUrl);
 }
 
 export function buildPropertyShareMessage(title: string, url: string) {
@@ -94,23 +94,28 @@ type MessengerPropertyPayload = {
   imageUrl?: string | null;
 };
 
+function encodeMessengerRef(payload: { propertyUrl: string; title?: string }) {
+  const json = JSON.stringify({
+    u: String(payload.propertyUrl || '').trim(),
+    t: String(payload.title || '').trim(),
+  });
+  return `dwira_prop:${btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
+}
+
 export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
   const page = payload.page || DEFAULT_MESSENGER_PAGE;
-  const appId = String(import.meta.env.VITE_FACEBOOK_APP_ID || '').trim();
   const propertyUrl = String(payload.propertyUrl || '').trim();
-
-  if (appId && propertyUrl) {
-    const params = new URLSearchParams({
-      app_id: appId,
-      link: propertyUrl,
-      redirect_uri: propertyUrl,
-    });
-    return `https://www.facebook.com/dialog/send?${params.toString()}`;
-  }
-  return buildMessengerWebLink(page);
+  if (!propertyUrl) return buildMessengerWebLink(page);
+  const ref = encodeMessengerRef({ propertyUrl, title: payload.title });
+  const params = new URLSearchParams({ ref });
+  return `${buildMessengerWebLink(page)}?${params.toString()}`;
 }
 
 export async function openMessengerPropertyConversation(payload: MessengerPropertyPayload) {
   const target = buildMessengerPropertyLink(payload);
-  openDeepLink(target, target);
+  if (!target) {
+    window.location.assign(buildMessengerWebLink(payload.page || DEFAULT_MESSENGER_PAGE));
+    return;
+  }
+  window.location.assign(target);
 }
