@@ -306,6 +306,18 @@ const IMMEUBLE_VENTE_BOOLEAN_LABELS: Record<(typeof IMMEUBLE_VENTE_BOOLEAN_FIELD
 const IMMEUBLE_VENTE_DETAIL_FEATURES = new Set(
   Object.values(IMMEUBLE_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
 );
+const isManagedDetailFeatureForContext = (
+  normalizedFeatureName: string,
+  mode: BienMode,
+  type: BienType
+) => {
+  if (mode !== 'vente') return false;
+  if (type === 'appartement') return APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizedFeatureName);
+  if (type === 'local_commercial') return LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizedFeatureName);
+  if (type === 'terrain') return TERRAIN_VENTE_DETAIL_FEATURES.has(normalizedFeatureName);
+  if (type === 'immeuble') return IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizedFeatureName);
+  return false;
+};
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
 const DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT = 3;
 const DEFAULT_COMMISSION_CLIENT_PERCENT = 2;
@@ -1786,6 +1798,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               canAddToCurrentContext: true,
               payload,
             });
+            toast.error('Caracteristique existante. Confirmez son ajout pour ce mode/type dans la fenetre.');
             return;
           }
         }
@@ -1840,10 +1853,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const parsedUnit = newFeatureUnit.trim();
     if (!value) return toast.error('Nom de caracteristique requis');
     const normalizedValue = normalizeFeatureName(value);
-    if (APPARTEMENT_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
-    if (LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
-    if (TERRAIN_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
-    if (IMMEUBLE_VENTE_DETAIL_FEATURES.has(normalizedValue)) return;
+    if (isManagedDetailFeatureForContext(normalizedValue, selectedMode, selectedType)) {
+      return toast.error('Cette caracteristique est geree automatiquement dans les details de ce mode/type');
+    }
     if (availableFeatures.some((feature) => normalizeFeatureName(feature.nom || '') === normalizedValue)) {
       setFeatureExistsDialog({
         open: true,
@@ -1853,6 +1865,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         canAddToCurrentContext: false,
         payload: null,
       });
+      toast.error('Caracteristique deja existante pour ce mode/type');
       return;
     }
     if (newFeatureType === 'valeur' && !parsedUnit) {
