@@ -3327,6 +3327,22 @@ app.post('/api/locataires', async (req, res) => {
   }
 });
 
+app.delete('/api/zones/:id', async (req, res) => {
+  try {
+    const zoneId = String(req.params.id || '').trim();
+    if (!zoneId) return res.status(400).json({ error: 'id zone requis' });
+    const [linkedBiens] = await pool.query('SELECT COUNT(*) AS total FROM biens WHERE zone_id = ?', [zoneId]);
+    if (Number(linkedBiens[0]?.total || 0) > 0) {
+      return res.status(400).json({ error: 'Suppression impossible: cette zone est utilisee par des biens' });
+    }
+    await pool.query('DELETE FROM zones WHERE id = ?', [zoneId]);
+    res.json({ message: 'Zone deleted' });
+  } catch (error) {
+    console.error('Error deleting zone:', error);
+    res.status(500).json({ error: 'Failed to delete zone' });
+  }
+});
+
 app.put('/api/locataires/:id', async (req, res) => {
   try {
     const { nom, telephone, email, cin, score_fiabilite } = req.body;

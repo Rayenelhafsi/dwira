@@ -745,7 +745,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newZoneGouvernerat, setNewZoneGouvernerat] = useState('');
   const [newZoneRegion, setNewZoneRegion] = useState('');
   const [newZoneQuartier, setNewZoneQuartier] = useState('');
-  const [newZoneGoogleMapsUrl, setNewZoneGoogleMapsUrl] = useState('');
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
@@ -2071,7 +2070,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         gouvernerat: newZoneGouvernerat.trim(),
         region: newZoneRegion.trim(),
         quartier: newZoneQuartier.trim(),
-        google_maps_url: newZoneGoogleMapsUrl.trim() || null
       };
       const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
@@ -2082,7 +2080,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setNewZoneGouvernerat('');
       setNewZoneRegion('');
       setNewZoneQuartier('');
-      setNewZoneGoogleMapsUrl('');
       setShowAddZone(false);
       toast.success('Zone ajoutée');
     } catch {
@@ -2483,6 +2480,33 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     await onSubmit(finalData);
   };
   const selectedProprietaire = proprietaireOptions.find((p) => p.id === (formData.proprietaire_id || ''));
+  const normalizeZoneToken = (value?: string | null) => String(value || '').trim().toLowerCase();
+  const paysOptions = Array.from(new Set(zonesOptions.map((z) => String(z.pays || '').trim()).filter(Boolean)));
+  const gouverneratOptions = Array.from(new Set(
+    zonesOptions
+      .filter((z) => !newZonePays.trim() || normalizeZoneToken(z.pays) === normalizeZoneToken(newZonePays))
+      .map((z) => String(z.gouvernerat || '').trim())
+      .filter(Boolean)
+  ));
+  const regionOptions = Array.from(new Set(
+    zonesOptions
+      .filter((z) =>
+        (!newZonePays.trim() || normalizeZoneToken(z.pays) === normalizeZoneToken(newZonePays))
+        && (!newZoneGouvernerat.trim() || normalizeZoneToken(z.gouvernerat) === normalizeZoneToken(newZoneGouvernerat))
+      )
+      .map((z) => String(z.region || '').trim())
+      .filter(Boolean)
+  ));
+  const quartierOptions = Array.from(new Set(
+    zonesOptions
+      .filter((z) =>
+        (!newZonePays.trim() || normalizeZoneToken(z.pays) === normalizeZoneToken(newZonePays))
+        && (!newZoneGouvernerat.trim() || normalizeZoneToken(z.gouvernerat) === normalizeZoneToken(newZoneGouvernerat))
+        && (!newZoneRegion.trim() || normalizeZoneToken(z.region) === normalizeZoneToken(newZoneRegion))
+      )
+      .map((z) => String(z.quartier || '').trim())
+      .filter(Boolean)
+  ));
   const isAppartementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement';
   const isLocalCommercialVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial';
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
@@ -2760,6 +2784,40 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       await loadFeatureTabs(selectedMode, selectedType);
     }
   };
+  const handleDeleteSelectedZone = async () => {
+    const zoneId = String(formData.zone_id || '').trim();
+    if (!zoneId) return toast.error('Aucune zone selectionnee');
+    if (!window.confirm('Supprimer cette zone ?')) return;
+    try {
+      const response = await fetch(`${API_URL}/zones/${encodeURIComponent(zoneId)}`, { method: 'DELETE' });
+      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+      if (!response.ok) throw new Error(payload?.error || 'Suppression zone impossible');
+      const nextZones = zonesOptions.filter((item) => item.id !== zoneId);
+      setZonesOptions(nextZones);
+      setFormData((prev) => ({ ...prev, zone_id: nextZones[0]?.id || '' }));
+      toast.success('Zone supprimee');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur suppression zone';
+      toast.error(message);
+    }
+  };
+  const handleDeleteSelectedProprietaire = async () => {
+    const ownerId = String(formData.proprietaire_id || '').trim();
+    if (!ownerId) return toast.error('Aucun proprietaire selectionne');
+    if (!window.confirm('Supprimer ce proprietaire ?')) return;
+    try {
+      const response = await fetch(`${API_URL}/proprietaires/${encodeURIComponent(ownerId)}`, { method: 'DELETE' });
+      const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+      if (!response.ok) throw new Error(payload?.error || 'Suppression proprietaire impossible');
+      const nextOwners = proprietaireOptions.filter((item) => item.id !== ownerId);
+      setProprietaireOptions(nextOwners);
+      setFormData((prev) => ({ ...prev, proprietaire_id: nextOwners[0]?.id || '' }));
+      toast.success('Proprietaire supprime');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur suppression proprietaire';
+      toast.error(message);
+    }
+  };
 
   const handleUiSectionVisibilityChange = (key: keyof BienUiConfig, checked: boolean) => {
     setUiSectionVisible(key, checked);
@@ -2875,14 +2933,28 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Localisation (Zone)</label>
                   <select name="zone_id" value={formData.zone_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{zonesOptions.map(z => <option key={z.id} value={z.id}>{z.nom}</option>)}</select>
-                  <button type="button" onClick={() => setShowAddZone(!showAddZone)} className="text-xs text-emerald-700 hover:underline">+ Ajouter une zone</button>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => setShowAddZone(!showAddZone)} className="text-xs text-emerald-700 hover:underline">+ Ajouter une zone</button>
+                    <button type="button" onClick={handleDeleteSelectedZone} className="text-xs text-red-600 hover:underline">Supprimer zone sélectionnée</button>
+                  </div>
                   {showAddZone && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                      <input type="text" value={newZonePays} onChange={(e) => setNewZonePays(e.target.value)} placeholder="Pays" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newZoneGouvernerat} onChange={(e) => setNewZoneGouvernerat(e.target.value)} placeholder="Gouvernerat" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newZoneRegion} onChange={(e) => setNewZoneRegion(e.target.value)} placeholder="Region" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newZoneQuartier} onChange={(e) => setNewZoneQuartier(e.target.value)} placeholder="Zone/Quartier" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="url" value={newZoneGoogleMapsUrl} onChange={(e) => setNewZoneGoogleMapsUrl(e.target.value)} placeholder="Lien Google Maps (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" list="zone-pays-options" required aria-required="true" value={newZonePays} onChange={(e) => { setNewZonePays(e.target.value); setNewZoneGouvernerat(''); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Pays *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <datalist id="zone-pays-options">
+                        {paysOptions.map((item) => <option key={`pays-${item}`} value={item} />)}
+                      </datalist>
+                      <input type="text" list="zone-gouvernerat-options" required aria-required="true" disabled={!newZonePays.trim()} value={newZoneGouvernerat} onChange={(e) => { setNewZoneGouvernerat(e.target.value); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Gouvernerat *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+                      <datalist id="zone-gouvernerat-options">
+                        {gouverneratOptions.map((item) => <option key={`gouv-${item}`} value={item} />)}
+                      </datalist>
+                      <input type="text" list="zone-region-options" required aria-required="true" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim()} value={newZoneRegion} onChange={(e) => { setNewZoneRegion(e.target.value); setNewZoneQuartier(''); }} placeholder="Region *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+                      <datalist id="zone-region-options">
+                        {regionOptions.map((item) => <option key={`region-${item}`} value={item} />)}
+                      </datalist>
+                      <input type="text" list="zone-quartier-options" required aria-required="true" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim() || !newZoneRegion.trim()} value={newZoneQuartier} onChange={(e) => setNewZoneQuartier(e.target.value)} placeholder="Zone/Quartier *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+                      <datalist id="zone-quartier-options">
+                        {quartierOptions.map((item) => <option key={`quartier-${item}`} value={item} />)}
+                      </datalist>
                       <button type="button" onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer zone</button>
                     </div>
                   )}
@@ -2890,7 +2962,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Propriétaire</label>
                   <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{proprietaireOptions.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}</select>
-                  <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriétaire</button>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriétaire</button>
+                    <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propriétaire sélectionné</button>
+                  </div>
                   {showAddProprietaire && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
                       <input type="text" value={newOwnerName} onChange={(e) => setNewOwnerName(e.target.value)} placeholder="Nom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
