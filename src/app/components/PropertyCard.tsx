@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
 import { Property } from "../data/properties";
-import { buildMessengerWebLink, buildTelLink, getPublicContactForMode, openWhatsAppApp } from "../utils/deepLinks";
+import { buildTelLink, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
 
 interface PropertyCardProps {
   property: Property;
@@ -14,6 +14,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     ? `${baseDetailPath}?${searchParams}`
     : baseDetailPath;
   const contactConfig = getPublicContactForMode(property.mode);
+  const propertyUrl = typeof window !== 'undefined' ? new URL(linkTo, window.location.origin).toString() : linkTo;
   const ratingDisplay = Number.isFinite(property.rating)
     ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
     : "0,0";
@@ -79,10 +80,19 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             <MessageCircle size={14} />
             <span>WhatsApp</span>
           </button>
-          <a href={buildMessengerWebLink(contactConfig.messengerPage)} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap">
+          <button
+            type="button"
+            onClick={() => openMessengerPropertyConversation({
+              page: contactConfig.messengerPage,
+              propertyUrl,
+              title: property.title,
+              imageUrl: property.images?.[0] || null,
+            })}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap"
+          >
             <MessageCircle size={14} />
             <span>Messenger</span>
-          </a>
+          </button>
         </div>
       </div>
     </div>

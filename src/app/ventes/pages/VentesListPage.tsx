@@ -4,7 +4,7 @@ import { Bien } from '../../admin/types';
 import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
-import { buildMessengerWebLink, buildTelLink, openWhatsAppApp } from '../../utils/deepLinks';
+import { buildTelLink, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from '../../utils/deepLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -107,6 +107,10 @@ export default function VentesListPage() {
               const imageUrl = resolveMediaUrl(displayImages[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200&auto=format&fit=crop';
               const publicPrice = getPublicPrice(bien);
               const contactPhone = normalizePhone(proprietaires.find((owner) => owner.id === bien.proprietaire_id)?.telephone) || DEFAULT_CONTACT_PHONE;
+              const contactConfig = getPublicContactForMode(bien.mode);
+              const propertyUrl = typeof window !== 'undefined'
+                ? new URL(`/ventes/${bien.type}/${bien.id}`, window.location.origin).toString()
+                : `/ventes/${bien.type}/${bien.id}`;
 
               return (
                 <Card key={bien.id} className="overflow-hidden hover:shadow-2xl transition-all duration-300 border-2 hover:border-emerald-500">
@@ -228,10 +232,19 @@ export default function VentesListPage() {
                         <MessageCircle className="w-4 h-4" />
                         WhatsApp
                       </button>
-                      <a href={buildMessengerWebLink()} className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-500 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50">
+                      <button
+                        type="button"
+                        onClick={() => openMessengerPropertyConversation({
+                          page: contactConfig.messengerPage,
+                          propertyUrl,
+                          title: bien.titre,
+                          imageUrl,
+                        })}
+                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-500 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+                      >
                         <MessageCircle className="w-4 h-4" />
                         Messenger
-                      </a>
+                      </button>
                     </div>
                   </div>
                 </Card>
