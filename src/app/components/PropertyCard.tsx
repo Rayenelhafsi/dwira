@@ -21,9 +21,11 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const handleMessengerClick = () => {
     void openMessengerPropertyConversation({
       page: contactConfig.messengerPage,
+      pageId: contactConfig.messengerPageId,
       propertyUrl,
       title: property.title,
       imageUrl: property.images?.[0] || null,
+      reference: property.reference || null,
     });
   };
     

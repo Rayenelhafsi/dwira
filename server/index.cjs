@@ -94,15 +94,16 @@ function parseMessengerRef(rawRef) {
       const propertyUrl = String(parsed?.u || '').trim();
       const title = String(parsed?.t || '').trim();
       const imageUrl = String(parsed?.i || '').trim();
+      const reference = String(parsed?.r || '').trim();
       if (!propertyUrl) return null;
-      return { propertyUrl, title: title || null, imageUrl: imageUrl || null };
+      return { propertyUrl, title: title || null, imageUrl: imageUrl || null, reference: reference || null };
     } catch (error) {
       console.warn('Failed to parse Messenger ref payload:', error.message);
       return null;
     }
   }
   if (/^https?:\/\//i.test(ref)) {
-    return { propertyUrl: ref, title: null, imageUrl: null };
+    return { propertyUrl: ref, title: null, imageUrl: null, reference: null };
   }
   return null;
 }
@@ -5313,18 +5314,21 @@ app.post('/api/messenger/webhook', async (req, res) => {
         let replyPropertyUrl = parsedRef?.propertyUrl || null;
         let replyPropertyTitle = parsedRef?.title || null;
         let replyImageUrl = parsedRef?.imageUrl || null;
+        let replyReference = parsedRef?.reference || null;
         if (!replyPropertyUrl) {
           const existingContact = await getMessengerContactByPsid(senderId);
           replyPropertyUrl = String(existingContact?.last_property_url || '').trim() || null;
           replyPropertyTitle = String(existingContact?.last_property_title || '').trim() || null;
           const parsedLastRef = parseMessengerRef(String(existingContact?.last_ref || '').trim());
           replyImageUrl = parsedLastRef?.imageUrl || null;
+          replyReference = parsedLastRef?.reference || null;
         }
 
         if (replyPropertyUrl) {
           const link = replyPropertyUrl;
           const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
-          const text = `Vous etes interesse par le logement${title} dans notre site ?\n${link}`;
+          const referenceSegment = replyReference ? ` Reference ${replyReference}` : '';
+          const text = `Vous etes interesse par le logement${title}${referenceSegment} dans notre site ?\n${link}`;
           try {
             if (replyImageUrl) {
               await sendMessengerImage(senderId, replyImageUrl, pageId);

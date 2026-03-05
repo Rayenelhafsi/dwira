@@ -1,7 +1,9 @@
 export const DEFAULT_CONTACT_PHONE = '+21652080695';
 export const DEFAULT_MESSENGER_PAGE = 'dwiraimmo2';
+export const DEFAULT_MESSENGER_PAGE_ID = '337429332783552';
 export const LOCATION_CONTACT_PHONE = '+21629879227';
 export const LOCATION_MESSENGER_PAGE = 'Dwiraimmobilier';
+export const LOCATION_MESSENGER_PAGE_ID = '163909273467177';
 
 export function getPublicContactForMode(mode?: string | null) {
   const normalizedMode = String(mode || '').trim();
@@ -9,11 +11,13 @@ export function getPublicContactForMode(mode?: string | null) {
     return {
       phone: LOCATION_CONTACT_PHONE,
       messengerPage: LOCATION_MESSENGER_PAGE,
+      messengerPageId: LOCATION_MESSENGER_PAGE_ID,
     };
   }
   return {
     phone: DEFAULT_CONTACT_PHONE,
     messengerPage: DEFAULT_MESSENGER_PAGE,
+    messengerPageId: DEFAULT_MESSENGER_PAGE_ID,
   };
 }
 
@@ -45,8 +49,16 @@ export function buildMessengerWebLink(page: string = DEFAULT_MESSENGER_PAGE) {
   return `https://m.me/${page}`;
 }
 
-export function buildMessengerAppLink(page: string = DEFAULT_MESSENGER_PAGE) {
-  return buildMessengerWebLink(page);
+export function buildMessengerAppLink(page: string = DEFAULT_MESSENGER_PAGE, pageId?: string | null, ref?: string | null) {
+  const normalizedPageId = String(pageId || '').trim();
+  const normalizedRef = String(ref || '').trim();
+  if (normalizedPageId) {
+    const query = normalizedRef ? `?ref=${encodeURIComponent(normalizedRef)}` : '';
+    return `fb-messenger://user-thread/${normalizedPageId}${query}`;
+  }
+  const webUrl = buildMessengerWebLink(page);
+  const target = normalizedRef ? `${webUrl}?ref=${encodeURIComponent(normalizedRef)}` : webUrl;
+  return `fb-messenger://share?link=${encodeURIComponent(target)}`;
 }
 
 export function openDeepLink(appUrl: string, fallbackUrl: string) {
@@ -80,7 +92,7 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
   const threadUrl = buildMessengerWebLink(page);
-  window.location.assign(threadUrl);
+  openDeepLink(buildMessengerAppLink(page), threadUrl);
 }
 
 export function buildPropertyShareMessage(title: string, url: string) {
@@ -89,27 +101,37 @@ export function buildPropertyShareMessage(title: string, url: string) {
 
 type MessengerPropertyPayload = {
   page?: string;
+  pageId?: string | null;
   propertyUrl: string;
   title?: string;
   imageUrl?: string | null;
+  reference?: string | null;
 };
 
-function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imageUrl?: string | null }) {
+function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imageUrl?: string | null; reference?: string | null }) {
   const json = JSON.stringify({
     u: String(payload.propertyUrl || '').trim(),
     t: String(payload.title || '').trim(),
     i: String(payload.imageUrl || '').trim(),
+    r: String(payload.reference || '').trim(),
   });
   return `dwira_prop:${btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
 }
 
 export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
   const page = payload.page || DEFAULT_MESSENGER_PAGE;
+  const pageId = String(payload.pageId || '').trim();
   const propertyUrl = String(payload.propertyUrl || '').trim();
   if (!propertyUrl) return buildMessengerWebLink(page);
-  const ref = encodeMessengerRef({ propertyUrl, title: payload.title, imageUrl: payload.imageUrl || null });
-  const params = new URLSearchParams({ ref });
-  return `${buildMessengerWebLink(page)}?${params.toString()}`;
+  const ref = encodeMessengerRef({
+    propertyUrl,
+    title: payload.title,
+    imageUrl: payload.imageUrl || null,
+    reference: payload.reference || null,
+  });
+  const webUrl = `${buildMessengerWebLink(page)}?${new URLSearchParams({ ref }).toString()}`;
+  const appUrl = buildMessengerAppLink(page, pageId, ref);
+  return `${appUrl}|||${webUrl}`;
 }
 
 export async function openMessengerPropertyConversation(payload: MessengerPropertyPayload) {
@@ -118,5 +140,6 @@ export async function openMessengerPropertyConversation(payload: MessengerProper
     window.location.assign(buildMessengerWebLink(payload.page || DEFAULT_MESSENGER_PAGE));
     return;
   }
-  window.location.assign(target);
+  const [appUrl, webUrl] = target.split('|||');
+  openDeepLink(appUrl || webUrl, webUrl || appUrl);
 }

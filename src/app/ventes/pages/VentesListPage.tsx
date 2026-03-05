@@ -114,9 +114,11 @@ export default function VentesListPage() {
               const handleMessengerClick = () => {
                 void openMessengerPropertyConversation({
                   page: contactConfig.messengerPage,
+                  pageId: contactConfig.messengerPageId,
                   propertyUrl,
                   title: bien.titre,
                   imageUrl,
+                  reference: bien.reference || null,
                 });
               };
 
