@@ -737,6 +737,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
+  const [featureChoiceValuesById, setFeatureChoiceValuesById] = useState<Record<string, string[]>>({});
+  const [featureValueById, setFeatureValueById] = useState<Record<string, string>>({});
   const [showAddZone, setShowAddZone] = useState(false);
   const [showAddProprietaire, setShowAddProprietaire] = useState(false);
   const [newZoneName, setNewZoneName] = useState('');
@@ -939,6 +941,24 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     void loadAvailableFeatures(selectedMode, selectedType);
     void loadFeatureTabs(selectedMode, selectedType);
   }, [formData.mode, formData.type]);
+  useEffect(() => {
+    const allowedIds = new Set(availableFeatures.map((feature) => String(feature.id || '')));
+    setSelectedFeatureIds((prev) => prev.filter((id) => allowedIds.has(String(id || ''))));
+    setFeatureChoiceValuesById((prev) => {
+      const next: Record<string, string[]> = {};
+      Object.entries(prev).forEach(([id, values]) => {
+        if (allowedIds.has(id)) next[id] = Array.isArray(values) ? values : [];
+      });
+      return next;
+    });
+    setFeatureValueById((prev) => {
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([id, value]) => {
+        if (allowedIds.has(id)) next[id] = String(value || '');
+      });
+      return next;
+    });
+  }, [availableFeatures]);
 
   useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
@@ -2420,7 +2440,24 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       description: formData.description || '',
       caracteristiques: availableFeatures
         .filter((feature) => selectedFeatureIds.includes(feature.id) && Number(feature.visibilite_client) !== 0)
-        .map((feature) => feature.nom),
+        .map((feature) => {
+          const featureType = feature.type_caracteristique === 'valeur'
+            ? 'valeur'
+            : feature.type_caracteristique === 'choix_multiple'
+              ? 'choix_multiple'
+              : 'simple';
+          const featureId = String(feature.id || '');
+          if (featureType === 'choix_multiple') {
+            const selectedChoice = (featureChoiceValuesById[featureId] || [])[0] || '';
+            return selectedChoice ? `${feature.nom}: ${selectedChoice}` : feature.nom;
+          }
+          if (featureType === 'valeur') {
+            const rawValue = String(featureValueById[featureId] || '').trim();
+            const unit = String(feature.unite || '').trim();
+            return rawValue ? `${feature.nom}: ${rawValue}${unit ? ` ${unit}` : ''}` : feature.nom;
+          }
+          return feature.nom;
+        }),
       caracteristique_ids: selectedFeatureIds,
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       media: imagesWithPositions,
@@ -2460,19 +2497,76 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     || detailTabsForRender.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('caracteristique'))?.id
     || detailTabsForRender[0]?.id
     || 'informations_generales';
+  const setFeatureSelected = (featureId: string, checked: boolean) => {
+    setSelectedFeatureIds((prev) => {
+      if (checked) return prev.includes(featureId) ? prev : [...prev, featureId];
+      return prev.filter((id) => id !== featureId);
+    });
+  };
+  const renderFeatureControl = (feature: Caracteristique, keyPrefix: string) => {
+    const featureType = feature.type_caracteristique === 'valeur'
+      ? 'valeur'
+      : feature.type_caracteristique === 'choix_multiple'
+        ? 'choix_multiple'
+        : 'simple';
+    const featureId = String(feature.id || '');
+    if (featureType === 'choix_multiple') {
+      const options = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
+      const selectedValue = (featureChoiceValuesById[featureId] || [])[0] || '';
+      return (
+        <div key={`${keyPrefix}-${featureId}`} className="p-2 rounded border border-gray-200">
+          <label className="block text-sm font-medium text-gray-700 mb-1">{feature.nom}</label>
+          <select
+            value={selectedValue}
+            onChange={(e) => {
+              const nextValue = String(e.target.value || '').trim();
+              setFeatureChoiceValuesById((prev) => ({ ...prev, [featureId]: nextValue ? [nextValue] : [] }));
+              setFeatureSelected(featureId, nextValue.length > 0);
+            }}
+            className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+          >
+            <option value="">-- Choisir --</option>
+            {options.map((option) => <option key={`${featureId}-${option}`} value={option}>{option}</option>)}
+          </select>
+        </div>
+      );
+    }
+    if (featureType === 'valeur') {
+      const unit = String(feature.unite || '').trim();
+      const currentValue = String(featureValueById[featureId] || '');
+      return (
+        <div key={`${keyPrefix}-${featureId}`} className="p-2 rounded border border-gray-200">
+          <label className="block text-sm font-medium text-gray-700 mb-1">{feature.nom}{unit ? ` (${unit})` : ''}</label>
+          <input
+            type="number"
+            step="0.01"
+            min={0}
+            value={currentValue}
+            onChange={(e) => {
+              const nextValue = String(e.target.value || '');
+              setFeatureValueById((prev) => ({ ...prev, [featureId]: nextValue }));
+              setFeatureSelected(featureId, String(nextValue).trim().length > 0);
+            }}
+            className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+          />
+        </div>
+      );
+    }
+    return (
+      <label key={`${keyPrefix}-${featureId}`} className="inline-flex items-center gap-2 text-sm text-gray-700 p-2 rounded border border-gray-200">
+        <input
+          type="checkbox"
+          checked={selectedFeatureIds.includes(featureId)}
+          onChange={(e) => setFeatureSelected(featureId, e.target.checked)}
+        />
+        <span>{feature.nom}</span>
+      </label>
+    );
+  };
   const renderTerrainTabFeatures = () => (
     <div className="mt-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {terrainTabFeatures.map((feature) => (
-          <label key={`terrain-tab-${feature.id}`} className="inline-flex items-center gap-2 text-sm text-gray-700 p-2 rounded border border-gray-200">
-            <input
-              type="checkbox"
-              checked={selectedFeatureIds.includes(feature.id)}
-              onChange={(e) => setSelectedFeatureIds((prev) => e.target.checked ? [...prev, feature.id] : prev.filter((id) => id !== feature.id))}
-            />
-            <span>{feature.nom}</span>
-          </label>
-        ))}
+        {terrainTabFeatures.map((feature) => renderFeatureControl(feature, 'terrain-tab'))}
         {terrainTabFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique dans cet onglet</span>}
       </div>
     </div>
@@ -2480,16 +2574,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const renderDetailTabFeatures = () => (
     <div className="mt-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {detailTabFeatures.map((feature) => (
-          <label key={`detail-tab-${feature.id}`} className="inline-flex items-center gap-2 text-sm text-gray-700 p-2 rounded border border-gray-200">
-            <input
-              type="checkbox"
-              checked={selectedFeatureIds.includes(feature.id)}
-              onChange={(e) => setSelectedFeatureIds((prev) => e.target.checked ? [...prev, feature.id] : prev.filter((id) => id !== feature.id))}
-            />
-            <span>{feature.nom}</span>
-          </label>
-        ))}
+        {detailTabFeatures.map((feature) => renderFeatureControl(feature, 'detail-tab'))}
         {detailTabFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique dans cet onglet</span>}
       </div>
     </div>
