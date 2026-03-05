@@ -16,6 +16,10 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const CANONICAL_FRONTEND_URL = String(FRONTEND_URL || '').trim().replace('https://dwiraimmobilier.com', 'https://www.dwiraimmobilier.com');
 const MESSENGER_VERIFY_TOKEN = String(process.env.MESSENGER_VERIFY_TOKEN || '').trim();
 const MESSENGER_PAGE_ACCESS_TOKEN = String(process.env.MESSENGER_PAGE_ACCESS_TOKEN || '').trim();
+const MESSENGER_PAGE_ACCESS_TOKEN_LOCATION = String(process.env.MESSENGER_PAGE_ACCESS_TOKEN_LOCATION || '').trim();
+const MESSENGER_PAGE_ACCESS_TOKEN_VENTE = String(process.env.MESSENGER_PAGE_ACCESS_TOKEN_VENTE || '').trim();
+const MESSENGER_PAGE_ID_LOCATION = String(process.env.MESSENGER_PAGE_ID_LOCATION || '').trim();
+const MESSENGER_PAGE_ID_VENTE = String(process.env.MESSENGER_PAGE_ID_VENTE || '').trim();
 const MESSENGER_APP_SECRET = String(process.env.MESSENGER_APP_SECRET || '').trim();
 const MESSENGER_API_VERSION = String(process.env.MESSENGER_API_VERSION || 'v21.0').trim();
 const ALLOWED_ORIGINS = [
@@ -107,16 +111,31 @@ function isMessengerSignatureValid(req) {
   }
 }
 
-async function sendMessengerText(psid, text) {
-  if (!MESSENGER_PAGE_ACCESS_TOKEN) {
-    throw new Error('MESSENGER_PAGE_ACCESS_TOKEN missing');
+function resolveMessengerPageAccessToken(pageId) {
+  const normalizedPageId = String(pageId || '').trim();
+  if (normalizedPageId && MESSENGER_PAGE_ID_LOCATION && normalizedPageId === MESSENGER_PAGE_ID_LOCATION) {
+    return MESSENGER_PAGE_ACCESS_TOKEN_LOCATION || MESSENGER_PAGE_ACCESS_TOKEN;
+  }
+  if (normalizedPageId && MESSENGER_PAGE_ID_VENTE && normalizedPageId === MESSENGER_PAGE_ID_VENTE) {
+    return MESSENGER_PAGE_ACCESS_TOKEN_VENTE || MESSENGER_PAGE_ACCESS_TOKEN;
+  }
+  if (normalizedPageId && MESSENGER_PAGE_ACCESS_TOKEN_LOCATION && !MESSENGER_PAGE_ID_LOCATION && !MESSENGER_PAGE_ID_VENTE) {
+    return MESSENGER_PAGE_ACCESS_TOKEN_LOCATION;
+  }
+  return MESSENGER_PAGE_ACCESS_TOKEN;
+}
+
+async function sendMessengerText(psid, text, pageId = null) {
+  const pageAccessToken = resolveMessengerPageAccessToken(pageId);
+  if (!pageAccessToken) {
+    throw new Error('Messenger page access token missing');
   }
   const recipientId = String(psid || '').trim();
   const messageText = String(text || '').trim();
   if (!recipientId || !messageText) return null;
 
   const endpoint = new URL(`https://graph.facebook.com/${MESSENGER_API_VERSION}/me/messages`);
-  endpoint.searchParams.set('access_token', MESSENGER_PAGE_ACCESS_TOKEN);
+  endpoint.searchParams.set('access_token', pageAccessToken);
   const response = await fetch(endpoint.toString(), {
     method: 'POST',
     headers: {
@@ -5235,7 +5254,7 @@ app.post('/api/messenger/webhook', async (req, res) => {
           const title = parsedRef.title ? ` : ${parsedRef.title}` : '';
           const text = `Bonjour, voici le lien du bien${title}\n${link}`;
           try {
-            await sendMessengerText(senderId, text);
+            await sendMessengerText(senderId, text, pageId);
           } catch (sendError) {
             console.error('Messenger auto-reply failed:', sendError.message);
           }
