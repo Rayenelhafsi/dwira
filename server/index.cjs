@@ -48,14 +48,23 @@ function getAgencySqlDateTime(date = new Date()) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    hourCycle: 'h23',
     hour12: false,
   }).formatToParts(date);
-  const year = parts.find((part) => part.type === 'year')?.value || '1970';
-  const month = parts.find((part) => part.type === 'month')?.value || '01';
-  const day = parts.find((part) => part.type === 'day')?.value || '01';
-  const hour = parts.find((part) => part.type === 'hour')?.value || '00';
+  let year = parts.find((part) => part.type === 'year')?.value || '1970';
+  let month = parts.find((part) => part.type === 'month')?.value || '01';
+  let day = parts.find((part) => part.type === 'day')?.value || '01';
+  let hour = parts.find((part) => part.type === 'hour')?.value || '00';
   const minute = parts.find((part) => part.type === 'minute')?.value || '00';
   const second = parts.find((part) => part.type === 'second')?.value || '00';
+  // Guard against rare locale edge-case returning hour "24" which MySQL rejects.
+  if (hour === '24') {
+    const next = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day) + 1));
+    year = String(next.getUTCFullYear());
+    month = String(next.getUTCMonth() + 1).padStart(2, '0');
+    day = String(next.getUTCDate()).padStart(2, '0');
+    hour = '00';
+  }
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
