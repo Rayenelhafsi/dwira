@@ -180,6 +180,19 @@ async function upsertMessengerContact({ pagePsid, pageId, lastRef, propertyUrl, 
   );
 }
 
+async function getMessengerContactByPsid(pagePsid) {
+  const psid = String(pagePsid || '').trim();
+  if (!psid) return null;
+  const [rows] = await pool.query(
+    `SELECT page_psid, page_id, last_ref, last_property_url, last_property_title, updated_at
+     FROM messenger_contacts
+     WHERE page_psid = ?
+     LIMIT 1`,
+    [psid]
+  );
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
@@ -5249,9 +5262,17 @@ app.post('/api/messenger/webhook', async (req, res) => {
           propertyTitle: parsedRef?.title || null,
         });
 
-        if (parsedRef?.propertyUrl) {
-          const link = parsedRef.propertyUrl;
-          const title = parsedRef.title ? ` : ${parsedRef.title}` : '';
+        let replyPropertyUrl = parsedRef?.propertyUrl || null;
+        let replyPropertyTitle = parsedRef?.title || null;
+        if (!replyPropertyUrl) {
+          const existingContact = await getMessengerContactByPsid(senderId);
+          replyPropertyUrl = String(existingContact?.last_property_url || '').trim() || null;
+          replyPropertyTitle = String(existingContact?.last_property_title || '').trim() || null;
+        }
+
+        if (replyPropertyUrl) {
+          const link = replyPropertyUrl;
+          const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
           const text = `Bonjour, voici le lien du bien${title}\n${link}`;
           try {
             await sendMessengerText(senderId, text, pageId);
