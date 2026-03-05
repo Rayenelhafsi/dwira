@@ -2057,19 +2057,22 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
 
   const handleAddZone = async () => {
-    if (!newZonePays.trim()) return toast.error('Pays requis');
-    if (!newZoneGouvernerat.trim()) return toast.error('Gouvernerat requis');
-    if (!newZoneRegion.trim()) return toast.error('Region requise');
-    if (!newZoneQuartier.trim()) return toast.error('Zone/Quartier requis');
+    const hasAnyZoneField = [
+      newZonePays,
+      newZoneGouvernerat,
+      newZoneRegion,
+      newZoneQuartier,
+    ].some((value) => String(value || '').trim().length > 0);
+    if (!hasAnyZoneField) return toast.error('Renseignez au moins un champ de zone');
     try {
       const computedNom = [newZoneQuartier.trim(), newZoneRegion.trim(), newZoneGouvernerat.trim(), newZonePays.trim()].filter(Boolean).join(', ');
       const payload = {
         id: `z${Date.now()}`,
-        nom: computedNom,
-        pays: newZonePays.trim(),
-        gouvernerat: newZoneGouvernerat.trim(),
-        region: newZoneRegion.trim(),
-        quartier: newZoneQuartier.trim(),
+        nom: computedNom || `Zone ${Date.now()}`,
+        pays: newZonePays.trim() || null,
+        gouvernerat: newZoneGouvernerat.trim() || null,
+        region: newZoneRegion.trim() || null,
+        quartier: newZoneQuartier.trim() || null,
       };
       const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
@@ -2939,19 +2942,19 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   </div>
                   {showAddZone && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                      <input type="text" list="zone-pays-options" required aria-required="true" value={newZonePays} onChange={(e) => { setNewZonePays(e.target.value); setNewZoneGouvernerat(''); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Pays *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" list="zone-pays-options" value={newZonePays} onChange={(e) => { setNewZonePays(e.target.value); setNewZoneGouvernerat(''); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Pays" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <datalist id="zone-pays-options">
                         {paysOptions.map((item) => <option key={`pays-${item}`} value={item} />)}
                       </datalist>
-                      <input type="text" list="zone-gouvernerat-options" required aria-required="true" disabled={!newZonePays.trim()} value={newZoneGouvernerat} onChange={(e) => { setNewZoneGouvernerat(e.target.value); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Gouvernerat *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+                      <input type="text" list="zone-gouvernerat-options" disabled={!newZonePays.trim()} value={newZoneGouvernerat} onChange={(e) => { setNewZoneGouvernerat(e.target.value); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Gouvernerat" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
                       <datalist id="zone-gouvernerat-options">
                         {gouverneratOptions.map((item) => <option key={`gouv-${item}`} value={item} />)}
                       </datalist>
-                      <input type="text" list="zone-region-options" required aria-required="true" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim()} value={newZoneRegion} onChange={(e) => { setNewZoneRegion(e.target.value); setNewZoneQuartier(''); }} placeholder="Region *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+                      <input type="text" list="zone-region-options" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim()} value={newZoneRegion} onChange={(e) => { setNewZoneRegion(e.target.value); setNewZoneQuartier(''); }} placeholder="Region" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
                       <datalist id="zone-region-options">
                         {regionOptions.map((item) => <option key={`region-${item}`} value={item} />)}
                       </datalist>
-                      <input type="text" list="zone-quartier-options" required aria-required="true" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim() || !newZoneRegion.trim()} value={newZoneQuartier} onChange={(e) => setNewZoneQuartier(e.target.value)} placeholder="Zone/Quartier *" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+                      <input type="text" list="zone-quartier-options" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim() || !newZoneRegion.trim()} value={newZoneQuartier} onChange={(e) => setNewZoneQuartier(e.target.value)} placeholder="Zone/Quartier" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
                       <datalist id="zone-quartier-options">
                         {quartierOptions.map((item) => <option key={`quartier-${item}`} value={item} />)}
                       </datalist>
