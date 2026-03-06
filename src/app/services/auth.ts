@@ -1,4 +1,5 @@
 import { buildApiUrl, fetchJsonWithApiFallback } from '../utils/api';
+import { openDeepLink } from '../utils/deepLinks';
 
 export interface AuthUser {
   id?: string;
@@ -118,6 +119,36 @@ export async function verifyPhoneOtp(telephone: string, code: string): Promise<A
   return data.user;
 }
 
+function isMobileBrowserForFacebookAppLogin() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = String(navigator.userAgent || '');
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+  const isInAppBrowser = /FBAN|FBAV|FB_IAB|Instagram|Line\/|Twitter/i.test(ua);
+  return isMobile && !isInAppBrowser;
+}
+
 export function startSocialLogin(provider: 'google' | 'facebook') {
+  if (provider === 'facebook' && isMobileBrowserForFacebookAppLogin()) {
+    void (async () => {
+      try {
+        const response = await fetch(buildApiUrl('/auth/facebook/authorize-url'), { credentials: 'include' });
+        if (!response.ok) {
+          window.location.replace(buildApiUrl('/auth/facebook/start'));
+          return;
+        }
+        const payload = (await response.json()) as { url?: string };
+        const oauthUrl = String(payload?.url || '').trim();
+        if (!oauthUrl) {
+          window.location.replace(buildApiUrl('/auth/facebook/start'));
+          return;
+        }
+        const appUrl = `fb://facewebmodal/f?href=${encodeURIComponent(oauthUrl)}`;
+        openDeepLink(appUrl, oauthUrl);
+      } catch {
+        window.location.replace(buildApiUrl('/auth/facebook/start'));
+      }
+    })();
+    return;
+  }
   window.location.replace(buildApiUrl(`/auth/${provider}/start`));
 }

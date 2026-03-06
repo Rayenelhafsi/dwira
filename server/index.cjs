@@ -80,6 +80,21 @@ function isMobileUserAgent(userAgent = '') {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
 }
 
+function buildFacebookOauthUrl({ mobilePreferred = false } = {}) {
+  const clientId = process.env.FACEBOOK_CLIENT_ID;
+  const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
+  if (!clientId) return null;
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'email,public_profile',
+    display: mobilePreferred ? 'touch' : 'page',
+  });
+  const oauthHost = mobilePreferred ? 'https://m.facebook.com' : 'https://www.facebook.com';
+  return `${oauthHost}/v21.0/dialog/oauth?${params.toString()}`;
+}
+
 function decodeBase64Url(value) {
   const input = String(value || '').trim();
   if (!input) return '';
@@ -5576,24 +5591,21 @@ app.get('/api/auth/google/callback', async (req, res) => {
 });
 
 app.get('/api/auth/facebook/start', async (req, res) => {
-  const clientId = process.env.FACEBOOK_CLIENT_ID;
-  const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
   const mobilePreferred = isMobileUserAgent(req.headers['user-agent']);
-
-  if (!clientId) {
+  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred });
+  if (!oauthUrl) {
     return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
   }
+  res.redirect(oauthUrl);
+});
 
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: 'email,public_profile',
-    display: mobilePreferred ? 'touch' : 'page',
-  });
-
-  const oauthHost = mobilePreferred ? 'https://m.facebook.com' : 'https://www.facebook.com';
-  res.redirect(`${oauthHost}/v21.0/dialog/oauth?${params.toString()}`);
+app.get('/api/auth/facebook/authorize-url', (req, res) => {
+  const mobilePreferred = isMobileUserAgent(req.headers['user-agent']);
+  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred });
+  if (!oauthUrl) {
+    return res.status(503).json({ error: 'facebook_config_missing' });
+  }
+  res.json({ url: oauthUrl });
 });
 
 app.get('/api/auth/facebook/callback', async (req, res) => {
