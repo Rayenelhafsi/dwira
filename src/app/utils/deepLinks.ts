@@ -139,7 +139,6 @@ function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imag
 
 export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
   const page = payload.page || DEFAULT_MESSENGER_PAGE;
-  const pageId = String(payload.pageId || '').trim();
   const propertyUrl = String(payload.propertyUrl || '').trim();
   const webThreadBase = buildMessengerWebLink(page);
   if (!propertyUrl) return webThreadBase;
@@ -150,8 +149,7 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
     reference: payload.reference || null,
   });
   const webUrl = `${webThreadBase}?${new URLSearchParams({ ref }).toString()}`;
-  const appUrl = buildMessengerAppLink(page, pageId, ref);
-  return `${appUrl}|||${webUrl}`;
+  return webUrl;
 }
 
 export async function openMessengerPropertyConversation(payload: MessengerPropertyPayload) {
@@ -161,12 +159,5 @@ export async function openMessengerPropertyConversation(payload: MessengerProper
     window.location.assign(buildMessengerWebLink(page));
     return;
   }
-  const [appUrl, webUrl] = target.split('|||');
-  const appTarget = appUrl || webUrl;
-  const webTarget = webUrl || appUrl;
-  if (!isMobileDevice() || isRestrictedInAppBrowser()) {
-    window.location.assign(webTarget);
-    return;
-  }
-  openDeepLink(appTarget, webTarget);
+  window.location.assign(target);
 }
