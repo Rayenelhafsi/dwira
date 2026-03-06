@@ -366,6 +366,7 @@ let mediaHasPositionColumn = true;
 const socialAuthSessions = new Map();
 const phoneOtpSessions = new Map();
 const emailOtpSessions = new Map();
+const recentMessengerContexts = new Map();
 const BIEN_MODES = ['vente', 'location_annuelle', 'location_saisonniere'];
 const BIEN_TYPES_BY_MODE = {
   vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'lotissement', 'local_commercial'],
@@ -5322,6 +5323,16 @@ app.post('/api/messenger/webhook', async (req, res) => {
           || String(event?.postback?.referral?.ref || '').trim()
           || '';
         const parsedRef = parseMessengerRef(rawRef);
+        const contextKey = `${pageId}:${senderId}`;
+        if (parsedRef?.propertyUrl) {
+          recentMessengerContexts.set(contextKey, {
+            propertyUrl: parsedRef.propertyUrl,
+            title: parsedRef.title || null,
+            imageUrl: parsedRef.imageUrl || null,
+            reference: parsedRef.reference || null,
+            updatedAt: Date.now(),
+          });
+        }
         console.log('Messenger event', {
           pageId,
           senderId,
@@ -5350,6 +5361,16 @@ app.post('/api/messenger/webhook', async (req, res) => {
           const parsedLastRef = parseMessengerRef(String(existingContact?.last_ref || '').trim());
           replyImageUrl = parsedLastRef?.imageUrl || null;
           replyReference = parsedLastRef?.reference || null;
+          if (!replyPropertyUrl) {
+            const recent = recentMessengerContexts.get(contextKey);
+            const ageMs = Date.now() - Number(recent?.updatedAt || 0);
+            if (recent?.propertyUrl && ageMs >= 0 && ageMs < 2 * 60 * 60 * 1000) {
+              replyPropertyUrl = String(recent.propertyUrl || '').trim() || null;
+              replyPropertyTitle = String(recent.title || '').trim() || null;
+              replyImageUrl = String(recent.imageUrl || '').trim() || null;
+              replyReference = String(recent.reference || '').trim() || null;
+            }
+          }
         }
 
         if (replyPropertyUrl) {
