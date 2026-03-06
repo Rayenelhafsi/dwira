@@ -142,7 +142,7 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
   const page = payload.page || DEFAULT_MESSENGER_PAGE;
   const pageId = String(payload.pageId || '').trim();
   const propertyUrl = String(payload.propertyUrl || '').trim();
-  const webThreadBase = pageId ? `https://www.facebook.com/messages/t/${pageId}` : buildMessengerWebLink(page);
+  const webThreadBase = buildMessengerWebLink(page);
   if (!propertyUrl) return webThreadBase;
   const ref = encodeMessengerRef({
     propertyUrl,
@@ -159,8 +159,7 @@ export async function openMessengerPropertyConversation(payload: MessengerProper
   const target = buildMessengerPropertyLink(payload);
   if (!target) {
     const page = payload.page || DEFAULT_MESSENGER_PAGE;
-    const pageId = String(payload.pageId || '').trim();
-    window.location.assign(pageId ? `https://www.facebook.com/messages/t/${pageId}` : buildMessengerWebLink(page));
+    window.location.assign(buildMessengerWebLink(page));
     return;
   }
   const [appUrl, webUrl] = target.split('|||');
