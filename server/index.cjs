@@ -224,6 +224,65 @@ async function sendMessengerImage(psid, imageUrl, pageId = null) {
   return payload;
 }
 
+async function sendMessengerGenericCard(psid, card, pageId = null) {
+  const pageAccessToken = resolveMessengerPageAccessToken(pageId);
+  if (!pageAccessToken) {
+    throw new Error('Messenger page access token missing');
+  }
+  const recipientId = String(psid || '').trim();
+  const title = String(card?.title || '').trim();
+  const subtitle = String(card?.subtitle || '').trim();
+  const imageUrl = String(card?.imageUrl || '').trim();
+  const webUrl = String(card?.url || '').trim();
+  if (!recipientId || !title || !webUrl) return null;
+
+  const endpoint = new URL(`https://graph.facebook.com/${MESSENGER_API_VERSION}/me/messages`);
+  endpoint.searchParams.set('access_token', pageAccessToken);
+  const response = await fetch(endpoint.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_type: 'RESPONSE',
+      recipient: { id: recipientId },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'generic',
+            elements: [
+              {
+                title,
+                subtitle: subtitle || undefined,
+                image_url: /^https?:\/\//i.test(imageUrl) ? imageUrl : undefined,
+                default_action: {
+                  type: 'web_url',
+                  url: webUrl,
+                  webview_height_ratio: 'full',
+                },
+                buttons: [
+                  {
+                    type: 'web_url',
+                    url: webUrl,
+                    title: 'Voir le bien',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.error) {
+    const errorMessage = payload?.error?.message || `Messenger generic card send failed (${response.status})`;
+    throw new Error(errorMessage);
+  }
+  return payload;
+}
+
 async function upsertMessengerContact({ pagePsid, pageId, lastRef, propertyUrl, propertyTitle }) {
   const psid = String(pagePsid || '').trim();
   if (!psid) return;
@@ -5402,9 +5461,20 @@ app.post('/api/messenger/webhook', async (req, res) => {
           const text = `Vous etes interesse par le logement${title}${referenceSegment} dans notre site ?\n${link}`;
           if (replyImageUrl) {
             try {
-              await sendMessengerImage(senderId, replyImageUrl, pageId);
-            } catch (imageError) {
-              console.error('Messenger image auto-reply failed:', imageError.message);
+              const cardTitle = replyPropertyTitle || `Logement ${replyReference || ''}`.trim() || 'Logement Dwira';
+              const cardSubtitle = replyReference ? `Reference ${replyReference}` : 'Dwira Immobilier';
+              await sendMessengerGenericCard(
+                senderId,
+                {
+                  title: cardTitle,
+                  subtitle: cardSubtitle,
+                  imageUrl: replyImageUrl,
+                  url: link,
+                },
+                pageId
+              );
+            } catch (cardError) {
+              console.error('Messenger card auto-reply failed:', cardError.message);
             }
           }
           try {

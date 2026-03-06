@@ -129,9 +129,20 @@ type MessengerPropertyPayload = {
 };
 
 function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imageUrl?: string | null; reference?: string | null }) {
+  const rawImage = String(payload.imageUrl || '').trim();
+  let compactImage = '';
+  if (rawImage) {
+    try {
+      const parsed = new URL(rawImage);
+      compactImage = `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      compactImage = rawImage.split('?')[0];
+    }
+  }
   // Keep payload compact: long refs can be truncated by Messenger and break auto-reply context.
   const json = JSON.stringify({
     u: String(payload.propertyUrl || '').trim(),
+    i: compactImage,
     r: String(payload.reference || '').trim(),
     c: Date.now(),
   });
