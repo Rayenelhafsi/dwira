@@ -133,6 +133,7 @@ function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imag
   const json = JSON.stringify({
     u: String(payload.propertyUrl || '').trim(),
     r: String(payload.reference || '').trim(),
+    c: Date.now(),
   });
   return `dwira_prop:${btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
 }
