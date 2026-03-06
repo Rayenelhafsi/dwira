@@ -5322,6 +5322,14 @@ app.post('/api/messenger/webhook', async (req, res) => {
           || String(event?.postback?.referral?.ref || '').trim()
           || '';
         const parsedRef = parseMessengerRef(rawRef);
+        console.log('Messenger event', {
+          pageId,
+          senderId,
+          hasMessage: Boolean(event?.message),
+          hasReferral: Boolean(event?.referral || event?.postback?.referral),
+          hasRawRef: Boolean(rawRef),
+          hasParsedProperty: Boolean(parsedRef?.propertyUrl),
+        });
 
         await upsertMessengerContact({
           pagePsid: senderId,
@@ -5360,6 +5368,16 @@ app.post('/api/messenger/webhook', async (req, res) => {
             await sendMessengerText(senderId, text, pageId);
           } catch (textError) {
             console.error('Messenger text auto-reply failed:', textError.message);
+          }
+        } else if (event?.message?.text || event?.postback) {
+          try {
+            await sendMessengerText(
+              senderId,
+              'Merci pour votre message. Envoyez-nous le lien du bien pour vous repondre rapidement.',
+              pageId
+            );
+          } catch (fallbackError) {
+            console.error('Messenger fallback reply failed:', fallbackError.message);
           }
         }
       }
