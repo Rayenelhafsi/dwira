@@ -128,6 +128,19 @@ function parseMessengerRef(rawRef) {
   return null;
 }
 
+function extractPropertySlugFromUrl(propertyUrl) {
+  const raw = String(propertyUrl || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    const match = parsed.pathname.match(/\/properties\/([^/?#]+)/i);
+    return match && match[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    const match = raw.match(/\/properties\/([^/?#]+)/i);
+    return match && match[1] ? decodeURIComponent(match[1]) : null;
+  }
+}
+
 function isMessengerSignatureValid(req) {
   if (!MESSENGER_APP_SECRET) return true;
   const signatureHeader = String(req.headers['x-hub-signature-256'] || '');
@@ -319,6 +332,27 @@ async function getMessengerContactByPsid(pagePsid) {
     [psid]
   );
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
+async function resolvePropertyImageUrl(propertyUrl) {
+  const slug = extractPropertySlugFromUrl(propertyUrl);
+  if (!slug) return null;
+  try {
+    const [rows] = await pool.query(
+      `SELECT m.url
+       FROM biens b
+       JOIN media m ON m.bien_id = b.id
+       WHERE b.slug = ? AND m.type = 'image'
+       ORDER BY COALESCE(m.position, 9999) ASC, m.id ASC
+       LIMIT 1`,
+      [slug]
+    );
+    const url = String(rows?.[0]?.url || '').trim();
+    return url || null;
+  } catch (error) {
+    console.warn('Failed to resolve property image from DB:', error.message);
+    return null;
+  }
 }
 
 // Middleware
@@ -5399,6 +5433,7 @@ app.post('/api/messenger/webhook', async (req, res) => {
           hasReferral: Boolean(event?.referral || event?.postback?.referral),
           hasRawRef: Boolean(rawRef),
           hasParsedProperty: Boolean(parsedRef?.propertyUrl),
+          hasParsedImage: Boolean(parsedRef?.imageUrl),
         });
 
         await upsertMessengerContact({
@@ -5455,6 +5490,9 @@ app.post('/api/messenger/webhook', async (req, res) => {
         }
 
         if (replyPropertyUrl) {
+          if (!replyImageUrl) {
+            replyImageUrl = await resolvePropertyImageUrl(replyPropertyUrl);
+          }
           const link = replyPropertyUrl;
           const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
           const referenceSegment = replyReference ? ` Reference ${replyReference}` : '';
