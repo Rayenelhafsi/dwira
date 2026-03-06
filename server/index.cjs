@@ -128,6 +128,19 @@ function parseMessengerRef(rawRef) {
   return null;
 }
 
+function extractPropertySlugFromUrl(propertyUrl) {
+  const raw = String(propertyUrl || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    const match = parsed.pathname.match(/\/properties\/([^/?#]+)/i);
+    return match && match[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    const match = raw.match(/\/properties\/([^/?#]+)/i);
+    return match && match[1] ? decodeURIComponent(match[1]) : null;
+  }
+}
+
 function isMessengerSignatureValid(req) {
   if (!MESSENGER_APP_SECRET) return true;
   const signatureHeader = String(req.headers['x-hub-signature-256'] || '');
@@ -224,6 +237,65 @@ async function sendMessengerImage(psid, imageUrl, pageId = null) {
   return payload;
 }
 
+async function sendMessengerGenericCard(psid, card, pageId = null) {
+  const pageAccessToken = resolveMessengerPageAccessToken(pageId);
+  if (!pageAccessToken) {
+    throw new Error('Messenger page access token missing');
+  }
+  const recipientId = String(psid || '').trim();
+  const title = String(card?.title || '').trim();
+  const subtitle = String(card?.subtitle || '').trim();
+  const imageUrl = String(card?.imageUrl || '').trim();
+  const webUrl = String(card?.url || '').trim();
+  if (!recipientId || !title || !webUrl) return null;
+
+  const endpoint = new URL(`https://graph.facebook.com/${MESSENGER_API_VERSION}/me/messages`);
+  endpoint.searchParams.set('access_token', pageAccessToken);
+  const response = await fetch(endpoint.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_type: 'RESPONSE',
+      recipient: { id: recipientId },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'generic',
+            elements: [
+              {
+                title,
+                subtitle: subtitle || undefined,
+                image_url: /^https?:\/\//i.test(imageUrl) ? imageUrl : undefined,
+                default_action: {
+                  type: 'web_url',
+                  url: webUrl,
+                  webview_height_ratio: 'full',
+                },
+                buttons: [
+                  {
+                    type: 'web_url',
+                    url: webUrl,
+                    title: 'Voir le bien',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.error) {
+    const errorMessage = payload?.error?.message || `Messenger generic card send failed (${response.status})`;
+    throw new Error(errorMessage);
+  }
+  return payload;
+}
+
 async function upsertMessengerContact({ pagePsid, pageId, lastRef, propertyUrl, propertyTitle }) {
   const psid = String(pagePsid || '').trim();
   if (!psid) return;
@@ -260,6 +332,27 @@ async function getMessengerContactByPsid(pagePsid) {
     [psid]
   );
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
+async function resolvePropertyImageUrl(propertyUrl) {
+  const slug = extractPropertySlugFromUrl(propertyUrl);
+  if (!slug) return null;
+  try {
+    const [rows] = await pool.query(
+      `SELECT m.url
+       FROM biens b
+       JOIN media m ON m.bien_id = b.id
+       WHERE b.slug = ? AND m.type = 'image'
+       ORDER BY COALESCE(m.position, 9999) ASC, m.id ASC
+       LIMIT 1`,
+      [slug]
+    );
+    const url = String(rows?.[0]?.url || '').trim();
+    return url || null;
+  } catch (error) {
+    console.warn('Failed to resolve property image from DB:', error.message);
+    return null;
+  }
 }
 
 // Middleware
@@ -5340,6 +5433,7 @@ app.post('/api/messenger/webhook', async (req, res) => {
           hasReferral: Boolean(event?.referral || event?.postback?.referral),
           hasRawRef: Boolean(rawRef),
           hasParsedProperty: Boolean(parsedRef?.propertyUrl),
+          hasParsedImage: Boolean(parsedRef?.imageUrl),
         });
 
         await upsertMessengerContact({
@@ -5374,15 +5468,29 @@ app.post('/api/messenger/webhook', async (req, res) => {
         }
 
         if (replyPropertyUrl) {
+          if (!replyImageUrl) {
+            replyImageUrl = await resolvePropertyImageUrl(replyPropertyUrl);
+          }
           const link = replyPropertyUrl;
           const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
           const referenceSegment = replyReference ? ` Reference ${replyReference}` : '';
           const text = `Vous etes interesse par le logement${title}${referenceSegment} dans notre site ?\n${link}`;
           if (replyImageUrl) {
             try {
-              await sendMessengerImage(senderId, replyImageUrl, pageId);
-            } catch (imageError) {
-              console.error('Messenger image auto-reply failed:', imageError.message);
+              const cardTitle = replyPropertyTitle || `Logement ${replyReference || ''}`.trim() || 'Logement Dwira';
+              const cardSubtitle = replyReference ? `Reference ${replyReference}` : 'Dwira Immobilier';
+              await sendMessengerGenericCard(
+                senderId,
+                {
+                  title: cardTitle,
+                  subtitle: cardSubtitle,
+                  imageUrl: replyImageUrl,
+                  url: link,
+                },
+                pageId
+              );
+            } catch (cardError) {
+              console.error('Messenger card auto-reply failed:', cardError.message);
             }
           }
           try {
