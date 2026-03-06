@@ -5349,13 +5349,17 @@ app.post('/api/messenger/webhook', async (req, res) => {
           const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
           const referenceSegment = replyReference ? ` Reference ${replyReference}` : '';
           const text = `Vous etes interesse par le logement${title}${referenceSegment} dans notre site ?\n${link}`;
-          try {
-            if (replyImageUrl) {
+          if (replyImageUrl) {
+            try {
               await sendMessengerImage(senderId, replyImageUrl, pageId);
+            } catch (imageError) {
+              console.error('Messenger image auto-reply failed:', imageError.message);
             }
+          }
+          try {
             await sendMessengerText(senderId, text, pageId);
-          } catch (sendError) {
-            console.error('Messenger auto-reply failed:', sendError.message);
+          } catch (textError) {
+            console.error('Messenger text auto-reply failed:', textError.message);
           }
         }
       }

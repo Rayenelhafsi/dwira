@@ -129,10 +129,9 @@ type MessengerPropertyPayload = {
 };
 
 function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imageUrl?: string | null; reference?: string | null }) {
+  // Keep payload compact: long refs can be truncated by Messenger and break auto-reply context.
   const json = JSON.stringify({
     u: String(payload.propertyUrl || '').trim(),
-    t: String(payload.title || '').trim(),
-    i: String(payload.imageUrl || '').trim(),
     r: String(payload.reference || '').trim(),
   });
   return `dwira_prop:${btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
