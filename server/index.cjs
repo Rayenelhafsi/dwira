@@ -5373,6 +5373,28 @@ app.post('/api/messenger/webhook', async (req, res) => {
           }
         }
 
+        // Some Messenger clients deliver first "message" and "referral" out-of-order.
+        // Wait briefly on first message without context, then resolve again before replying.
+        if (!replyPropertyUrl && (event?.message?.text || event?.postback)) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          const existingContactRetry = await getMessengerContactByPsid(senderId);
+          replyPropertyUrl = String(existingContactRetry?.last_property_url || '').trim() || null;
+          replyPropertyTitle = String(existingContactRetry?.last_property_title || '').trim() || null;
+          const parsedRetryRef = parseMessengerRef(String(existingContactRetry?.last_ref || '').trim());
+          replyImageUrl = parsedRetryRef?.imageUrl || replyImageUrl || null;
+          replyReference = parsedRetryRef?.reference || replyReference || null;
+          if (!replyPropertyUrl) {
+            const recentRetry = recentMessengerContexts.get(contextKey);
+            const ageRetryMs = Date.now() - Number(recentRetry?.updatedAt || 0);
+            if (recentRetry?.propertyUrl && ageRetryMs >= 0 && ageRetryMs < 2 * 60 * 60 * 1000) {
+              replyPropertyUrl = String(recentRetry.propertyUrl || '').trim() || null;
+              replyPropertyTitle = String(recentRetry.title || '').trim() || null;
+              replyImageUrl = String(recentRetry.imageUrl || '').trim() || null;
+              replyReference = String(recentRetry.reference || '').trim() || null;
+            }
+          }
+        }
+
         if (replyPropertyUrl) {
           const link = replyPropertyUrl;
           const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
@@ -5389,16 +5411,6 @@ app.post('/api/messenger/webhook', async (req, res) => {
             await sendMessengerText(senderId, text, pageId);
           } catch (textError) {
             console.error('Messenger text auto-reply failed:', textError.message);
-          }
-        } else if (event?.message?.text || event?.postback) {
-          try {
-            await sendMessengerText(
-              senderId,
-              'Merci pour votre message. Envoyez-nous le lien du bien pour vous repondre rapidement.',
-              pageId
-            );
-          } catch (fallbackError) {
-            console.error('Messenger fallback reply failed:', fallbackError.message);
           }
         }
       }
