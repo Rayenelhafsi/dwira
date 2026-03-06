@@ -334,24 +334,63 @@ async function getMessengerContactByPsid(pagePsid) {
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
 
-async function resolvePropertyImageUrl(propertyUrl) {
-  const slug = extractPropertySlugFromUrl(propertyUrl);
-  if (!slug) return null;
+async function resolvePropertyImageUrl(propertyUrl, propertyReference = null) {
+  const reference = String(propertyReference || '').trim();
+  if (!reference) return null;
   try {
     const [rows] = await pool.query(
       `SELECT m.url
        FROM biens b
        JOIN media m ON m.bien_id = b.id
-       WHERE b.slug = ? AND m.type = 'image'
+       WHERE b.reference = ? AND m.type = 'image'
        ORDER BY COALESCE(m.position, 9999) ASC, m.id ASC
        LIMIT 1`,
-      [slug]
+      [reference]
     );
     const url = String(rows?.[0]?.url || '').trim();
     return url || null;
   } catch (error) {
     console.warn('Failed to resolve property image from DB:', error.message);
     return null;
+  }
+}
+
+async function sendMessengerPropertyReply({ senderId, pageId, propertyUrl, propertyTitle, propertyImageUrl, propertyReference }) {
+  const link = String(propertyUrl || '').trim();
+  if (!link) return false;
+  let imageUrl = String(propertyImageUrl || '').trim() || null;
+  if (!imageUrl) {
+    imageUrl = await resolvePropertyImageUrl(link, propertyReference);
+  }
+
+  const titleSuffix = propertyTitle ? ` : ${propertyTitle}` : '';
+  const referenceSegment = propertyReference ? ` Reference ${propertyReference}` : '';
+  const text = `Vous etes interesse par le logement${titleSuffix}${referenceSegment} dans notre site ?\n${link}`;
+
+  if (imageUrl) {
+    try {
+      const cardTitle = propertyTitle || `Logement ${propertyReference || ''}`.trim() || 'Logement Dwira';
+      const cardSubtitle = propertyReference ? `Reference ${propertyReference}` : 'Dwira Immobilier';
+      await sendMessengerGenericCard(
+        senderId,
+        {
+          title: cardTitle,
+          subtitle: cardSubtitle,
+          imageUrl,
+          url: link,
+        },
+        pageId
+      );
+    } catch (cardError) {
+      console.error('Messenger card auto-reply failed:', cardError.message);
+    }
+  }
+  try {
+    await sendMessengerText(senderId, text, pageId);
+    return true;
+  } catch (textError) {
+    console.error('Messenger text auto-reply failed:', textError.message);
+    return false;
   }
 }
 
@@ -460,6 +499,7 @@ const socialAuthSessions = new Map();
 const phoneOtpSessions = new Map();
 const emailOtpSessions = new Map();
 const recentMessengerContexts = new Map();
+const pendingMessengerReplies = new Map();
 const BIEN_MODES = ['vente', 'location_annuelle', 'location_saisonniere'];
 const BIEN_TYPES_BY_MODE = {
   vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'lotissement', 'local_commercial'],
@@ -5417,6 +5457,7 @@ app.post('/api/messenger/webhook', async (req, res) => {
           || '';
         const parsedRef = parseMessengerRef(rawRef);
         const contextKey = `${pageId}:${senderId}`;
+        let sentViaReferralPending = false;
         if (parsedRef?.propertyUrl) {
           recentMessengerContexts.set(contextKey, {
             propertyUrl: parsedRef.propertyUrl,
@@ -5425,6 +5466,22 @@ app.post('/api/messenger/webhook', async (req, res) => {
             reference: parsedRef.reference || null,
             updatedAt: Date.now(),
           });
+          const pendingAt = Number(pendingMessengerReplies.get(contextKey) || 0);
+          const pendingAgeMs = Date.now() - pendingAt;
+          if (pendingAt > 0 && pendingAgeMs >= 0 && pendingAgeMs < 15 * 60 * 1000) {
+            const sent = await sendMessengerPropertyReply({
+              senderId,
+              pageId,
+              propertyUrl: parsedRef.propertyUrl,
+              propertyTitle: parsedRef.title || null,
+              propertyImageUrl: parsedRef.imageUrl || null,
+              propertyReference: parsedRef.reference || null,
+            });
+            if (sent) {
+              pendingMessengerReplies.delete(contextKey);
+              sentViaReferralPending = true;
+            }
+          }
         }
         console.log('Messenger event', {
           pageId,
@@ -5467,47 +5524,20 @@ app.post('/api/messenger/webhook', async (req, res) => {
           }
         }
 
-        if (replyPropertyUrl) {
-          if (!replyImageUrl) {
-            replyImageUrl = await resolvePropertyImageUrl(replyPropertyUrl);
+        if (!sentViaReferralPending && replyPropertyUrl) {
+          const sent = await sendMessengerPropertyReply({
+            senderId,
+            pageId,
+            propertyUrl: replyPropertyUrl,
+            propertyTitle: replyPropertyTitle,
+            propertyImageUrl: replyImageUrl,
+            propertyReference: replyReference,
+          });
+          if (sent) {
+            pendingMessengerReplies.delete(contextKey);
           }
-          const link = replyPropertyUrl;
-          const title = replyPropertyTitle ? ` : ${replyPropertyTitle}` : '';
-          const referenceSegment = replyReference ? ` Reference ${replyReference}` : '';
-          const text = `Vous etes interesse par le logement${title}${referenceSegment} dans notre site ?\n${link}`;
-          if (replyImageUrl) {
-            try {
-              const cardTitle = replyPropertyTitle || `Logement ${replyReference || ''}`.trim() || 'Logement Dwira';
-              const cardSubtitle = replyReference ? `Reference ${replyReference}` : 'Dwira Immobilier';
-              await sendMessengerGenericCard(
-                senderId,
-                {
-                  title: cardTitle,
-                  subtitle: cardSubtitle,
-                  imageUrl: replyImageUrl,
-                  url: link,
-                },
-                pageId
-              );
-            } catch (cardError) {
-              console.error('Messenger card auto-reply failed:', cardError.message);
-            }
-          }
-          try {
-            await sendMessengerText(senderId, text, pageId);
-          } catch (textError) {
-            console.error('Messenger text auto-reply failed:', textError.message);
-          }
-        } else if (event?.message?.text || event?.postback) {
-          try {
-            await sendMessengerText(
-              senderId,
-              'Merci pour votre message. Envoyez-nous le lien du bien pour vous repondre rapidement.',
-              pageId
-            );
-          } catch (fallbackError) {
-            console.error('Messenger fallback reply failed:', fallbackError.message);
-          }
+        } else if (!sentViaReferralPending && (event?.message?.text || event?.postback)) {
+          pendingMessengerReplies.set(contextKey, Date.now());
         }
       }
     }
