@@ -241,7 +241,9 @@ export type LocationSaisonniereConfig = {
   matelas_supplementaire_prix?: number | null;
   matelas_supplementaires_max?: number | null;
   avance_pourcentage?: number | null;
+  frais_menage_disponible?: boolean;
   frais_menage?: number | null;
+  frais_service_disponible?: boolean;
   frais_service?: number | null;
   services_payants?: ServicePayantBien[];
 };

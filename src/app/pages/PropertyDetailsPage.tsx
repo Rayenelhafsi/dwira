@@ -13,10 +13,33 @@ import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { toYouTubeEmbedUrl } from "../utils/videoLinks";
 
 const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+
+type FeatureApiRow = {
+  id: string;
+  nom: string;
+  onglet_id?: string | null;
+  onglet_nom?: string | null;
+  visibilite_client?: number | null;
+};
+
+type FeatureTabRow = {
+  id: string;
+  nom: string;
+  ordre?: number;
+};
+
+const normalizeFeatureName = (value: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 export default function PropertyDetailsPage() {
   // Use shared context for properties
-  const { properties } = useProperties();
+  const { properties, biens, zones } = useProperties();
   const { user } = useAuth();
   const navigate = useNavigate();
   
@@ -55,7 +78,9 @@ export default function PropertyDetailsPage() {
   const [selectedPaidServiceIds, setSelectedPaidServiceIds] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance'>('avance');
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
-  const [seasonalDetailsTab, setSeasonalDetailsTab] = useState<'regles' | 'sejour' | 'tarifs'>('regles');
+  const [seasonalDetailsTabId, setSeasonalDetailsTabId] = useState<string>('');
+  const [allFeatures, setAllFeatures] = useState<FeatureApiRow[]>([]);
+  const [featureTabs, setFeatureTabs] = useState<FeatureTabRow[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
@@ -64,6 +89,14 @@ export default function PropertyDetailsPage() {
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
+  const sourceBien = useMemo(
+    () => biens.find((item) => String(item.id) === String(property?.id)),
+    [biens, property?.id]
+  );
+  const selectedZone = useMemo(
+    () => zones.find((item) => item.id === sourceBien?.zone_id),
+    [sourceBien?.zone_id, zones]
+  );
   const seasonalConfig = property?.seasonalConfig;
   const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
@@ -81,8 +114,12 @@ export default function PropertyDetailsPage() {
   const fumeursLabel = seasonalConfig?.fumeurs ? ({ autorise: 'Autorise', interdit: 'Interdit', balcon_terrasse: 'Autorise sur balcon/terrasse' } as const)[seasonalConfig.fumeurs] : null;
   const alcoolLabel = seasonalConfig?.alcool ? ({ autorise: 'Autorise', interdit: 'Interdit' } as const)[seasonalConfig.alcool] : null;
   const animauxLabel = seasonalConfig?.animaux ? ({ autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' } as const)[seasonalConfig.animaux] : null;
-  const hasCleaningFee = !isSaleProperty && Number(property?.cleaningFee || 0) > 0;
-  const hasServiceFee = !isSaleProperty && Number(property?.serviceFee || 0) > 0;
+  const hasCleaningFee = !isSaleProperty
+    && (seasonalConfig?.fraisMenageDisponible !== false)
+    && Number(property?.cleaningFee || 0) > 0;
+  const hasServiceFee = !isSaleProperty
+    && (seasonalConfig?.fraisServiceDisponible !== false)
+    && Number(property?.serviceFee || 0) > 0;
   const activePaidServices = (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && Number(service.prix || 0) > 0 && String(service.label || '').trim().length > 0);
   const hasPaidServices = !isSaleProperty && activePaidServices.length > 0;
   const hasExtraMattress = !isSaleProperty && extraMattressMax > 0 && extraMattressPrice > 0;
@@ -128,6 +165,172 @@ export default function PropertyDetailsPage() {
     seasonalConfig?.montantCaution,
     seasonalConfig?.produitsAccueilGratuits,
     reglesResume,
+    standingLabel,
+    typeCautionLabel,
+    vueLabel,
+  ]);
+
+  useEffect(() => {
+    let disposed = false;
+    const load = async () => {
+      if (!sourceBien?.mode || !sourceBien?.type || !sourceBien?.id) {
+        if (!disposed) {
+          setAllFeatures([]);
+          setFeatureTabs([]);
+          setSeasonalDetailsTabId('');
+        }
+        return;
+      }
+      try {
+        const base = String(API_URL || '').replace(/\/+$/, '');
+        const normalizedBase = base.replace(/\/api$/i, '');
+        const mode = encodeURIComponent(String(sourceBien.mode));
+        const type = encodeURIComponent(String(sourceBien.type));
+        const bienId = encodeURIComponent(String(sourceBien.id));
+        const featureUrls = [
+          `${base}/caracteristiques?mode_bien=${mode}&type_bien=${type}&bien_id=${bienId}`,
+          `${normalizedBase}/api/caracteristiques?mode_bien=${mode}&type_bien=${type}&bien_id=${bienId}`,
+        ];
+        let featureResponse: Response | null = null;
+        for (const url of Array.from(new Set(featureUrls))) {
+          const next = await fetch(url);
+          featureResponse = next;
+          if (next.ok || next.status !== 404) break;
+        }
+        const featureRows = featureResponse?.ok ? await featureResponse.json() : [];
+        if (!disposed) setAllFeatures(Array.isArray(featureRows) ? featureRows : []);
+
+        const tabUrls = [
+          `${base}/caracteristique-onglets?mode_bien=${mode}&type_bien=${type}`,
+          `${normalizedBase}/api/caracteristique-onglets?mode_bien=${mode}&type_bien=${type}`,
+        ];
+        let tabResponse: Response | null = null;
+        for (const url of Array.from(new Set(tabUrls))) {
+          const next = await fetch(url);
+          tabResponse = next;
+          if (next.ok || next.status !== 404) break;
+        }
+        const tabRows = tabResponse?.ok ? await tabResponse.json() : [];
+        if (!disposed) setFeatureTabs(Array.isArray(tabRows) ? tabRows : []);
+      } catch {
+        if (!disposed) {
+          setAllFeatures([]);
+          setFeatureTabs([]);
+        }
+      }
+    };
+    void load();
+    return () => {
+      disposed = true;
+    };
+  }, [sourceBien?.id, sourceBien?.mode, sourceBien?.type]);
+
+  const selectedFeatureIds = useMemo(
+    () => new Set((Array.isArray(sourceBien?.caracteristique_ids) ? sourceBien?.caracteristique_ids : []).map((item) => String(item))),
+    [sourceBien?.caracteristique_ids]
+  );
+  const selectedFeatureNames = useMemo(
+    () => new Set((Array.isArray(sourceBien?.caracteristiques) ? sourceBien?.caracteristiques : []).map((item) => normalizeFeatureName(String(item)))),
+    [sourceBien?.caracteristiques]
+  );
+  const selectedVisibleFeatures = useMemo(
+    () => allFeatures.filter((feature) => {
+      const byId = selectedFeatureIds.has(String(feature.id || ''));
+      const byName = selectedFeatureNames.has(normalizeFeatureName(String(feature.nom || '')));
+      return (byId || byName) && Number(feature.visibilite_client) !== 0 && String(feature.onglet_id || '').trim().length > 0;
+    }),
+    [allFeatures, selectedFeatureIds, selectedFeatureNames]
+  );
+  const detailTabs = useMemo(() => {
+    const availableTabIds = new Set(selectedVisibleFeatures.map((item) => String(item.onglet_id || '')));
+    return featureTabs
+      .filter((tab) => availableTabIds.has(String(tab.id || '')))
+      .slice()
+      .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999));
+  }, [featureTabs, selectedVisibleFeatures]);
+  const selectedDetailFeatures = useMemo(
+    () => selectedVisibleFeatures.filter((item) => String(item.onglet_id || '') === seasonalDetailsTabId),
+    [seasonalDetailsTabId, selectedVisibleFeatures]
+  );
+
+  useEffect(() => {
+    if (detailTabs.length === 0) {
+      setSeasonalDetailsTabId('');
+      return;
+    }
+    if (!detailTabs.some((tab) => tab.id === seasonalDetailsTabId)) {
+      setSeasonalDetailsTabId(detailTabs[0].id);
+    }
+  }, [detailTabs, seasonalDetailsTabId]);
+
+  const valueForFeature = useCallback((featureName: string) => {
+    const key = normalizeFeatureName(featureName);
+    const zoneName = selectedZone?.nom || property?.location || '-';
+    const startsWith = (value: string) => key.startsWith(value) || key.includes(value);
+    if (startsWith('reference')) return sourceBien?.reference || '-';
+    if (startsWith('titre annonce')) return sourceBien?.titre || property?.title || '-';
+    if (startsWith('type logement')) return 'Appartement';
+    if (startsWith('zone') || startsWith('quartier')) return selectedZone?.quartier || zoneName;
+    if (startsWith('ville')) return selectedZone?.region || '-';
+    if (startsWith('gouvernerat')) return selectedZone?.gouvernerat || '-';
+    if (startsWith('coordonnees gps')) return '-';
+    if (startsWith('categorie standing')) return standingLabel || '-';
+    if (startsWith('etage')) return etageLabel || '-';
+    if (startsWith('ascenseur')) return seasonalConfig?.ascenseur ? 'Oui' : 'Non';
+    if (startsWith('vue')) return vueLabel || '-';
+    if (startsWith('niveau sonore')) return niveauSonoreLabel || '-';
+    if (startsWith('acces')) return accesLabel || '-';
+    if (startsWith('limite personnes')) return String(maxGuests);
+    if (startsWith('duree min sejour')) return `${minStay}`;
+    if (startsWith('duree max sejour')) return `${maxStay}`;
+    if (startsWith('politique annulation')) return politiqueAnnulationLabel || '-';
+    if (startsWith('depot de garantie')) return seasonalConfig?.depotGarantie ? 'Oui' : 'Non';
+    if (startsWith('montant caution')) return `${seasonalConfig?.montantCaution || 0}`;
+    if (startsWith('type caution')) return typeCautionLabel || '-';
+    if (startsWith('check-in')) return seasonalConfig?.checkinHeure || '-';
+    if (startsWith('check-out')) return seasonalConfig?.checkoutHeure || '-';
+    if (startsWith('fumeurs')) return fumeursLabel || '-';
+    if (startsWith('alcool')) return alcoolLabel || '-';
+    if (startsWith('animaux')) return animauxLabel || '-';
+    if (startsWith('produits d accueil') || startsWith("produits d'accueil")) {
+      return seasonalConfig?.produitsAccueilGratuits ? 'Gratuit' : `${seasonalConfig?.fraisProduitsAccueil || 0} TND`;
+    }
+    if (startsWith('frais de menage')) return hasCleaningFee ? `${property?.cleaningFee || 0} TND` : 'Non disponible';
+    if (startsWith('frais de service')) return hasServiceFee ? `${property?.serviceFee || 0} TND` : 'Non disponible';
+    if (startsWith('matelas supplementaire')) return hasExtraMattress ? `${extraMattressPrice} TND / unite` : 'Non disponible';
+    return 'Configure';
+  }, [
+    accesLabel,
+    alcoolLabel,
+    animauxLabel,
+    etageLabel,
+    extraMattressPrice,
+    fumeursLabel,
+    hasCleaningFee,
+    hasExtraMattress,
+    hasServiceFee,
+    maxGuests,
+    maxStay,
+    minStay,
+    niveauSonoreLabel,
+    politiqueAnnulationLabel,
+    property?.cleaningFee,
+    property?.location,
+    property?.serviceFee,
+    property?.title,
+    seasonalConfig?.ascenseur,
+    seasonalConfig?.checkinHeure,
+    seasonalConfig?.checkoutHeure,
+    seasonalConfig?.depotGarantie,
+    seasonalConfig?.fraisProduitsAccueil,
+    seasonalConfig?.montantCaution,
+    seasonalConfig?.produitsAccueilGratuits,
+    selectedZone?.gouvernerat,
+    selectedZone?.nom,
+    selectedZone?.quartier,
+    selectedZone?.region,
+    sourceBien?.reference,
+    sourceBien?.titre,
     standingLabel,
     typeCautionLabel,
     vueLabel,
@@ -691,15 +894,17 @@ export default function PropertyDetailsPage() {
               <div className="py-8 border-b border-gray-100">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="text-xl font-bold">Informations sejour</h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowSeasonalDetails((prev) => !prev)}
-                    className="inline-flex items-center gap-2 self-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
-                  >
-                    <ListChecks size={16} />
-                    Voir tous les details
-                    {showSeasonalDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                  </button>
+                  {detailTabs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSeasonalDetails((prev) => !prev)}
+                      className="inline-flex items-center gap-2 self-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
+                    >
+                      <ListChecks size={16} />
+                      Voir tous les details
+                      {showSeasonalDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {seasonalHighlights.map((item) => (
@@ -713,45 +918,29 @@ export default function PropertyDetailsPage() {
                 </div>
                 {showSeasonalDetails && (
                   <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 sm:p-4">
-                    <div className="mb-3 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => setSeasonalDetailsTab('regles')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTab === 'regles' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>Regles</button>
-                      <button type="button" onClick={() => setSeasonalDetailsTab('sejour')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTab === 'sejour' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>Sejour</button>
-                      <button type="button" onClick={() => setSeasonalDetailsTab('tarifs')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTab === 'tarifs' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>Tarifs & options</button>
+                    <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                      {detailTabs.map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setSeasonalDetailsTabId(tab.id)}
+                          className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTabId === tab.id ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}
+                        >
+                          {tab.nom}
+                        </button>
+                      ))}
                     </div>
-                    {seasonalDetailsTab === 'regles' && (
+                    {selectedDetailFeatures.length > 0 ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Fumeurs</span><div className="font-semibold text-gray-900">{fumeursLabel || 'Non precise'}</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Alcool</span><div className="font-semibold text-gray-900">{alcoolLabel || 'Non precise'}</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Animaux</span><div className="font-semibold text-gray-900">{animauxLabel || 'Non precise'}</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Limite voyageurs / nuit</span><div className="font-semibold text-gray-900">{maxGuests}</div></div>
-                      </div>
-                    )}
-                    {seasonalDetailsTab === 'sejour' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Duree minimum</span><div className="font-semibold text-gray-900">{minStay} nuit(s)</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Duree maximum</span><div className="font-semibold text-gray-900">{maxStay} nuit(s)</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Check-in</span><div className="font-semibold text-gray-900">{seasonalConfig?.checkinHeure || '-'}</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Check-out</span><div className="font-semibold text-gray-900">{seasonalConfig?.checkoutHeure || '-'}</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Politique annulation</span><div className="font-semibold text-gray-900">{politiqueAnnulationLabel || '-'}</div></div>
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Depot de garantie</span><div className="font-semibold text-gray-900">{seasonalConfig?.depotGarantie ? `${seasonalConfig?.montantCaution || 0} TND (${typeCautionLabel || '-'})` : 'Non'}</div></div>
-                      </div>
-                    )}
-                    {seasonalDetailsTab === 'tarifs' && (
-                      <div className="space-y-2 text-sm">
-                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Tarif nuit</span><span className="font-semibold text-gray-900">{property.pricePerNight} TND</span></div>
-                        {hasCleaningFee && <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Frais de menage</span><span className="font-semibold text-gray-900">{property.cleaningFee} TND</span></div>}
-                        {hasServiceFee && <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Frais de service</span><span className="font-semibold text-gray-900">{property.serviceFee} TND</span></div>}
-                        {hasExtraMattress && <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Matelas supplementaire</span><span className="font-semibold text-gray-900">{extraMattressPrice} TND / unite (max {extraMattressMax})</span></div>}
-                        {hasPaidServices && activePaidServices.map((service) => (
-                          <div key={`detail-${service.id}`} className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between">
-                            <span className="text-gray-500">{service.label}</span>
-                            <span className="font-semibold text-gray-900">{Number(service.prix || 0)} TND</span>
+                        {selectedDetailFeatures.map((feature) => (
+                          <div key={feature.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                            <span className="text-gray-500">{feature.nom}</span>
+                            <div className="font-semibold text-gray-900">{valueForFeature(feature.nom)}</div>
                           </div>
                         ))}
-                        {!hasCleaningFee && !hasServiceFee && !hasPaidServices && !hasExtraMattress && (
-                          <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-gray-600">Aucun frais supplementaire actif pour ce bien.</div>
-                        )}
                       </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-gray-600">Aucun detail visible dans cet onglet.</div>
                     )}
                   </div>
                 )}

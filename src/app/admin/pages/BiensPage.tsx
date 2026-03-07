@@ -256,7 +256,9 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   matelas_supplementaire_prix: 25,
   matelas_supplementaires_max: 3,
   avance_pourcentage: 30,
+  frais_menage_disponible: false,
   frais_menage: 0,
+  frais_service_disponible: false,
   frais_service: 0,
   services_payants: [],
 };
@@ -3263,12 +3265,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         {activeTab === 'general' && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="grid grid-cols-5 gap-2 text-xs sm:text-sm">
-                <button type="button" onClick={() => goToStep(1)} className={`px-3 py-2 rounded-lg border ${generalStep === 1 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 1: Base</button>
-                <button type="button" disabled={!isStepUnlocked(2)} onClick={() => goToStep(2)} className={`px-3 py-2 rounded-lg border ${generalStep === 2 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(2) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 2: Type</button>
-                <button type="button" disabled={!isStepUnlocked(3)} onClick={() => goToStep(3)} className={`px-3 py-2 rounded-lg border ${generalStep === 3 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(3) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 3: Details</button>
-                <button type="button" disabled={!isStepUnlocked(4)} onClick={() => goToStep(4)} className={`px-3 py-2 rounded-lg border ${generalStep === 4 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(4) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 4: Tarification</button>
-                <button type="button" disabled={!isModeVente || !isStepUnlocked(5)} onClick={() => goToStep(5)} className={`px-3 py-2 rounded-lg border ${generalStep === 5 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${(!isModeVente || !isStepUnlocked(5)) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 5: Paiement</button>
+              <div className={`grid gap-2 text-xs sm:text-sm ${isModeVente ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-4'}`}>
+                <button type="button" onClick={() => goToStep(1)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 1 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 1: Base</button>
+                <button type="button" disabled={!isStepUnlocked(2)} onClick={() => goToStep(2)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 2 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(2) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 2: Type</button>
+                <button type="button" disabled={!isStepUnlocked(3)} onClick={() => goToStep(3)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 3 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(3) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 3: Details</button>
+                <button type="button" disabled={!isStepUnlocked(4)} onClick={() => goToStep(4)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 4 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(4) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 4: Tarification</button>
+                {isModeVente && (
+                  <button type="button" disabled={!isStepUnlocked(5)} onClick={() => goToStep(5)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 5 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(5) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 5: Paiement</button>
+                )}
               </div>
             </div>
             {generalStep === 1 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
@@ -4388,11 +4392,65 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   </div>
                   {(formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
-                      <h5 className="text-sm font-semibold text-emerald-800">Tarification saisonniere avancee</h5>
+                      <div className="flex items-center justify-between gap-3">
+                        <h5 className="text-sm font-semibold text-emerald-800">Tarification saisonniere avancee</h5>
+                        <span className="rounded-full bg-white border border-emerald-200 px-2 py-1 text-[11px] font-semibold text-emerald-700">Visible cote client</span>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div><label className="block text-xs text-gray-600 mb-1">Frais de menage (DT)</label><input type="number" min={0} value={saisonConfig.frais_menage ?? 0} onChange={(e) => updateSaisonConfig({ frais_menage: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                        <div><label className="block text-xs text-gray-600 mb-1">Frais de service (DT)</label><input type="number" min={0} value={saisonConfig.frais_service ?? 0} onChange={(e) => updateSaisonConfig({ frais_service: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                        <div><label className="block text-xs text-gray-600 mb-1">Avance (%)</label><input type="number" min={1} max={100} value={saisonConfig.avance_pourcentage ?? 30} onChange={(e) => updateSaisonConfig({ avance_pourcentage: Number(e.target.value || 30) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div className="rounded-lg border border-emerald-100 bg-white p-3 space-y-2">
+                          <label className="flex items-center justify-between gap-2 text-xs font-semibold text-gray-700">
+                            <span>Frais de menage disponibles</span>
+                            <input
+                              type="checkbox"
+                              checked={saisonConfig.frais_menage_disponible ?? Number(saisonConfig.frais_menage ?? 0) > 0}
+                              onChange={(e) => updateSaisonConfig({
+                                frais_menage_disponible: e.target.checked,
+                                frais_menage: e.target.checked ? Number(saisonConfig.frais_menage ?? 0) : 0,
+                              })}
+                              className="h-4 w-4"
+                            />
+                          </label>
+                          <div>
+                            <label className="block text-xs text-gray-600 mb-1">Montant menage (DT)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              disabled={!((saisonConfig.frais_menage_disponible ?? Number(saisonConfig.frais_menage ?? 0) > 0))}
+                              value={saisonConfig.frais_menage ?? 0}
+                              onChange={(e) => updateSaisonConfig({ frais_menage: Number(e.target.value || 0) })}
+                              className={`block w-full rounded-lg border p-2 ${(saisonConfig.frais_menage_disponible ?? Number(saisonConfig.frais_menage ?? 0) > 0) ? 'border-gray-300 bg-white' : 'border-gray-200 bg-gray-100 text-gray-400'}`}
+                            />
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-emerald-100 bg-white p-3 space-y-2">
+                          <label className="flex items-center justify-between gap-2 text-xs font-semibold text-gray-700">
+                            <span>Frais de service disponibles</span>
+                            <input
+                              type="checkbox"
+                              checked={saisonConfig.frais_service_disponible ?? Number(saisonConfig.frais_service ?? 0) > 0}
+                              onChange={(e) => updateSaisonConfig({
+                                frais_service_disponible: e.target.checked,
+                                frais_service: e.target.checked ? Number(saisonConfig.frais_service ?? 0) : 0,
+                              })}
+                              className="h-4 w-4"
+                            />
+                          </label>
+                          <div>
+                            <label className="block text-xs text-gray-600 mb-1">Montant service (DT)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              disabled={!((saisonConfig.frais_service_disponible ?? Number(saisonConfig.frais_service ?? 0) > 0))}
+                              value={saisonConfig.frais_service ?? 0}
+                              onChange={(e) => updateSaisonConfig({ frais_service: Number(e.target.value || 0) })}
+                              className={`block w-full rounded-lg border p-2 ${(saisonConfig.frais_service_disponible ?? Number(saisonConfig.frais_service ?? 0) > 0) ? 'border-gray-300 bg-white' : 'border-gray-200 bg-gray-100 text-gray-400'}`}
+                            />
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-emerald-100 bg-white p-3">
+                          <label className="block text-xs text-gray-600 mb-1">Avance (%)</label>
+                          <input type="number" min={1} max={100} value={saisonConfig.avance_pourcentage ?? 30} onChange={(e) => updateSaisonConfig({ avance_pourcentage: Number(e.target.value || 30) })} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
                         <div><label className="block text-xs text-gray-600 mb-1">Prix matelas supplementaire (DT)</label><input type="number" min={0} value={saisonConfig.matelas_supplementaire_prix ?? 25} onChange={(e) => updateSaisonConfig({ matelas_supplementaire_prix: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-xs text-gray-600 mb-1">Max matelas supplementaires</label><input type="number" min={0} value={saisonConfig.matelas_supplementaires_max ?? 0} onChange={(e) => updateSaisonConfig({ matelas_supplementaires_max: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-xs text-gray-600 mb-1">Produits d'accueil gratuits</label><select value={saisonConfig.produits_accueil_gratuits ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="oui">Oui</option><option value="non">Non</option></select></div>

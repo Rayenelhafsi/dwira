@@ -138,13 +138,6 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     ? row.caracteristique_ids_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
 
-  const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
-  const resolvedGuests = bien.mode === 'location_saisonniere'
-    ? (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1))
-    : Math.max(1, Number(bien.nb_chambres || 0) + 1);
-  const seasonalCleaningFee = Number(bien.location_saisonniere_config?.frais_menage ?? 0);
-  const seasonalServiceFee = Number(bien.location_saisonniere_config?.frais_service ?? 0);
-
   return {
     id: row.id,
     reference: row.reference,
@@ -363,6 +356,16 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     ? bien.media.filter((m: any) => m.type === 'video' && m.url).map((m: any) => resolvePublicMediaUrl(m.url)).filter(Boolean)
     : [];
   const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop';
+  const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
+  const resolvedGuests = bien.mode === 'location_saisonniere'
+    ? (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1))
+    : Math.max(1, Number(bien.nb_chambres || 0) + 1);
+  const isCleaningAvailable = bien.location_saisonniere_config?.frais_menage_disponible
+    ?? Number(bien.location_saisonniere_config?.frais_menage ?? 0) > 0;
+  const isServiceAvailable = bien.location_saisonniere_config?.frais_service_disponible
+    ?? Number(bien.location_saisonniere_config?.frais_service ?? 0) > 0;
+  const seasonalCleaningFee = Number(bien.location_saisonniere_config?.frais_menage ?? 0);
+  const seasonalServiceFee = Number(bien.location_saisonniere_config?.frais_service ?? 0);
 
   return {
     id: bien.id,
@@ -386,8 +389,8 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     category: typeToCategory[bien.type] || 'S+1',
     isFeatured: bien.prix_nuitee > 300 || bien.statut === 'disponible',
     unavailableDates: bien.unavailableDates || [],
-    cleaningFee: seasonalCleaningFee > 0 ? seasonalCleaningFee : 0,
-    serviceFee: seasonalServiceFee > 0 ? seasonalServiceFee : 0,
+    cleaningFee: isCleaningAvailable && seasonalCleaningFee > 0 ? seasonalCleaningFee : 0,
+    serviceFee: isServiceAvailable && seasonalServiceFee > 0 ? seasonalServiceFee : 0,
     seasonalConfig: {
       categorieStanding: bien.location_saisonniere_config?.categorie_standing ?? null,
       etage: bien.location_saisonniere_config?.etage ?? null,
@@ -410,6 +413,8 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
       matelasSupplementairePrix: bien.location_saisonniere_config?.matelas_supplementaire_prix ?? null,
       matelasSupplementairesMax: bien.location_saisonniere_config?.matelas_supplementaires_max ?? null,
       avancePourcentage: bien.location_saisonniere_config?.avance_pourcentage ?? 30,
+      fraisMenageDisponible: isCleaningAvailable,
+      fraisServiceDisponible: isServiceAvailable,
       servicesPayants: Array.isArray(bien.location_saisonniere_config?.services_payants) ? bien.location_saisonniere_config?.services_payants : [],
       produitsAccueilGratuits: bien.location_saisonniere_config?.produits_accueil_gratuits ?? true,
       fraisProduitsAccueil: bien.location_saisonniere_config?.frais_produits_accueil ?? null,
