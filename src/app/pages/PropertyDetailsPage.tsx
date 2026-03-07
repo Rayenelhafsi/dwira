@@ -120,7 +120,10 @@ export default function PropertyDetailsPage() {
   const hasServiceFee = !isSaleProperty
     && (seasonalConfig?.fraisServiceDisponible !== false)
     && Number(property?.serviceFee || 0) > 0;
-  const activePaidServices = (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && Number(service.prix || 0) > 0 && String(service.label || '').trim().length > 0);
+  const activePaidServices = useMemo(
+    () => (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && Number(service.prix || 0) > 0 && String(service.label || '').trim().length > 0),
+    [seasonalConfig?.servicesPayants]
+  );
   const hasPaidServices = !isSaleProperty && activePaidServices.length > 0;
   const hasExtraMattress = !isSaleProperty && extraMattressMax > 0 && extraMattressPrice > 0;
   const reglesResume = [
@@ -666,7 +669,11 @@ export default function PropertyDetailsPage() {
   useEffect(() => {
     if (!hasCleaningFee) setIncludeCleaningFee(false);
     if (!hasServiceFee) setIncludeServiceFee(false);
-    setSelectedPaidServiceIds((prev) => prev.filter((id) => activePaidServices.some((service) => service.id === id)));
+    setSelectedPaidServiceIds((prev) => {
+      const next = prev.filter((id) => activePaidServices.some((service) => service.id === id));
+      if (next.length === prev.length && next.every((id, index) => id === prev[index])) return prev;
+      return next;
+    });
   }, [activePaidServices, hasCleaningFee, hasServiceFee]);
 
   // Auto-play for embla carousel
