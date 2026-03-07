@@ -166,7 +166,9 @@ export default function LoginPage() {
       toast.error('Facebook login indisponible: OAuth Facebook non configure sur le serveur.');
       return;
     }
-    startSocialLogin(provider);
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = params.get('returnTo') || undefined;
+    startSocialLogin(provider, returnTo);
   };
 
   const handleCinImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {

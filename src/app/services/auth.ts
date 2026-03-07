@@ -118,6 +118,7 @@ export async function verifyPhoneOtp(telephone: string, code: string): Promise<A
   return data.user;
 }
 
-export function startSocialLogin(provider: 'google' | 'facebook') {
-  window.location.replace(buildApiUrl(`/auth/${provider}/start`));
+export function startSocialLogin(provider: 'google' | 'facebook', returnTo?: string) {
+  const query = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : '';
+  window.location.replace(buildApiUrl(`/auth/${provider}/start${query}`));
 }

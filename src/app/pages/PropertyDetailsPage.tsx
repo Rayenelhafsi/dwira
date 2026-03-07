@@ -801,7 +801,11 @@ export default function PropertyDetailsPage() {
     if (pendingDraft) {
       savePendingReservationDraft(pendingDraft as PendingReservationDraft);
     }
-    startSocialLogin(provider);
+    if (!property) {
+      startSocialLogin(provider);
+      return;
+    }
+    startSocialLogin(provider, `/reservation/confirmation/${property.slug}`);
   };
 
   useEffect(() => {

@@ -80,10 +80,49 @@ function isMobileUserAgent(userAgent = '') {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
 }
 
-function buildFacebookOauthUrl({ mobilePreferred = false } = {}) {
+function sanitizeReturnToPath(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return null;
+  if (!value.startsWith('/')) return null;
+  if (value.startsWith('//')) return null;
+  return value;
+}
+
+function encodeOauthState(payload) {
+  try {
+    return Buffer.from(JSON.stringify(payload || {}), 'utf8').toString('base64url');
+  } catch {
+    return '';
+  }
+}
+
+function decodeOauthState(rawState) {
+  const raw = String(rawState || '').trim();
+  if (!raw) return null;
+  try {
+    const json = Buffer.from(raw, 'base64url').toString('utf8');
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildFrontendLoginUrl({ socialToken = null, oauthError = null, returnTo = null } = {}) {
+  const params = new URLSearchParams();
+  if (socialToken) params.set('social_token', String(socialToken));
+  if (oauthError) params.set('oauth_error', String(oauthError));
+  const safeReturnTo = sanitizeReturnToPath(returnTo);
+  if (safeReturnTo) params.set('returnTo', safeReturnTo);
+  const query = params.toString();
+  return `${CANONICAL_FRONTEND_URL}/login${query ? `?${query}` : ''}`;
+}
+
+function buildFacebookOauthUrl({ mobilePreferred = false, returnTo = null } = {}) {
   const clientId = process.env.FACEBOOK_CLIENT_ID;
   const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
   if (!clientId) return null;
+  const safeReturnTo = sanitizeReturnToPath(returnTo);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -91,6 +130,9 @@ function buildFacebookOauthUrl({ mobilePreferred = false } = {}) {
     scope: 'email,public_profile',
     display: mobilePreferred ? 'touch' : 'page',
   });
+  if (safeReturnTo) {
+    params.set('state', encodeOauthState({ returnTo: safeReturnTo }));
+  }
   const oauthHost = mobilePreferred ? 'https://m.facebook.com' : 'https://www.facebook.com';
   return `${oauthHost}/v21.0/dialog/oauth?${params.toString()}`;
 }
@@ -5718,9 +5760,10 @@ app.post('/api/auth/phone/verify-otp', async (req, res) => {
 app.get('/api/auth/google/start', async (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
+  const returnTo = sanitizeReturnToPath(req.query.return_to || req.query.returnTo);
 
   if (!clientId) {
-    return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_config_missing`);
+    return res.redirect(buildFrontendLoginUrl({ oauthError: 'google_config_missing', returnTo }));
   }
 
   const params = new URLSearchParams({
@@ -5731,15 +5774,20 @@ app.get('/api/auth/google/start', async (req, res) => {
     access_type: 'offline',
     prompt: 'select_account',
   });
+  if (returnTo) {
+    params.set('state', encodeOauthState({ returnTo }));
+  }
 
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 });
 
 app.get('/api/auth/google/callback', async (req, res) => {
+  const oauthState = decodeOauthState(req.query.state);
+  const returnTo = sanitizeReturnToPath(oauthState?.returnTo);
   try {
     const code = req.query.code;
     if (!code) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_code_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'google_code_missing', returnTo }));
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -5747,7 +5795,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/google/callback`;
 
     if (!clientId || !clientSecret) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_config_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'google_config_missing', returnTo }));
     }
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -5763,12 +5811,12 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
 
     if (!tokenResponse.ok) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_token_exchange_failed`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'google_token_exchange_failed', returnTo }));
     }
 
     const tokenData = await tokenResponse.json();
     if (!tokenData.access_token) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_access_token_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'google_access_token_missing', returnTo }));
     }
 
     const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
@@ -5778,12 +5826,12 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
 
     if (!profileResponse.ok) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_profile_fetch_failed`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'google_profile_fetch_failed', returnTo }));
     }
 
     const profile = await profileResponse.json();
     if (!profile.email) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_email_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'google_email_missing', returnTo }));
     }
 
     const user = await upsertSocialUser({
@@ -5795,18 +5843,19 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
 
     const socialToken = createTemporarySocialToken(user);
-    res.redirect(`${CANONICAL_FRONTEND_URL}/login?social_token=${socialToken}`);
+    res.redirect(buildFrontendLoginUrl({ socialToken, returnTo }));
   } catch (error) {
     console.error('Google callback error:', error);
-    res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=google_callback_failed`);
+    res.redirect(buildFrontendLoginUrl({ oauthError: 'google_callback_failed', returnTo }));
   }
 });
 
 app.get('/api/auth/facebook/start', async (req, res) => {
   const mobilePreferred = isMobileUserAgent(req.headers['user-agent']);
-  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred });
+  const returnTo = sanitizeReturnToPath(req.query.return_to || req.query.returnTo);
+  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred, returnTo });
   if (!oauthUrl) {
-    return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
+    return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_config_missing', returnTo }));
   }
   res.redirect(oauthUrl);
 });
@@ -5821,10 +5870,12 @@ app.get('/api/auth/facebook/authorize-url', (req, res) => {
 });
 
 app.get('/api/auth/facebook/callback', async (req, res) => {
+  const oauthState = decodeOauthState(req.query.state);
+  const returnTo = sanitizeReturnToPath(oauthState?.returnTo);
   try {
     const code = req.query.code;
     if (!code) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_code_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_code_missing', returnTo }));
     }
 
     const clientId = process.env.FACEBOOK_CLIENT_ID;
@@ -5832,7 +5883,7 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
     const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
 
     if (!clientId || !clientSecret) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_config_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_config_missing', returnTo }));
     }
 
     const tokenUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
@@ -5843,12 +5894,12 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
 
     const tokenResponse = await fetch(tokenUrl);
     if (!tokenResponse.ok) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_token_exchange_failed`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_token_exchange_failed', returnTo }));
     }
 
     const tokenData = await tokenResponse.json();
     if (!tokenData.access_token) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_access_token_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_access_token_missing', returnTo }));
     }
 
     const profileUrl = new URL('https://graph.facebook.com/me');
@@ -5857,12 +5908,12 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
 
     const profileResponse = await fetch(profileUrl);
     if (!profileResponse.ok) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_profile_fetch_failed`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_profile_fetch_failed', returnTo }));
     }
 
     const profile = await profileResponse.json();
     if (!profile.email) {
-      return res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_email_missing`);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_email_missing', returnTo }));
     }
 
     const user = await upsertSocialUser({
@@ -5874,10 +5925,10 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
     });
 
     const socialToken = createTemporarySocialToken(user);
-    res.redirect(`${CANONICAL_FRONTEND_URL}/login?social_token=${socialToken}`);
+    res.redirect(buildFrontendLoginUrl({ socialToken, returnTo }));
   } catch (error) {
     console.error('Facebook callback error:', error);
-    res.redirect(`${CANONICAL_FRONTEND_URL}/login?oauth_error=facebook_callback_failed`);
+    res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_callback_failed', returnTo }));
   }
 });
 
