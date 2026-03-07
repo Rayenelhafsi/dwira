@@ -6,19 +6,7 @@ import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin, AuthUser } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
-
-const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
-
-function readPendingReservationDraft() {
-  try {
-    const raw = sessionStorage.getItem(PENDING_RESERVATION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch {
-    return null;
-  }
-}
+import { readPendingReservationDraft } from '../utils/pendingReservation';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -54,6 +42,12 @@ export default function LoginPage() {
   };
 
   const redirectToPendingReservation = () => {
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = params.get('returnTo');
+    if (returnTo && returnTo.startsWith('/reservation/confirmation/')) {
+      window.location.replace(returnTo);
+      return true;
+    }
     const pendingDraft = readPendingReservationDraft();
     if (!pendingDraft || typeof pendingDraft.propertySlug !== 'string') return false;
     window.location.replace(`/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`);

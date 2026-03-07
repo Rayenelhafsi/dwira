@@ -7,26 +7,10 @@ import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
 import { saveReservationToCache } from "../utils/reservations";
-
-const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
-
-type ReservationDraft = {
-  propertyId: string;
-  propertySlug: string;
-  requestType?: 'reservation' | 'visite';
-  startDate: string;
-  endDate: string;
-  guests: number;
-  includeCleaningFee: boolean;
-  includeServiceFee: boolean;
-  extraMattresses?: number;
-  selectedPaidServiceIds?: string[];
-  paymentMode?: 'totalite' | 'avance';
-  reservationNote: string;
-};
+import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 
 type LocationState = {
-  draft?: ReservationDraft;
+  draft?: PendingReservationDraft;
 };
 
 export default function ReservationConfirmationPage() {
@@ -39,20 +23,25 @@ export default function ReservationConfirmationPage() {
   const [createdDemand, setCreatedDemand] = useState<{ id: string } | null>(null);
 
   const draftFromState = (location.state as LocationState | null)?.draft || null;
-  const draftFromStorage = useMemo(() => {
-    try {
-      const raw = sessionStorage.getItem(PENDING_RESERVATION_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed as ReservationDraft : null;
-    } catch {
-      return null;
-    }
-  }, []);
+  const draftFromStorage = useMemo(() => readPendingReservationDraft(), []);
   const draft = draftFromState || draftFromStorage || null;
   const property = properties.find((item) => item.slug === slug);
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
+  const seasonalConfig = property?.seasonalConfig;
+  const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
+  const hasCleaningFee = !isVisitRequest
+    && (seasonalConfig?.fraisMenageDisponible !== false)
+    && Number(property?.cleaningFee || 0) > 0;
+  const hasServiceFee = !isVisitRequest
+    && (seasonalConfig?.fraisServiceDisponible !== false)
+    && Number(property?.serviceFee || 0) > 0;
+  const activePaidServices = useMemo(
+    () => (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && Number(service.prix || 0) > 0 && String(service.label || '').trim().length > 0),
+    [seasonalConfig?.servicesPayants]
+  );
+  const extraMattressPrice = Math.max(0, Number(seasonalConfig?.matelasSupplementairePrix || 0));
+  const extraMattressMax = Math.max(0, Number(seasonalConfig?.matelasSupplementairesMax || 0));
 
   const summary = useMemo(() => {
     if (!property || !draft) return null;
@@ -60,41 +49,54 @@ export default function ReservationConfirmationPage() {
     const end = new Date(draft.endDate);
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
     const accommodationTotal = property.pricePerNight * nights;
-    const cleaningFee = draft.includeCleaningFee ? (property.cleaningFee || 0) : 0;
-    const serviceFee = draft.includeServiceFee ? (property.serviceFee || 0) : 0;
-    const extraMattresses = Math.max(0, Number(draft.extraMattresses || 0));
-    const extraMattressPrice = Math.max(0, Number(property.seasonalConfig?.matelasSupplementairePrix || 0));
+    const cleaningFee = hasCleaningFee && draft.includeCleaningFee ? (property.cleaningFee || 0) : 0;
+    const serviceFee = hasServiceFee && draft.includeServiceFee ? (property.serviceFee || 0) : 0;
+    const extraMattresses = Math.min(extraMattressMax, Math.max(0, Number(draft.extraMattresses || 0)));
     const extraMattressTotal = extraMattresses * extraMattressPrice;
-    const paidServices = (property.seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && (draft.selectedPaidServiceIds || []).includes(service.id));
+    const paidServices = activePaidServices.filter((service) => (draft.selectedPaidServiceIds || []).includes(service.id));
     const paidServicesTotal = paidServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
-    const productsAccueilFee = property.seasonalConfig?.produitsAccueilGratuits === false
-      ? Number(property.seasonalConfig?.fraisProduitsAccueil || 0)
+    const productsAccueilFee = seasonalConfig?.produitsAccueilGratuits === false
+      ? Number(seasonalConfig?.fraisProduitsAccueil || 0)
       : 0;
     const extrasTotal = cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
     const total = accommodationTotal + extrasTotal;
-    const advancePercent = Number(property.seasonalConfig?.avancePourcentage || 30);
+    const advancePercent = Number(seasonalConfig?.avancePourcentage || 30);
     const dueNow = draft.paymentMode === 'totalite' ? total : Math.round((total * advancePercent) / 100);
+    const guests = Math.min(maxGuests, Math.max(1, Number(draft.guests || 1)));
     return {
+      guests,
       nights,
       accommodationTotal,
       cleaningFee,
       serviceFee,
+      extraMattresses,
       extraMattressTotal,
       paidServicesTotal,
       productsAccueilFee,
       extrasTotal,
       total,
       dueNow,
+      paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : 'avance',
+      advancePercent,
     };
-  }, [draft, property]);
+  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxGuests, property, seasonalConfig]);
 
   if (!user || user.role !== "user") {
-    return <Navigate to="/login" replace />;
+    const returnTo = slug ? `/reservation/confirmation/${slug}` : "/logements";
+    return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
   if (!property || !draft || draft.propertySlug !== slug) {
     return <Navigate to={property ? `/properties/${property.slug}` : "/logements"} replace />;
   }
+
+  const handleEditReservation = () => {
+    savePendingReservationDraft(draft);
+    const propertyPath = property.detailPath || `/properties/${property.slug}`;
+    navigate(propertyPath, {
+      state: { draft, restoreDraft: true },
+    });
+  };
 
   const handleConfirm = async () => {
     if (!property || !summary) return;
@@ -103,24 +105,22 @@ export default function ReservationConfirmationPage() {
       const response = await fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bien_id: String(property.id),
+          body: JSON.stringify({
+            bien_id: String(property.id),
           client_user_id: user.id,
           client_email: user.email,
           client_name: user.name,
           start_date: draft.startDate,
           end_date: draft.endDate,
-          guests: draft.guests,
-          client_note: draft.reservationNote || null,
-          request_type: requestType,
-        }),
+            guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
+            client_note: draft.reservationNote || null,
+            request_type: requestType,
+          }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Impossible de confirmer la demande"));
       saveReservationToCache(data);
-      try {
-        sessionStorage.removeItem(PENDING_RESERVATION_KEY);
-      } catch {}
+      clearPendingReservationDraft();
       setCreatedDemand({ id: data.id });
       await refreshData();
       toast.success(isVisitRequest ? "Votre demande de visite est maintenant en attente." : "Votre demande est maintenant en attente.");
@@ -138,7 +138,7 @@ export default function ReservationConfirmationPage() {
         owner_user_id: null,
         start_date: draft.startDate,
         end_date: draft.endDate,
-        guests: draft.guests,
+        guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
         status: "en_attente_reponse_proprietaire",
         owner_notified_at: null,
         owner_response_at: null,
@@ -154,9 +154,7 @@ export default function ReservationConfirmationPage() {
         updated_at: new Date().toISOString().slice(0, 19).replace("T", " "),
       };
       saveReservationToCache(fallbackReservation);
-      try {
-        sessionStorage.removeItem(PENDING_RESERVATION_KEY);
-      } catch {}
+      clearPendingReservationDraft();
       setCreatedDemand({ id: fallbackId });
       toast.error(error instanceof Error ? `${error.message}. Demande sauvegardee localement.` : "API indisponible. Demande sauvegardee localement.");
     } finally {
@@ -211,19 +209,19 @@ export default function ReservationConfirmationPage() {
                 <div className="mt-5 space-y-4 text-sm text-gray-700">
                   <div className="flex items-center justify-between gap-3">
                     <span>Reference bien</span>
-                    <span className="font-semibold text-gray-900">{property.id}</span>
+                    <span className="font-semibold text-gray-900">{property.reference || property.id}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span>{isVisitRequest ? 'Creneau souhaite' : 'Periode'}</span>
-                    <span className="font-semibold text-gray-900">{draft.startDate} au {draft.endDate}</span>
+                    <span className="font-semibold text-gray-900">{format(new Date(draft.startDate), "dd/MM/yyyy")} au {format(new Date(draft.endDate), "dd/MM/yyyy")}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span>{isVisitRequest ? 'Visiteurs' : 'Nuits'}</span>
-                    <span className="font-semibold text-gray-900">{isVisitRequest ? draft.guests : summary?.nights}</span>
+                    <span className="font-semibold text-gray-900">{isVisitRequest ? summary?.guests || draft.guests : summary?.nights}</span>
                   </div>
                   {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Voyageurs</span>
-                    <span className="font-semibold text-gray-900">{draft.guests}</span>
+                    <span className="font-semibold text-gray-900">{summary?.guests || draft.guests}</span>
                   </div>}
                   {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Hebergement</span>
@@ -271,10 +269,10 @@ export default function ReservationConfirmationPage() {
                       <span className="text-xl font-bold text-emerald-700">{summary?.total} TND</span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-3 text-sm">
-                      <span className="text-gray-600">A payer maintenant</span>
-                      <span className="font-semibold text-gray-900">{summary?.dueNow} TND</span>
-                    </div>
-                  </div>}
+                    <span className="text-gray-600">A payer maintenant</span>
+                    <span className="font-semibold text-gray-900">{summary?.dueNow} TND ({summary?.paymentMode === 'totalite' ? 'Totalite' : `Avance ${summary?.advancePercent || 30}%`})</span>
+                  </div>
+                </div>}
                 </div>
 
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -307,7 +305,7 @@ export default function ReservationConfirmationPage() {
         <div className="mb-6">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={handleEditReservation}
             className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-800"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -350,7 +348,7 @@ export default function ReservationConfirmationPage() {
                     <SummaryItem label="Categorie" value={property.category} />
                     <SummaryItem label={isVisitRequest ? "Date souhaitee" : "Arrivee"} value={format(new Date(draft.startDate), "dd/MM/yyyy")} />
                     <SummaryItem label={isVisitRequest ? "Date alternative" : "Depart"} value={format(new Date(draft.endDate), "dd/MM/yyyy")} />
-                    <SummaryItem label={isVisitRequest ? "Visiteurs" : "Voyageurs"} value={`${draft.guests}`} icon={<Users className="h-4 w-4" />} />
+                    <SummaryItem label={isVisitRequest ? "Visiteurs" : "Voyageurs"} value={`${summary?.guests || draft.guests}`} icon={<Users className="h-4 w-4" />} />
                     <SummaryItem label={isVisitRequest ? "Type demande" : "Nuits"} value={isVisitRequest ? "Visite de bien" : `${summary?.nights || 0}`} />
                   </div>
                 </div>
@@ -388,7 +386,7 @@ export default function ReservationConfirmationPage() {
                 <Line label="Total frais supplementaires" value={`${summary?.extrasTotal || 0} TND`} />
                 <div className="border-t border-gray-100 pt-4">
                   <Line label="Montant total" value={`${summary?.total || 0} TND`} strong />
-                  <Line label="A payer maintenant" value={`${summary?.dueNow || 0} TND`} />
+                  <Line label="A payer maintenant" value={`${summary?.dueNow || 0} TND (${summary?.paymentMode === 'totalite' ? 'Totalite' : `Avance ${summary?.advancePercent || 30}%`})`} />
                 </div>
               </div>
             )}
@@ -412,7 +410,7 @@ export default function ReservationConfirmationPage() {
               </button>
               <button
                 type="button"
-                onClick={() => navigate(-1)}
+                onClick={handleEditReservation}
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 px-5 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
               >
                 <ArrowLeft className="h-4 w-4" />

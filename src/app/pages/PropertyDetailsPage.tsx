@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams, Navigate, useNavigate } from "react-router";
+import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
@@ -11,8 +11,7 @@ import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { toYouTubeEmbedUrl } from "../utils/videoLinks";
-
-const PENDING_RESERVATION_KEY = 'dwira_pending_reservation_draft';
+import { savePendingReservationDraft, readPendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 type FeatureApiRow = {
@@ -45,6 +44,7 @@ export default function PropertyDetailsPage() {
   const { properties, biens, zones } = useProperties();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
@@ -91,6 +91,7 @@ export default function PropertyDetailsPage() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
+  const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
@@ -573,6 +574,28 @@ export default function PropertyDetailsPage() {
     setSelectedEnd(end);
   };
 
+  useEffect(() => {
+    if (!property || draftHydratedRef.current) return;
+    const stateDraft = (location.state as { draft?: PendingReservationDraft; restoreDraft?: boolean } | null)?.draft || null;
+    const storedDraft = readPendingReservationDraft();
+    const candidate = stateDraft || storedDraft;
+    if (!candidate || candidate.propertySlug !== property.slug) return;
+    const parsedStart = candidate.startDate ? new Date(candidate.startDate) : null;
+    const parsedEnd = candidate.endDate ? new Date(candidate.endDate) : null;
+    if (!parsedStart || !parsedEnd || Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) return;
+    draftHydratedRef.current = true;
+    setSelectedStart(parsedStart);
+    setSelectedEnd(parsedEnd);
+    setGuests(Math.max(1, Number(candidate.guests || 1)));
+    setIncludeCleaningFee(Boolean(candidate.includeCleaningFee));
+    setIncludeServiceFee(Boolean(candidate.includeServiceFee));
+    setExtraMattresses(Math.max(0, Number(candidate.extraMattresses || 0)));
+    setSelectedPaidServiceIds(Array.isArray(candidate.selectedPaidServiceIds) ? candidate.selectedPaidServiceIds : []);
+    setPaymentMode(candidate.paymentMode === 'totalite' ? 'totalite' : 'avance');
+    setReservationNote(String(candidate.reservationNote || ""));
+    setPendingDraft(candidate);
+  }, [location.state, property]);
+
   // Calculate total price
   const calculateTotal = () => {
     const paidServices = activePaidServices.filter((service) => selectedPaidServiceIds.includes(service.id));
@@ -753,9 +776,7 @@ export default function PropertyDetailsPage() {
     };
 
     if (!user || user.role !== 'user' || !user.email) {
-      try {
-        sessionStorage.setItem(PENDING_RESERVATION_KEY, JSON.stringify(draft));
-      } catch {}
+      savePendingReservationDraft(draft);
       setPendingDraft(draft);
       setShowLoginPrompt(true);
       return;
@@ -778,9 +799,7 @@ export default function PropertyDetailsPage() {
       return;
     }
     if (pendingDraft) {
-      try {
-        sessionStorage.setItem(PENDING_RESERVATION_KEY, JSON.stringify(pendingDraft));
-      } catch {}
+      savePendingReservationDraft(pendingDraft as PendingReservationDraft);
     }
     startSocialLogin(provider);
   };
