@@ -107,12 +107,12 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 }
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
-  const webUrl = buildMessengerWebLink(page);
+  const threadUrl = `https://www.facebook.com/messages/t/${page}`;
   if (!isMobileDevice() || isRestrictedInAppBrowser()) {
-    window.location.assign(webUrl);
+    window.location.assign(threadUrl);
     return;
   }
-  openDeepLink(buildMessengerAppLink(page), webUrl);
+  openDeepLink(buildMessengerAppLink(page), threadUrl);
 }
 
 export function buildPropertyShareMessage(title: string, url: string) {
@@ -129,30 +129,20 @@ type MessengerPropertyPayload = {
 };
 
 function encodeMessengerRef(payload: { propertyUrl: string; title?: string; imageUrl?: string | null; reference?: string | null }) {
-  const rawImage = String(payload.imageUrl || '').trim();
-  let compactImage = '';
-  if (rawImage) {
-    try {
-      const parsed = new URL(rawImage);
-      compactImage = `${parsed.origin}${parsed.pathname}`;
-    } catch {
-      compactImage = rawImage.split('?')[0];
-    }
-  }
-  // Keep payload compact: long refs can be truncated by Messenger and break auto-reply context.
   const json = JSON.stringify({
     u: String(payload.propertyUrl || '').trim(),
-    i: compactImage,
+    t: String(payload.title || '').trim(),
+    i: String(payload.imageUrl || '').trim(),
     r: String(payload.reference || '').trim(),
-    c: Date.now(),
   });
   return `dwira_prop:${btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
 }
 
 export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
   const page = payload.page || DEFAULT_MESSENGER_PAGE;
+  const pageId = String(payload.pageId || '').trim();
   const propertyUrl = String(payload.propertyUrl || '').trim();
-  const webThreadBase = buildMessengerWebLink(page);
+  const webThreadBase = pageId ? `https://www.facebook.com/messages/t/${pageId}` : buildMessengerWebLink(page);
   if (!propertyUrl) return webThreadBase;
   const ref = encodeMessengerRef({
     propertyUrl,
@@ -161,28 +151,24 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
     reference: payload.reference || null,
   });
   const webUrl = `${webThreadBase}?${new URLSearchParams({ ref }).toString()}`;
-  return webUrl;
+  const appUrl = buildMessengerAppLink(page, pageId, ref);
+  return `${appUrl}|||${webUrl}`;
 }
 
 export async function openMessengerPropertyConversation(payload: MessengerPropertyPayload) {
-  const webUrl = buildMessengerPropertyLink(payload);
-  if (!webUrl) {
+  const target = buildMessengerPropertyLink(payload);
+  if (!target) {
     const page = payload.page || DEFAULT_MESSENGER_PAGE;
-    window.location.assign(buildMessengerWebLink(page));
+    const pageId = String(payload.pageId || '').trim();
+    window.location.assign(pageId ? `https://www.facebook.com/messages/t/${pageId}` : buildMessengerWebLink(page));
     return;
   }
+  const [appUrl, webUrl] = target.split('|||');
+  const appTarget = appUrl || webUrl;
+  const webTarget = webUrl || appUrl;
   if (!isMobileDevice() || isRestrictedInAppBrowser()) {
-    window.location.assign(webUrl);
+    window.location.assign(webTarget);
     return;
   }
-  const page = payload.page || DEFAULT_MESSENGER_PAGE;
-  const pageId = String(payload.pageId || '').trim();
-  const propertyUrl = String(payload.propertyUrl || '').trim();
-  if (!propertyUrl) {
-    openDeepLink(buildMessengerAppLink(page, pageId), webUrl);
-    return;
-  }
-  const ref = webUrl.split('?ref=')[1] || '';
-  const appUrl = buildMessengerAppLink(page, pageId, decodeURIComponent(ref));
-  openDeepLink(appUrl, webUrl);
+  openDeepLink(appTarget, webTarget);
 }
