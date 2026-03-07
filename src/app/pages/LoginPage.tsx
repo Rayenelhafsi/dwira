@@ -66,6 +66,22 @@ export default function LoginPage() {
     return true;
   };
 
+  const redirectToTargetOrClosePopup = (targetPath: string) => {
+    const target = normalizeReturnToPath(targetPath);
+    if (!target) return false;
+    clearAuthReturnTo();
+    const hasOpener = typeof window !== 'undefined' && !!window.opener && !window.opener.closed;
+    if (hasOpener) {
+      try {
+        window.opener.postMessage({ type: 'DWIRA_AUTH_SUCCESS', returnTo: target }, window.location.origin);
+      } catch {}
+      window.close();
+      return true;
+    }
+    window.location.replace(target);
+    return true;
+  };
+
   useEffect(() => {
     const loadProviders = async () => {
       const availableProviders = await getAuthProviders();
@@ -135,8 +151,7 @@ export default function LoginPage() {
         if (socialUser.profileCompleted) {
           toast.success('Connexion reussie');
           if (finalReturnTo) {
-            clearAuthReturnTo();
-            window.location.replace(finalReturnTo);
+            if (redirectToTargetOrClosePopup(finalReturnTo)) return;
             return;
           }
           navigate('/', { replace: true });
@@ -247,6 +262,12 @@ export default function LoginPage() {
       });
       loginUser(savedUser);
       toast.success('Profil client enregistre');
+      const targetFromDraft = (() => {
+        const pendingDraft = readPendingReservationDraft();
+        if (!pendingDraft || typeof pendingDraft.propertySlug !== 'string') return null;
+        return `/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`;
+      })();
+      if (targetFromDraft && redirectToTargetOrClosePopup(targetFromDraft)) return;
       if (!redirectToPendingReservation()) {
         navigate('/', { replace: true });
       }

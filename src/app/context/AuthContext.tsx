@@ -40,6 +40,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== 'dwira_user') return;
+      if (!event.newValue) {
+        setUser(null);
+        return;
+      }
+      try {
+        setUser(JSON.parse(event.newValue));
+      } catch (e) {
+        console.error('Failed to parse user from storage event', e);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const login = (userData: User) => {
     setUser(userData);
     localStorage.setItem('dwira_user', JSON.stringify(userData));

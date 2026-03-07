@@ -11,7 +11,16 @@ import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { toYouTubeEmbedUrl } from "../utils/videoLinks";
-import { saveAuthReturnTo, savePendingReservationDraft, readPendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
+import { buildApiUrl } from "../utils/api";
+import {
+  clearAuthPendingLogin,
+  isAuthPendingLogin,
+  markAuthPendingLogin,
+  saveAuthReturnTo,
+  savePendingReservationDraft,
+  readPendingReservationDraft,
+  type PendingReservationDraft,
+} from "../utils/pendingReservation";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 type FeatureApiRow = {
@@ -91,6 +100,8 @@ export default function PropertyDetailsPage() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
+  const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
+  const authPopupRef = useRef<Window | null>(null);
   const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
@@ -807,8 +818,39 @@ export default function PropertyDetailsPage() {
     }
     const confirmationPath = `/reservation/confirmation/${property.slug}`;
     saveAuthReturnTo(confirmationPath);
-    startSocialLogin(provider, confirmationPath);
+    markAuthPendingLogin();
+    setIsAwaitingLogin(true);
+
+    const popupUrl = buildApiUrl(`/auth/${provider}/start?return_to=${encodeURIComponent(confirmationPath)}`);
+    const popup = window.open(
+      popupUrl,
+      "dwiraAuthPopup",
+      "popup=yes,width=560,height=760,menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes"
+    );
+    if (!popup) {
+      startSocialLogin(provider, confirmationPath);
+      return;
+    }
+    authPopupRef.current = popup;
+    popup.focus();
   };
+
+  useEffect(() => {
+    if (!property) return;
+    if (!isAwaitingLogin && !isAuthPendingLogin()) return;
+    if (!user || user.role !== 'user' || !user.email) return;
+    const draft = readPendingReservationDraft();
+    if (!draft || draft.propertySlug !== property.slug) return;
+    clearAuthPendingLogin();
+    setIsAwaitingLogin(false);
+    setShowLoginPrompt(false);
+    try {
+      if (authPopupRef.current && !authPopupRef.current.closed) authPopupRef.current.close();
+    } catch {}
+    navigate(`/reservation/confirmation/${property.slug}`, {
+      state: { draft },
+    });
+  }, [isAwaitingLogin, navigate, property, user]);
 
   useEffect(() => {
     setGuests((prev) => Math.min(Math.max(prev, 1), maxGuests));
