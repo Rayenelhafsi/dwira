@@ -30,6 +30,17 @@ export interface Property {
   unavailableDates?: DateStatus[];
   cleaningFee?: number;
   serviceFee?: number;
+  seasonalConfig?: {
+    dureeMinSejourNuits?: number | null;
+    dureeMaxSejourNuits?: number | null;
+    limitePersonnesNuit?: number | null;
+    matelasSupplementairePrix?: number | null;
+    matelasSupplementairesMax?: number | null;
+    avancePourcentage?: number | null;
+    servicesPayants?: Array<{ id: string; label: string; prix: number; enabled: boolean }>;
+    produitsAccueilGratuits?: boolean;
+    fraisProduitsAccueil?: number | null;
+  };
   // Owner information
   proprietaire_id: string;
 }

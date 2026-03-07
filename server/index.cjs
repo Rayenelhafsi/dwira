@@ -1620,6 +1620,11 @@ async function ensureBiensWorkflowSchema() {
       'ALTER TABLE biens ADD COLUMN ui_config_json LONGTEXT NULL AFTER visible_sur_site'
     );
   }
+  if (!(await columnExists('biens', 'location_saisonniere_config_json'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN location_saisonniere_config_json LONGTEXT NULL AFTER ui_config_json'
+    );
+  }
 
   if (!(await columnExists('biens', 'tarification_methode'))) {
     await pool.query(
@@ -3107,7 +3112,7 @@ app.post('/api/biens', async (req, res) => {
     const {
       id,
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, visible_sur_site, ui_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      prix_nuitee, avance, caution, statut, visible_sur_site, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -3248,9 +3253,9 @@ app.post('/api/biens', async (req, res) => {
         prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
         proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
         syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
-        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, ui_config_json, menage_en_cours, zone_id, proprietaire_id, 
+        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, 
         date_ajout, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [bienId, resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
@@ -3265,6 +3270,7 @@ app.post('/api/biens', async (req, res) => {
        statut || 'disponible',
        resolvedVisibleSurSite,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
+       location_saisonniere_config && typeof location_saisonniere_config === 'object' ? JSON.stringify(location_saisonniere_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        created_at, created_at, updated_at]
     );
@@ -3330,7 +3336,7 @@ app.put('/api/biens/:id', async (req, res) => {
   try {
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, visible_sur_site, ui_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      prix_nuitee, avance, caution, statut, visible_sur_site, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -3473,7 +3479,7 @@ app.put('/api/biens/:id', async (req, res) => {
         proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
         syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?, surface_local_m2 = ?, facade_m = ?, hauteur_plafond_m = ?, activite_recommandee = ?, toilette = ?, reserve_local = ?, vitrine = ?, coin_angle = ?, electricite_3_phases = ?, alarme = ?,
         type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
-        statut = ?, visible_sur_site = ?, ui_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
+        statut = ?, visible_sur_site = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
       [resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
@@ -3489,6 +3495,7 @@ app.put('/api/biens/:id', async (req, res) => {
        statut || 'disponible',
        resolvedVisibleSurSite,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
+       location_saisonniere_config && typeof location_saisonniere_config === 'object' ? JSON.stringify(location_saisonniere_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, req.params.id]
     );
@@ -3545,6 +3552,30 @@ app.put('/api/biens/:id', async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
     res.status(500).json({ error: 'Failed to update bien' });
+  }
+});
+
+app.patch('/api/biens/:id/maintenance-state', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'bien_id requis' });
+    const menageEnCours = req.body?.menage_en_cours === true || Number(req.body?.menage_en_cours) === 1;
+    const statut = String(req.body?.statut || '').trim();
+    const allowedStatuts = ['disponible', 'loue', 'reserve', 'maintenance', 'bloque'];
+    const resolvedStatut = allowedStatuts.includes(statut) ? statut : null;
+    const updatedAt = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE biens
+       SET menage_en_cours = ?, statut = COALESCE(?, statut), updated_at = ?
+       WHERE id = ?`,
+      [menageEnCours ? 1 : 0, resolvedStatut, updatedAt, id]
+    );
+    const [rows] = await pool.query('SELECT * FROM biens WHERE id = ? LIMIT 1', [id]);
+    if (!Array.isArray(rows) || !rows[0]) return res.status(404).json({ error: 'Bien introuvable' });
+    return res.json(rows[0]);
+  } catch (error) {
+    console.error('Error patching bien maintenance state:', error);
+    return res.status(500).json({ error: 'Mise a jour maintenance impossible' });
   }
 });
 

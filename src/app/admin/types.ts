@@ -202,6 +202,50 @@ export interface BienUiConfig {
   terrain_tabs?: Record<string, boolean>;
 }
 
+export type CategorieStanding = 'economique' | 'confort' | 'premium' | 'luxe';
+export type EtageAppartement = 'rdc' | '1' | '2' | '3' | '4' | '5_plus';
+export type VueAppartement = 'mer' | 'jardin' | 'ville' | 'montagne' | 'sans_vue';
+export type NiveauSonoreAppartement = 'tres_calme' | 'calme' | 'moyen' | 'bruyant';
+export type AccesGeneralAppartement = 'tres_facile' | 'facile' | 'moyen' | 'difficile';
+export type PolitiqueAnnulation = 'flexible' | 'moderee' | 'stricte' | 'non_remboursable';
+export type TypeCaution = 'cash' | 'preautorisation' | 'virement' | 'aucune';
+export type RegleFumeurs = 'autorise' | 'interdit' | 'balcon_terrasse';
+export type RegleAnimaux = 'autorises' | 'interdits' | 'sous_conditions';
+export type ServicePayantBien = {
+  id: string;
+  label: string;
+  prix: number;
+  enabled: boolean;
+};
+export type LocationSaisonniereConfig = {
+  categorie_standing?: CategorieStanding | null;
+  etage?: EtageAppartement | null;
+  ascenseur?: boolean;
+  vue?: VueAppartement | null;
+  niveau_sonore?: NiveauSonoreAppartement | null;
+  acces_general?: AccesGeneralAppartement | null;
+  limite_personnes_nuit?: number | null;
+  duree_min_sejour_nuits?: number | null;
+  duree_max_sejour_nuits?: number | null;
+  politique_annulation?: PolitiqueAnnulation | null;
+  depot_garantie?: boolean;
+  montant_caution?: number | null;
+  type_caution?: TypeCaution | null;
+  checkin_heure?: string | null;
+  checkout_heure?: string | null;
+  fumeurs?: RegleFumeurs | null;
+  alcool?: 'autorise' | 'interdit' | null;
+  animaux?: RegleAnimaux | null;
+  produits_accueil_gratuits?: boolean;
+  frais_produits_accueil?: number | null;
+  matelas_supplementaire_prix?: number | null;
+  matelas_supplementaires_max?: number | null;
+  avance_pourcentage?: number | null;
+  frais_menage?: number | null;
+  frais_service?: number | null;
+  services_payants?: ServicePayantBien[];
+};
+
 export interface Bien {
   id: string;
   reference: string;
@@ -325,6 +369,7 @@ export interface Bien {
   statut: BienStatut;
   visible_sur_site?: boolean;
   ui_config?: BienUiConfig | null;
+  location_saisonniere_config?: LocationSaisonniereConfig | null;
   menage_en_cours: boolean;
   zone_id?: string;
   proprietaire_id?: string;

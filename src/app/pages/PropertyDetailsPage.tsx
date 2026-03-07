@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, Navigate, useNavigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
@@ -51,6 +51,9 @@ export default function PropertyDetailsPage() {
   const [guests, setGuests] = useState(1);
   const [includeCleaningFee, setIncludeCleaningFee] = useState(false);
   const [includeServiceFee, setIncludeServiceFee] = useState(false);
+  const [extraMattresses, setExtraMattresses] = useState(0);
+  const [selectedPaidServiceIds, setSelectedPaidServiceIds] = useState<string[]>([]);
+  const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance'>('avance');
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
@@ -59,6 +62,13 @@ export default function PropertyDetailsPage() {
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
+  const seasonalConfig = property?.seasonalConfig;
+  const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
+  const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
+  const maxStay = Math.max(minStay, seasonalConfig?.dureeMaxSejourNuits || 365);
+  const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
+  const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
+  const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
   const formatRating = (value: number) =>
     Number.isFinite(value)
       ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
@@ -176,24 +186,40 @@ export default function PropertyDetailsPage() {
 
   // Calculate total price
   const calculateTotal = () => {
+    const paidServices = (property?.seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && selectedPaidServiceIds.includes(service.id));
+    const paidServicesTotal = paidServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
+    const productsAccueilFee = property?.seasonalConfig?.produitsAccueilGratuits === false
+      ? Number(property?.seasonalConfig?.fraisProduitsAccueil || 0)
+      : 0;
     if (!selectedStart || !selectedEnd) return {
       nights: 0,
       accommodationTotal: 0,
       cleaningFee: 0,
       serviceFee: 0,
-      total: 0
+      extraMattressTotal: 0,
+      paidServicesTotal,
+      productsAccueilFee,
+      extrasTotal: paidServicesTotal + productsAccueilFee,
+      total: paidServicesTotal + productsAccueilFee
     };
     // Use Math.abs to prevent negative nights when dates are selected in reverse order
     const nights = Math.abs(differenceInDays(selectedEnd, selectedStart));
     const accommodationTotal = property!.pricePerNight * nights;
     const cleaningFee = (includeCleaningFee && property?.cleaningFee) ? property.cleaningFee : 0;
     const serviceFee = (includeServiceFee && property?.serviceFee) ? property.serviceFee : 0;
+    const extraMattressTotal = extraMattresses * extraMattressPrice;
+    const extrasTotal = cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
+    const total = accommodationTotal + extrasTotal;
     return {
       nights,
       accommodationTotal,
       cleaningFee,
       serviceFee,
-      total: accommodationTotal + cleaningFee + serviceFee
+      extraMattressTotal,
+      paidServicesTotal,
+      productsAccueilFee,
+      extrasTotal,
+      total
     };
   };
 
@@ -312,6 +338,15 @@ export default function PropertyDetailsPage() {
       toast.error('Choisissez au moins une nuit');
       return;
     }
+    const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
+    if (!isSaleProperty && nights < minStay) {
+      toast.error(`Sejour minimum: ${minStay} nuit(s)`);
+      return;
+    }
+    if (!isSaleProperty && nights > maxStay) {
+      toast.error(`Sejour maximum: ${maxStay} nuit(s)`);
+      return;
+    }
 
     const draft = {
       propertyId: String(property.id),
@@ -322,6 +357,9 @@ export default function PropertyDetailsPage() {
       guests,
       includeCleaningFee,
       includeServiceFee,
+      extraMattresses,
+      selectedPaidServiceIds,
+      paymentMode,
       reservationNote: reservationNote.trim(),
     };
 
@@ -357,6 +395,11 @@ export default function PropertyDetailsPage() {
     }
     startSocialLogin(provider);
   };
+
+  useEffect(() => {
+    setGuests((prev) => Math.min(Math.max(prev, 1), maxGuests));
+    setExtraMattresses((prev) => Math.min(Math.max(prev, 0), extraMattressMax));
+  }, [maxGuests, extraMattressMax]);
 
   // Auto-play for embla carousel
   useEffect(() => {
@@ -622,6 +665,11 @@ export default function PropertyDetailsPage() {
               <p className="text-gray-600 mb-6">
                 Sélectionnez vos dates pour voir les disponibilités et réserver votre séjour.
               </p>
+              {!isSaleProperty && (
+                <p className="text-sm text-emerald-700 mb-4">
+                  Duree autorisee: minimum {minStay} nuit(s), maximum {maxStay} nuit(s).
+                </p>
+              )}
               <AvailabilityCalendar
                 unavailableDates={property.unavailableDates || []}
                 onDateRangeSelect={handleDateRangeSelect}
@@ -673,14 +721,14 @@ export default function PropertyDetailsPage() {
 
                 <div>
                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                     {isSaleProperty ? 'Visiteurs' : 'Voyageurs'} <span className="text-gray-500 font-normal normal-case">(max {property.guests})</span>
+                     {isSaleProperty ? 'Visiteurs' : 'Voyageurs'} <span className="text-gray-500 font-normal normal-case">(max {maxGuests})</span>
                    </label>
                    <select 
                       className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
                       value={guests}
                       onChange={(e) => setGuests(parseInt(e.target.value))}
                    >
-                     {[...Array(property.guests)].map((_, i) => (
+                     {[...Array(maxGuests)].map((_, i) => (
                        <option key={i} value={i + 1}>{i + 1} {isSaleProperty ? `visiteur${i > 0 ? 's' : ''}` : `voyageur${i > 0 ? 's' : ''}`}</option>
                      ))}
                    </select>
@@ -733,6 +781,60 @@ export default function PropertyDetailsPage() {
                   </div>
                 )}
 
+                {!isSaleProperty && extraMattressMax > 0 && (
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                        <BedSingle size={16} className="text-emerald-600" />
+                        Matelas supplementaire
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900">{extraMattressPrice} TND / unite</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Maximum {extraMattressMax}</span>
+                      <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-1">
+                        <button type="button" onClick={() => setExtraMattresses((prev) => Math.max(0, prev - 1))} className="rounded p-1 hover:bg-gray-100" aria-label="Retirer"><Minus size={14} /></button>
+                        <span className="min-w-6 text-center text-sm font-semibold">{extraMattresses}</span>
+                        <button type="button" onClick={() => setExtraMattresses((prev) => Math.min(extraMattressMax, prev + 1))} className="rounded p-1 hover:bg-gray-100" aria-label="Ajouter"><Plus size={14} /></button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!isSaleProperty && (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false).length > 0 && (
+                  <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+                    <p className="text-xs font-bold uppercase text-gray-600">Services payants</p>
+                    {(seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false).map((service) => {
+                      const checked = selectedPaidServiceIds.includes(service.id);
+                      return (
+                        <button
+                          key={service.id}
+                          type="button"
+                          onClick={() => setSelectedPaidServiceIds((prev) => checked ? prev.filter((id) => id !== service.id) : [...prev, service.id])}
+                          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm ${checked ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white'}`}
+                        >
+                          <span>{service.label}</span>
+                          <span className="font-semibold">{Number(service.prix || 0)} TND</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {!isSaleProperty && (
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs font-bold uppercase text-gray-600 mb-2">Paiement</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setPaymentMode('avance')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'avance' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
+                        Avance ({advancePercent}%)
+                      </button>
+                      <button type="button" onClick={() => setPaymentMode('totalite')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'totalite' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
+                        Totalite
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <textarea
                   value={reservationNote}
                   onChange={(e) => setReservationNote(e.target.value)}
@@ -766,9 +868,31 @@ export default function PropertyDetailsPage() {
                        <span>{pricing.serviceFee} TND</span>
                      </div>
                    )}
+                   {pricing.extraMattressTotal > 0 && (
+                     <div className="flex justify-between">
+                       <span className="underline">Matelas supplementaires</span>
+                       <span>{pricing.extraMattressTotal} TND</span>
+                     </div>
+                   )}
+                   {pricing.paidServicesTotal > 0 && (
+                     <div className="flex justify-between">
+                       <span className="underline">Services payants</span>
+                       <span>{pricing.paidServicesTotal} TND</span>
+                     </div>
+                   )}
+                   {pricing.productsAccueilFee > 0 && (
+                     <div className="flex justify-between">
+                       <span className="underline">Produits d'accueil</span>
+                       <span>{pricing.productsAccueilFee} TND</span>
+                     </div>
+                   )}
                    <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-100 mt-2">
                      <span>Total</span>
                      <span>{pricing.total} TND</span>
+                   </div>
+                   <div className="flex justify-between text-sm text-gray-600">
+                     <span className="inline-flex items-center gap-1"><Wallet size={14} />A payer maintenant</span>
+                     <span className="font-semibold text-gray-900">{paymentMode === 'totalite' ? pricing.total : Math.round((pricing.total * advancePercent) / 100)} TND</span>
                    </div>
                 </div>}
 

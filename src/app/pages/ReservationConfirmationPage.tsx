@@ -19,6 +19,9 @@ type ReservationDraft = {
   guests: number;
   includeCleaningFee: boolean;
   includeServiceFee: boolean;
+  extraMattresses?: number;
+  selectedPaidServiceIds?: string[];
+  paymentMode?: 'totalite' | 'avance';
   reservationNote: string;
 };
 
@@ -59,12 +62,27 @@ export default function ReservationConfirmationPage() {
     const accommodationTotal = property.pricePerNight * nights;
     const cleaningFee = draft.includeCleaningFee ? (property.cleaningFee || 0) : 0;
     const serviceFee = draft.includeServiceFee ? (property.serviceFee || 0) : 0;
+    const extraMattresses = Math.max(0, Number(draft.extraMattresses || 0));
+    const extraMattressPrice = Math.max(0, Number(property.seasonalConfig?.matelasSupplementairePrix || 0));
+    const extraMattressTotal = extraMattresses * extraMattressPrice;
+    const paidServices = (property.seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && (draft.selectedPaidServiceIds || []).includes(service.id));
+    const paidServicesTotal = paidServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
+    const productsAccueilFee = property.seasonalConfig?.produitsAccueilGratuits === false
+      ? Number(property.seasonalConfig?.fraisProduitsAccueil || 0)
+      : 0;
+    const total = accommodationTotal + cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
+    const advancePercent = Number(property.seasonalConfig?.avancePourcentage || 30);
+    const dueNow = draft.paymentMode === 'totalite' ? total : Math.round((total * advancePercent) / 100);
     return {
       nights,
       accommodationTotal,
       cleaningFee,
       serviceFee,
-      total: accommodationTotal + cleaningFee + serviceFee,
+      extraMattressTotal,
+      paidServicesTotal,
+      productsAccueilFee,
+      total,
+      dueNow,
     };
   }, [draft, property]);
 
@@ -221,10 +239,32 @@ export default function ReservationConfirmationPage() {
                       <span className="font-semibold text-gray-900">{summary.serviceFee} TND</span>
                     </div>
                   ) : null}
+                  {!isVisitRequest && summary?.extraMattressTotal ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Matelas supplementaires</span>
+                      <span className="font-semibold text-gray-900">{summary.extraMattressTotal} TND</span>
+                    </div>
+                  ) : null}
+                  {!isVisitRequest && summary?.paidServicesTotal ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Services payants</span>
+                      <span className="font-semibold text-gray-900">{summary.paidServicesTotal} TND</span>
+                    </div>
+                  ) : null}
+                  {!isVisitRequest && summary?.productsAccueilFee ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Produits d'accueil</span>
+                      <span className="font-semibold text-gray-900">{summary.productsAccueilFee} TND</span>
+                    </div>
+                  ) : null}
                   {!isVisitRequest && <div className="border-t border-emerald-100 pt-4">
                     <div className="flex items-center justify-between gap-3 text-base">
                       <span className="font-semibold text-gray-900">Montant final</span>
                       <span className="text-xl font-bold text-emerald-700">{summary?.total} TND</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-3 text-sm">
+                      <span className="text-gray-600">A payer maintenant</span>
+                      <span className="font-semibold text-gray-900">{summary?.dueNow} TND</span>
                     </div>
                   </div>}
                 </div>
@@ -334,8 +374,12 @@ export default function ReservationConfirmationPage() {
                 <Line label={`${property.pricePerNight} TND x ${summary?.nights || 0} nuits`} value={`${summary?.accommodationTotal || 0} TND`} />
                 {summary?.cleaningFee ? <Line label="Frais de menage" value={`${summary.cleaningFee} TND`} /> : null}
                 {summary?.serviceFee ? <Line label="Frais de service" value={`${summary.serviceFee} TND`} /> : null}
+                {summary?.extraMattressTotal ? <Line label="Matelas supplementaires" value={`${summary.extraMattressTotal} TND`} /> : null}
+                {summary?.paidServicesTotal ? <Line label="Services payants" value={`${summary.paidServicesTotal} TND`} /> : null}
+                {summary?.productsAccueilFee ? <Line label="Produits d'accueil" value={`${summary.productsAccueilFee} TND`} /> : null}
                 <div className="border-t border-gray-100 pt-4">
                   <Line label="Montant final" value={`${summary?.total || 0} TND`} strong />
+                  <Line label="A payer maintenant" value={`${summary?.dueNow || 0} TND`} />
                 </div>
               </div>
             )}

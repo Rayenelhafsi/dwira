@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, ServicePayantBien } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -173,6 +173,93 @@ const TERRAIN_NIVEAU_SONORE_OPTIONS = [
   { value: 'moyen', label: 'Moyen' },
   { value: 'eleve', label: 'Eleve' },
 ];
+const SAISON_STANDING_OPTIONS = [
+  { value: 'economique', label: 'Economique' },
+  { value: 'confort', label: 'Confort' },
+  { value: 'premium', label: 'Premium' },
+  { value: 'luxe', label: 'Luxe' },
+] as const;
+const SAISON_ETAGE_OPTIONS = [
+  { value: 'rdc', label: 'RDC' },
+  { value: '1', label: '1' },
+  { value: '2', label: '2' },
+  { value: '3', label: '3' },
+  { value: '4', label: '4' },
+  { value: '5_plus', label: '5+' },
+] as const;
+const SAISON_VUE_OPTIONS = [
+  { value: 'mer', label: 'Vue mer' },
+  { value: 'jardin', label: 'Vue jardin' },
+  { value: 'ville', label: 'Vue ville' },
+  { value: 'montagne', label: 'Vue montagne' },
+  { value: 'sans_vue', label: 'Sans vue particuliere' },
+] as const;
+const SAISON_NIVEAU_SONORE_OPTIONS = [
+  { value: 'tres_calme', label: 'Tres calme' },
+  { value: 'calme', label: 'Calme' },
+  { value: 'moyen', label: 'Moyen' },
+  { value: 'bruyant', label: 'Bruyant' },
+] as const;
+const SAISON_ACCES_OPTIONS = [
+  { value: 'tres_facile', label: 'Tres facile' },
+  { value: 'facile', label: 'Facile' },
+  { value: 'moyen', label: 'Moyen' },
+  { value: 'difficile', label: 'Difficile' },
+] as const;
+const SAISON_POLITIQUE_ANNULATION_OPTIONS = [
+  { value: 'flexible', label: 'Flexible' },
+  { value: 'moderee', label: 'Moderee' },
+  { value: 'stricte', label: 'Stricte' },
+  { value: 'non_remboursable', label: 'Non remboursable' },
+] as const;
+const SAISON_TYPE_CAUTION_OPTIONS = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'preautorisation', label: 'Pre-autorisation' },
+  { value: 'virement', label: 'Virement' },
+  { value: 'aucune', label: 'Aucune' },
+] as const;
+const SAISON_FUMEURS_OPTIONS = [
+  { value: 'autorise', label: 'Autorise' },
+  { value: 'interdit', label: 'Interdit' },
+  { value: 'balcon_terrasse', label: 'Autorise sur balcon/terrasse' },
+] as const;
+const SAISON_ALCOOL_OPTIONS = [
+  { value: 'autorise', label: 'Autorise' },
+  { value: 'interdit', label: 'Interdit' },
+] as const;
+const SAISON_ANIMAUX_OPTIONS = [
+  { value: 'autorises', label: 'Autorises' },
+  { value: 'interdits', label: 'Interdits' },
+  { value: 'sous_conditions', label: 'Autorises sous conditions' },
+] as const;
+const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
+  categorie_standing: 'confort',
+  etage: 'rdc',
+  ascenseur: false,
+  vue: 'sans_vue',
+  niveau_sonore: 'calme',
+  acces_general: 'facile',
+  limite_personnes_nuit: 2,
+  duree_min_sejour_nuits: 1,
+  duree_max_sejour_nuits: 30,
+  politique_annulation: 'moderee',
+  depot_garantie: false,
+  montant_caution: 0,
+  type_caution: 'aucune',
+  checkin_heure: '14:00',
+  checkout_heure: '11:00',
+  fumeurs: 'interdit',
+  alcool: 'autorise',
+  animaux: 'interdits',
+  produits_accueil_gratuits: true,
+  frais_produits_accueil: 0,
+  matelas_supplementaire_prix: 25,
+  matelas_supplementaires_max: 3,
+  avance_pourcentage: 30,
+  frais_menage: 0,
+  frais_service: 0,
+  services_payants: [],
+};
 const TERRAIN_ONAS_OPTIONS = [
   { value: 'disponible', label: 'Disponible' },
   { value: 'en_facade', label: 'En facade' },
@@ -761,6 +848,20 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const saisonConfig: LocationSaisonniereConfig = {
+    ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
+    ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
+  };
+  const updateSaisonConfig = (patch: Partial<LocationSaisonniereConfig>) => {
+    setFormData((prev) => ({
+      ...prev,
+      location_saisonniere_config: {
+        ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
+        ...((prev.location_saisonniere_config || {}) as LocationSaisonniereConfig),
+        ...patch,
+      },
+    }));
+  };
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
@@ -1382,6 +1483,28 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     electricite_steg: false,
   });
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
+  const addServicePayant = () => {
+    const nextServices = Array.isArray(saisonConfig.services_payants) ? [...saisonConfig.services_payants] : [];
+    nextServices.push({
+      id: `service_${Date.now()}`,
+      label: '',
+      prix: 0,
+      enabled: true,
+    });
+    updateSaisonConfig({ services_payants: nextServices });
+  };
+  const updateServicePayant = (index: number, patch: Partial<ServicePayantBien>) => {
+    const nextServices = Array.isArray(saisonConfig.services_payants) ? [...saisonConfig.services_payants] : [];
+    if (!nextServices[index]) return;
+    nextServices[index] = { ...nextServices[index], ...patch };
+    updateSaisonConfig({ services_payants: nextServices });
+  };
+  const removeServicePayant = (index: number) => {
+    const nextServices = Array.isArray(saisonConfig.services_payants) ? [...saisonConfig.services_payants] : [];
+    if (!nextServices[index]) return;
+    nextServices.splice(index, 1);
+    updateSaisonConfig({ services_payants: nextServices });
+  };
   const updateUiConfig = (patch: Partial<BienUiConfig>) =>
     setFormData((prev) => ({ ...prev, ui_config: { ...(prev.ui_config || {}), ...patch } }));
   const setUiSectionVisible = (key: keyof BienUiConfig, checked: boolean) =>
@@ -2572,6 +2695,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       ...terrainVenteData,
       ...lotissementVenteData,
       ...immeubleVenteData,
+      location_saisonniere_config: selectedMode === 'location_saisonniere' && selectedType === 'appartement'
+        ? saisonConfig
+        : null,
       description: formData.description || '',
       caracteristiques: availableFeatures
         .filter((feature) => selectedFeatureIds.includes(feature.id) && Number(feature.visibilite_client) !== 0)
@@ -2834,6 +2960,12 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       if (lotissementVente && (!formData.lotissement_nb_terrains || Number(formData.lotissement_nb_terrains) <= 0)) issues.push(createValidationIssue(3, 'lotissement_nb_terrains', 'Nombre de terrains', 'Nombre de terrains obligatoire pour le lotissement'));
       if (lotissementVente && (formData.lotissement_mode_prix_m2 || 'm2_unique') === 'm2_unique' && (!formData.lotissement_prix_m2_unique || Number(formData.lotissement_prix_m2_unique) <= 0)) issues.push(createValidationIssue(3, 'lotissement_prix_m2_unique', 'Prix m2 unique', 'Prix m2 unique obligatoire pour le lotissement'));
       if (lotissementVente && formData.lotissement_mode_prix_m2 === 'paliers' && (!Array.isArray(formData.lotissement_paliers_prix_m2) || formData.lotissement_paliers_prix_m2.length === 0)) issues.push(createValidationIssue(3, 'lotissement_mode_prix_m2', 'Paliers prix m2', 'Ajoutez au moins un palier de prix m2'));
+      if (selectedMode === 'location_saisonniere' && selectedType === 'appartement') {
+        const minStay = Number(saisonConfig.duree_min_sejour_nuits || 0);
+        const maxStay = Number(saisonConfig.duree_max_sejour_nuits || 0);
+        if (!Number.isFinite(minStay) || minStay <= 0) issues.push(createValidationIssue(3, 'duree_min_sejour_nuits', 'Duree min sejour', 'La duree minimum doit etre > 0'));
+        if (!Number.isFinite(maxStay) || maxStay <= 0 || maxStay < minStay) issues.push(createValidationIssue(3, 'duree_max_sejour_nuits', 'Duree max sejour', 'La duree max doit etre >= duree min'));
+      }
     }
 
     if (step === 4 && selectedMode === 'vente') {
@@ -4104,6 +4236,31 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                       </div>
+                      {(formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
+                        <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-4">
+                          <h5 className="text-sm font-semibold text-emerald-800">Parametres location saisonniere</h5>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div><label className="block text-xs text-gray-600 mb-1">Categorie standing</label><select value={saisonConfig.categorie_standing || ''} onChange={(e) => updateSaisonConfig({ categorie_standing: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_STANDING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Etage</label><select value={saisonConfig.etage || ''} onChange={(e) => updateSaisonConfig({ etage: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ETAGE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <label className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2"><span className="text-xs text-gray-700">Ascenseur</span><input type="checkbox" checked={!!saisonConfig.ascenseur} onChange={(e) => updateSaisonConfig({ ascenseur: e.target.checked })} /></label>
+                            <div><label className="block text-xs text-gray-600 mb-1">Vue</label><select value={saisonConfig.vue || ''} onChange={(e) => updateSaisonConfig({ vue: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_VUE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Niveau sonore</label><select value={saisonConfig.niveau_sonore || ''} onChange={(e) => updateSaisonConfig({ niveau_sonore: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_NIVEAU_SONORE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Acces general</label><select value={saisonConfig.acces_general || ''} onChange={(e) => updateSaisonConfig({ acces_general: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ACCES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Limite personnes (nuit)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? ''} onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Duree min sejour</label><input type="number" min={1} value={saisonConfig.duree_min_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_min_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Duree max sejour</label><input type="number" min={1} value={saisonConfig.duree_max_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_max_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Politique annulation</label><select value={saisonConfig.politique_annulation || ''} onChange={(e) => updateSaisonConfig({ politique_annulation: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_POLITIQUE_ANNULATION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <label className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2"><span className="text-xs text-gray-700">Depot de garantie</span><input type="checkbox" checked={!!saisonConfig.depot_garantie} onChange={(e) => updateSaisonConfig({ depot_garantie: e.target.checked })} /></label>
+                            <div><label className="block text-xs text-gray-600 mb-1">Montant caution</label><input type="number" min={0} value={saisonConfig.montant_caution ?? ''} onChange={(e) => updateSaisonConfig({ montant_caution: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Type caution</label><select value={saisonConfig.type_caution || ''} onChange={(e) => updateSaisonConfig({ type_caution: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_TYPE_CAUTION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Check-in</label><input value={saisonConfig.checkin_heure || ''} onChange={(e) => updateSaisonConfig({ checkin_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Check-out</label><input value={saisonConfig.checkout_heure || ''} onChange={(e) => updateSaisonConfig({ checkout_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Fumeurs</label><select value={saisonConfig.fumeurs || ''} onChange={(e) => updateSaisonConfig({ fumeurs: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_FUMEURS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Alcool</label><select value={saisonConfig.alcool || ''} onChange={(e) => updateSaisonConfig({ alcool: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ALCOOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Animaux</label><select value={saisonConfig.animaux || ''} onChange={(e) => updateSaisonConfig({ animaux: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ANIMAUX_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                          </div>
+                        </div>
+                      )}
                       {renderDetailTabFeatures()}
                     </>
                   )}
@@ -4116,7 +4273,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     <span className="block text-sm font-medium text-gray-800">Ménage en cours</span>
                     <span className="block text-xs text-gray-500">Indique si le bien est en préparation</span>
                   </div>
-                  <input type="checkbox" id="menage_en_cours" name="menage_en_cours" checked={formData.menage_en_cours || false} onChange={handleCheckboxChange} className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+                  <span className="text-xs text-amber-700">Gere dans Maintenance</span>
                 </label>}
               </div>
               <div className="flex justify-between">
@@ -4182,10 +4339,40 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   </div>
                 </>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                  </div>
+                  {(formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
+                    <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+                      <h5 className="text-sm font-semibold text-emerald-800">Tarification saisonniere avancee</h5>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div><label className="block text-xs text-gray-600 mb-1">Frais de menage (DT)</label><input type="number" min={0} value={saisonConfig.frais_menage ?? 0} onChange={(e) => updateSaisonConfig({ frais_menage: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div><label className="block text-xs text-gray-600 mb-1">Frais de service (DT)</label><input type="number" min={0} value={saisonConfig.frais_service ?? 0} onChange={(e) => updateSaisonConfig({ frais_service: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div><label className="block text-xs text-gray-600 mb-1">Avance (%)</label><input type="number" min={1} max={100} value={saisonConfig.avance_pourcentage ?? 30} onChange={(e) => updateSaisonConfig({ avance_pourcentage: Number(e.target.value || 30) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div><label className="block text-xs text-gray-600 mb-1">Prix matelas supplementaire (DT)</label><input type="number" min={0} value={saisonConfig.matelas_supplementaire_prix ?? 25} onChange={(e) => updateSaisonConfig({ matelas_supplementaire_prix: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div><label className="block text-xs text-gray-600 mb-1">Max matelas supplementaires</label><input type="number" min={0} value={saisonConfig.matelas_supplementaires_max ?? 0} onChange={(e) => updateSaisonConfig({ matelas_supplementaires_max: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <label className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2"><span className="text-xs text-gray-700">Produits d'accueil gratuits</span><input type="checkbox" checked={!!saisonConfig.produits_accueil_gratuits} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.checked })} /></label>
+                        {!saisonConfig.produits_accueil_gratuits && <div><label className="block text-xs text-gray-600 mb-1">Frais produits d'accueil (DT)</label><input type="number" min={0} value={saisonConfig.frais_produits_accueil ?? 0} onChange={(e) => updateSaisonConfig({ frais_produits_accueil: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold text-gray-700">Services payants (factures cote client)</p>
+                          <button type="button" onClick={addServicePayant} className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-white">Ajouter service</button>
+                        </div>
+                        {(saisonConfig.services_payants || []).map((service, index) => (
+                          <div key={service.id || index} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_90px_36px] gap-2 items-center">
+                            <input value={service.label || ''} onChange={(e) => updateServicePayant(index, { label: e.target.value })} placeholder="Nom du service" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                            <input type="number" min={0} value={service.prix ?? 0} onChange={(e) => updateServicePayant(index, { prix: Number(e.target.value || 0) })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                            <label className="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" checked={service.enabled !== false} onChange={(e) => updateServicePayant(index, { enabled: e.target.checked })} />Actif</label>
+                            <button type="button" onClick={() => removeServicePayant(index)} className="h-8 w-8 rounded border border-red-300 text-red-600 text-sm">x</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="flex justify-between">

@@ -1,5 +1,5 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente } from '../admin/types';
+import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig } from '../admin/types';
 import { Property } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
 
@@ -125,6 +125,11 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   try {
     const raw = (row as any).ui_config_json;
     if (raw) uiConfig = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {}
+  let locationSaisonniereConfig: LocationSaisonniereConfig | null = null;
+  try {
+    const raw = (row as any).location_saisonniere_config_json;
+    if (raw) locationSaisonniereConfig = typeof raw === 'string' ? JSON.parse(raw) : raw;
   } catch {}
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
@@ -284,6 +289,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     statut: row.statut as BienStatut,
     visible_sur_site: row.visible_sur_site === 1 || row.visible_sur_site === true || row.visible_sur_site === '1',
     ui_config: uiConfig && typeof uiConfig === 'object' ? uiConfig : null,
+    location_saisonniere_config: locationSaisonniereConfig && typeof locationSaisonniereConfig === 'object' ? locationSaisonniereConfig : null,
     menage_en_cours: row.menage_en_cours === 1 || row.menage_en_cours === true || row.menage_en_cours === '1',
     zone_id: row.zone_id,
     proprietaire_id: row.proprietaire_id,
@@ -373,8 +379,19 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     category: typeToCategory[bien.type] || 'S+1',
     isFeatured: bien.prix_nuitee > 300 || bien.statut === 'disponible',
     unavailableDates: bien.unavailableDates || [],
-    cleaningFee: bien.avance || 0,
-    serviceFee: Math.round(bien.prix_nuitee * 0.1),
+    cleaningFee: Number(bien.location_saisonniere_config?.frais_menage ?? bien.avance ?? 0),
+    serviceFee: Number(bien.location_saisonniere_config?.frais_service ?? 0),
+    seasonalConfig: {
+      dureeMinSejourNuits: bien.location_saisonniere_config?.duree_min_sejour_nuits ?? null,
+      dureeMaxSejourNuits: bien.location_saisonniere_config?.duree_max_sejour_nuits ?? null,
+      limitePersonnesNuit: bien.location_saisonniere_config?.limite_personnes_nuit ?? null,
+      matelasSupplementairePrix: bien.location_saisonniere_config?.matelas_supplementaire_prix ?? null,
+      matelasSupplementairesMax: bien.location_saisonniere_config?.matelas_supplementaires_max ?? null,
+      avancePourcentage: bien.location_saisonniere_config?.avance_pourcentage ?? 30,
+      servicesPayants: Array.isArray(bien.location_saisonniere_config?.services_payants) ? bien.location_saisonniere_config?.services_payants : [],
+      produitsAccueilGratuits: bien.location_saisonniere_config?.produits_accueil_gratuits ?? true,
+      fraisProduitsAccueil: bien.location_saisonniere_config?.frais_produits_accueil ?? null,
+    },
     proprietaire_id: bien.proprietaire_id || ''
   };
 }

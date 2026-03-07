@@ -5,7 +5,7 @@ import type { Bien, Maintenance, MaintenanceStatut } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
-type BienApi = Pick<Bien, 'id' | 'reference' | 'titre'>;
+type BienApi = Pick<Bien, 'id' | 'reference' | 'titre' | 'statut' | 'menage_en_cours'>;
 
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get('content-type') || '';
@@ -66,6 +66,7 @@ export default function MaintenancePage() {
     description: '',
     cout: '',
   });
+  const [maintenanceStateSaving, setMaintenanceStateSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -161,6 +162,28 @@ export default function MaintenancePage() {
     }
   };
 
+  const handleToggleMenageState = async (bienId: string, nextValue: boolean) => {
+    setMaintenanceStateSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/biens/${encodeURIComponent(bienId)}/maintenance-state`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          menage_en_cours: nextValue,
+          statut: nextValue ? 'maintenance' : 'disponible',
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Mise a jour menage impossible'));
+      const updated = await response.json();
+      setBiens((prev) => prev.map((item) => item.id === updated.id ? { ...item, menage_en_cours: !!updated.menage_en_cours, statut: updated.statut } : item));
+      toast.success('Etat menage mis a jour');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Mise a jour menage impossible');
+    } finally {
+      setMaintenanceStateSaving(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -219,6 +242,29 @@ export default function MaintenancePage() {
           </div>
         </div>
       </form>
+
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <h2 className="text-base font-semibold text-gray-900">Etat menage par bien</h2>
+        <p className="mt-1 text-xs text-gray-500">Cette section remplace le champ "menage en cours" de l'onglet Biens.</p>
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+          {biens.map((bien) => (
+            <label key={bien.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+              <div>
+                <div className="text-sm font-medium text-gray-900">{bien.reference || bien.id} - {bien.titre || 'Bien'}</div>
+                <div className="text-xs text-gray-500">Statut: {bien.statut || '-'}</div>
+              </div>
+              <input
+                type="checkbox"
+                checked={!!bien.menage_en_cours}
+                disabled={maintenanceStateSaving}
+                onChange={(event) => void handleToggleMenageState(bien.id, event.target.checked)}
+                className="h-5 w-5 rounded border-gray-300 text-emerald-600"
+              />
+            </label>
+          ))}
+          {biens.length === 0 && <p className="text-sm text-gray-500">Aucun bien disponible.</p>}
+        </div>
+      </div>
 
       <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
         {error && <div className="border-b border-red-200 bg-red-50 p-3 text-sm text-red-600">{error}</div>}
