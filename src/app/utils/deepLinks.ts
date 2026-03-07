@@ -107,7 +107,12 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 }
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
-  window.location.assign(buildMessengerWebLink(page));
+  const webUrl = buildMessengerWebLink(page);
+  if (!isMobileDevice() || isRestrictedInAppBrowser()) {
+    window.location.assign(webUrl);
+    return;
+  }
+  openDeepLink(buildMessengerAppLink(page), webUrl);
 }
 
 export function buildPropertyShareMessage(title: string, url: string) {
@@ -160,11 +165,24 @@ export function buildMessengerPropertyLink(payload: MessengerPropertyPayload) {
 }
 
 export async function openMessengerPropertyConversation(payload: MessengerPropertyPayload) {
-  const target = buildMessengerPropertyLink(payload);
-  if (!target) {
+  const webUrl = buildMessengerPropertyLink(payload);
+  if (!webUrl) {
     const page = payload.page || DEFAULT_MESSENGER_PAGE;
     window.location.assign(buildMessengerWebLink(page));
     return;
   }
-  window.location.assign(target);
+  if (!isMobileDevice() || isRestrictedInAppBrowser()) {
+    window.location.assign(webUrl);
+    return;
+  }
+  const page = payload.page || DEFAULT_MESSENGER_PAGE;
+  const pageId = String(payload.pageId || '').trim();
+  const propertyUrl = String(payload.propertyUrl || '').trim();
+  if (!propertyUrl) {
+    openDeepLink(buildMessengerAppLink(page, pageId), webUrl);
+    return;
+  }
+  const ref = webUrl.split('?ref=')[1] || '';
+  const appUrl = buildMessengerAppLink(page, pageId, decodeURIComponent(ref));
+  openDeepLink(appUrl, webUrl);
 }
