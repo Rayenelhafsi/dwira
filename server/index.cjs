@@ -97,10 +97,12 @@ function encodeOauthState(payload) {
 }
 
 function decodeOauthState(rawState) {
-  const raw = String(rawState || '').trim();
+  const rawInput = Array.isArray(rawState) ? rawState[0] : rawState;
+  const raw = String(rawInput || '').trim();
   if (!raw) return null;
+  const normalized = raw.replace(/^['"]+|['"]+$/g, '');
   try {
-    const json = Buffer.from(raw, 'base64url').toString('utf8');
+    const json = Buffer.from(normalized, 'base64url').toString('utf8');
     const parsed = JSON.parse(json);
     return parsed && typeof parsed === 'object' ? parsed : null;
   } catch {
