@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calendar, Check, Eye, EyeOff, MapPin, Star } from 'lucide-react';
-import { Bien, BienUiConfig, Zone } from '../../admin/types';
+import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
+import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -68,6 +68,16 @@ const resolveMediaUrl = (url?: string | null) => {
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 const formatMoney = (value?: number | null) => Number(value || 0).toLocaleString('fr-FR');
 const isTruthy = (value: unknown) => value === true || value === 1 || value === '1';
+const STANDING_LABELS: Record<string, string> = { economique: 'Economique', confort: 'Confort', premium: 'Premium', luxe: 'Luxe' };
+const ETAGE_LABELS: Record<string, string> = { rdc: 'RDC', '1': '1', '2': '2', '3': '3', '4': '4', '5_plus': '5+' };
+const VUE_LABELS: Record<string, string> = { mer: 'Vue mer', jardin: 'Vue jardin', ville: 'Vue ville', montagne: 'Vue montagne', sans_vue: 'Sans vue particuliere' };
+const NIVEAU_SONORE_LABELS: Record<string, string> = { tres_calme: 'Tres calme', calme: 'Calme', moyen: 'Moyen', bruyant: 'Bruyant' };
+const ACCES_LABELS: Record<string, string> = { tres_facile: 'Tres facile', facile: 'Facile', moyen: 'Moyen', difficile: 'Difficile' };
+const ANNULATION_LABELS: Record<string, string> = { flexible: 'Flexible', moderee: 'Moderee', stricte: 'Stricte', non_remboursable: 'Non remboursable' };
+const CAUTION_LABELS: Record<string, string> = { cash: 'Cash', preautorisation: 'Pre-autorisation', virement: 'Virement', aucune: 'Aucune' };
+const FUMEURS_LABELS: Record<string, string> = { autorise: 'Autorise', interdit: 'Interdit', balcon_terrasse: 'Autorise sur balcon/terrasse' };
+const ALCOOL_LABELS: Record<string, string> = { autorise: 'Autorise', interdit: 'Interdit' };
+const ANIMAUX_LABELS: Record<string, string> = { autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' };
 
 export default function LocationPublicBienPageView({
   bien,

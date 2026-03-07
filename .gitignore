@@ -35,3 +35,7 @@ migrations/2026-02-23-add-zone-google-maps-url.sql
 migrations/2026-03-01-create-reservation-demand-tables.sql
 migrations/2026-03-01-add-reservation-demand-request-type.sql
 migrations/2026-03-01-create-admin-notifications.sql
+dwira_backup_2026-03-07_1541.sql
+dwira_backup_2026-03-07_1541.sql.gz
+dwira_local_before_sync.sql
+migrations/2026-03-07-add-location-saisonniere-appartement-features.sql

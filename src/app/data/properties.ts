@@ -31,9 +31,24 @@ export interface Property {
   cleaningFee?: number;
   serviceFee?: number;
   seasonalConfig?: {
+    categorieStanding?: 'economique' | 'confort' | 'premium' | 'luxe' | null;
+    etage?: 'rdc' | '1' | '2' | '3' | '4' | '5_plus' | null;
+    ascenseur?: boolean;
+    vue?: 'mer' | 'jardin' | 'ville' | 'montagne' | 'sans_vue' | null;
+    niveauSonore?: 'tres_calme' | 'calme' | 'moyen' | 'bruyant' | null;
+    accesGeneral?: 'tres_facile' | 'facile' | 'moyen' | 'difficile' | null;
     dureeMinSejourNuits?: number | null;
     dureeMaxSejourNuits?: number | null;
     limitePersonnesNuit?: number | null;
+    politiqueAnnulation?: 'flexible' | 'moderee' | 'stricte' | 'non_remboursable' | null;
+    depotGarantie?: boolean;
+    montantCaution?: number | null;
+    typeCaution?: 'cash' | 'preautorisation' | 'virement' | 'aucune' | null;
+    checkinHeure?: string | null;
+    checkoutHeure?: string | null;
+    fumeurs?: 'autorise' | 'interdit' | 'balcon_terrasse' | null;
+    alcool?: 'autorise' | 'interdit' | null;
+    animaux?: 'autorises' | 'interdits' | 'sous_conditions' | null;
     matelasSupplementairePrix?: number | null;
     matelasSupplementairesMax?: number | null;
     avancePourcentage?: number | null;

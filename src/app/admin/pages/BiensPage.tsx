@@ -852,6 +852,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
   };
+  const selectedZone = zones.find((item) => item.id === formData.zone_id);
+  const toOuiNon = (value: boolean | null | undefined) => value ? 'Oui' : 'Non';
   const updateSaisonConfig = (patch: Partial<LocationSaisonniereConfig>) => {
     setFormData((prev) => ({
       ...prev,
@@ -4239,6 +4241,23 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       {(formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
                         <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-4">
                           <h5 className="text-sm font-semibold text-emerald-800">Parametres location saisonniere</h5>
+                          <div className="rounded-lg border border-gray-200 bg-white p-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">1) Informations generales</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Reference</span><p className="font-semibold text-gray-900 mt-0.5">{formData.reference || '-'}</p></div>
+                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Titre annonce</span><p className="font-semibold text-gray-900 mt-0.5">{formData.titre || '-'}</p></div>
+                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Type logement</span><p className="font-semibold text-gray-900 mt-0.5">{typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || '-'}</p></div>
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-gray-200 bg-white p-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">2) Localisation et acces</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Zone / Quartier</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.quartier || selectedZone?.nom || '-'}</p></div>
+                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Ville</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.region || selectedZone?.nom || '-'}</p></div>
+                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Gouvernerat</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.gouvernerat || '-'}</p></div>
+                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Coordonnees GPS</span><p className="font-semibold text-gray-900 mt-0.5 break-all">{selectedZone?.google_maps_url || '-'}</p></div>
+                            </div>
+                          </div>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div><label className="block text-xs text-gray-600 mb-1">Categorie standing</label><select value={saisonConfig.categorie_standing || ''} onChange={(e) => updateSaisonConfig({ categorie_standing: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_STANDING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Etage</label><select value={saisonConfig.etage || ''} onChange={(e) => updateSaisonConfig({ etage: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ETAGE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
@@ -4246,9 +4265,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                             <div><label className="block text-xs text-gray-600 mb-1">Vue</label><select value={saisonConfig.vue || ''} onChange={(e) => updateSaisonConfig({ vue: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_VUE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Niveau sonore</label><select value={saisonConfig.niveau_sonore || ''} onChange={(e) => updateSaisonConfig({ niveau_sonore: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_NIVEAU_SONORE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Acces general</label><select value={saisonConfig.acces_general || ''} onChange={(e) => updateSaisonConfig({ acces_general: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ACCES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div className="md:col-span-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">9) Securite et reglement</div>
                             <div><label className="block text-xs text-gray-600 mb-1">Limite personnes (nuit)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? ''} onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Duree min sejour</label><input type="number" min={1} value={saisonConfig.duree_min_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_min_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Duree max sejour</label><input type="number" min={1} value={saisonConfig.duree_max_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_max_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div className="md:col-span-3 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">11) Conditions de reservation</div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Duree min sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_min_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_min_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                            <div><label className="block text-xs text-gray-600 mb-1">Duree max sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_max_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_max_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Politique annulation</label><select value={saisonConfig.politique_annulation || ''} onChange={(e) => updateSaisonConfig({ politique_annulation: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_POLITIQUE_ANNULATION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <label className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2"><span className="text-xs text-gray-700">Depot de garantie</span><input type="checkbox" checked={!!saisonConfig.depot_garantie} onChange={(e) => updateSaisonConfig({ depot_garantie: e.target.checked })} /></label>
                             <div><label className="block text-xs text-gray-600 mb-1">Montant caution</label><input type="number" min={0} value={saisonConfig.montant_caution ?? ''} onChange={(e) => updateSaisonConfig({ montant_caution: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
@@ -4267,15 +4288,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   {!isInfoDetailTab && renderDetailTabFeatures()}
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {!isTerrainVente && !isLotissementVente && isInfoDetailTab && <label htmlFor="menage_en_cours" className="md:col-span-2 flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
-                  <div>
-                    <span className="block text-sm font-medium text-gray-800">Ménage en cours</span>
-                    <span className="block text-xs text-gray-500">Indique si le bien est en préparation</span>
-                  </div>
-                  <span className="text-xs text-amber-700">Gere dans Maintenance</span>
-                </label>}
-              </div>
               <div className="flex justify-between">
                 <button type="button" onClick={() => goToStep(2)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>
                 <button type="button" onClick={() => validateStepBeforeContinue(3, 4)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 4</button>

@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, Navigate, useNavigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Lift, Mountain, PawPrint, Route, ShieldCheck, Trees, Users, Volume2, Wine, Clock3 } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
@@ -69,6 +69,16 @@ export default function PropertyDetailsPage() {
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
+  const standingLabel = seasonalConfig?.categorieStanding ? ({ economique: 'Economique', confort: 'Confort', premium: 'Premium', luxe: 'Luxe' } as const)[seasonalConfig.categorieStanding] : null;
+  const etageLabel = seasonalConfig?.etage ? ({ rdc: 'RDC', '1': '1', '2': '2', '3': '3', '4': '4', '5_plus': '5+' } as const)[seasonalConfig.etage] : null;
+  const vueLabel = seasonalConfig?.vue ? ({ mer: 'Vue mer', jardin: 'Vue jardin', ville: 'Vue ville', montagne: 'Vue montagne', sans_vue: 'Sans vue particuliere' } as const)[seasonalConfig.vue] : null;
+  const niveauSonoreLabel = seasonalConfig?.niveauSonore ? ({ tres_calme: 'Tres calme', calme: 'Calme', moyen: 'Moyen', bruyant: 'Bruyant' } as const)[seasonalConfig.niveauSonore] : null;
+  const accesLabel = seasonalConfig?.accesGeneral ? ({ tres_facile: 'Tres facile', facile: 'Facile', moyen: 'Moyen', difficile: 'Difficile' } as const)[seasonalConfig.accesGeneral] : null;
+  const politiqueAnnulationLabel = seasonalConfig?.politiqueAnnulation ? ({ flexible: 'Flexible', moderee: 'Moderee', stricte: 'Stricte', non_remboursable: 'Non remboursable' } as const)[seasonalConfig.politiqueAnnulation] : null;
+  const typeCautionLabel = seasonalConfig?.typeCaution ? ({ cash: 'Cash', preautorisation: 'Pre-autorisation', virement: 'Virement', aucune: 'Aucune' } as const)[seasonalConfig.typeCaution] : null;
+  const fumeursLabel = seasonalConfig?.fumeurs ? ({ autorise: 'Autorise', interdit: 'Interdit', balcon_terrasse: 'Autorise sur balcon/terrasse' } as const)[seasonalConfig.fumeurs] : null;
+  const alcoolLabel = seasonalConfig?.alcool ? ({ autorise: 'Autorise', interdit: 'Interdit' } as const)[seasonalConfig.alcool] : null;
+  const animauxLabel = seasonalConfig?.animaux ? ({ autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' } as const)[seasonalConfig.animaux] : null;
   const formatRating = (value: number) =>
     Number.isFinite(value)
       ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
