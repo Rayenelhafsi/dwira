@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
@@ -931,6 +931,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : []));
   const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
   const [detailSectionTabId, setDetailSectionTabId] = useState<string>('informations_generales');
+  const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const normalizeLegacyType = (value?: BienType): BienType => {
     if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
     if (value === 'villa') return 'villa_maison';
@@ -2784,8 +2785,21 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const unassignedFeatures = availableFeatures.filter((feature) => !String(feature.onglet_id || '').trim());
   const terrainTabFeatures = availableFeatures.filter((feature) => (feature.onglet_id || '') === terrainSectionTab);
   const detailTabFeatures = availableFeatures.filter((feature) => String(feature.onglet_id || '') === detailSectionTabId);
+  const detailTabFeatureCountById = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const feature of availableFeatures) {
+      const tabId = String(feature.onglet_id || '').trim();
+      if (!tabId) continue;
+      counts[tabId] = (counts[tabId] || 0) + 1;
+    }
+    return counts;
+  }, [availableFeatures]);
+  const detailTabsWithFeatures = detailTabsForRender.filter((tab) => Number(detailTabFeatureCountById[tab.id] || 0) > 0);
   const preferredDetailTabId =
-    detailTabsForRender.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('information'))?.id
+    detailTabsWithFeatures.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('information'))?.id
+    || detailTabsWithFeatures.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('caracteristique'))?.id
+    || detailTabsWithFeatures[0]?.id
+    || detailTabsForRender.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('information'))?.id
     || detailTabsForRender.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('caracteristique'))?.id
     || detailTabsForRender[0]?.id
     || 'informations_generales';
@@ -2881,7 +2895,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   useEffect(() => {
     if (isTerrainVente) return;
     const hasTab = detailTabsForRender.some((tab) => tab.id === detailSectionTabId);
-    if (!hasTab) setDetailSectionTabId(preferredDetailTabId);
+    if (!hasTab) {
+      setDetailSectionTabId(preferredDetailTabId);
+    }
   }, [isTerrainVente, detailSectionTabId, detailTabsForRender, preferredDetailTabId]);
   const activeDetailTabLabel = normalizeFeatureName(String(detailTabsForRender.find((tab) => tab.id === detailSectionTabId)?.label || ''));
   const isInfoDetailTab = activeDetailTabLabel.includes('information');
@@ -2897,19 +2913,43 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const isConditionsDetailTab = activeDetailTabLabel.includes('condition');
   const detailSectionHeading = `Details ${typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || 'Bien'} (${modeLabels[(formData.mode || 'location_saisonniere') as BienMode] || 'Location saisonniere'})`;
   const renderDetailTabsNavigation = () => (
-    <div className="mb-4 overflow-x-auto pb-1">
-      <div className="flex w-max min-w-full gap-2 pr-2">
-      {detailTabsForRender.map((section) => (
-        <button
-          key={section.id}
-          type="button"
-          onClick={() => setDetailSectionTabId(section.id)}
-          className={`inline-flex whitespace-nowrap px-3 py-2 text-xs rounded-full border transition-colors ${detailSectionTabId === section.id ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
-        >
-          {section.label}
-        </button>
-      ))}
+    <div className="mb-4 flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => detailTabsNavRef.current?.scrollBy({ left: -220, behavior: 'smooth' })}
+        className="h-7 w-7 shrink-0 rounded-full border border-gray-200 bg-white text-gray-600 hover:border-emerald-300"
+        aria-label="Onglets precedent"
+      >
+        <ChevronLeft className="mx-auto h-4 w-4" />
+      </button>
+      <div
+        ref={detailTabsNavRef}
+        className="flex-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div className="flex w-max min-w-full gap-2 pr-2">
+        {detailTabsForRender.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            onClick={(event) => {
+              setDetailSectionTabId(section.id);
+              event.currentTarget.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            }}
+            className={`inline-flex whitespace-nowrap px-3 py-2 text-xs rounded-full border transition-colors ${detailSectionTabId === section.id ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
+          >
+            {section.label}
+          </button>
+        ))}
+        </div>
       </div>
+      <button
+        type="button"
+        onClick={() => detailTabsNavRef.current?.scrollBy({ left: 220, behavior: 'smooth' })}
+        className="h-7 w-7 shrink-0 rounded-full border border-gray-200 bg-white text-gray-600 hover:border-emerald-300"
+        aria-label="Onglets suivants"
+      >
+        <ChevronRight className="mx-auto h-4 w-4" />
+      </button>
     </div>
   );
   const immeubleClientImageUnits = [

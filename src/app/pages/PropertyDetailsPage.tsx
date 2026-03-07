@@ -29,6 +29,9 @@ type FeatureTabRow = {
   ordre?: number;
 };
 
+type SeasonalDetailRow = { label: string; value: string };
+type SeasonalFallbackTab = { id: string; nom: string; rows: SeasonalDetailRow[] };
+
 const normalizeFeatureName = (value: string) =>
   String(value || '')
     .toLowerCase()
@@ -88,6 +91,7 @@ export default function PropertyDetailsPage() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
+  const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -236,13 +240,17 @@ export default function PropertyDetailsPage() {
     () => new Set((Array.isArray(sourceBien?.caracteristiques) ? sourceBien?.caracteristiques : []).map((item) => normalizeFeatureName(String(item)))),
     [sourceBien?.caracteristiques]
   );
-  const selectedVisibleFeatures = useMemo(
+  const selectedPublicFeatures = useMemo(
     () => allFeatures.filter((feature) => {
       const byId = selectedFeatureIds.has(String(feature.id || ''));
       const byName = selectedFeatureNames.has(normalizeFeatureName(String(feature.nom || '')));
-      return (byId || byName) && Number(feature.visibilite_client) !== 0 && String(feature.onglet_id || '').trim().length > 0;
+      return (byId || byName) && Number(feature.visibilite_client) !== 0;
     }),
     [allFeatures, selectedFeatureIds, selectedFeatureNames]
+  );
+  const selectedVisibleFeatures = useMemo(
+    () => selectedPublicFeatures.filter((item) => String(item.onglet_id || '').trim().length > 0),
+    [selectedPublicFeatures]
   );
   const detailTabs = useMemo(() => {
     const availableTabIds = new Set(selectedVisibleFeatures.map((item) => String(item.onglet_id || '')));
@@ -255,16 +263,132 @@ export default function PropertyDetailsPage() {
     () => selectedVisibleFeatures.filter((item) => String(item.onglet_id || '') === seasonalDetailsTabId),
     [seasonalDetailsTabId, selectedVisibleFeatures]
   );
+  const fallbackDetailTabs = useMemo<SeasonalFallbackTab[]>(() => {
+    if (selectedPublicFeatures.length === 0) return [];
+    return [{
+      id: 'fallback_externes',
+      nom: 'Caracteristiques externes',
+      rows: selectedPublicFeatures.map((feature) => ({
+        label: feature.nom,
+        value: 'Disponible',
+      })),
+    }];
+  }, [selectedPublicFeatures]);
+  const systemFallbackTabs = useMemo<SeasonalFallbackTab[]>(() => {
+    const sortedTabs = featureTabs.slice().sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999));
+    const zoneName = selectedZone?.quartier || selectedZone?.nom || property?.location || '-';
+    const villeName = selectedZone?.region || '-';
+    const gouvernoratName = selectedZone?.gouvernerat || '-';
+    const rowsForTab = (tabName: string): SeasonalDetailRow[] => {
+      const key = normalizeFeatureName(tabName);
+      if (key.includes('information')) {
+        return [
+          { label: 'Reference', value: sourceBien?.reference || '-' },
+          { label: 'Titre annonce', value: sourceBien?.titre || property?.title || '-' },
+          { label: 'Type logement', value: 'Appartement' },
+          { label: 'Categorie standing', value: standingLabel || '-' },
+          { label: 'Etage', value: etageLabel || '-' },
+          { label: 'Ascenseur', value: seasonalConfig?.ascenseur ? 'Oui' : 'Non' },
+          { label: 'Vue', value: vueLabel || '-' },
+          { label: 'Niveau sonore', value: niveauSonoreLabel || '-' },
+          { label: 'Acces general', value: accesLabel || '-' },
+        ].filter((row) => row.value !== '-');
+      }
+      if (key.includes('localisation')) {
+        return [
+          { label: 'Zone / Quartier', value: zoneName },
+          { label: 'Ville', value: villeName },
+          { label: 'Gouvernorat', value: gouvernoratName },
+        ].filter((row) => row.value !== '-');
+      }
+      if (key.includes('securite') || key.includes('reglement')) {
+        return [
+          { label: 'Fumeurs', value: fumeursLabel || '-' },
+          { label: 'Alcool', value: alcoolLabel || '-' },
+          { label: 'Animaux', value: animauxLabel || '-' },
+          { label: 'Limite personnes / nuit', value: String(maxGuests) },
+        ].filter((row) => row.value !== '-');
+      }
+      if (key.includes('condition')) {
+        return [
+          { label: 'Duree min sejour', value: `${minStay} nuit(s)` },
+          { label: 'Duree max sejour', value: `${maxStay} nuit(s)` },
+          { label: 'Politique annulation', value: politiqueAnnulationLabel || '-' },
+          { label: 'Depot de garantie', value: seasonalConfig?.depotGarantie ? `${seasonalConfig?.montantCaution || 0} TND (${typeCautionLabel || '-'})` : 'Non' },
+          { label: 'Check-in', value: seasonalConfig?.checkinHeure || '-' },
+          { label: 'Check-out', value: seasonalConfig?.checkoutHeure || '-' },
+        ].filter((row) => row.value !== '-');
+      }
+      if (key.includes('tarification')) {
+        return [
+          { label: 'Tarif nuit', value: `${property?.pricePerNight || 0} TND` },
+          ...(hasCleaningFee ? [{ label: 'Frais de menage', value: `${property?.cleaningFee || 0} TND` }] : []),
+          ...(hasServiceFee ? [{ label: 'Frais de service', value: `${property?.serviceFee || 0} TND` }] : []),
+          ...(hasExtraMattress ? [{ label: 'Matelas supplementaire', value: `${extraMattressPrice} TND / unite` }] : []),
+          ...activePaidServices.map((service) => ({ label: service.label, value: `${Number(service.prix || 0)} TND` })),
+        ];
+      }
+      return [];
+    };
+    return sortedTabs
+      .map((tab) => ({ id: tab.id, nom: tab.nom, rows: rowsForTab(String(tab.nom || '')) }))
+      .filter((tab) => tab.rows.length > 0);
+  }, [
+    accesLabel,
+    activePaidServices,
+    alcoolLabel,
+    animauxLabel,
+    etageLabel,
+    extraMattressPrice,
+    fumeursLabel,
+    hasCleaningFee,
+    hasExtraMattress,
+    hasServiceFee,
+    maxGuests,
+    maxStay,
+    minStay,
+    niveauSonoreLabel,
+    politiqueAnnulationLabel,
+    property?.cleaningFee,
+    property?.location,
+    property?.pricePerNight,
+    property?.serviceFee,
+    property?.title,
+    seasonalConfig?.ascenseur,
+    seasonalConfig?.checkinHeure,
+    seasonalConfig?.checkoutHeure,
+    seasonalConfig?.depotGarantie,
+    seasonalConfig?.montantCaution,
+    selectedZone?.gouvernerat,
+    selectedZone?.nom,
+    selectedZone?.quartier,
+    selectedZone?.region,
+    sourceBien?.reference,
+    sourceBien?.titre,
+    standingLabel,
+    typeCautionLabel,
+    vueLabel,
+    featureTabs,
+  ]);
+  const usingConfiguredTabs = detailTabs.length > 0;
+  const visibleDetailTabs = usingConfiguredTabs
+    ? detailTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
+    : (systemFallbackTabs.length > 0
+      ? systemFallbackTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
+      : fallbackDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom })));
+  const selectedFallbackTab = (systemFallbackTabs.length > 0 ? systemFallbackTabs : fallbackDetailTabs).find((tab) => tab.id === seasonalDetailsTabId)
+    || (systemFallbackTabs.length > 0 ? systemFallbackTabs[0] : fallbackDetailTabs[0])
+    || null;
 
   useEffect(() => {
-    if (detailTabs.length === 0) {
+    if (visibleDetailTabs.length === 0) {
       setSeasonalDetailsTabId('');
       return;
     }
-    if (!detailTabs.some((tab) => tab.id === seasonalDetailsTabId)) {
-      setSeasonalDetailsTabId(detailTabs[0].id);
+    if (!visibleDetailTabs.some((tab) => tab.id === seasonalDetailsTabId)) {
+      setSeasonalDetailsTabId(visibleDetailTabs[0].id);
     }
-  }, [detailTabs, seasonalDetailsTabId]);
+  }, [visibleDetailTabs, seasonalDetailsTabId]);
 
   const valueForFeature = useCallback((featureName: string) => {
     const key = normalizeFeatureName(featureName);
@@ -301,7 +425,7 @@ export default function PropertyDetailsPage() {
     if (startsWith('frais de menage')) return hasCleaningFee ? `${property?.cleaningFee || 0} TND` : 'Non disponible';
     if (startsWith('frais de service')) return hasServiceFee ? `${property?.serviceFee || 0} TND` : 'Non disponible';
     if (startsWith('matelas supplementaire')) return hasExtraMattress ? `${extraMattressPrice} TND / unite` : 'Non disponible';
-    return 'Configure';
+    return 'Oui';
   }, [
     accesLabel,
     alcoolLabel,
@@ -901,17 +1025,15 @@ export default function PropertyDetailsPage() {
               <div className="py-8 border-b border-gray-100">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="text-xl font-bold">Informations sejour</h3>
-                  {detailTabs.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSeasonalDetails((prev) => !prev)}
-                      className="inline-flex items-center gap-2 self-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
-                    >
-                      <ListChecks size={16} />
-                      Voir tous les details
-                      {showSeasonalDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowSeasonalDetails((prev) => !prev)}
+                    className="inline-flex items-center gap-2 self-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
+                  >
+                    <ListChecks size={16} />
+                    Voir tous les details
+                    {showSeasonalDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {seasonalHighlights.map((item) => (
@@ -925,29 +1047,70 @@ export default function PropertyDetailsPage() {
                 </div>
                 {showSeasonalDetails && (
                   <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 sm:p-4">
-                    <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-                      {detailTabs.map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setSeasonalDetailsTabId(tab.id)}
-                          className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTabId === tab.id ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}
-                        >
-                          {tab.nom}
-                        </button>
-                      ))}
-                    </div>
-                    {selectedDetailFeatures.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                        {selectedDetailFeatures.map((feature) => (
-                          <div key={feature.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
-                            <span className="text-gray-500">{feature.nom}</span>
-                            <div className="font-semibold text-gray-900">{valueForFeature(feature.nom)}</div>
+                    {visibleDetailTabs.length > 0 ? (
+                      <>
+                        <div className="mb-3 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => detailTabsNavRef.current?.scrollBy({ left: -220, behavior: 'smooth' })}
+                            className="h-7 w-7 shrink-0 rounded-full border border-gray-200 bg-white text-gray-600 hover:border-emerald-300"
+                            aria-label="Onglets precedents"
+                          >
+                            <ChevronLeft className="mx-auto h-4 w-4" />
+                          </button>
+                          <div
+                            ref={detailTabsNavRef}
+                            className="flex-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                          >
+                            <div className="flex w-max min-w-full gap-2 pr-2">
+                          {visibleDetailTabs.map((tab) => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={(event) => {
+                                setSeasonalDetailsTabId(tab.id);
+                                event.currentTarget.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+                              }}
+                              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTabId === tab.id ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}
+                            >
+                              {tab.nom}
+                            </button>
+                          ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => detailTabsNavRef.current?.scrollBy({ left: 220, behavior: 'smooth' })}
+                            className="h-7 w-7 shrink-0 rounded-full border border-gray-200 bg-white text-gray-600 hover:border-emerald-300"
+                            aria-label="Onglets suivants"
+                          >
+                            <ChevronRight className="mx-auto h-4 w-4" />
+                          </button>
+                        </div>
+                        {(usingConfiguredTabs ? selectedDetailFeatures.length > 0 : Boolean(selectedFallbackTab?.rows?.length)) ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                            {usingConfiguredTabs ? (
+                              selectedDetailFeatures.map((feature) => (
+                                <div key={feature.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                                  <span className="text-gray-500">{feature.nom}</span>
+                                  <div className="font-semibold text-gray-900">{valueForFeature(feature.nom)}</div>
+                                </div>
+                              ))
+                            ) : (
+                              (selectedFallbackTab?.rows || []).map((row) => (
+                                <div key={`${selectedFallbackTab?.id || 'fallback'}-${row.label}`} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                                  <span className="text-gray-500">{row.label}</span>
+                                  <div className="font-semibold text-gray-900">{row.value}</div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-gray-600">Aucun detail visible dans cet onglet.</div>
+                        )}
+                      </>
                     ) : (
-                      <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-gray-600">Aucun detail visible dans cet onglet.</div>
+                      <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-gray-600">Aucun detail public disponible.</div>
                     )}
                   </div>
                 )}
