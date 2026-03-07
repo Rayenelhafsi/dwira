@@ -2804,8 +2804,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       const options = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
       const selectedValue = (featureChoiceValuesById[featureId] || [])[0] || '';
       return (
-        <div key={`${keyPrefix}-${featureId}`} className="p-2 rounded border border-gray-200">
-          <label className="block text-sm font-medium text-gray-700 mb-1">{feature.nom}</label>
+        <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">{feature.nom}</label>
           <select
             value={selectedValue}
             onChange={(e) => {
@@ -2813,7 +2813,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               setFeatureChoiceValuesById((prev) => ({ ...prev, [featureId]: nextValue ? [nextValue] : [] }));
               setFeatureSelected(featureId, nextValue.length > 0);
             }}
-            className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white"
           >
             <option value="">-- Choisir --</option>
             {options.map((option) => <option key={`${featureId}-${option}`} value={option}>{option}</option>)}
@@ -2825,8 +2825,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       const unit = String(feature.unite || '').trim();
       const currentValue = String(featureValueById[featureId] || '');
       return (
-        <div key={`${keyPrefix}-${featureId}`} className="p-2 rounded border border-gray-200">
-          <label className="block text-sm font-medium text-gray-700 mb-1">{feature.nom}{unit ? ` (${unit})` : ''}</label>
+        <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">{feature.nom}{unit ? ` (${unit})` : ''}</label>
           <input
             type="number"
             step="0.01"
@@ -2837,19 +2837,21 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               setFeatureValueById((prev) => ({ ...prev, [featureId]: nextValue }));
               setFeatureSelected(featureId, String(nextValue).trim().length > 0);
             }}
-            className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white"
           />
         </div>
       );
     }
+    const isChecked = selectedFeatureIds.includes(featureId);
     return (
-      <label key={`${keyPrefix}-${featureId}`} className="inline-flex items-center gap-2 text-sm text-gray-700 p-2 rounded border border-gray-200">
+      <label key={`${keyPrefix}-${featureId}`} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-3 shadow-sm cursor-pointer transition-colors ${isChecked ? 'border-emerald-300 bg-emerald-50/60' : 'border-gray-200 bg-white hover:border-emerald-200'}`}>
+        <span className="text-sm font-medium text-gray-700">{feature.nom}</span>
         <input
           type="checkbox"
-          checked={selectedFeatureIds.includes(featureId)}
+          checked={isChecked}
           onChange={(e) => setFeatureSelected(featureId, e.target.checked)}
+          className="h-4 w-4 rounded border-gray-300 text-emerald-600"
         />
-        <span>{feature.nom}</span>
       </label>
     );
   };
@@ -2863,7 +2865,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   );
   const renderDetailTabFeatures = () => (
     <div className="mt-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {detailTabFeatures.map((feature) => renderFeatureControl(feature, 'detail-tab'))}
         {detailTabFeatures.length === 0 && <span className="text-xs text-gray-500">Aucune caracteristique dans cet onglet</span>}
       </div>
@@ -2886,19 +2888,26 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const isImmeubleGaragesDetailTab = activeDetailTabLabel.includes('garage');
   const isImmeubleLocauxDetailTab = activeDetailTabLabel.includes('local');
   const isLotissementTerrainsDetailTab = activeDetailTabLabel.includes('terrain');
+  const isLocalisationDetailTab = activeDetailTabLabel.includes('localisation');
+  const isLitsDetailTab = activeDetailTabLabel.includes('lits');
+  const isConfortDetailTab = activeDetailTabLabel.includes('confort') || activeDetailTabLabel.includes('equipement');
+  const isSecuriteDetailTab = activeDetailTabLabel.includes('securite') || activeDetailTabLabel.includes('reglement');
+  const isConditionsDetailTab = activeDetailTabLabel.includes('condition');
   const detailSectionHeading = `Details ${typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || 'Bien'} (${modeLabels[(formData.mode || 'location_saisonniere') as BienMode] || 'Location saisonniere'})`;
   const renderDetailTabsNavigation = () => (
-    <div className="flex flex-wrap gap-2 mb-4">
+    <div className="mb-4 overflow-x-auto pb-1">
+      <div className="flex w-max min-w-full gap-2 pr-2">
       {detailTabsForRender.map((section) => (
         <button
           key={section.id}
           type="button"
           onClick={() => setDetailSectionTabId(section.id)}
-          className={`px-3 py-1.5 text-xs rounded-full border ${detailSectionTabId === section.id ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
+          className={`inline-flex whitespace-nowrap px-3 py-2 text-xs rounded-full border transition-colors ${detailSectionTabId === section.id ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
         >
           {section.label}
         </button>
       ))}
+      </div>
     </div>
   );
   const immeubleClientImageUnits = [
@@ -4234,10 +4243,6 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   {renderDetailTabsNavigation()}
                   {isInfoDetailTab && (
                     <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Chambres</label><input type="number" name="nb_chambres" value={formData.nb_chambres || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Salles de bain</label><input type="number" name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                      </div>
                       {(formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
                         <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-4">
                           <h5 className="text-sm font-semibold text-emerald-800">Parametres location saisonniere</h5>
@@ -4249,41 +4254,65 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                               <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Type logement</span><p className="font-semibold text-gray-900 mt-0.5">{typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || '-'}</p></div>
                             </div>
                           </div>
-                          <div className="rounded-lg border border-gray-200 bg-white p-3">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">2) Localisation et acces</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Zone / Quartier</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.quartier || selectedZone?.nom || '-'}</p></div>
-                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Ville</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.region || selectedZone?.nom || '-'}</p></div>
-                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Gouvernerat</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.gouvernerat || '-'}</p></div>
-                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Coordonnees GPS</span><p className="font-semibold text-gray-900 mt-0.5 break-all">{selectedZone?.google_maps_url || '-'}</p></div>
-                            </div>
-                          </div>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div><label className="block text-xs text-gray-600 mb-1">Categorie standing</label><select value={saisonConfig.categorie_standing || ''} onChange={(e) => updateSaisonConfig({ categorie_standing: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_STANDING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Etage</label><select value={saisonConfig.etage || ''} onChange={(e) => updateSaisonConfig({ etage: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ETAGE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <label className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2"><span className="text-xs text-gray-700">Ascenseur</span><input type="checkbox" checked={!!saisonConfig.ascenseur} onChange={(e) => updateSaisonConfig({ ascenseur: e.target.checked })} /></label>
+                            <div><label className="block text-xs text-gray-600 mb-1">Ascenseur</label><select value={saisonConfig.ascenseur ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ ascenseur: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="oui">Oui</option><option value="non">Non</option></select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Vue</label><select value={saisonConfig.vue || ''} onChange={(e) => updateSaisonConfig({ vue: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_VUE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Niveau sonore</label><select value={saisonConfig.niveau_sonore || ''} onChange={(e) => updateSaisonConfig({ niveau_sonore: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_NIVEAU_SONORE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Acces general</label><select value={saisonConfig.acces_general || ''} onChange={(e) => updateSaisonConfig({ acces_general: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ACCES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div className="md:col-span-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">9) Securite et reglement</div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Limite personnes (nuit)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? ''} onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div className="md:col-span-3 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">11) Conditions de reservation</div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Duree min sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_min_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_min_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Duree max sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_max_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_max_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Politique annulation</label><select value={saisonConfig.politique_annulation || ''} onChange={(e) => updateSaisonConfig({ politique_annulation: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_POLITIQUE_ANNULATION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <label className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2"><span className="text-xs text-gray-700">Depot de garantie</span><input type="checkbox" checked={!!saisonConfig.depot_garantie} onChange={(e) => updateSaisonConfig({ depot_garantie: e.target.checked })} /></label>
-                            <div><label className="block text-xs text-gray-600 mb-1">Montant caution</label><input type="number" min={0} value={saisonConfig.montant_caution ?? ''} onChange={(e) => updateSaisonConfig({ montant_caution: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Type caution</label><select value={saisonConfig.type_caution || ''} onChange={(e) => updateSaisonConfig({ type_caution: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_TYPE_CAUTION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Check-in</label><input value={saisonConfig.checkin_heure || ''} onChange={(e) => updateSaisonConfig({ checkin_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Check-out</label><input value={saisonConfig.checkout_heure || ''} onChange={(e) => updateSaisonConfig({ checkout_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Fumeurs</label><select value={saisonConfig.fumeurs || ''} onChange={(e) => updateSaisonConfig({ fumeurs: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_FUMEURS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Alcool</label><select value={saisonConfig.alcool || ''} onChange={(e) => updateSaisonConfig({ alcool: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ALCOOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Animaux</label><select value={saisonConfig.animaux || ''} onChange={(e) => updateSaisonConfig({ animaux: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ANIMAUX_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                           </div>
                         </div>
                       )}
                       {renderDetailTabFeatures()}
                     </>
+                  )}
+                  {!isInfoDetailTab && (formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
+                    <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+                      {isLocalisationDetailTab && (
+                        <div className="rounded-lg border border-gray-200 bg-white p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">2) Localisation et acces</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Zone / Quartier</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.quartier || selectedZone?.nom || '-'}</p></div>
+                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Ville</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.region || selectedZone?.nom || '-'}</p></div>
+                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Gouvernerat</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.gouvernerat || '-'}</p></div>
+                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Coordonnees GPS</span><p className="font-semibold text-gray-900 mt-0.5 break-all">{selectedZone?.google_maps_url || '-'}</p></div>
+                          </div>
+                        </div>
+                      )}
+                      {isLitsDetailTab && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div><label className="block text-xs text-gray-600 mb-1">Prix matelas supplementaire (DT)</label><input type="number" min={0} value={saisonConfig.matelas_supplementaire_prix ?? 25} onChange={(e) => updateSaisonConfig({ matelas_supplementaire_prix: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Max matelas supplementaires</label><input type="number" min={0} value={saisonConfig.matelas_supplementaires_max ?? 0} onChange={(e) => updateSaisonConfig({ matelas_supplementaires_max: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                        </div>
+                      )}
+                      {isConfortDetailTab && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div><label className="block text-xs text-gray-600 mb-1">Produits d'accueil gratuits</label><select value={saisonConfig.produits_accueil_gratuits ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="oui">Oui</option><option value="non">Non</option></select></div>
+                          {!saisonConfig.produits_accueil_gratuits && <div><label className="block text-xs text-gray-600 mb-1">Frais produits d'accueil (DT)</label><input type="number" min={0} value={saisonConfig.frais_produits_accueil ?? 0} onChange={(e) => updateSaisonConfig({ frais_produits_accueil: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>}
+                        </div>
+                      )}
+                      {isSecuriteDetailTab && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div><label className="block text-xs text-gray-600 mb-1">Limite personnes (nuit)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? ''} onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Fumeurs</label><select value={saisonConfig.fumeurs || ''} onChange={(e) => updateSaisonConfig({ fumeurs: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_FUMEURS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Alcool</label><select value={saisonConfig.alcool || ''} onChange={(e) => updateSaisonConfig({ alcool: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ALCOOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Animaux</label><select value={saisonConfig.animaux || ''} onChange={(e) => updateSaisonConfig({ animaux: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ANIMAUX_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                        </div>
+                      )}
+                      {isConditionsDetailTab && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div><label className="block text-xs text-gray-600 mb-1">Duree min sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_min_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_min_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Duree max sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_max_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_max_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Politique annulation</label><select value={saisonConfig.politique_annulation || ''} onChange={(e) => updateSaisonConfig({ politique_annulation: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_POLITIQUE_ANNULATION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Depot de garantie</label><select value={saisonConfig.depot_garantie ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ depot_garantie: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="oui">Oui</option><option value="non">Non</option></select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Montant caution</label><input type="number" min={0} value={saisonConfig.montant_caution ?? ''} onChange={(e) => updateSaisonConfig({ montant_caution: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Type caution</label><select value={saisonConfig.type_caution || ''} onChange={(e) => updateSaisonConfig({ type_caution: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_TYPE_CAUTION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Check-in</label><input value={saisonConfig.checkin_heure || ''} onChange={(e) => updateSaisonConfig({ checkin_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Check-out</label><input value={saisonConfig.checkout_heure || ''} onChange={(e) => updateSaisonConfig({ checkout_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {!isInfoDetailTab && renderDetailTabFeatures()}
                 </div>
@@ -4366,7 +4395,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         <div><label className="block text-xs text-gray-600 mb-1">Avance (%)</label><input type="number" min={1} max={100} value={saisonConfig.avance_pourcentage ?? 30} onChange={(e) => updateSaisonConfig({ avance_pourcentage: Number(e.target.value || 30) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-xs text-gray-600 mb-1">Prix matelas supplementaire (DT)</label><input type="number" min={0} value={saisonConfig.matelas_supplementaire_prix ?? 25} onChange={(e) => updateSaisonConfig({ matelas_supplementaire_prix: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-xs text-gray-600 mb-1">Max matelas supplementaires</label><input type="number" min={0} value={saisonConfig.matelas_supplementaires_max ?? 0} onChange={(e) => updateSaisonConfig({ matelas_supplementaires_max: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                        <label className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2"><span className="text-xs text-gray-700">Produits d'accueil gratuits</span><input type="checkbox" checked={!!saisonConfig.produits_accueil_gratuits} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.checked })} /></label>
+                        <div><label className="block text-xs text-gray-600 mb-1">Produits d'accueil gratuits</label><select value={saisonConfig.produits_accueil_gratuits ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="oui">Oui</option><option value="non">Non</option></select></div>
                         {!saisonConfig.produits_accueil_gratuits && <div><label className="block text-xs text-gray-600 mb-1">Frais produits d'accueil (DT)</label><input type="number" min={0} value={saisonConfig.frais_produits_accueil ?? 0} onChange={(e) => updateSaisonConfig({ frais_produits_accueil: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
                       </div>
                       <div className="space-y-2">
@@ -5016,24 +5045,42 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
   return (
     <div className="space-y-4">
       <div className="max-w-7xl mx-auto px-4 pt-4">
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900">Visibilite du bien</h3>
-            <p className="text-xs text-gray-500">Les blocs se pilotent directement dans la page ci-dessous.</p>
+        <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-emerald-50 p-4 sm:p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                Apercu client
+              </div>
+              <h3 className="text-base font-semibold text-gray-900">Visibilite du bien</h3>
+              <p className="text-xs text-gray-500">Les blocs se pilotent directement dans la page ci-dessous.</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                <span className="rounded-full bg-white border border-gray-200 px-2.5 py-1">
+                  Mode: {modeLabels[(bien.mode || 'location_saisonniere') as BienMode] || bien.mode}
+                </span>
+                <span className="rounded-full bg-white border border-gray-200 px-2.5 py-1">
+                  Type: {typeLabels[normalizeLegacyType((bien.type || 'appartement') as BienType)] || bien.type}
+                </span>
+                <span className={`rounded-full border px-2.5 py-1 font-semibold ${draftVisibleSurSite ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-gray-300 bg-gray-100 text-gray-700'}`}>
+                  {draftVisibleSurSite ? 'Visible' : 'Masque'}
+                </span>
+              </div>
+            </div>
           </div>
-          <label className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-            <span className="text-sm text-gray-700">Visible sur le site</span>
-            <input
-              type="checkbox"
-              checked={draftVisibleSurSite}
-              onChange={async (e) => {
-                const next = e.target.checked;
-                setDraftVisibleSurSite(next);
-                await persistVisibility(next, draftUiConfig, 'site_visibility');
-              }}
-              className="h-4 w-4 rounded border-gray-300 text-emerald-600"
-            />
-          </label>
+          <div className="mt-3 flex justify-end">
+            <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+              <span className="text-sm font-medium text-gray-700">Visible sur le site</span>
+              <input
+                type="checkbox"
+                checked={draftVisibleSurSite}
+                onChange={async (e) => {
+                  const next = e.target.checked;
+                  setDraftVisibleSurSite(next);
+                  await persistVisibility(next, draftUiConfig, 'site_visibility');
+                }}
+                className="h-4 w-4 rounded border-gray-300 text-emerald-600"
+              />
+            </label>
+          </div>
         </div>
       </div>
       {bien.mode === 'vente' ? (

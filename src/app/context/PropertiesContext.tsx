@@ -138,6 +138,13 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     ? row.caracteristique_ids_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
 
+  const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
+  const resolvedGuests = bien.mode === 'location_saisonniere'
+    ? (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1))
+    : Math.max(1, Number(bien.nb_chambres || 0) + 1);
+  const seasonalCleaningFee = Number(bien.location_saisonniere_config?.frais_menage ?? 0);
+  const seasonalServiceFee = Number(bien.location_saisonniere_config?.frais_service ?? 0);
+
   return {
     id: row.id,
     reference: row.reference,
@@ -369,7 +376,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     priceContext: bien.mode === 'vente' ? 'sale' : 'night',
     rating: 4.5 + Math.random() * 0.5,
     reviews: Math.floor(Math.random() * 30) + 5,
-    guests: bien.nb_chambres + 1,
+    guests: resolvedGuests,
     bedrooms: bien.nb_chambres,
     bathrooms: bien.nb_salle_bain,
     images: imageUrls.length > 0 ? imageUrls : [fallbackImage],
@@ -379,8 +386,8 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     category: typeToCategory[bien.type] || 'S+1',
     isFeatured: bien.prix_nuitee > 300 || bien.statut === 'disponible',
     unavailableDates: bien.unavailableDates || [],
-    cleaningFee: Number(bien.location_saisonniere_config?.frais_menage ?? bien.avance ?? 0),
-    serviceFee: Number(bien.location_saisonniere_config?.frais_service ?? 0),
+    cleaningFee: seasonalCleaningFee > 0 ? seasonalCleaningFee : 0,
+    serviceFee: seasonalServiceFee > 0 ? seasonalServiceFee : 0,
     seasonalConfig: {
       categorieStanding: bien.location_saisonniere_config?.categorie_standing ?? null,
       etage: bien.location_saisonniere_config?.etage ?? null,

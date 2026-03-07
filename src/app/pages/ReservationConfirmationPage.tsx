@@ -70,7 +70,8 @@ export default function ReservationConfirmationPage() {
     const productsAccueilFee = property.seasonalConfig?.produitsAccueilGratuits === false
       ? Number(property.seasonalConfig?.fraisProduitsAccueil || 0)
       : 0;
-    const total = accommodationTotal + cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
+    const extrasTotal = cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
+    const total = accommodationTotal + extrasTotal;
     const advancePercent = Number(property.seasonalConfig?.avancePourcentage || 30);
     const dueNow = draft.paymentMode === 'totalite' ? total : Math.round((total * advancePercent) / 100);
     return {
@@ -81,6 +82,7 @@ export default function ReservationConfirmationPage() {
       extraMattressTotal,
       paidServicesTotal,
       productsAccueilFee,
+      extrasTotal,
       total,
       dueNow,
     };
@@ -257,9 +259,15 @@ export default function ReservationConfirmationPage() {
                       <span className="font-semibold text-gray-900">{summary.productsAccueilFee} TND</span>
                     </div>
                   ) : null}
+                  {!isVisitRequest && (
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Total frais supplementaires</span>
+                      <span className="font-semibold text-gray-900">{summary?.extrasTotal || 0} TND</span>
+                    </div>
+                  )}
                   {!isVisitRequest && <div className="border-t border-emerald-100 pt-4">
                     <div className="flex items-center justify-between gap-3 text-base">
-                      <span className="font-semibold text-gray-900">Montant final</span>
+                      <span className="font-semibold text-gray-900">Montant total</span>
                       <span className="text-xl font-bold text-emerald-700">{summary?.total} TND</span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-3 text-sm">
@@ -377,8 +385,9 @@ export default function ReservationConfirmationPage() {
                 {summary?.extraMattressTotal ? <Line label="Matelas supplementaires" value={`${summary.extraMattressTotal} TND`} /> : null}
                 {summary?.paidServicesTotal ? <Line label="Services payants" value={`${summary.paidServicesTotal} TND`} /> : null}
                 {summary?.productsAccueilFee ? <Line label="Produits d'accueil" value={`${summary.productsAccueilFee} TND`} /> : null}
+                <Line label="Total frais supplementaires" value={`${summary?.extrasTotal || 0} TND`} />
                 <div className="border-t border-gray-100 pt-4">
-                  <Line label="Montant final" value={`${summary?.total || 0} TND`} strong />
+                  <Line label="Montant total" value={`${summary?.total || 0} TND`} strong />
                   <Line label="A payer maintenant" value={`${summary?.dueNow || 0} TND`} />
                 </div>
               </div>

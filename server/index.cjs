@@ -1963,7 +1963,7 @@ async function ensureBiensWorkflowSchema() {
 
   await pool.query(
     `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
-     SELECT CONCAT('mo_', LEFT(SHA1(CONCAT(cc.mode_bien, '|', cc.type_bien, '|', cc.caracteristique_id)), 20)), cc.mode_bien, cc.type_bien, cc.onglet_id, cc.caracteristique_id, 0
+     SELECT CONCAT('mo_', REPLACE(UUID(), '-', '')), cc.mode_bien, cc.type_bien, cc.onglet_id, cc.caracteristique_id, 0
      FROM caracteristique_contextes cc
      WHERE cc.onglet_id IS NOT NULL AND cc.onglet_id <> ''
      ON DUPLICATE KEY UPDATE onglet_id = VALUES(onglet_id), ordre = VALUES(ordre)`

@@ -39,3 +39,4 @@ dwira_backup_2026-03-07_1541.sql
 dwira_backup_2026-03-07_1541.sql.gz
 dwira_local_before_sync.sql
 
+scripts/insert-demo-locs-appartement.sql

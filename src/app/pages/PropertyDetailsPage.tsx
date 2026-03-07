@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, Navigate, useNavigate } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Lift, Mountain, PawPrint, Route, ShieldCheck, Trees, Users, Volume2, Wine, Clock3 } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
@@ -54,6 +54,8 @@ export default function PropertyDetailsPage() {
   const [extraMattresses, setExtraMattresses] = useState(0);
   const [selectedPaidServiceIds, setSelectedPaidServiceIds] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance'>('avance');
+  const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
+  const [seasonalDetailsTab, setSeasonalDetailsTab] = useState<'regles' | 'sejour' | 'tarifs'>('regles');
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
@@ -79,10 +81,57 @@ export default function PropertyDetailsPage() {
   const fumeursLabel = seasonalConfig?.fumeurs ? ({ autorise: 'Autorise', interdit: 'Interdit', balcon_terrasse: 'Autorise sur balcon/terrasse' } as const)[seasonalConfig.fumeurs] : null;
   const alcoolLabel = seasonalConfig?.alcool ? ({ autorise: 'Autorise', interdit: 'Interdit' } as const)[seasonalConfig.alcool] : null;
   const animauxLabel = seasonalConfig?.animaux ? ({ autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' } as const)[seasonalConfig.animaux] : null;
+  const hasCleaningFee = !isSaleProperty && Number(property?.cleaningFee || 0) > 0;
+  const hasServiceFee = !isSaleProperty && Number(property?.serviceFee || 0) > 0;
+  const activePaidServices = (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && Number(service.prix || 0) > 0 && String(service.label || '').trim().length > 0);
+  const hasPaidServices = !isSaleProperty && activePaidServices.length > 0;
+  const hasExtraMattress = !isSaleProperty && extraMattressMax > 0 && extraMattressPrice > 0;
+  const reglesResume = [
+    `Fumeurs: ${fumeursLabel || 'Non precise'}`,
+    `Alcool: ${alcoolLabel || 'Non precise'}`,
+    `Animaux: ${animauxLabel || 'Non precise'}`,
+  ].join(' | ');
   const formatRating = (value: number) =>
     Number.isFinite(value)
       ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
       : "0,0";
+  const seasonalHighlights = useMemo(() => {
+    if (isSaleProperty) return [];
+    const rows = [
+      { key: 'standing', label: 'Standing', value: standingLabel || '-', icon: <Star size={15} className="text-emerald-600" /> },
+      { key: 'etage', label: 'Etage', value: etageLabel || '-', icon: <Building2 size={15} className="text-emerald-600" /> },
+      { key: 'ascenseur', label: 'Ascenseur', value: seasonalConfig?.ascenseur ? 'Oui' : 'Non', icon: <Building2 size={15} className="text-emerald-600" /> },
+      { key: 'vue', label: 'Vue', value: vueLabel || '-', icon: <Mountain size={15} className="text-emerald-600" /> },
+      { key: 'sonore', label: 'Niveau sonore', value: niveauSonoreLabel || '-', icon: <Volume2 size={15} className="text-emerald-600" /> },
+      { key: 'acces', label: 'Acces', value: accesLabel || '-', icon: <Route size={15} className="text-emerald-600" /> },
+      { key: 'regles', label: 'Regles', value: reglesResume, icon: <ShieldCheck size={15} className="text-emerald-600" /> },
+      { key: 'check', label: 'Check-in/out', value: `${seasonalConfig?.checkinHeure || '-'} / ${seasonalConfig?.checkoutHeure || '-'}`, icon: <Clock3 size={15} className="text-emerald-600" /> },
+      { key: 'annulation', label: 'Annulation', value: politiqueAnnulationLabel || '-', icon: <Calendar size={15} className="text-emerald-600" /> },
+      { key: 'depot', label: 'Depot', value: seasonalConfig?.depotGarantie ? `${seasonalConfig?.montantCaution || 0} TND (${typeCautionLabel || '-'})` : 'Non', icon: <Wallet size={15} className="text-emerald-600" /> },
+      { key: 'produits', label: "Produits d'accueil", value: seasonalConfig?.produitsAccueilGratuits ? 'Gratuit' : `Supplement (${seasonalConfig?.fraisProduitsAccueil || 0} TND)`, icon: <Check size={15} className="text-emerald-600" /> },
+    ];
+    return rows;
+  }, [
+    accesLabel,
+    alcoolLabel,
+    animauxLabel,
+    etageLabel,
+    fumeursLabel,
+    isSaleProperty,
+    niveauSonoreLabel,
+    politiqueAnnulationLabel,
+    seasonalConfig?.ascenseur,
+    seasonalConfig?.checkinHeure,
+    seasonalConfig?.checkoutHeure,
+    seasonalConfig?.depotGarantie,
+    seasonalConfig?.fraisProduitsAccueil,
+    seasonalConfig?.montantCaution,
+    seasonalConfig?.produitsAccueilGratuits,
+    reglesResume,
+    standingLabel,
+    typeCautionLabel,
+    vueLabel,
+  ]);
 
   // Load saved state from localStorage on mount
   useEffect(() => {
@@ -196,7 +245,7 @@ export default function PropertyDetailsPage() {
 
   // Calculate total price
   const calculateTotal = () => {
-    const paidServices = (property?.seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && selectedPaidServiceIds.includes(service.id));
+    const paidServices = activePaidServices.filter((service) => selectedPaidServiceIds.includes(service.id));
     const paidServicesTotal = paidServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
     const productsAccueilFee = property?.seasonalConfig?.produitsAccueilGratuits === false
       ? Number(property?.seasonalConfig?.fraisProduitsAccueil || 0)
@@ -215,8 +264,8 @@ export default function PropertyDetailsPage() {
     // Use Math.abs to prevent negative nights when dates are selected in reverse order
     const nights = Math.abs(differenceInDays(selectedEnd, selectedStart));
     const accommodationTotal = property!.pricePerNight * nights;
-    const cleaningFee = (includeCleaningFee && property?.cleaningFee) ? property.cleaningFee : 0;
-    const serviceFee = (includeServiceFee && property?.serviceFee) ? property.serviceFee : 0;
+    const cleaningFee = (hasCleaningFee && includeCleaningFee && property?.cleaningFee) ? property.cleaningFee : 0;
+    const serviceFee = (hasServiceFee && includeServiceFee && property?.serviceFee) ? property.serviceFee : 0;
     const extraMattressTotal = extraMattresses * extraMattressPrice;
     const extrasTotal = cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
     const total = accommodationTotal + extrasTotal;
@@ -410,6 +459,12 @@ export default function PropertyDetailsPage() {
     setGuests((prev) => Math.min(Math.max(prev, 1), maxGuests));
     setExtraMattresses((prev) => Math.min(Math.max(prev, 0), extraMattressMax));
   }, [maxGuests, extraMattressMax]);
+
+  useEffect(() => {
+    if (!hasCleaningFee) setIncludeCleaningFee(false);
+    if (!hasServiceFee) setIncludeServiceFee(false);
+    setSelectedPaidServiceIds((prev) => prev.filter((id) => activePaidServices.some((service) => service.id === id)));
+  }, [activePaidServices, hasCleaningFee, hasServiceFee]);
 
   // Auto-play for embla carousel
   useEffect(() => {
@@ -612,7 +667,7 @@ export default function PropertyDetailsPage() {
                <div>
                  <h2 className="text-xl font-bold mb-1">Logement entier : {property.category}</h2>
                  <div className="flex gap-4 text-gray-600 text-sm">
-                   <span className="font-medium text-emerald-700">{property.guests} voyageurs max</span>
+                   <span className="font-medium text-emerald-700">{maxGuests} voyageurs max</span>
                    <span>·</span>
                    <span>{property.bedrooms} chambres</span>
                    <span>·</span>
@@ -631,6 +686,77 @@ export default function PropertyDetailsPage() {
                 {property.description}
               </p>
             </div>
+
+            {!isSaleProperty && (
+              <div className="py-8 border-b border-gray-100">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="text-xl font-bold">Informations sejour</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowSeasonalDetails((prev) => !prev)}
+                    className="inline-flex items-center gap-2 self-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
+                  >
+                    <ListChecks size={16} />
+                    Voir tous les details
+                    {showSeasonalDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {seasonalHighlights.map((item) => (
+                    <div key={item.key} className="rounded-xl border border-gray-200 bg-white px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{item.icon}{item.label}</span>
+                        <span className="text-sm font-semibold text-gray-900 text-right">{item.value}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {showSeasonalDetails && (
+                  <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 sm:p-4">
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => setSeasonalDetailsTab('regles')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTab === 'regles' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>Regles</button>
+                      <button type="button" onClick={() => setSeasonalDetailsTab('sejour')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTab === 'sejour' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>Sejour</button>
+                      <button type="button" onClick={() => setSeasonalDetailsTab('tarifs')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${seasonalDetailsTab === 'tarifs' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>Tarifs & options</button>
+                    </div>
+                    {seasonalDetailsTab === 'regles' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Fumeurs</span><div className="font-semibold text-gray-900">{fumeursLabel || 'Non precise'}</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Alcool</span><div className="font-semibold text-gray-900">{alcoolLabel || 'Non precise'}</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Animaux</span><div className="font-semibold text-gray-900">{animauxLabel || 'Non precise'}</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Limite voyageurs / nuit</span><div className="font-semibold text-gray-900">{maxGuests}</div></div>
+                      </div>
+                    )}
+                    {seasonalDetailsTab === 'sejour' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Duree minimum</span><div className="font-semibold text-gray-900">{minStay} nuit(s)</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Duree maximum</span><div className="font-semibold text-gray-900">{maxStay} nuit(s)</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Check-in</span><div className="font-semibold text-gray-900">{seasonalConfig?.checkinHeure || '-'}</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Check-out</span><div className="font-semibold text-gray-900">{seasonalConfig?.checkoutHeure || '-'}</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Politique annulation</span><div className="font-semibold text-gray-900">{politiqueAnnulationLabel || '-'}</div></div>
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2"><span className="text-gray-500">Depot de garantie</span><div className="font-semibold text-gray-900">{seasonalConfig?.depotGarantie ? `${seasonalConfig?.montantCaution || 0} TND (${typeCautionLabel || '-'})` : 'Non'}</div></div>
+                      </div>
+                    )}
+                    {seasonalDetailsTab === 'tarifs' && (
+                      <div className="space-y-2 text-sm">
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Tarif nuit</span><span className="font-semibold text-gray-900">{property.pricePerNight} TND</span></div>
+                        {hasCleaningFee && <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Frais de menage</span><span className="font-semibold text-gray-900">{property.cleaningFee} TND</span></div>}
+                        {hasServiceFee && <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Frais de service</span><span className="font-semibold text-gray-900">{property.serviceFee} TND</span></div>}
+                        {hasExtraMattress && <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between"><span className="text-gray-500">Matelas supplementaire</span><span className="font-semibold text-gray-900">{extraMattressPrice} TND / unite (max {extraMattressMax})</span></div>}
+                        {hasPaidServices && activePaidServices.map((service) => (
+                          <div key={`detail-${service.id}`} className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex items-center justify-between">
+                            <span className="text-gray-500">{service.label}</span>
+                            <span className="font-semibold text-gray-900">{Number(service.prix || 0)} TND</span>
+                          </div>
+                        ))}
+                        {!hasCleaningFee && !hasServiceFee && !hasPaidServices && !hasExtraMattress && (
+                          <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-gray-600">Aucun frais supplementaire actif pour ce bien.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="py-8 border-b border-gray-100">
               <h3 className="text-xl font-bold mb-6">Ce que propose ce logement</h3>
@@ -745,7 +871,7 @@ export default function PropertyDetailsPage() {
                 </div>
 
                 {/* Optional Fees */}
-                {!isSaleProperty && property.cleaningFee !== undefined && property.cleaningFee > 0 && (
+                {hasCleaningFee && (
                   <div 
                     onClick={() => setIncludeCleaningFee(!includeCleaningFee)}
                     className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
@@ -768,7 +894,7 @@ export default function PropertyDetailsPage() {
                   </div>
                 )}
 
-                {!isSaleProperty && property.serviceFee !== undefined && property.serviceFee > 0 && (
+                {hasServiceFee && (
                   <div 
                     onClick={() => setIncludeServiceFee(!includeServiceFee)}
                     className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
@@ -791,7 +917,7 @@ export default function PropertyDetailsPage() {
                   </div>
                 )}
 
-                {!isSaleProperty && extraMattressMax > 0 && (
+                {hasExtraMattress && (
                   <div className="rounded-lg border border-gray-200 p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -811,10 +937,10 @@ export default function PropertyDetailsPage() {
                   </div>
                 )}
 
-                {!isSaleProperty && (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false).length > 0 && (
+                {hasPaidServices && (
                   <div className="rounded-lg border border-gray-200 p-3 space-y-2">
                     <p className="text-xs font-bold uppercase text-gray-600">Services payants</p>
-                    {(seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false).map((service) => {
+                    {activePaidServices.map((service) => {
                       const checked = selectedPaidServiceIds.includes(service.id);
                       return (
                         <button
@@ -896,8 +1022,12 @@ export default function PropertyDetailsPage() {
                        <span>{pricing.productsAccueilFee} TND</span>
                      </div>
                    )}
+                   <div className="flex justify-between">
+                     <span className="underline">Total frais supplementaires</span>
+                     <span>{pricing.extrasTotal} TND</span>
+                   </div>
                    <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-100 mt-2">
-                     <span>Total</span>
+                     <span>Montant total</span>
                      <span>{pricing.total} TND</span>
                    </div>
                    <div className="flex justify-between text-sm text-gray-600">
