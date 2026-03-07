@@ -4,7 +4,7 @@ import { Bien } from '../../admin/types';
 import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
-import { buildTelLink, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from '../../utils/deepLinks';
+import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from '../../utils/deepLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -238,7 +238,14 @@ export default function VentesListPage() {
                         <Phone className="w-4 h-4" />
                         Tel
                       </a>
-                      <button type="button" onClick={() => openWhatsAppApp(contactPhone)} className="inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                      <button
+                        type="button"
+                        onClick={() => openWhatsAppApp(
+                          contactPhone,
+                          buildWhatsAppPropertyMessage(bien.titre, propertyUrl, bien.reference || null)
+                        )}
+                        className="inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                      >
                         <MessageCircle className="w-4 h-4" />
                         WhatsApp
                       </button>

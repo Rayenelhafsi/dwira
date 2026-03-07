@@ -119,6 +119,11 @@ export function buildPropertyShareMessage(title: string, url: string) {
   return `Bonjour, je suis interesse par ce bien : ${title}\n${url}`;
 }
 
+export function buildWhatsAppPropertyMessage(title: string, url: string, reference?: string | null) {
+  const refSegment = String(reference || '').trim() ? ` Reference ${String(reference).trim()}` : '';
+  return `Vous etes interesse par le logement${refSegment} : ${title}\n${url}`;
+}
+
 type MessengerPropertyPayload = {
   page?: string;
   pageId?: string | null;

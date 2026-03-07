@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
 import { Property } from "../data/properties";
-import { buildTelLink, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
+import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
 
 interface PropertyCardProps {
   property: Property;
@@ -86,7 +86,14 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             <Phone size={14} />
             <span>Telephone</span>
           </a>
-          <button type="button" onClick={() => openWhatsAppApp(contactConfig.phone)} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap">
+          <button
+            type="button"
+            onClick={() => openWhatsAppApp(
+              contactConfig.phone,
+              buildWhatsAppPropertyMessage(property.title, propertyUrl, property.reference || null)
+            )}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap"
+          >
             <MessageCircle size={14} />
             <span>WhatsApp</span>
           </button>
