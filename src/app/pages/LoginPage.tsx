@@ -22,6 +22,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCompletingProfile, setIsCompletingProfile] = useState(false);
   const [isUploadingCin, setIsUploadingCin] = useState(false);
+  const [isProcessingSocialToken, setIsProcessingSocialToken] = useState(false);
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [profileForm, setProfileForm] = useState({
     name: '',
@@ -74,7 +75,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (authLoading || !user || isProcessingSocialToken) return;
     if (user.role === 'user' && !user.profileCompleted) {
       setProfileForm({
         name: user.name || '',
@@ -88,7 +89,7 @@ export default function LoginPage() {
     }
     if (user.role === 'user' && redirectToPendingReservation()) return;
     navigate(user.role === 'admin' ? '/admin' : '/', { replace: true });
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, isProcessingSocialToken, navigate]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -113,6 +114,7 @@ export default function LoginPage() {
     }
 
     if (!socialToken) return;
+    setIsProcessingSocialToken(true);
 
     if (returnTo) {
       saveAuthReturnTo(returnTo);
@@ -123,12 +125,21 @@ export default function LoginPage() {
     const restoreSocialSession = async () => {
       try {
         const socialUser = await getSocialSession(socialToken);
+        const targetFromDraft = (() => {
+          const pendingDraft = readPendingReservationDraft();
+          if (!pendingDraft || typeof pendingDraft.propertySlug !== 'string') return null;
+          return `/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`;
+        })();
+        const finalReturnTo = returnTo || targetFromDraft;
         loginUser(socialUser);
         if (socialUser.profileCompleted) {
           toast.success('Connexion reussie');
-          if (!redirectToPendingReservation()) {
-            navigate('/', { replace: true });
+          if (finalReturnTo) {
+            clearAuthReturnTo();
+            window.location.replace(finalReturnTo);
+            return;
           }
+          navigate('/', { replace: true });
         } else {
           setProfileForm({
             name: socialUser.name || '',
@@ -143,6 +154,8 @@ export default function LoginPage() {
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Session sociale expiree');
         navigate('/login', { replace: true });
+      } finally {
+        setIsProcessingSocialToken(false);
       }
     };
 
