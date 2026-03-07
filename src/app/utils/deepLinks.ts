@@ -107,12 +107,7 @@ export function openWhatsAppApp(phone?: string | null, text?: string) {
 }
 
 export function openMessengerApp(page: string = DEFAULT_MESSENGER_PAGE) {
-  const threadUrl = `https://www.facebook.com/messages/t/${page}`;
-  if (!isMobileDevice() || isRestrictedInAppBrowser()) {
-    window.location.assign(threadUrl);
-    return;
-  }
-  openDeepLink(buildMessengerAppLink(page), threadUrl);
+  window.location.assign(buildMessengerWebLink(page));
 }
 
 export function buildPropertyShareMessage(title: string, url: string) {
