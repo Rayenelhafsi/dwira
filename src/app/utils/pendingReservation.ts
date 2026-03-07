@@ -1,4 +1,5 @@
 const PENDING_RESERVATION_KEY = "dwira_pending_reservation_draft";
+const AUTH_RETURN_TO_KEY = "dwira_auth_return_to";
 
 export type PendingReservationDraft = {
   propertyId: string;
@@ -57,5 +58,29 @@ export function clearPendingReservationDraft() {
   } catch {}
   try {
     localStorage.removeItem(PENDING_RESERVATION_KEY);
+  } catch {}
+}
+
+export function saveAuthReturnTo(path: string) {
+  const value = String(path || "").trim();
+  if (!value.startsWith("/") || value.startsWith("//")) return;
+  try {
+    sessionStorage.setItem(AUTH_RETURN_TO_KEY, value);
+  } catch {}
+}
+
+export function readAuthReturnTo() {
+  try {
+    const value = String(sessionStorage.getItem(AUTH_RETURN_TO_KEY) || "").trim();
+    if (!value.startsWith("/") || value.startsWith("//")) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+export function clearAuthReturnTo() {
+  try {
+    sessionStorage.removeItem(AUTH_RETURN_TO_KEY);
   } catch {}
 }

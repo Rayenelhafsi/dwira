@@ -6,7 +6,15 @@ import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin, AuthUser } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
-import { readPendingReservationDraft } from '../utils/pendingReservation';
+import { clearAuthReturnTo, readAuthReturnTo, readPendingReservationDraft, saveAuthReturnTo } from '../utils/pendingReservation';
+
+function normalizeReturnToPath(value: string | null | undefined) {
+  const next = String(value || '').trim();
+  if (!next.startsWith('/')) return null;
+  if (next.startsWith('//')) return null;
+  if (!next.startsWith('/reservation/confirmation/')) return null;
+  return next;
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -43,8 +51,11 @@ export default function LoginPage() {
 
   const redirectToPendingReservation = () => {
     const params = new URLSearchParams(window.location.search);
-    const returnTo = params.get('returnTo');
-    if (returnTo && returnTo.startsWith('/reservation/confirmation/')) {
+    const returnToFromUrl = normalizeReturnToPath(params.get('returnTo') || params.get('return_to'));
+    const returnToFromSession = normalizeReturnToPath(readAuthReturnTo());
+    const returnTo = returnToFromUrl || returnToFromSession;
+    if (returnTo) {
+      clearAuthReturnTo();
       window.location.replace(returnTo);
       return true;
     }
@@ -83,6 +94,7 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     const socialToken = params.get('social_token');
     const oauthError = params.get('oauth_error');
+    const returnTo = normalizeReturnToPath(params.get('returnTo') || params.get('return_to'));
 
     if (oauthError) {
       const messages: Record<string, string> = {
@@ -102,8 +114,11 @@ export default function LoginPage() {
 
     if (!socialToken) return;
 
-    // Remove token from URL immediately to avoid duplicate processing (e.g. React StrictMode in dev).
-    window.history.replaceState({}, document.title, '/login');
+    if (returnTo) {
+      saveAuthReturnTo(returnTo);
+    }
+    // Remove social_token immediately to avoid duplicate processing, but keep return destination.
+    window.history.replaceState({}, document.title, returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : '/login');
 
     const restoreSocialSession = async () => {
       try {
@@ -167,7 +182,7 @@ export default function LoginPage() {
       return;
     }
     const params = new URLSearchParams(window.location.search);
-    const returnTo = params.get('returnTo') || undefined;
+    const returnTo = normalizeReturnToPath(params.get('returnTo') || params.get('return_to')) || undefined;
     startSocialLogin(provider, returnTo);
   };
 

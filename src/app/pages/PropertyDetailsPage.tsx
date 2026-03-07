@@ -11,7 +11,7 @@ import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { toYouTubeEmbedUrl } from "../utils/videoLinks";
-import { savePendingReservationDraft, readPendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
+import { saveAuthReturnTo, savePendingReservationDraft, readPendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 type FeatureApiRow = {
@@ -805,7 +805,9 @@ export default function PropertyDetailsPage() {
       startSocialLogin(provider);
       return;
     }
-    startSocialLogin(provider, `/reservation/confirmation/${property.slug}`);
+    const confirmationPath = `/reservation/confirmation/${property.slug}`;
+    saveAuthReturnTo(confirmationPath);
+    startSocialLogin(provider, confirmationPath);
   };
 
   useEffect(() => {
