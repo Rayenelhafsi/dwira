@@ -491,7 +491,6 @@ app.get('/api/google-places/nearby', async (req, res) => {
 
     const kinds = ['restaurant', 'cafe', 'supermarket', 'convenience_store'];
     const byPlaceId = new Map();
-    const baseOrigin = `${req.protocol}://${req.get('host')}`;
 
     for (const kind of kinds) {
       const endpoint = new URL('https://maps.googleapis.com/maps/api/place/nearbysearch/json');
@@ -520,7 +519,7 @@ app.get('/api/google-places/nearby', async (req, res) => {
         const photoRef = String(row?.photos?.[0]?.photo_reference || '').trim();
         const maxWidth = 320;
         const imageUrl = photoRef
-          ? `${baseOrigin}/api/google-places/photo?ref=${encodeURIComponent(photoRef)}&maxwidth=${maxWidth}`
+          ? `/api/google-places/photo?ref=${encodeURIComponent(photoRef)}&maxwidth=${maxWidth}`
           : null;
         byPlaceId.set(placeId, {
           id: placeId,

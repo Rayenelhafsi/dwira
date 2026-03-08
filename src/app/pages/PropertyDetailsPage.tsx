@@ -60,6 +60,7 @@ type NearbyPlace = {
   address: string;
   opening: string | null;
   imageUrl: string | null;
+  imageSource: "google" | "osm" | "fallback";
 };
 
 const isValidLatLng = (lat: number, lng: number) =>
@@ -266,6 +267,7 @@ export default function PropertyDetailsPage() {
   const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const seasonalDetailsPanelRef = useRef<HTMLDivElement | null>(null);
+  const googlePlacesUnsupportedRef = useRef(false);
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -378,35 +380,40 @@ export default function PropertyDetailsPage() {
 out body 40;
 `;
       try {
-        const googleNearbyUrl = buildApiUrl(`/google-places/nearby?lat=${encodeURIComponent(String(displayMapCenter.lat))}&lng=${encodeURIComponent(String(displayMapCenter.lng))}&radius=1800`);
-        const googleResponse = await fetch(googleNearbyUrl);
-        if (googleResponse.ok) {
-          const googlePayload = await googleResponse.json().catch(() => ({}));
-          const googleRows = Array.isArray(googlePayload?.places) ? googlePayload.places : [];
-          const googleItems = googleRows
-            .map((row: any) => {
-              const lat = Number(row?.lat);
-              const lng = Number(row?.lng);
-              const name = String(row?.name || '').trim();
-              const kind = String(row?.kind || '').trim();
-              if (!name || !isValidLatLng(lat, lng)) return null;
-              if (kind !== 'restaurant' && kind !== 'cafe' && kind !== 'shop') return null;
-              return {
-                id: String(row?.id || `${lat}-${lng}`),
-                name,
-                kind,
-                distanceKm: haversineKm(displayMapCenter, { lat, lng }),
-                address: String(row?.address || '').trim() || 'Adresse locale',
-                opening: String(row?.opening || '').trim() || null,
-                imageUrl: String(row?.imageUrl || '').trim() || null,
-              } as NearbyPlace;
-            })
-            .filter(Boolean)
-            .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
-            .slice(0, 12);
-          if (googleItems.length > 0) {
-            setNearbyPlaces(googleItems);
-            return;
+        if (!googlePlacesUnsupportedRef.current) {
+          const googleNearbyUrl = buildApiUrl(`/google-places/nearby?lat=${encodeURIComponent(String(displayMapCenter.lat))}&lng=${encodeURIComponent(String(displayMapCenter.lng))}&radius=1800`);
+          const googleResponse = await fetch(googleNearbyUrl);
+          if (googleResponse.status === 404) {
+            googlePlacesUnsupportedRef.current = true;
+          } else if (googleResponse.ok) {
+            const googlePayload = await googleResponse.json().catch(() => ({}));
+            const googleRows = Array.isArray(googlePayload?.places) ? googlePayload.places : [];
+            const googleItems = googleRows
+              .map((row: any) => {
+                const lat = Number(row?.lat);
+                const lng = Number(row?.lng);
+                const name = String(row?.name || '').trim();
+                const kind = String(row?.kind || '').trim();
+                if (!name || !isValidLatLng(lat, lng)) return null;
+                if (kind !== 'restaurant' && kind !== 'cafe' && kind !== 'shop') return null;
+                return {
+                  id: String(row?.id || `${lat}-${lng}`),
+                  name,
+                  kind,
+                  distanceKm: haversineKm(displayMapCenter, { lat, lng }),
+                  address: String(row?.address || '').trim() || 'Adresse locale',
+                  opening: String(row?.opening || '').trim() || null,
+                  imageUrl: String(row?.imageUrl || '').trim() || null,
+                  imageSource: String(row?.imageUrl || '').trim() ? "google" : "fallback",
+                } as NearbyPlace;
+              })
+              .filter(Boolean)
+              .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
+              .slice(0, 12);
+            if (googleItems.length > 0) {
+              setNearbyPlaces(googleItems);
+              return;
+            }
           }
         }
         const response = await fetch('https://overpass-api.de/api/interpreter', {
@@ -438,6 +445,7 @@ out body 40;
             const address = [house, street].filter(Boolean).join(' ') || String(tags?.["addr:full"] || '').trim() || 'Adresse locale';
             const openingRaw = String(tags?.opening_hours || '').trim();
             const opening = openingRaw ? (openingRaw.includes('24/7') ? 'Ouvert 24h/24' : openingRaw) : null;
+            const osmImage = nearbyImageUrlFromTags(tags);
             return {
               id: String(item?.id || `${lat}-${lng}`),
               name,
@@ -445,7 +453,8 @@ out body 40;
               distanceKm: haversineKm(displayMapCenter, { lat, lng }),
               address,
               opening,
-              imageUrl: nearbyImageUrlFromTags(tags),
+              imageUrl: osmImage,
+              imageSource: osmImage ? "osm" : "fallback",
               wikidata: String(tags?.wikidata || '').trim() || null,
             } as NearbyPlace;
           })
@@ -456,7 +465,7 @@ out body 40;
           rawItems.map(async (place: any) => {
             if (place.imageUrl) return place as NearbyPlace;
             const wikidataImage = await imageUrlFromWikidata(place.wikidata);
-            return { ...place, imageUrl: wikidataImage || null } as NearbyPlace;
+            return { ...place, imageUrl: wikidataImage || null, imageSource: wikidataImage ? "osm" : "fallback" } as NearbyPlace;
           })
         );
         setNearbyPlaces(items);
@@ -1690,13 +1699,11 @@ out body 40;
                              <p className="text-xs text-gray-600 mt-1 truncate">{place.address}</p>
                              {place.opening ? <p className="text-xs text-emerald-700 mt-1 font-medium">{place.opening}</p> : null}
                            </div>
-                           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50 to-sky-50">
-                             {place.imageUrl ? (
+                           {place.imageUrl ? (
+                             <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50 to-sky-50">
                                <img src={place.imageUrl} alt={place.name} className="h-full w-full object-cover" loading="lazy" />
-                             ) : (
-                               <div className="h-full w-full flex items-center justify-center text-[10px] text-emerald-700/70">Photo</div>
-                             )}
-                           </div>
+                             </div>
+                           ) : null}
                          </div>
                        </article>
                      ))}
