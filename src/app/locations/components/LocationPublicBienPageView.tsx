@@ -99,11 +99,17 @@ const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   const value = String(url || '').trim();
   if (!value) return null;
 
-  const decoded = decodeURIComponent(value);
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    decoded = value;
+  }
   const patterns = [
     /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
     /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
     /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i,
   ];
   for (const pattern of patterns) {
     const match = decoded.match(pattern);
@@ -145,6 +151,7 @@ export default function LocationPublicBienPageView({
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const uiConfig: BienUiConfig = bien.ui_config || {};
   const selectedZone = useMemo(() => zones.find((item) => item.id === bien.zone_id), [zones, bien.zone_id]);
+  const hasMapsLink = String(selectedZone?.google_maps_url || '').trim().length > 0;
 
   useEffect(() => {
     let disposed = false;
@@ -324,6 +331,16 @@ out body 20;
     return () => { cancelled = true; };
   }, [displayLocation?.lat, displayLocation?.lng]);
 
+  const fallbackApproxLocation = useMemo<LatLng>(() => {
+    const seed = `${selectedZone?.id || ''}-${selectedZone?.nom || ''}-${bien.id || ''}`;
+    const h = hashString(seed || 'kelibia');
+    const baseLat = 36.847;
+    const baseLng = 11.093;
+    const latJitter = ((h % 240) - 120) / 1000;
+    const lngJitter = ((((h / 7) | 0) % 240) - 120) / 1000;
+    return { lat: baseLat + latJitter, lng: baseLng + lngJitter };
+  }, [selectedZone?.id, selectedZone?.nom, bien.id]);
+
   const block = (key: string, title: string, content: React.ReactNode, className = '') => {
     const visible = isVisible(key);
     if (!visible && !previewMode) return null;
@@ -463,11 +480,11 @@ out body 20;
                   <h3 className="text-xl font-bold">Ou se situe le logement</h3>
                   {sectionToggle('show_localisation')}
                 </div>
-                {displayLocation ? (
+                {(displayLocation || hasMapsLink) ? (
                   <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
                     <div className="h-[320px] relative">
                       <MapContainer
-                        center={[displayLocation.lat, displayLocation.lng]}
+                        center={[(displayLocation || fallbackApproxLocation).lat, (displayLocation || fallbackApproxLocation).lng]}
                         zoom={13}
                         scrollWheelZoom={false}
                         className="h-full w-full"
@@ -477,12 +494,12 @@ out body 20;
                           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         />
                         <Circle
-                          center={[displayLocation.lat, displayLocation.lng]}
+                          center={[(displayLocation || fallbackApproxLocation).lat, (displayLocation || fallbackApproxLocation).lng]}
                           radius={700}
                           pathOptions={{ color: '#059669', weight: 1.5, fillColor: '#10b981', fillOpacity: 0.12 }}
                         />
                         <CircleMarker
-                          center={[displayLocation.lat, displayLocation.lng]}
+                          center={[(displayLocation || fallbackApproxLocation).lat, (displayLocation || fallbackApproxLocation).lng]}
                           radius={9}
                           pathOptions={{ color: '#065f46', weight: 2, fillColor: '#10b981', fillOpacity: 1 }}
                         />
@@ -502,6 +519,7 @@ out body 20;
                       </MapContainer>
                     </div>
                     <div className="border-t border-gray-100 p-4">
+                      {!displayLocation ? <p className="mb-2 text-xs text-gray-500">Position approximative de la zone.</p> : null}
                       {nearbyPlaces.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
                           {nearbyPlaces.slice(0, 4).map((place) => (
