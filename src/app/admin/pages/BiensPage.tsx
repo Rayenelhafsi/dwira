@@ -86,6 +86,34 @@ const normalizeLegacyType = (value?: BienType): BienType => {
   if (value === 'local') return 'local_commercial';
   return (value || 'appartement') as BienType;
 };
+const extractGoogleMapsLatLng = (raw?: string | null): { lat: number; lng: number } | null => {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    decoded = value;
+  }
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /!2d(-?\d+(?:\.\d+)?)!3d(-?\d+(?:\.\d+)?)/i,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
+    /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = decoded.match(pattern);
+    if (!match) continue;
+    const isLngLatPattern = pattern.source.startsWith('!2d');
+    const lat = Number(isLngLatPattern ? match[2] : match[1]);
+    const lng = Number(isLngLatPattern ? match[1] : match[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
+  }
+  return null;
+};
 const TERRAIN_SECTION_TABS = [
   { id: 'informations_generales', label: '1. Informations generales' },
   { id: 'dimensions_forme', label: '2. Dimensions & forme' },
@@ -892,6 +920,17 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const extracted = iframeSrcMatch?.[1] || value;
     return extracted.replace(/&amp;/g, '&').trim() || null;
   };
+  const bienMapsNormalizedUrl = useMemo(
+    () => normalizeMapsInput(saisonConfig.google_maps_embed_url),
+    [saisonConfig.google_maps_embed_url]
+  );
+  const bienMapsCoordinates = useMemo(
+    () => extractGoogleMapsLatLng(bienMapsNormalizedUrl),
+    [bienMapsNormalizedUrl]
+  );
+  const bienMapsCoordinatesLabel = bienMapsCoordinates
+    ? `${bienMapsCoordinates.lat.toFixed(6)}, ${bienMapsCoordinates.lng.toFixed(6)}`
+    : null;
   const updateSaisonConfig = (patch: Partial<LocationSaisonniereConfig>) => {
     setFormData((prev) => ({
       ...prev,

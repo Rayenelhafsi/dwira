@@ -1,8 +1,10 @@
 ﻿import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
+import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import "leaflet/dist/leaflet.css";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import { format, differenceInDays, isWithinInterval, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -54,6 +56,37 @@ type LatLng = { lat: number; lng: number };
 const isValidLatLng = (lat: number, lng: number) =>
   Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
+const decodeBase64Utf8 = (value: string): string | null => {
+  try {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const binary = atob(padded);
+    const bytes = Array.from(binary).map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join('');
+    return decodeURIComponent(bytes);
+  } catch {
+    return null;
+  }
+};
+
+const parseDmsCoordinates = (value: string): LatLng | null => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  const match = text.match(/(\d{1,2})[°º]\s*(\d{1,2})['’]\s*(\d{1,2}(?:\.\d+)?)["”]?\s*([NS])\s+(\d{1,3})[°º]\s*(\d{1,2})['’]\s*(\d{1,2}(?:\.\d+)?)["”]?\s*([EW])/i);
+  if (!match) return null;
+  const latDeg = Number(match[1]);
+  const latMin = Number(match[2]);
+  const latSec = Number(match[3]);
+  const latHem = String(match[4]).toUpperCase();
+  const lngDeg = Number(match[5]);
+  const lngMin = Number(match[6]);
+  const lngSec = Number(match[7]);
+  const lngHem = String(match[8]).toUpperCase();
+  const latSign = latHem === 'S' ? -1 : 1;
+  const lngSign = lngHem === 'W' ? -1 : 1;
+  const lat = latSign * (latDeg + latMin / 60 + latSec / 3600);
+  const lng = lngSign * (lngDeg + lngMin / 60 + lngSec / 3600);
+  return isValidLatLng(lat, lng) ? { lat, lng } : null;
+};
+
 const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   const value = String(url || '').trim();
   if (!value) return null;
@@ -63,8 +96,17 @@ const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   } catch {
     decoded = value;
   }
+  const encodedPlaceToken = decoded.match(/!2z([A-Za-z0-9_-]+)/i)?.[1];
+  if (encodedPlaceToken) {
+    const decodedPlace = decodeBase64Utf8(encodedPlaceToken);
+    const placeCoords = decodedPlace ? parseDmsCoordinates(decodedPlace) : null;
+    if (placeCoords) return placeCoords;
+  }
+  const inlineDmsCoords = parseDmsCoordinates(decoded);
+  if (inlineDmsCoords) return inlineDmsCoords;
   const patterns = [
     /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /!2d(-?\d+(?:\.\d+)?)!3d(-?\d+(?:\.\d+)?)/i,
     /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
     /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
     /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i,
@@ -72,8 +114,9 @@ const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   for (const pattern of patterns) {
     const match = decoded.match(pattern);
     if (!match) continue;
-    const lat = Number(match[1]);
-    const lng = Number(match[2]);
+    const isLngLatPattern = pattern.source.startsWith('!2d');
+    const lat = Number(isLngLatPattern ? match[2] : match[1]);
+    const lng = Number(isLngLatPattern ? match[1] : match[2]);
     if (isValidLatLng(lat, lng)) return { lat, lng };
   }
   return null;
@@ -92,6 +135,17 @@ const fallbackApproxLocation = (seed: string): LatLng => {
   const latJitter = ((h % 240) - 120) / 1000;
   const lngJitter = ((((h / 7) | 0) % 240) - 120) / 1000;
   return { lat: baseLat + latJitter, lng: baseLng + lngJitter };
+};
+
+const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
+  const h = hashString(seed || 'dwira');
+  const angle = (h % 360) * (Math.PI / 180);
+  // Keep privacy while staying visually close to the real point (80m -> 180m).
+  const distanceKm = 0.08 + ((h % 100) / 1000);
+  const latOffset = (distanceKm / 111) * Math.cos(angle);
+  const lngOffset = (distanceKm / (111 * Math.cos((exact.lat * Math.PI) / 180))) * Math.sin(angle);
+  const candidate = { lat: exact.lat + latOffset, lng: exact.lng + lngOffset };
+  return isValidLatLng(candidate.lat, candidate.lng) ? candidate : exact;
 };
 
 export default function PropertyDetailsPage() {
@@ -171,12 +225,14 @@ export default function PropertyDetailsPage() {
     return extracted.replace(/&amp;/g, '&').trim();
   }, [selectedBienMapsUrl, selectedZoneMapsUrl]);
   const [mapCenter, setMapCenter] = useState<LatLng | null>(null);
+  const displayMapCenter = useMemo(
+    () => (mapCenter ? mapCenter : null),
+    [mapCenter]
+  );
   const googleEmbedUrl = useMemo(() => {
-    const directEmbed = /google\.[^/]+\/maps\/embed/i.test(selectedMapsUrl);
-    if (directEmbed) return selectedMapsUrl;
-    if (!mapCenter) return '';
-    return `https://www.google.com/maps?q=${mapCenter.lat},${mapCenter.lng}&z=15&t=k&output=embed`;
-  }, [selectedMapsUrl, mapCenter]);
+    if (!displayMapCenter) return '';
+    return `https://www.google.com/maps?output=embed&ll=${displayMapCenter.lat},${displayMapCenter.lng}&z=14&t=k`;
+  }, [displayMapCenter]);
 
   useEffect(() => {
     let disposed = false;
@@ -292,9 +348,10 @@ export default function PropertyDetailsPage() {
       hasGoogleMapsUrl: Boolean(selectedMapsUrl),
       hasMapCenter: Boolean(mapCenter),
       mapCenter,
+      displayMapCenter,
       hasGoogleEmbedUrl: Boolean(googleEmbedUrl),
     });
-  }, [selectedMapsUrl, mapCenter, googleEmbedUrl]);
+  }, [selectedMapsUrl, mapCenter, displayMapCenter, googleEmbedUrl]);
   const seasonalHighlights = useMemo(() => {
     if (isSaleProperty) return [];
     const rows = [
@@ -1344,16 +1401,31 @@ export default function PropertyDetailsPage() {
 
             <div className="py-8">
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
-               {googleEmbedUrl ? (
-                 <div className="rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white">
-                   <iframe
-                     title="Carte Google du bien"
-                     src={googleEmbedUrl}
-                     className="h-full w-full border-0"
-                     loading="lazy"
-                     referrerPolicy="no-referrer-when-downgrade"
-                     allowFullScreen
-                   />
+               {displayMapCenter ? (
+                 <div className="rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white relative">
+                   <MapContainer
+                     center={[displayMapCenter.lat, displayMapCenter.lng]}
+                     zoom={14}
+                     scrollWheelZoom
+                     className="h-full w-full"
+                   >
+                     <TileLayer
+                       attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
+                       url="https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}"
+                       subdomains={["mt0", "mt1", "mt2", "mt3"]}
+                       maxZoom={20}
+                     />
+                     <Circle
+                       center={[displayMapCenter.lat, displayMapCenter.lng]}
+                       radius={280}
+                       pathOptions={{
+                         color: "#10b981",
+                         weight: 2,
+                         fillColor: "#34d399",
+                         fillOpacity: 0.2,
+                       }}
+                     />
+                   </MapContainer>
                  </div>
                ) : (
                  <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">
@@ -1370,7 +1442,7 @@ export default function PropertyDetailsPage() {
                  </div>
                )}
                <p className="mt-4 text-gray-600 text-sm">
-                 Emplacement exact affiché. Cafés et restaurants proches visibles sur Google Maps.
+                 Position approximative affichee. L'adresse exacte sera communiquee le jour d'arrivee.
                </p>
             </div>
 

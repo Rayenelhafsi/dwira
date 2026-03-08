@@ -105,6 +105,7 @@ const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   }
   const patterns = [
     /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /!2d(-?\d+(?:\.\d+)?)!3d(-?\d+(?:\.\d+)?)/i,
     /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
     /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
     /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i,
@@ -112,8 +113,9 @@ const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   for (const pattern of patterns) {
     const match = decoded.match(pattern);
     if (!match) continue;
-    const lat = Number(match[1]);
-    const lng = Number(match[2]);
+    const isLngLatPattern = pattern.source.startsWith('!2d');
+    const lat = Number(isLngLatPattern ? match[2] : match[1]);
+    const lng = Number(isLngLatPattern ? match[1] : match[2]);
     if (isValidLatLng(lat, lng)) return { lat, lng };
   }
   return null;
@@ -128,7 +130,8 @@ const hashString = (value: string) => {
 const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
   const h = hashString(seed || 'dwira');
   const angle = (h % 360) * (Math.PI / 180);
-  const distanceKm = 0.45 + ((h % 250) / 1000); // 450m -> 700m
+  // Keep privacy while staying visually close to the real point (80m -> 180m).
+  const distanceKm = 0.08 + ((h % 100) / 1000);
   const latOffset = (distanceKm / 111) * Math.cos(angle);
   const lngOffset = (distanceKm / (111 * Math.cos(toRad(exact.lat)))) * Math.sin(angle);
   const candidate = { lat: exact.lat + latOffset, lng: exact.lng + lngOffset };
