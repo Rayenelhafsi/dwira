@@ -3,7 +3,7 @@ import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves } from "lucide-react";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import useEmblaCarousel from 'embla-carousel-react';
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import "leaflet/dist/leaflet.css";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import { format, differenceInDays, isWithinInterval, parseISO } from "date-fns";
@@ -52,7 +52,15 @@ const normalizeFeatureName = (value: string) =>
     .trim();
 
 type LatLng = { lat: number; lng: number };
-type NearbyPlace = { id: string; name: string; kind: "cafe" | "restaurant" | "shop"; distanceKm: number };
+type NearbyPlace = {
+  id: string;
+  name: string;
+  kind: "cafe" | "restaurant" | "shop";
+  distanceKm: number;
+  address: string;
+  opening: string | null;
+  imageUrl: string | null;
+};
 
 const isValidLatLng = (lat: number, lng: number) =>
   Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
@@ -145,6 +153,39 @@ const normalizeAmenity = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+const kindLabel = (kind: NearbyPlace["kind"]) => {
+  if (kind === "restaurant") return "Restaurant";
+  if (kind === "cafe") return "Café";
+  return "Magasin";
+};
+
+const nearbyImageUrlFromTags = (tags: Record<string, any>): string | null => {
+  const direct = String(tags?.image || "").trim();
+  if (/^https?:\/\//i.test(direct)) return direct;
+  const commons = String(tags?.wikimedia_commons || "").trim();
+  if (/^File:/i.test(commons)) {
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(commons.replace(/^File:/i, "").trim())}`;
+  }
+  return null;
+};
+
+const imageUrlFromWikidata = async (entityId?: string | null): Promise<string | null> => {
+  const id = String(entityId || "").trim();
+  if (!/^Q\d+$/i.test(id)) return null;
+  try {
+    const url = `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`;
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const claim = payload?.entities?.[id]?.claims?.P18?.[0];
+    const filename = String(claim?.mainsnak?.datavalue?.value || "").trim();
+    if (!filename) return null;
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}`;
+  } catch {
+    return null;
+  }
+};
+
 const fallbackApproxLocation = (seed: string): LatLng => {
   const h = hashString(seed || 'kelibia');
   const baseLat = 36.847;
@@ -224,6 +265,7 @@ export default function PropertyDetailsPage() {
   const authPopupRef = useRef<Window | null>(null);
   const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
+  const seasonalDetailsPanelRef = useRef<HTMLDivElement | null>(null);
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -300,6 +342,17 @@ export default function PropertyDetailsPage() {
     void load();
     return () => { disposed = true; };
   }, [selectedMapsUrl, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, property?.id]);
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    const raf1 = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      const raf2 = window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      });
+      return () => window.cancelAnimationFrame(raf2);
+    });
+    return () => window.cancelAnimationFrame(raf1);
+  }, [slug]);
   useEffect(() => {
     const startedAt = Date.now();
     const timer = window.setInterval(() => {
@@ -325,6 +378,37 @@ export default function PropertyDetailsPage() {
 out body 40;
 `;
       try {
+        const googleNearbyUrl = buildApiUrl(`/google-places/nearby?lat=${encodeURIComponent(String(displayMapCenter.lat))}&lng=${encodeURIComponent(String(displayMapCenter.lng))}&radius=1800`);
+        const googleResponse = await fetch(googleNearbyUrl);
+        if (googleResponse.ok) {
+          const googlePayload = await googleResponse.json().catch(() => ({}));
+          const googleRows = Array.isArray(googlePayload?.places) ? googlePayload.places : [];
+          const googleItems = googleRows
+            .map((row: any) => {
+              const lat = Number(row?.lat);
+              const lng = Number(row?.lng);
+              const name = String(row?.name || '').trim();
+              const kind = String(row?.kind || '').trim();
+              if (!name || !isValidLatLng(lat, lng)) return null;
+              if (kind !== 'restaurant' && kind !== 'cafe' && kind !== 'shop') return null;
+              return {
+                id: String(row?.id || `${lat}-${lng}`),
+                name,
+                kind,
+                distanceKm: haversineKm(displayMapCenter, { lat, lng }),
+                address: String(row?.address || '').trim() || 'Adresse locale',
+                opening: String(row?.opening || '').trim() || null,
+                imageUrl: String(row?.imageUrl || '').trim() || null,
+              } as NearbyPlace;
+            })
+            .filter(Boolean)
+            .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
+            .slice(0, 12);
+          if (googleItems.length > 0) {
+            setNearbyPlaces(googleItems);
+            return;
+          }
+        }
         const response = await fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
@@ -333,31 +417,48 @@ out body 40;
         if (!response.ok) throw new Error('overpass_failed');
         const payload = await response.json();
         if (cancelled) return;
-        const items = (Array.isArray(payload?.elements) ? payload.elements : [])
+        const rawItems = (Array.isArray(payload?.elements) ? payload.elements : [])
           .map((item: any) => {
             const lat = Number(item?.lat);
             const lng = Number(item?.lon);
             if (!isValidLatLng(lat, lng)) return null;
-            const name = String(item?.tags?.name || '').trim();
+            const tags = item?.tags || {};
+            const name = String(tags?.name || '').trim();
             if (!name) return null;
-            const amenity = String(item?.tags?.amenity || '').trim();
-            const shop = String(item?.tags?.shop || '').trim();
+            const amenity = String(tags?.amenity || '').trim();
+            const shop = String(tags?.shop || '').trim();
             const kind: NearbyPlace["kind"] | null =
               amenity === 'cafe' ? 'cafe' :
               amenity === 'restaurant' ? 'restaurant' :
               (shop === 'supermarket' || shop === 'convenience') ? 'shop' :
               null;
             if (!kind) return null;
+            const street = String(tags?.["addr:street"] || '').trim();
+            const house = String(tags?.["addr:housenumber"] || '').trim();
+            const address = [house, street].filter(Boolean).join(' ') || String(tags?.["addr:full"] || '').trim() || 'Adresse locale';
+            const openingRaw = String(tags?.opening_hours || '').trim();
+            const opening = openingRaw ? (openingRaw.includes('24/7') ? 'Ouvert 24h/24' : openingRaw) : null;
             return {
               id: String(item?.id || `${lat}-${lng}`),
               name,
               kind,
               distanceKm: haversineKm(displayMapCenter, { lat, lng }),
+              address,
+              opening,
+              imageUrl: nearbyImageUrlFromTags(tags),
+              wikidata: String(tags?.wikidata || '').trim() || null,
             } as NearbyPlace;
           })
           .filter(Boolean)
           .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
           .slice(0, 12);
+        const items = await Promise.all(
+          rawItems.map(async (place: any) => {
+            if (place.imageUrl) return place as NearbyPlace;
+            const wikidataImage = await imageUrlFromWikidata(place.wikidata);
+            return { ...place, imageUrl: wikidataImage || null } as NearbyPlace;
+          })
+        );
         setNearbyPlaces(items);
       } catch {
         if (!cancelled) setNearbyPlaces([]);
@@ -376,6 +477,23 @@ out body 40;
     if (key.includes('plage') || key.includes('mer')) return <Waves size={16} className="text-emerald-600" />;
     return <Check size={16} className="text-emerald-600" />;
   }, []);
+  const scrollToSeasonalDetails = useCallback(() => {
+    const target = seasonalDetailsPanelRef.current;
+    if (!target) return;
+    const offset = 104;
+    const top = window.scrollY + target.getBoundingClientRect().top - offset;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }, []);
+  const handleOpenAndScrollSeasonalDetails = useCallback(() => {
+    if (!showSeasonalDetails) {
+      setShowSeasonalDetails(true);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => scrollToSeasonalDetails());
+      });
+      return;
+    }
+    scrollToSeasonalDetails();
+  }, [showSeasonalDetails, scrollToSeasonalDetails]);
   const seasonalConfig = property?.seasonalConfig;
   const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
@@ -1394,7 +1512,7 @@ out body 40;
                   <h3 className="text-xl font-bold">Informations séjour</h3>
                   <button
                     type="button"
-                    onClick={() => setShowSeasonalDetails((prev) => !prev)}
+                    onClick={handleOpenAndScrollSeasonalDetails}
                     className="inline-flex items-center gap-2 self-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
                   >
                     <ListChecks size={16} />
@@ -1413,7 +1531,7 @@ out body 40;
                   ))}
                 </div>
                 {showSeasonalDetails && (
-                  <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 sm:p-4">
+                  <div ref={seasonalDetailsPanelRef} className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 sm:p-4">
                     {visibleDetailTabs.length > 0 ? (
                       <>
                         <div className="mb-3 flex items-center gap-1">
@@ -1501,12 +1619,12 @@ out body 40;
             <div className="py-8">
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
                {displayMapCenter ? (
-                 <div className="rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white relative">
+                 <div className="property-location-map rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white relative">
                    <MapContainer
                      center={[displayMapCenter.lat, displayMapCenter.lng]}
                      zoom={14}
                      scrollWheelZoom
-                     className="h-full w-full"
+                     className="h-full w-full property-location-map__leaflet"
                    >
                      <TileLayer
                        attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
@@ -1553,28 +1671,39 @@ out body 40;
                <p className="mt-4 text-gray-600 text-sm">
                  Position approximative affichee. L'adresse exacte sera communiquee le jour d'arrivee.
                </p>
-               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
-                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Commodites les plus proches</p>
-                 <div className="flex flex-wrap gap-2">
-                   {nearbyPlaces.filter((p) => p.kind === 'restaurant').slice(0, 3).map((place) => (
-                     <span key={`restaurant-${place.id}`} className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
-                       Restaurant: {place.name} (~{place.distanceKm.toFixed(1)} km)
-                     </span>
-                   ))}
-                   {nearbyPlaces.filter((p) => p.kind === 'cafe').slice(0, 3).map((place) => (
-                     <span key={`cafe-${place.id}`} className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
-                       Cafe: {place.name} (~{place.distanceKm.toFixed(1)} km)
-                     </span>
-                   ))}
-                   {nearbyPlaces.filter((p) => p.kind === 'shop').slice(0, 3).map((place) => (
-                     <span key={`shop-${place.id}`} className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
-                       Magasin: {place.name} (~{place.distanceKm.toFixed(1)} km)
-                     </span>
-                   ))}
-                   {nearbyPlaces.length === 0 ? (
-                     <span className="text-xs text-gray-500">Cafes, restaurants et magasins proches du quartier.</span>
-                   ) : null}
+               <div className="mt-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 via-white to-sky-50/80 p-4">
+                 <div className="mb-3 flex items-center justify-between">
+                   <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Commodités les plus proches</p>
+                   <span className="text-[11px] text-emerald-700/80">Autour du logement</span>
                  </div>
+                 {nearbyPlaces.length > 0 ? (
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                     {nearbyPlaces.slice(0, 6).map((place) => (
+                       <article key={place.id} className="rounded-xl border border-white/70 bg-white/95 shadow-[0_8px_20px_rgba(16,185,129,0.08)] p-3">
+                         <div className="flex items-start gap-3">
+                           <div className="min-w-0 flex-1">
+                             <p className="text-sm font-semibold text-gray-900 truncate">{place.name}</p>
+                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                               <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px] font-medium">{kindLabel(place.kind)}</span>
+                               <span className="inline-flex items-center rounded-full bg-sky-100 text-sky-800 px-2 py-0.5 text-[11px] font-medium">~{place.distanceKm.toFixed(1)} km</span>
+                             </div>
+                             <p className="text-xs text-gray-600 mt-1 truncate">{place.address}</p>
+                             {place.opening ? <p className="text-xs text-emerald-700 mt-1 font-medium">{place.opening}</p> : null}
+                           </div>
+                           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50 to-sky-50">
+                             {place.imageUrl ? (
+                               <img src={place.imageUrl} alt={place.name} className="h-full w-full object-cover" loading="lazy" />
+                             ) : (
+                               <div className="h-full w-full flex items-center justify-center text-[10px] text-emerald-700/70">Photo</div>
+                             )}
+                           </div>
+                         </div>
+                       </article>
+                     ))}
+                   </div>
+                 ) : (
+                   <span className="text-xs text-gray-500">Cafés, restaurants et magasins proches du quartier.</span>
+                 )}
                </div>
             </div>
 

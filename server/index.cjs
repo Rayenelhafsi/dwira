@@ -22,6 +22,7 @@ const MESSENGER_PAGE_ID_LOCATION = String(process.env.MESSENGER_PAGE_ID_LOCATION
 const MESSENGER_PAGE_ID_VENTE = String(process.env.MESSENGER_PAGE_ID_VENTE || '').trim();
 const MESSENGER_APP_SECRET = String(process.env.MESSENGER_APP_SECRET || '').trim();
 const MESSENGER_API_VERSION = String(process.env.MESSENGER_API_VERSION || 'v21.0').trim();
+const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY || '').trim();
 const ALLOWED_ORIGINS = [
   ...String(process.env.FRONTEND_URL || CANONICAL_FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
   CANONICAL_FRONTEND_URL,
@@ -474,6 +475,102 @@ app.get('/api/health', (req, res) => {
     version: 'auth-v2',
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/api/google-places/nearby', async (req, res) => {
+  try {
+    if (!GOOGLE_MAPS_API_KEY) {
+      return res.status(503).json({ error: 'GOOGLE_MAPS_API_KEY is not configured' });
+    }
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const radius = Math.max(300, Math.min(5000, Number(req.query.radius) || 1800));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: 'Invalid lat/lng' });
+    }
+
+    const kinds = ['restaurant', 'cafe', 'supermarket', 'convenience_store'];
+    const byPlaceId = new Map();
+    const baseOrigin = `${req.protocol}://${req.get('host')}`;
+
+    for (const kind of kinds) {
+      const endpoint = new URL('https://maps.googleapis.com/maps/api/place/nearbysearch/json');
+      endpoint.searchParams.set('location', `${lat},${lng}`);
+      endpoint.searchParams.set('radius', String(radius));
+      endpoint.searchParams.set('type', kind);
+      endpoint.searchParams.set('language', 'fr');
+      endpoint.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+      const response = await fetch(endpoint.toString());
+      const payload = await response.json().catch(() => ({}));
+      const status = String(payload?.status || '');
+      if (!response.ok || !['OK', 'ZERO_RESULTS'].includes(status)) {
+        continue;
+      }
+      const rows = Array.isArray(payload?.results) ? payload.results : [];
+      for (const row of rows) {
+        const placeId = String(row?.place_id || '').trim();
+        if (!placeId || byPlaceId.has(placeId)) continue;
+        const types = Array.isArray(row?.types) ? row.types.map((t) => String(t || '')) : [];
+        const normalizedKind = types.includes('restaurant')
+          ? 'restaurant'
+          : types.includes('cafe')
+            ? 'cafe'
+            : 'shop';
+        const photoRef = String(row?.photos?.[0]?.photo_reference || '').trim();
+        const maxWidth = 320;
+        const imageUrl = photoRef
+          ? `${baseOrigin}/api/google-places/photo?ref=${encodeURIComponent(photoRef)}&maxwidth=${maxWidth}`
+          : null;
+        byPlaceId.set(placeId, {
+          id: placeId,
+          placeId,
+          name: String(row?.name || '').trim(),
+          kind: normalizedKind,
+          lat: Number(row?.geometry?.location?.lat),
+          lng: Number(row?.geometry?.location?.lng),
+          address: String(row?.vicinity || row?.formatted_address || '').trim() || 'Adresse locale',
+          opening: row?.opening_hours?.open_now === true ? 'Ouvert maintenant' : row?.opening_hours?.open_now === false ? 'Fermé maintenant' : null,
+          rating: Number.isFinite(Number(row?.rating)) ? Number(row?.rating) : null,
+          userRatingsTotal: Number.isFinite(Number(row?.user_ratings_total)) ? Number(row?.user_ratings_total) : null,
+          imageUrl,
+        });
+      }
+    }
+
+    return res.json({ places: Array.from(byPlaceId.values()).slice(0, 18) });
+  } catch (error) {
+    console.error('Google nearby places error:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to fetch Google nearby places' });
+  }
+});
+
+app.get('/api/google-places/photo', async (req, res) => {
+  try {
+    if (!GOOGLE_MAPS_API_KEY) {
+      return res.status(503).json({ error: 'GOOGLE_MAPS_API_KEY is not configured' });
+    }
+    const photoRef = String(req.query.ref || '').trim();
+    const maxwidth = Math.max(80, Math.min(1200, Number(req.query.maxwidth) || 320));
+    if (!photoRef) return res.status(400).json({ error: 'Missing photo ref' });
+
+    const endpoint = new URL('https://maps.googleapis.com/maps/api/place/photo');
+    endpoint.searchParams.set('photo_reference', photoRef);
+    endpoint.searchParams.set('maxwidth', String(maxwidth));
+    endpoint.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+    const response = await fetch(endpoint.toString());
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Google photo fetch failed' });
+    }
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(Buffer.from(arrayBuffer));
+  } catch (error) {
+    console.error('Google place photo proxy error:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to fetch Google place photo' });
+  }
 });
 
 // Configure multer for file uploads
