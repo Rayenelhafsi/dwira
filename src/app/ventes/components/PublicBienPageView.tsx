@@ -33,7 +33,7 @@ type FeatureApiRow = {
   nom: string;
   onglet_id?: string | null;
   onglet_nom?: string | null;
-  type_caracteristique?: 'simple' | 'choix_multiple' | 'valeur' | null;
+  type_caracteristique?: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' | null;
   unite?: string | null;
   visibilite_client?: number | null;
 };

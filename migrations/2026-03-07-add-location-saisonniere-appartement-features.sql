@@ -19,7 +19,7 @@ CREATE TEMPORARY TABLE tmp_ls_app_features (
   nom VARCHAR(255) NOT NULL,
   onglet_id VARCHAR(50) NOT NULL,
   ordre INT NOT NULL DEFAULT 0,
-  type_caracteristique ENUM('simple','choix_multiple','valeur') NOT NULL DEFAULT 'simple',
+  type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NOT NULL DEFAULT 'simple',
   choix_json LONGTEXT NULL,
   unite VARCHAR(50) NULL
 ) ENGINE=InnoDB;

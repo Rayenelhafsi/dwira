@@ -2011,7 +2011,7 @@ async function ensureBiensWorkflowSchema() {
     CREATE TABLE IF NOT EXISTS caracteristiques (
       id VARCHAR(50) PRIMARY KEY,
       nom VARCHAR(100) NOT NULL UNIQUE,
-      type_caracteristique ENUM('simple','choix_multiple','valeur') NOT NULL DEFAULT 'simple',
+      type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NOT NULL DEFAULT 'simple',
       choix_json LONGTEXT NULL,
       unite VARCHAR(50) NULL,
       visibilite_client TINYINT(1) NOT NULL DEFAULT 1,
@@ -2019,8 +2019,9 @@ async function ensureBiensWorkflowSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   if (!(await columnExists('caracteristiques', 'type_caracteristique'))) {
-    await pool.query("ALTER TABLE caracteristiques ADD COLUMN type_caracteristique ENUM('simple','choix_multiple','valeur') NOT NULL DEFAULT 'simple' AFTER nom");
+    await pool.query("ALTER TABLE caracteristiques ADD COLUMN type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NOT NULL DEFAULT 'simple' AFTER nom");
   }
+  await pool.query("ALTER TABLE caracteristiques MODIFY COLUMN type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NOT NULL DEFAULT 'simple'");
   if (!(await columnExists('caracteristiques', 'choix_json'))) {
     await pool.query('ALTER TABLE caracteristiques ADD COLUMN choix_json LONGTEXT NULL AFTER type_caracteristique');
   }
@@ -2037,7 +2038,7 @@ async function ensureBiensWorkflowSchema() {
       caracteristique_id VARCHAR(50) NOT NULL,
       visibilite_client TINYINT(1) NULL DEFAULT NULL,
       override_nom VARCHAR(100) NULL,
-      override_type_caracteristique ENUM('simple','choix_multiple','valeur') NULL DEFAULT NULL,
+      override_type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NULL DEFAULT NULL,
       override_unite VARCHAR(50) NULL,
       override_onglet_id VARCHAR(50) NULL,
       PRIMARY KEY (bien_id, caracteristique_id),
@@ -2053,8 +2054,9 @@ async function ensureBiensWorkflowSchema() {
     await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN override_nom VARCHAR(100) NULL AFTER visibilite_client');
   }
   if (!(await columnExists('bien_caracteristiques', 'override_type_caracteristique'))) {
-    await pool.query("ALTER TABLE bien_caracteristiques ADD COLUMN override_type_caracteristique ENUM('simple','choix_multiple','valeur') NULL DEFAULT NULL AFTER override_nom");
+    await pool.query("ALTER TABLE bien_caracteristiques ADD COLUMN override_type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NULL DEFAULT NULL AFTER override_nom");
   }
+  await pool.query("ALTER TABLE bien_caracteristiques MODIFY COLUMN override_type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NULL DEFAULT NULL");
   if (!(await columnExists('bien_caracteristiques', 'override_unite'))) {
     await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN override_unite VARCHAR(50) NULL AFTER override_type_caracteristique');
   }
@@ -5743,7 +5745,7 @@ app.post('/api/caracteristiques', async (req, res) => {
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
     const featureName = String(nom || '').trim();
-    const featureType = ['simple', 'choix_multiple', 'valeur'].includes(String(type_caracteristique || '').trim())
+    const featureType = ['simple', 'choix_multiple', 'plusieurs_choix', 'valeur', 'texte'].includes(String(type_caracteristique || '').trim())
       ? String(type_caracteristique).trim()
       : 'simple';
     const normalizedChoices = Array.isArray(choix)
@@ -5754,16 +5756,16 @@ app.post('/api/caracteristiques', async (req, res) => {
     if (!featureName) {
       return res.status(400).json({ error: 'nom requis' });
     }
-    if (featureType === 'choix_multiple' && normalizedChoices.length === 0) {
-      return res.status(400).json({ error: 'choix requis pour type choix_multiple' });
+    if ((featureType === 'choix_multiple' || featureType === 'plusieurs_choix') && normalizedChoices.length === 0) {
+      return res.status(400).json({ error: 'choix requis pour type choix_multiple/plusieurs_choix' });
     }
-    if (featureType !== 'choix_multiple' && normalizedChoices.length > 0) {
-      return res.status(400).json({ error: 'choix autorises uniquement pour type choix_multiple' });
+    if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix' && normalizedChoices.length > 0) {
+      return res.status(400).json({ error: 'choix autorises uniquement pour type choix_multiple/plusieurs_choix' });
     }
     if (featureType !== 'valeur' && normalizedUnit) {
       return res.status(400).json({ error: 'unite autorisee uniquement pour type valeur' });
     }
-    const featureChoicesJson = featureType === 'choix_multiple' ? JSON.stringify(normalizedChoices) : null;
+    const featureChoicesJson = (featureType === 'choix_multiple' || featureType === 'plusieurs_choix') ? JSON.stringify(normalizedChoices) : null;
     const featureUnit = featureType === 'valeur' ? normalizedUnit : null;
 
     const [existingRows] = await pool.query(
@@ -6111,7 +6113,7 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
     const bienId = String(req.body.bien_id || '').trim() || null;
     const applyToAll = req.body.apply_to_all === true || String(req.body.apply_to_all || '').trim() === '1';
     const nom = String(req.body.nom || '').trim();
-    const featureType = ['simple', 'choix_multiple', 'valeur'].includes(String(req.body.type_caracteristique || '').trim())
+    const featureType = ['simple', 'choix_multiple', 'plusieurs_choix', 'valeur', 'texte'].includes(String(req.body.type_caracteristique || '').trim())
       ? String(req.body.type_caracteristique).trim()
       : 'simple';
     const normalizedChoices = Array.isArray(req.body.choix)
@@ -6125,11 +6127,11 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
     if (!nom) return res.status(400).json({ error: 'nom requis' });
     const validation = validateModeAndType(mode, type);
     if (!validation.valid) return res.status(400).json({ error: validation.error });
-    if (featureType === 'choix_multiple' && normalizedChoices.length === 0) {
-      return res.status(400).json({ error: 'choix requis pour type choix_multiple' });
+    if ((featureType === 'choix_multiple' || featureType === 'plusieurs_choix') && normalizedChoices.length === 0) {
+      return res.status(400).json({ error: 'choix requis pour type choix_multiple/plusieurs_choix' });
     }
-    if (featureType !== 'choix_multiple' && normalizedChoices.length > 0) {
-      return res.status(400).json({ error: 'choix autorises uniquement pour type choix_multiple' });
+    if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix' && normalizedChoices.length > 0) {
+      return res.status(400).json({ error: 'choix autorises uniquement pour type choix_multiple/plusieurs_choix' });
     }
     if (featureType !== 'valeur' && normalizedUnit) {
       return res.status(400).json({ error: 'unite autorisee uniquement pour type valeur' });
@@ -6198,7 +6200,7 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
 
     await pool.query(
       'UPDATE caracteristiques SET nom = ?, type_caracteristique = ?, choix_json = ?, unite = ?, visibilite_client = ? WHERE id = ?',
-      [nom, featureType, featureType === 'choix_multiple' ? JSON.stringify(normalizedChoices) : null, featureType === 'valeur' ? normalizedUnit : null, visibleClient, featureId]
+      [nom, featureType, (featureType === 'choix_multiple' || featureType === 'plusieurs_choix') ? JSON.stringify(normalizedChoices) : null, featureType === 'valeur' ? normalizedUnit : null, visibleClient, featureId]
     );
     await pool.query(
       'UPDATE caracteristique_contextes SET onglet_id = ? WHERE caracteristique_id = ? AND mode_bien = ? AND type_bien = ?',

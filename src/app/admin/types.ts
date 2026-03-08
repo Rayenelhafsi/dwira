@@ -389,7 +389,7 @@ export interface Bien {
 export interface Caracteristique {
   id: string;
   nom: string;
-  type_caracteristique?: 'simple' | 'choix_multiple' | 'valeur';
+  type_caracteristique?: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte';
   choix_json?: string | null;
   unite?: string | null;
   onglet_id?: string | null;

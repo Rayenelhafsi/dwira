@@ -219,7 +219,11 @@ export default function MyReservationsPage() {
       const contract = await response.json() as ContractApi;
       if (!contract?.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");
       const popup = window.open(resolveAssetUrl(contract.url_pdf), "_blank", "noopener,noreferrer");
-      if (!popup) throw new Error("Autorisez les popups pour imprimer le contrat");
+      if (!popup) {
+        window.location.href = resolveAssetUrl(contract.url_pdf);
+        toast.info("Popup bloquee. Contrat ouvert dans l'onglet courant pour impression.");
+        return;
+      }
       popup.addEventListener("load", () => popup.print(), { once: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Impossible d'imprimer le contrat");

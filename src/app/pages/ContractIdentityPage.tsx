@@ -145,7 +145,12 @@ export default function ContractIdentityPage() {
         method: "POST",
         body: formData,
       });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Extraction OCR impossible"));
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Endpoint OCR introuvable (404). Redemarrez le backend pour activer /extract-identity.");
+        }
+        throw new Error(await getApiErrorMessage(response, "Extraction OCR impossible"));
+      }
       const data = await response.json();
       setManualDocumentNumber(String(data?.identity_document_number || ""));
       setFirstName(String(data?.identity_first_name || ""));
@@ -219,7 +224,11 @@ export default function ContractIdentityPage() {
       const contract = (await response.json()) as ContractApi;
       if (!contract.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");
       const popup = window.open(resolveAssetUrl(contract.url_pdf), "_blank", "noopener,noreferrer");
-      if (!popup) throw new Error("Autorisez les popups pour imprimer le contrat");
+      if (!popup) {
+        window.location.href = resolveAssetUrl(contract.url_pdf);
+        toast.info("Popup bloquee. Contrat ouvert dans l'onglet courant pour impression.");
+        return;
+      }
       popup.addEventListener("load", () => popup.print(), { once: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Impossible d'imprimer le contrat");
