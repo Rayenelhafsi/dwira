@@ -80,6 +80,12 @@ const TYPE_TERRAIN_LABELS: Record<TypeTerrainVente, string> = {
   industrielle: 'Industrielle',
   loisir: 'Loisir',
 };
+const normalizeLegacyType = (value?: BienType): BienType => {
+  if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
+  if (value === 'villa') return 'villa_maison';
+  if (value === 'local') return 'local_commercial';
+  return (value || 'appartement') as BienType;
+};
 const TERRAIN_SECTION_TABS = [
   { id: 'informations_generales', label: '1. Informations generales' },
   { id: 'dimensions_forme', label: '2. Dimensions & forme' },
@@ -2331,6 +2337,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
 
   const handleAddZone = async () => {
+    const normalizeMapsInput = (raw: string) => {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      const iframeSrcMatch = value.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i);
+      const extracted = iframeSrcMatch?.[1] || value;
+      return extracted.replace(/&amp;/g, '&').trim();
+    };
+
     const hasAnyZoneField = [
       newZonePays,
       newZoneGouvernerat,
@@ -2347,7 +2361,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         gouvernerat: newZoneGouvernerat.trim() || null,
         region: newZoneRegion.trim() || null,
         quartier: newZoneQuartier.trim() || null,
-        google_maps_url: newZoneGoogleMapsUrl.trim() || null,
+        google_maps_url: normalizeMapsInput(newZoneGoogleMapsUrl) || null,
       };
       const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');

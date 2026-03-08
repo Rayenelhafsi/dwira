@@ -85,14 +85,13 @@ const hashString = (value: string) => {
   return Math.abs(hash);
 };
 
-const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
-  const h = hashString(seed || 'dwira');
-  const angle = (h % 360) * (Math.PI / 180);
-  const distanceKm = 0.45 + ((h % 250) / 1000);
-  const latOffset = (distanceKm / 111) * Math.cos(angle);
-  const lngOffset = (distanceKm / (111 * Math.cos((exact.lat * Math.PI) / 180))) * Math.sin(angle);
-  const candidate = { lat: exact.lat + latOffset, lng: exact.lng + lngOffset };
-  return isValidLatLng(candidate.lat, candidate.lng) ? candidate : exact;
+const fallbackApproxLocation = (seed: string): LatLng => {
+  const h = hashString(seed || 'kelibia');
+  const baseLat = 36.847;
+  const baseLng = 11.093;
+  const latJitter = ((h % 240) - 120) / 1000;
+  const lngJitter = ((((h / 7) | 0) % 240) - 120) / 1000;
+  return { lat: baseLat + latJitter, lng: baseLng + lngJitter };
 };
 
 export default function PropertyDetailsPage() {
@@ -164,15 +163,12 @@ export default function PropertyDetailsPage() {
   );
   const selectedZoneMapsUrl = String(selectedZone?.google_maps_url || '').trim();
   const [mapCenter, setMapCenter] = useState<LatLng | null>(null);
-  const mapEmbedUrl = useMemo(() => {
+  const googleEmbedUrl = useMemo(() => {
+    const directEmbed = /google\.[^/]+\/maps\/embed/i.test(selectedZoneMapsUrl);
+    if (directEmbed) return selectedZoneMapsUrl;
     if (!mapCenter) return '';
-    const delta = 0.01;
-    const left = mapCenter.lng - delta;
-    const right = mapCenter.lng + delta;
-    const top = mapCenter.lat + delta;
-    const bottom = mapCenter.lat - delta;
-    return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${mapCenter.lat}%2C${mapCenter.lng}`;
-  }, [mapCenter]);
+    return `https://www.google.com/maps?q=${mapCenter.lat},${mapCenter.lng}&z=15&t=k&output=embed`;
+  }, [selectedZoneMapsUrl, mapCenter]);
 
   useEffect(() => {
     let disposed = false;
@@ -204,10 +200,14 @@ export default function PropertyDetailsPage() {
       const exact = parsed || await geocodeFromZone();
       if (disposed) return;
       if (!exact) {
-        setMapCenter(null);
+        if (selectedZone) {
+          setMapCenter(fallbackApproxLocation(`${property?.id || ''}-${selectedZone.id}-${selectedZone.nom || ''}`));
+        } else {
+          setMapCenter(null);
+        }
         return;
       }
-      setMapCenter(obfuscateLocation(exact, `${property?.id || ''}-${selectedZone?.id || ''}`));
+      setMapCenter(exact);
     };
 
     void load();
@@ -282,8 +282,9 @@ export default function PropertyDetailsPage() {
       hasGoogleMapsUrl: Boolean(selectedZoneMapsUrl),
       hasMapCenter: Boolean(mapCenter),
       mapCenter,
+      hasGoogleEmbedUrl: Boolean(googleEmbedUrl),
     });
-  }, [selectedZoneMapsUrl, mapCenter]);
+  }, [selectedZoneMapsUrl, mapCenter, googleEmbedUrl]);
   const seasonalHighlights = useMemo(() => {
     if (isSaleProperty) return [];
     const rows = [
@@ -1333,14 +1334,15 @@ export default function PropertyDetailsPage() {
 
             <div className="py-8">
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
-               {mapEmbedUrl ? (
+               {googleEmbedUrl ? (
                  <div className="rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white">
                    <iframe
-                     title="Carte de localisation approximative"
-                     src={mapEmbedUrl}
-                     className="w-full h-full border-0"
+                     title="Carte Google du bien"
+                     src={googleEmbedUrl}
+                     className="h-full w-full border-0"
                      loading="lazy"
                      referrerPolicy="no-referrer-when-downgrade"
+                     allowFullScreen
                    />
                  </div>
                ) : (
@@ -1358,7 +1360,7 @@ export default function PropertyDetailsPage() {
                  </div>
                )}
                <p className="mt-4 text-gray-600 text-sm">
-                 L'emplacement exact sera communiqué après la réservation.
+                 Emplacement exact affiché. Cafés et restaurants proches visibles sur Google Maps.
                </p>
             </div>
 

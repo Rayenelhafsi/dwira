@@ -3659,6 +3659,14 @@ app.get('/api/zones', async (req, res) => {
 app.post('/api/zones', async (req, res) => {
   try {
     await ensureZonesSchema();
+    const normalizeMapsInput = (raw) => {
+      const value = String(raw || '').trim();
+      if (!value) return null;
+      const match = value.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i);
+      const extracted = match?.[1] || value;
+      const normalized = String(extracted || '').replace(/&amp;/g, '&').trim();
+      return normalized || null;
+    };
     const {
       id,
       nom,
@@ -3679,7 +3687,7 @@ app.post('/api/zones', async (req, res) => {
     }
     await pool.query(
       'INSERT INTO zones (id, nom, description, pays, gouvernerat, region, quartier, google_maps_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, normalizedNom, description || '', normalizedPays || null, normalizedGouvernerat || null, normalizedRegion || null, normalizedQuartier || null, google_maps_url || null]
+      [id, normalizedNom, description || '', normalizedPays || null, normalizedGouvernerat || null, normalizedRegion || null, normalizedQuartier || null, normalizeMapsInput(google_maps_url)]
     );
     const [newZone] = await pool.query('SELECT * FROM zones WHERE id = ?', [id]);
     res.status(201).json(newZone[0]);
