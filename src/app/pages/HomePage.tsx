@@ -274,43 +274,7 @@ export default function HomePage() {
             </motion.div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto overflow-hidden">
-            {/* Selected Filters Display - Green Boxes */}
-            {(location || selectedCategories.length > 0 || (checkIn && checkOut)) && (
-              <div className="bg-emerald-50 px-6 py-3 border-b border-emerald-100">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-emerald-700 uppercase">Filtres actifs:</span>
-                  {location && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
-                      <MapPin size={12} />
-                      {location}
-                      <button onClick={() => setLocation("")} className="ml-1 hover:text-emerald-200">
-                        <X size={12} />
-                      </button>
-                    </span>
-                  )}
-                  {selectedCategories.map(cat => (
-                    <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
-                      <Home size={12} />
-                      {cat}
-                      <button onClick={() => toggleCategory(cat)} className="ml-1 hover:text-emerald-200">
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
-                  {checkIn && checkOut && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
-                      <Calendar size={12} />
-                      {format(checkIn, "d MMM", { locale: fr })} - {format(checkOut, "d MMM", { locale: fr })}
-                      <button onClick={() => { setCheckIn(null); setCheckOut(null); }} className="ml-1 hover:text-emerald-200">
-                        <X size={12} />
-                      </button>
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
+          <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto overflow-visible">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
               <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -336,7 +300,7 @@ export default function HomePage() {
                   </button>
                   
                   {showLocationDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100">
+                    <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
                       <div className="p-2">
                         <button
                           className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
@@ -379,7 +343,7 @@ export default function HomePage() {
                   </button>
 
                   {showCalendar && (
-                    <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 md:w-[400px] md:left-auto md:right-0">
+                    <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 md:w-[400px] md:left-auto md:right-0 hidden md:block">
                         <div className="flex items-center justify-between mb-4">
                           <button 
                             onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
@@ -457,7 +421,7 @@ export default function HomePage() {
                   </button>
 
                   {showCategoryDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100">
+                    <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
                       <div className="p-2">
                         <button
                           className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
@@ -495,9 +459,134 @@ export default function HomePage() {
                   </button>
                 </div>
               </div>
+
+              {/* Selected Filters Display - moved under controls */}
+              {(location || selectedCategories.length > 0 || (checkIn && checkOut)) && (
+                <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 border border-emerald-100">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-emerald-700 uppercase">Filtres actifs:</span>
+                    {location && (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                        <MapPin size={12} />
+                        {location}
+                        <button onClick={() => setLocation("")} className="ml-1 hover:text-emerald-200">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    )}
+                    {selectedCategories.map(cat => (
+                      <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                        <Home size={12} />
+                        {cat}
+                        <button onClick={() => toggleCategory(cat)} className="ml-1 hover:text-emerald-200">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                    {checkIn && checkOut && (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                        <Calendar size={12} />
+                        {format(checkIn, "d MMM", { locale: fr })} - {format(checkOut, "d MMM", { locale: fr })}
+                        <button onClick={() => { setCheckIn(null); setCheckOut(null); }} className="ml-1 hover:text-emerald-200">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
+
+        {showLocationDropdown && (
+          <div className="fixed inset-0 z-[220] md:hidden">
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowLocationDropdown(false)} />
+            <div className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
+              <button
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setLocation(""); setShowLocationDropdown(false); }}
+              >
+                Tous les emplacements
+              </button>
+              {LOCATIONS_LIST.map((loc) => (
+                <button
+                  key={`mobile-loc-${loc}`}
+                  className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${location === loc ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                  onClick={() => { setLocation(loc); setShowLocationDropdown(false); }}
+                >
+                  {loc}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showCalendar && (
+          <div className="fixed inset-0 z-[220] md:hidden">
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowCalendar(false)} />
+            <div className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-4">
+              <div className="flex items-center justify-between mb-4">
+                <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <ChevronLeft size={20} />
+                </button>
+                <h3 className="font-bold text-gray-900 capitalize">{format(currentMonth, "MMMM yyyy", { locale: fr })}</h3>
+                <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+              <div className="grid grid-cols-7 gap-1 mb-2">
+                {weekDays.map((day) => (
+                  <div key={`mobile-day-${day}`} className="text-center text-xs font-semibold text-gray-500 py-2">{day}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {days.map((day, idx) => (
+                  <button key={`mobile-calendar-${idx}`} onClick={() => handleDateClick(day)} className={getDayClassName(day)}>
+                    {format(day, "d")}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                <div className="flex items-center gap-2 text-xs">
+                  <div className="w-3 h-3 rounded-full bg-emerald-600" />
+                  <span className="text-gray-600">Selectionne</span>
+                </div>
+                <button onClick={() => setShowCalendar(false)} className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
+                  Valider
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showCategoryDropdown && (
+          <div className="fixed inset-0 z-[220] md:hidden">
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowCategoryDropdown(false)} />
+            <div className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
+              <button
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setSelectedCategories([]); setShowCategoryDropdown(false); }}
+              >
+                Tous les types
+              </button>
+              {CATEGORIES_LIST.map((cat) => (
+                <button
+                  key={`mobile-cat-${cat}`}
+                  className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors flex items-center justify-between ${selectedCategories.includes(cat) ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                  onClick={() => toggleCategory(cat)}
+                >
+                  <span>{cat}</span>
+                  {selectedCategories.includes(cat) && (
+                    <div className="w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
+                      <Check size={12} className="text-white" />
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Search Results / Featured Properties */}
