@@ -384,6 +384,7 @@ export interface Bien {
   unavailableDates?: DateStatus[];
   caracteristiques?: string[];
   caracteristique_ids?: string[];
+  caracteristique_valeurs?: Record<string, string | string[]>;
 }
 
 export interface Caracteristique {
@@ -395,6 +396,7 @@ export interface Caracteristique {
   onglet_id?: string | null;
   onglet_nom?: string | null;
   visibilite_client?: number | null;
+  valeur_json?: string | null;
 }
 
 export interface Media {

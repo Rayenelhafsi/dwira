@@ -1544,9 +1544,36 @@ async function syncBienCaracteristiques(bienId, caracteristiqueIds) {
   for (const caracteristiqueId of toInsert) {
     await pool.query(
       `INSERT INTO bien_caracteristiques (
-        bien_id, caracteristique_id, visibilite_client, override_nom, override_type_caracteristique, override_unite, override_onglet_id
-      ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL)`,
+        bien_id, caracteristique_id, visibilite_client, override_nom, override_type_caracteristique, override_unite, override_onglet_id, override_valeur_json
+      ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL)`,
       [bienId, caracteristiqueId, visibilityById.get(caracteristiqueId) ?? 1]
+    );
+  }
+}
+
+async function syncBienCaracteristiqueValeurs(bienId, caracteristiqueIds, caracteristiqueValeurs) {
+  const normalizedIds = Array.isArray(caracteristiqueIds)
+    ? Array.from(new Set(caracteristiqueIds.map((id) => String(id || '').trim()).filter(Boolean)))
+    : [];
+  const valuesSource = caracteristiqueValeurs && typeof caracteristiqueValeurs === 'object' ? caracteristiqueValeurs : {};
+
+  for (const caracteristiqueId of normalizedIds) {
+    const rawValue = Object.prototype.hasOwnProperty.call(valuesSource, caracteristiqueId)
+      ? valuesSource[caracteristiqueId]
+      : null;
+    let serializedValue = null;
+    if (rawValue !== null && rawValue !== undefined) {
+      if (Array.isArray(rawValue)) {
+        const normalizedArray = rawValue.map((item) => String(item || '').trim()).filter(Boolean);
+        serializedValue = normalizedArray.length > 0 ? JSON.stringify(normalizedArray) : null;
+      } else {
+        const normalizedScalar = String(rawValue || '').trim();
+        serializedValue = normalizedScalar.length > 0 ? JSON.stringify(normalizedScalar) : null;
+      }
+    }
+    await pool.query(
+      'UPDATE bien_caracteristiques SET override_valeur_json = ? WHERE bien_id = ? AND caracteristique_id = ?',
+      [serializedValue, bienId, caracteristiqueId]
     );
   }
 }
@@ -2041,6 +2068,7 @@ async function ensureBiensWorkflowSchema() {
       override_type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NULL DEFAULT NULL,
       override_unite VARCHAR(50) NULL,
       override_onglet_id VARCHAR(50) NULL,
+      override_valeur_json LONGTEXT NULL,
       PRIMARY KEY (bien_id, caracteristique_id),
       FOREIGN KEY (bien_id) REFERENCES biens(id) ON DELETE CASCADE,
       FOREIGN KEY (caracteristique_id) REFERENCES caracteristiques(id) ON DELETE CASCADE,
@@ -2062,6 +2090,9 @@ async function ensureBiensWorkflowSchema() {
   }
   if (!(await columnExists('bien_caracteristiques', 'override_onglet_id'))) {
     await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN override_onglet_id VARCHAR(50) NULL AFTER override_unite');
+  }
+  if (!(await columnExists('bien_caracteristiques', 'override_valeur_json'))) {
+    await pool.query('ALTER TABLE bien_caracteristiques ADD COLUMN override_valeur_json LONGTEXT NULL AFTER override_onglet_id');
   }
 
   await pool.query(`
@@ -3648,7 +3679,7 @@ app.post('/api/biens', async (req, res) => {
     const {
       id,
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      prix_nuitee, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -3854,6 +3885,7 @@ app.post('/api/biens', async (req, res) => {
     );
     if (Array.isArray(caracteristique_ids)) {
       await syncBienCaracteristiques(bienId, caracteristique_ids);
+      await syncBienCaracteristiqueValeurs(bienId, caracteristique_ids, caracteristique_valeurs);
     }
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
@@ -3873,7 +3905,7 @@ app.put('/api/biens/:id', async (req, res) => {
   try {
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids,
+      prix_nuitee, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -4080,6 +4112,7 @@ app.put('/api/biens/:id', async (req, res) => {
     );
     if (Array.isArray(caracteristique_ids)) {
       await syncBienCaracteristiques(req.params.id, caracteristique_ids);
+      await syncBienCaracteristiqueValeurs(req.params.id, caracteristique_ids, caracteristique_valeurs);
     }
 
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
@@ -5699,6 +5732,7 @@ app.get('/api/caracteristiques', async (req, res) => {
              COALESCE(bc.override_type_caracteristique, c.type_caracteristique) AS type_caracteristique,
              c.choix_json,
              COALESCE(bc.override_unite, c.unite) AS unite,
+             bc.override_valeur_json AS valeur_json,
              COALESCE(bc.override_onglet_id, mo.onglet_id) AS onglet_id,
              co.nom AS onglet_nom,
              COALESCE(bc.visibilite_client, c.visibilite_client, 1) AS visibilite_client
@@ -5715,7 +5749,7 @@ app.get('/api/caracteristiques', async (req, res) => {
              ON co.id = COALESCE(bc.override_onglet_id, mo.onglet_id)
            WHERE cc.mode_bien = ? AND cc.type_bien = ?
            ORDER BY nom ASC`
-        : `SELECT DISTINCT c.*, mo.onglet_id, co.nom as onglet_nom
+        : `SELECT DISTINCT c.*, NULL AS valeur_json, mo.onglet_id, co.nom as onglet_nom
            FROM caracteristiques c
            INNER JOIN caracteristique_contextes cc ON cc.caracteristique_id = c.id
            LEFT JOIN modifier_onglets mo

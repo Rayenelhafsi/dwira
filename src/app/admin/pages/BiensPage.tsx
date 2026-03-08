@@ -465,6 +465,14 @@ const isManagedDetailFeatureForContext = (
   return false;
 };
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
+const buildDescriptionWithCharacteristics = (description: string, characteristics: string[]) => {
+  const cleanDescription = String(description || '').trim();
+  const normalizedCharacteristics = Array.from(
+    new Set((Array.isArray(characteristics) ? characteristics : []).map((item) => String(item || '').trim()).filter(Boolean))
+  );
+  if (normalizedCharacteristics.length === 0) return cleanDescription;
+  return `${cleanDescription}\n\n${CHARACTERISTICS_MARKER}\n${JSON.stringify(normalizedCharacteristics)}`.trim();
+};
 const DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT = 3;
 const DEFAULT_COMMISSION_CLIENT_PERCENT = 2;
 const DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE = 30;
@@ -971,7 +979,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
   const [featureChoiceValuesById, setFeatureChoiceValuesById] = useState<Record<string, string[]>>({});
+  const [featureMultiChoicePickerById, setFeatureMultiChoicePickerById] = useState<Record<string, string>>({});
   const [featureValueById, setFeatureValueById] = useState<Record<string, string>>({});
+  const [restoredFeatureLines, setRestoredFeatureLines] = useState<string[]>([]);
+  const [restoredFeatureValuesApplied, setRestoredFeatureValuesApplied] = useState(false);
   const [showAddZone, setShowAddZone] = useState(false);
   const [showAddProprietaire, setShowAddProprietaire] = useState(false);
   const [newZonePays, setNewZonePays] = useState('');
@@ -1158,6 +1169,16 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const allowedTypes = BIEN_TYPES_BY_MODE[resolvedMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
     if (markerIndex >= 0) {
       const cleanDescription = rawDescription.slice(0, markerIndex).trim();
+      const rawJsonPart = rawDescription.slice(markerIndex + CHARACTERISTICS_MARKER.length).trim();
+      let parsedFeatureLines: string[] = [];
+      try {
+        const parsed = JSON.parse(rawJsonPart);
+        if (Array.isArray(parsed)) {
+          parsedFeatureLines = parsed.map((item) => String(item || '').trim()).filter(Boolean);
+        }
+      } catch {
+        parsedFeatureLines = [];
+      }
       setFormData((prev) => ({
         ...prev,
         description: cleanDescription,
@@ -1165,6 +1186,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         type: allowedTypes.includes(normalizedType) ? normalizedType : allowedTypes[0],
         reference: prev.reference || generateReference(),
       }));
+      setRestoredFeatureLines(parsedFeatureLines);
+      setRestoredFeatureValuesApplied(false);
     } else {
       setFormData((prev) => ({
         ...prev,
@@ -1172,6 +1195,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         type: allowedTypes.includes(normalizedType) ? normalizedType : allowedTypes[0],
         reference: prev.reference || generateReference(),
       }));
+      setRestoredFeatureLines([]);
+      setRestoredFeatureValuesApplied(false);
     }
     setSelectedFeatureIds(initialData?.caracteristique_ids || []);
   }, [initialData]);
@@ -1213,6 +1238,13 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       });
       return next;
     });
+    setFeatureMultiChoicePickerById((prev) => {
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([id, value]) => {
+        if (allowedIds.has(id)) next[id] = String(value || '');
+      });
+      return next;
+    });
     setFeatureValueById((prev) => {
       const next: Record<string, string> = {};
       Object.entries(prev).forEach(([id, value]) => {
@@ -1221,6 +1253,57 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       return next;
     });
   }, [availableFeatures]);
+
+  useEffect(() => {
+    if (restoredFeatureValuesApplied) return;
+    if (!Array.isArray(restoredFeatureLines) || restoredFeatureLines.length === 0) {
+      setRestoredFeatureValuesApplied(true);
+      return;
+    }
+    if (!Array.isArray(availableFeatures) || availableFeatures.length === 0) return;
+
+    const featureByNormalizedName = new Map<string, Caracteristique>();
+    for (const feature of availableFeatures) {
+      featureByNormalizedName.set(normalizeFeatureName(String(feature.nom || '')), feature);
+    }
+
+    const nextSelectedIds = new Set<string>(initialData?.caracteristique_ids || []);
+    const nextChoiceValues: Record<string, string[]> = {};
+    const nextValueById: Record<string, string> = {};
+
+    for (const line of restoredFeatureLines) {
+      const raw = String(line || '').trim();
+      if (!raw) continue;
+      const separatorIndex = raw.indexOf(':');
+      const rawName = separatorIndex >= 0 ? raw.slice(0, separatorIndex).trim() : raw;
+      const rawValue = separatorIndex >= 0 ? raw.slice(separatorIndex + 1).trim() : '';
+      const matchedFeature = featureByNormalizedName.get(normalizeFeatureName(rawName));
+      if (!matchedFeature) continue;
+
+      const featureId = String(matchedFeature.id || '');
+      if (!featureId) continue;
+      const featureType = normalizeFeatureType(matchedFeature.type_caracteristique);
+      nextSelectedIds.add(featureId);
+
+      if (featureType === 'choix_multiple') {
+        if (rawValue) nextChoiceValues[featureId] = [rawValue];
+        continue;
+      }
+      if (featureType === 'plusieurs_choix') {
+        const values = rawValue.split(',').map((item) => item.trim()).filter(Boolean);
+        if (values.length > 0) nextChoiceValues[featureId] = Array.from(new Set(values));
+        continue;
+      }
+      if (featureType === 'valeur' || featureType === 'texte') {
+        if (rawValue) nextValueById[featureId] = rawValue;
+      }
+    }
+
+    setSelectedFeatureIds(Array.from(nextSelectedIds));
+    setFeatureChoiceValuesById((prev) => ({ ...prev, ...nextChoiceValues }));
+    setFeatureValueById((prev) => ({ ...prev, ...nextValueById }));
+    setRestoredFeatureValuesApplied(true);
+  }, [availableFeatures, initialData?.caracteristique_ids, restoredFeatureLines, restoredFeatureValuesApplied]);
 
   useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
@@ -1963,6 +2046,34 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setAvailableFeatures(nextFeatures);
       const nextFeatureIds = new Set(nextFeatures.map((f: Caracteristique) => f.id));
       setSelectedFeatureIds((prev) => prev.filter((id) => nextFeatureIds.has(id)));
+      const nextChoiceValuesById: Record<string, string[]> = {};
+      const nextValueById: Record<string, string> = {};
+      for (const feature of nextFeatures) {
+        const featureId = String(feature.id || '');
+        const featureType = normalizeFeatureType(feature.type_caracteristique);
+        const rawStored = String(feature.valeur_json || '').trim();
+        if (!featureId || !rawStored) continue;
+        try {
+          const parsed = JSON.parse(rawStored);
+          if ((featureType === 'choix_multiple' || featureType === 'plusieurs_choix') && Array.isArray(parsed)) {
+            const nextValues = parsed.map((item) => String(item || '').trim()).filter(Boolean);
+            if (nextValues.length > 0) nextChoiceValuesById[featureId] = featureType === 'choix_multiple' ? [nextValues[0]] : Array.from(new Set(nextValues));
+            continue;
+          }
+          if ((featureType === 'valeur' || featureType === 'texte') && typeof parsed === 'string') {
+            const nextValue = String(parsed || '').trim();
+            if (nextValue) nextValueById[featureId] = nextValue;
+          }
+        } catch {
+          // ignore malformed stored value
+        }
+      }
+      if (Object.keys(nextChoiceValuesById).length > 0) {
+        setFeatureChoiceValuesById((prev) => ({ ...prev, ...nextChoiceValuesById }));
+      }
+      if (Object.keys(nextValueById).length > 0) {
+        setFeatureValueById((prev) => ({ ...prev, ...nextValueById }));
+      }
       setFeatureDrafts((prev) => {
         const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
         for (const feature of nextFeatures) {
@@ -2764,6 +2875,50 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           immeuble_garages: [],
           immeuble_locaux_commerciaux: [],
         };
+    const caracteristiqueValeurs: Record<string, string | string[]> = {};
+    for (const feature of availableFeatures) {
+      const featureId = String(feature.id || '');
+      if (!featureId || !selectedFeatureIds.includes(featureId)) continue;
+      const featureType = normalizeFeatureType(feature.type_caracteristique);
+      if (featureType === 'choix_multiple') {
+        const selectedChoice = String((featureChoiceValuesById[featureId] || [])[0] || '').trim();
+        if (selectedChoice) caracteristiqueValeurs[featureId] = [selectedChoice];
+        continue;
+      }
+      if (featureType === 'plusieurs_choix') {
+        const selectedChoices = (featureChoiceValuesById[featureId] || []).map((item) => String(item || '').trim()).filter(Boolean);
+        if (selectedChoices.length > 0) caracteristiqueValeurs[featureId] = Array.from(new Set(selectedChoices));
+        continue;
+      }
+      if (featureType === 'valeur' || featureType === 'texte') {
+        const rawValue = String(featureValueById[featureId] || '').trim();
+        if (rawValue) caracteristiqueValeurs[featureId] = rawValue;
+      }
+    }
+    const characteristicDisplayLines = availableFeatures
+      .filter((feature) => selectedFeatureIds.includes(feature.id) && Number(feature.visibilite_client) !== 0)
+      .map((feature) => {
+        const featureType = normalizeFeatureType(feature.type_caracteristique);
+        const featureId = String(feature.id || '');
+        if (featureType === 'choix_multiple') {
+          const selectedChoice = (featureChoiceValuesById[featureId] || [])[0] || '';
+          return selectedChoice ? `${feature.nom}: ${selectedChoice}` : feature.nom;
+        }
+        if (featureType === 'plusieurs_choix') {
+          const selectedChoices = featureChoiceValuesById[featureId] || [];
+          return selectedChoices.length > 0 ? `${feature.nom}: ${selectedChoices.join(', ')}` : feature.nom;
+        }
+        if (featureType === 'valeur') {
+          const rawValue = String(featureValueById[featureId] || '').trim();
+          const unit = String(feature.unite || '').trim();
+          return rawValue ? `${feature.nom}: ${rawValue}${unit ? ` ${unit}` : ''}` : feature.nom;
+        }
+        if (featureType === 'texte') {
+          const rawText = String(featureValueById[featureId] || '').trim();
+          return rawText ? `${feature.nom}: ${rawText}` : feature.nom;
+        }
+        return feature.nom;
+      });
     const finalData: Bien = {
       ...formData,
       mode: selectedMode,
@@ -2799,32 +2954,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       location_saisonniere_config: selectedMode === 'location_saisonniere' && selectedType === 'appartement'
         ? saisonConfig
         : null,
-      description: formData.description || '',
-      caracteristiques: availableFeatures
-        .filter((feature) => selectedFeatureIds.includes(feature.id) && Number(feature.visibilite_client) !== 0)
-        .map((feature) => {
-          const featureType = normalizeFeatureType(feature.type_caracteristique);
-          const featureId = String(feature.id || '');
-          if (featureType === 'choix_multiple') {
-            const selectedChoice = (featureChoiceValuesById[featureId] || [])[0] || '';
-            return selectedChoice ? `${feature.nom}: ${selectedChoice}` : feature.nom;
-          }
-          if (featureType === 'plusieurs_choix') {
-            const selectedChoices = featureChoiceValuesById[featureId] || [];
-            return selectedChoices.length > 0 ? `${feature.nom}: ${selectedChoices.join(', ')}` : feature.nom;
-          }
-          if (featureType === 'valeur') {
-            const rawValue = String(featureValueById[featureId] || '').trim();
-            const unit = String(feature.unite || '').trim();
-            return rawValue ? `${feature.nom}: ${rawValue}${unit ? ` ${unit}` : ''}` : feature.nom;
-          }
-          if (featureType === 'texte') {
-            const rawText = String(featureValueById[featureId] || '').trim();
-            return rawText ? `${feature.nom}: ${rawText}` : feature.nom;
-          }
-          return feature.nom;
-        }),
+      description: buildDescriptionWithCharacteristics(formData.description || '', characteristicDisplayLines),
+      caracteristiques: characteristicDisplayLines,
       caracteristique_ids: selectedFeatureIds,
+      caracteristique_valeurs: caracteristiqueValeurs,
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       media: imagesWithPositions,
       unavailableDates: unavailableDates,
@@ -2928,7 +3061,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               setFeatureChoiceValuesById((prev) => ({ ...prev, [featureId]: nextValue ? [nextValue] : [] }));
               setFeatureSelected(featureId, nextValue.length > 0);
             }}
-            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white"
+            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
           >
             <option value="">-- Choisir --</option>
             {options.map((option) => <option key={`${featureId}-${option}`} value={option}>{option}</option>)}
@@ -2939,34 +3072,57 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (featureType === 'plusieurs_choix') {
       const options = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
       const selectedValues = featureChoiceValuesById[featureId] || [];
+      const pickerValue = featureMultiChoicePickerById[featureId] || '';
       return (
         <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
-          <label className="block text-sm font-medium text-gray-700 mb-2">{feature.nom}</label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {options.map((option) => {
-              const optionChecked = selectedValues.includes(option);
-              return (
-                <label key={`${featureId}-${option}`} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={optionChecked}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="block text-sm font-medium text-gray-700">{feature.nom}</label>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Multi-selection</span>
+          </div>
+          <select
+            value={pickerValue}
+            onChange={(e) => {
+              const nextValue = String(e.target.value || '').trim();
+              setFeatureMultiChoicePickerById((prev) => ({ ...prev, [featureId]: '' }));
+              if (!nextValue) return;
+              setFeatureChoiceValuesById((prev) => {
+                const current = Array.isArray(prev[featureId]) ? prev[featureId] : [];
+                const next = current.includes(nextValue) ? current : [...current, nextValue];
+                setFeatureSelected(featureId, next.length > 0);
+                return { ...prev, [featureId]: next };
+              });
+            }}
+            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+          >
+            <option value="">-- Ajouter un choix --</option>
+            {options.map((option) => <option key={`${featureId}-${option}`} value={option}>{option}</option>)}
+          </select>
+          <div className="mt-2 min-h-8 rounded-lg border border-dashed border-gray-200 bg-gray-50/70 p-2">
+            {selectedValues.length === 0 && (
+              <p className="text-xs text-gray-500">Aucun choix selectionne.</p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {selectedValues.map((option) => (
+                <span key={`${featureId}-selected-${option}`} className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                  <span>{option}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setFeatureChoiceValuesById((prev) => {
                         const current = Array.isArray(prev[featureId]) ? prev[featureId] : [];
-                        const next = checked
-                          ? Array.from(new Set([...current, option]))
-                          : current.filter((item) => item !== option);
+                        const next = current.filter((item) => item !== option);
                         setFeatureSelected(featureId, next.length > 0);
                         return { ...prev, [featureId]: next };
                       });
                     }}
-                    className="h-4 w-4 rounded border-gray-300 text-emerald-600"
-                  />
-                  <span>{option}</span>
-                </label>
-              );
-            })}
+                    className="rounded-full px-1 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-900"
+                    aria-label={`Retirer ${option}`}
+                  >
+                    x
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       );
@@ -2987,7 +3143,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
               setFeatureValueById((prev) => ({ ...prev, [featureId]: nextValue }));
               setFeatureSelected(featureId, String(nextValue).trim().length > 0);
             }}
-            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white"
+            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
           />
         </div>
       );
@@ -2999,13 +3155,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           <label className="block text-sm font-medium text-gray-700 mb-1.5">{feature.nom}</label>
           <input
             type="text"
+            placeholder="Saisir une valeur..."
             value={currentValue}
             onChange={(e) => {
               const nextValue = String(e.target.value || '');
               setFeatureValueById((prev) => ({ ...prev, [featureId]: nextValue }));
               setFeatureSelected(featureId, String(nextValue).trim().length > 0);
             }}
-            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white"
+            className="block w-full rounded-lg border-gray-300 border p-2.5 text-sm bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
           />
         </div>
       );
@@ -3680,7 +3837,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                     <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte')} className="rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="simple">Simple (Oui/Non)</option>
                       <option value="choix_multiple">Choix unique (liste)</option>
-                      <option value="plusieurs_choix">Plusieurs a la fois (checkbox)</option>
+                      <option value="plusieurs_choix">Plusieurs a la fois (multi-selection)</option>
                       <option value="valeur">Valeur</option>
                       <option value="texte">Texte</option>
                     </select>
@@ -5392,3 +5549,4 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
     </div>
   );
 }
+
