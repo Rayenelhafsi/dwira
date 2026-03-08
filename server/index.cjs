@@ -85,6 +85,12 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function normalizeTabNameForMatch(value) {
+  return normalizeText(String(value || '').replace(/^\s*\d+\s*[\.\-:)]\s*/g, ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function isMobileUserAgent(userAgent = '') {
   const ua = String(userAgent || '');
   return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
@@ -5657,6 +5663,16 @@ app.post('/api/caracteristique-onglets', async (req, res) => {
     }
     if (!nom) {
       return res.status(400).json({ error: 'nom requis' });
+    }
+    const [existingRows] = await pool.query(
+      'SELECT * FROM caracteristique_onglets WHERE mode_bien = ? AND type_bien = ? ORDER BY ordre ASC, nom ASC',
+      [mode, type]
+    );
+    const existingEquivalent = Array.isArray(existingRows)
+      ? existingRows.find((row) => normalizeTabNameForMatch(row?.nom) === normalizeTabNameForMatch(nom))
+      : null;
+    if (existingEquivalent) {
+      return res.status(200).json(existingEquivalent);
     }
     const id = String(req.body.id || `tab${Date.now()}`).trim();
     await pool.query(

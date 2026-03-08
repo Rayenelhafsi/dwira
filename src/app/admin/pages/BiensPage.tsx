@@ -381,6 +381,8 @@ const APPARTEMENT_VENTE_BOOLEAN_LABELS: Record<(typeof APPARTEMENT_VENTE_BOOLEAN
   electricite_steg: 'Électricité STEG',
 };
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+const normalizeTabNameForMatch = (value: string) =>
+  normalizeFeatureName(String(value || '').replace(/^\s*\d+\s*[\.\-:)]\s*/g, ''));
 const parseFeatureChoices = (value: string) =>
   Array.from(new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean)));
 const normalizeFeatureType = (value?: string | null): 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' => {
@@ -3374,7 +3376,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     let createdAny = false;
 
     for (const definition of definitions) {
-      const existing = knownTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')) === normalizeFeatureName(definition.label));
+      const existing = knownTabs.find((tab) => normalizeTabNameForMatch(String(tab.nom || '')) === normalizeTabNameForMatch(definition.label));
       if (existing) continue;
 
       let response: Response | null = null;
