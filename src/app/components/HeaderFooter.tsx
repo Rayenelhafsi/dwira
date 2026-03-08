@@ -21,6 +21,24 @@ const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: 
   </svg>
 );
 
+function resolveRouteMode(pathname: string, search: string) {
+  const params = new URLSearchParams(search);
+  const modeParam = params.get("mode");
+  if (pathname.startsWith("/ventes") || pathname.startsWith("/vente/")) {
+    return "vente";
+  }
+  if (pathname.startsWith("/logements") || pathname.startsWith("/properties")) {
+    if (modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
+      return modeParam;
+    }
+    return "location_saisonniere";
+  }
+  if (modeParam === "vente" || modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
+    return modeParam;
+  }
+  return null;
+}
+
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
@@ -30,24 +48,9 @@ export function Header() {
   const [reservationCount, setReservationCount] = useState(0);
   const isHomePage = location.pathname === "/";
   const useLightText = isHomePage && !isScrolled && !isOpen;
-  const routeMode = (() => {
-    const params = new URLSearchParams(location.search);
-    const modeParam = params.get("mode");
-    if (location.pathname.startsWith("/ventes") || location.pathname.startsWith("/vente/")) {
-      return "vente";
-    }
-    if (location.pathname.startsWith("/logements") || location.pathname.startsWith("/properties")) {
-      if (modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
-        return modeParam;
-      }
-      return "location_saisonniere";
-    }
-    if (modeParam === "vente" || modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
-      return modeParam;
-    }
-    return null;
-  })();
+  const routeMode = resolveRouteMode(location.pathname, location.search);
   const headerContact = getPublicContactForMode(routeMode);
+  const facebookUrl = `https://www.facebook.com/${encodeURIComponent(headerContact.messengerPage)}`;
 
   const handleLogout = () => {
     logout();
@@ -279,7 +282,7 @@ export function Header() {
               )}
               
               <div className="mt-8 flex gap-6">
-                <a href="https://www.facebook.com/dwiraimmo2" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-blue-600">
+                <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-gray-600 hover:text-blue-600">
                   <Facebook size={28} />
                 </a>
                 <a href="https://www.instagram.com/dwira.immobiliere" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-pink-600">
@@ -298,20 +301,27 @@ export function Header() {
 }
 
 export function Footer() {
+  const location = useLocation();
+  const routeMode = resolveRouteMode(location.pathname, location.search);
+  const footerContact = getPublicContactForMode(routeMode);
+  const facebookUrl = `https://www.facebook.com/${encodeURIComponent(footerContact.messengerPage)}`;
+
   return (
     <footer className="bg-emerald-950 text-white pt-16 pb-8 border-t border-emerald-900">
       <div className="container mx-auto px-4 md:px-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-12">
           <div>
             <div className="flex items-center gap-3 mb-6">
-              <img src={logo} alt="Dwira Logo" className="h-10 w-auto brightness-0 invert opacity-90" />
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white/12 ring-1 ring-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] overflow-hidden">
+                <img src={logo} alt="Dwira Logo" className="h-9 w-9 rounded-lg bg-white/10 object-contain p-1" />
+              </span>
               <span className="text-xl font-bold text-white">Dwira Immobilier</span>
             </div>
             <p className="text-emerald-100/70 leading-relaxed mb-6">
               Votre partenaire de confiance à Kélibia pour l'achat, la vente, la location et la gestion personnalisée de vos biens immobiliers.
             </p>
             <div className="flex gap-4">
-              <a href="https://www.facebook.com/dwiraimmo2" target="_blank" rel="noreferrer" className="bg-emerald-900 p-2.5 rounded-full hover:bg-blue-600 transition-colors">
+              <a href={facebookUrl} target="_blank" rel="noreferrer" className="bg-emerald-900 p-2.5 rounded-full hover:bg-blue-600 transition-colors">
                 <Facebook size={20} />
               </a>
               <a href="https://www.instagram.com/dwira.immobiliere" target="_blank" rel="noreferrer" className="bg-emerald-900 p-2.5 rounded-full hover:bg-pink-600 transition-colors">

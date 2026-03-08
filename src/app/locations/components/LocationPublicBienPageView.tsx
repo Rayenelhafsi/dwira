@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
+import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -261,7 +262,9 @@ export default function LocationPublicBienPageView({
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full overflow-hidden bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center">DI</div>
+                    <div className="w-12 h-12 rounded-full p-1.5 bg-gradient-to-br from-emerald-50 to-emerald-200 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
+                      <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full bg-white object-contain p-1" />
+                    </div>
                     {sectionToggle('show_informations_generales')}
                   </div>
                 </div>

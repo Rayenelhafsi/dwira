@@ -12,6 +12,7 @@ import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
+import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import {
   clearAuthPendingLogin,
   isAuthPendingLogin,
@@ -75,7 +76,9 @@ export default function PropertyDetailsPage() {
   const filterAmenities = searchParams.get("amenities")?.split(",").filter(Boolean) || [];
   const filterFeatured = searchParams.get("featured") === "true";
   const minPrice = parseInt(searchParams.get("minPrice") || "0");
-  const maxPrice = parseInt(searchParams.get("maxPrice") || "1000");
+  const maxPriceParam = searchParams.get("maxPrice");
+  const maxPrice = maxPriceParam ? parseInt(maxPriceParam, 10) : Number.POSITIVE_INFINITY;
+  const filterMode = (searchParams.get("mode") || property?.mode || "location_saisonniere").trim();
 
   // Build query string for "Voir tout" link
   const filterQueryString = searchParams.toString();
@@ -521,6 +524,7 @@ export default function PropertyDetailsPage() {
   const filteredOtherProperties = useMemo(() => {
     const filtered = properties.filter((p) => {
       if (p.id === property?.id) return false;
+      const matchMode = !filterMode || (p.mode || "location_saisonniere") === filterMode;
       
       // Location filter (case insensitive includes)
       const matchLocation = !filterLocation || p.location.toLowerCase().includes(filterLocation.toLowerCase());
@@ -537,7 +541,7 @@ export default function PropertyDetailsPage() {
       // Featured filter
       const matchFeatured = !filterFeatured || p.isFeatured;
       
-      return matchLocation && matchCategory && matchAmenities && matchPrice && matchFeatured;
+      return matchMode && matchLocation && matchCategory && matchAmenities && matchPrice && matchFeatured;
     });
 
     // Sort: featured first (same as PropertiesPage)
@@ -545,7 +549,7 @@ export default function PropertyDetailsPage() {
       if (a.isFeatured === b.isFeatured) return 0;
       return a.isFeatured ? -1 : 1;
     });
-  }, [property?.id, filterLocation, filterCategories, filterAmenities, filterFeatured, minPrice, maxPrice, properties]);
+  }, [property?.id, filterMode, filterLocation, filterCategories, filterAmenities, filterFeatured, minPrice, maxPrice, properties]);
 
   const openLightbox = (index: number) => {
     setCurrentImageIndex(index);
@@ -1075,9 +1079,8 @@ export default function PropertyDetailsPage() {
                    <span>{property.bathrooms} salles de bain</span>
                  </div>
                </div>
-               <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
-                 {/* Host avatar placeholder */}
-                 <div className="w-full h-full flex items-center justify-center bg-emerald-100 text-emerald-700 font-bold">DI</div>
+               <div className="w-12 h-12 rounded-full p-1.5 bg-gradient-to-br from-emerald-50 to-emerald-200 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
+                 <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full bg-white object-contain p-1" />
                </div>
             </div>
 
@@ -1479,9 +1482,7 @@ export default function PropertyDetailsPage() {
       {/* Other Properties Section */}
       <div className="container mx-auto px-4 md:px-6 mt-16 pt-12 border-t border-gray-200">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">
-            {filteredOtherProperties.length > 0 ? "Autres logements" : "Tous les logements"}
-          </h2>
+          <h2 className="text-2xl font-bold text-gray-900">Autres logements</h2>
           <Link 
             to={backToListUrl}
             className="flex items-center gap-2 text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
@@ -1513,8 +1514,7 @@ export default function PropertyDetailsPage() {
           {/* Properties Carousel */}
           <div className="overflow-hidden" ref={otherPropertiesRef}>
             <div className="flex gap-6">
-              {(filteredOtherProperties.length > 0 ? filteredOtherProperties : properties.filter(p => p.id !== property?.id))
-                .map((otherProperty) => (
+              {filteredOtherProperties.map((otherProperty) => (
                   <div 
                     key={otherProperty.id} 
                     className="flex-[0_0_280px] min-w-0 sm:flex-[0_0_320px]"
@@ -1558,6 +1558,11 @@ export default function PropertyDetailsPage() {
             </div>
           </div>
         </div>
+        {filteredOtherProperties.length === 0 && (
+          <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-white p-5 text-sm text-gray-600">
+            Aucun autre logement ne correspond a vos filtres actuels.
+          </div>
+        )}
       </div>
 
       {/* Lightbox */}

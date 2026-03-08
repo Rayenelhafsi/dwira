@@ -30,7 +30,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   };
     
   return (
-    <div className="group bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border border-gray-100">
+    <div className={`group bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'}`}>
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <img
@@ -38,7 +38,16 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             alt={property.title}
             className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
           />
-          <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md text-sm font-semibold text-gray-900 shadow-sm">
+          {property.isFeatured && (
+            <>
+              <div className="absolute inset-0 bg-gradient-to-b from-amber-300/20 via-transparent to-amber-500/20 pointer-events-none" />
+              <div className="absolute inset-0 ring-1 ring-amber-300/60 ring-inset pointer-events-none" />
+              <div className="absolute top-3 right-3 bg-amber-500 text-white px-2.5 py-1 rounded-full text-xs font-semibold shadow-md">
+                Vedette
+              </div>
+            </>
+          )}
+          <div className={`absolute top-3 ${property.isFeatured ? 'right-20' : 'right-3'} bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md text-sm font-semibold text-gray-900 shadow-sm`}>
             {property.pricePerNight} TND
             {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
           </div>

@@ -101,6 +101,21 @@ const UI_SECTION_FEATURE_TAB_DEFINITIONS: Partial<Record<keyof BienUiConfig, { l
   show_immeuble_locaux_commerciaux: { label: 'Bloc locaux commerciaux', ordre: 80 },
   show_lotissement_terrains: { label: 'Bloc terrains du lotissement', ordre: 90 },
 };
+const UI_SECTION_OPTIONS_LOCATION: Array<{ key: keyof BienUiConfig; label: string }> = [
+  { key: 'show_gallery', label: 'Galerie' },
+  { key: 'show_informations_generales', label: 'Informations generales' },
+  { key: 'show_caracteristiques', label: 'Caracteristiques' },
+  { key: 'show_localisation', label: 'Localisation & acces' },
+  { key: 'show_disponibilites', label: 'Disponibilites & calendrier' },
+  { key: 'show_booking_card', label: 'Carte reservation' },
+];
+const UI_SECTION_OPTIONS_VENTE: Array<{ key: keyof BienUiConfig; label: string }> = [
+  { key: 'show_gallery', label: 'Galerie' },
+  { key: 'show_informations_generales', label: 'Informations generales' },
+  { key: 'show_caracteristiques', label: 'Caracteristiques' },
+  { key: 'show_tarification_publique', label: 'Tarification publique' },
+  { key: 'show_modalites_paiement', label: 'Modalites de paiement' },
+];
 type TerrainSectionTab = string;
 type CaracteristiqueOnglet = {
   id: string;
@@ -821,11 +836,18 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
     ? (bien.type === 'terrain' && terrainMode === 'm2_uniquement' ? '/m2' : '')
     : '/nuit';
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col h-full group">
+    <div className={`bg-white rounded-xl shadow-sm border overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col h-full group ${bien.is_featured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-200'}`}>
       <div className="relative h-44 sm:h-48 bg-gray-100 overflow-hidden">
         <img src={mainImage} alt={bien.titre} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+        {bien.is_featured && (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-b from-amber-300/25 via-transparent to-amber-500/20 pointer-events-none" />
+            <div className="absolute inset-0 ring-1 ring-amber-300/60 ring-inset pointer-events-none" />
+            <div className="absolute top-3 right-3 bg-amber-500 text-white px-2.5 py-1 rounded-full text-xs font-semibold shadow-md">Vedette</div>
+          </>
+        )}
         <div className="absolute top-3 left-3"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[bien.statut]}`}>{statusLabels[bien.statut]}</span></div>
-        {imageCount > 1 && <div className="absolute top-3 right-3 bg-black/50 text-white px-2 py-1 rounded-lg text-xs"><ImageIcon className="h-3 w-3 inline" /> {imageCount}</div>}
+        {imageCount > 1 && <div className={`absolute top-3 ${bien.is_featured ? 'right-20' : 'right-3'} bg-black/50 text-white px-2 py-1 rounded-lg text-xs`}><ImageIcon className="h-3 w-3 inline" /> {imageCount}</div>}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           <button onClick={onView} className="p-2 bg-white rounded-full hover:bg-gray-100"><Eye className="h-4 w-4 text-gray-700" /></button>
           <button onClick={onEdit} className="p-2 bg-white rounded-full hover:bg-gray-100"><Edit2 className="h-4 w-4 text-emerald-600" /></button>
@@ -849,7 +871,7 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
 function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const saisonConfig: LocationSaisonniereConfig = {
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
@@ -2729,6 +2751,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       media: imagesWithPositions,
       unavailableDates: unavailableDates,
       visible_sur_site: formData.visible_sur_site !== false,
+      is_featured: formData.is_featured === true,
       created_at: initialData?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
       date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0]
@@ -2769,6 +2792,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
+  const selectedModeForUi = (formData.mode || 'location_saisonniere') as BienMode;
+  const uiSectionOptions = selectedModeForUi === 'vente' ? UI_SECTION_OPTIONS_VENTE : UI_SECTION_OPTIONS_LOCATION;
   const terrainTabsForRender = featureTabs
     .slice()
     .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
@@ -3392,7 +3417,22 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   <span className="block text-sm font-medium text-gray-800">Visible sur le site</span>
                   <span className="block text-xs text-gray-500">Si désactivé, le bien reste en admin mais n'apparait plus côté client.</span>
                 </div>
-                <input type="checkbox" id="visible_sur_site" name="visible_sur_site" checked={formData.visible_sur_site !== false} onChange={handleCheckboxChange} className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+                <span className="relative inline-flex items-center">
+                  <input type="checkbox" id="visible_sur_site" name="visible_sur_site" checked={formData.visible_sur_site !== false} onChange={handleCheckboxChange} className="peer sr-only" />
+                  <span className="h-6 w-11 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                  <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                </span>
+              </label>
+              <label htmlFor="is_featured" className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-100 bg-amber-50/60 cursor-pointer">
+                <div>
+                  <span className="block text-sm font-medium text-gray-800">Bien en vedette</span>
+                  <span className="block text-xs text-gray-500">Si activé, le bien apparait dans les listes vedette côté client.</span>
+                </div>
+                <span className="relative inline-flex items-center">
+                  <input type="checkbox" id="is_featured" name="is_featured" checked={formData.is_featured === true} onChange={handleCheckboxChange} className="peer sr-only" />
+                  <span className="h-6 w-11 rounded-full bg-gray-300 transition-colors peer-checked:bg-amber-500" />
+                  <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                </span>
               </label>
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
                 <div>
@@ -3400,43 +3440,49 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   <p className="text-xs text-gray-500">Ces reglages controlent quels blocs apparaissent sur la page client et dans l'aperçu admin.</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                    <span className="text-sm text-gray-700">Galerie</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_gallery')} onChange={(e) => handleUiSectionVisibilityChange('show_gallery', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                    <span className="text-sm text-gray-700">Informations generales</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_informations_generales')} onChange={(e) => handleUiSectionVisibilityChange('show_informations_generales', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                    <span className="text-sm text-gray-700">Caracteristiques</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_caracteristiques')} onChange={(e) => handleUiSectionVisibilityChange('show_caracteristiques', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                    <span className="text-sm text-gray-700">Tarification publique</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_tarification_publique')} onChange={(e) => handleUiSectionVisibilityChange('show_tarification_publique', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                    <span className="text-sm text-gray-700">Modalites de paiement</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_modalites_paiement')} onChange={(e) => handleUiSectionVisibilityChange('show_modalites_paiement', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
-                  </label>
+                  {uiSectionOptions.map((section) => (
+                    <label key={section.key} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                      <span className="text-sm text-gray-700">{section.label}</span>
+                      <span className="relative inline-flex items-center">
+                        <input type="checkbox" checked={isUiSectionVisible(section.key)} onChange={(e) => handleUiSectionVisibilityChange(section.key, e.target.checked)} className="peer sr-only" />
+                        <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                        <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                      </span>
+                    </label>
+                  ))}
                   {isImmeubleVente && <>
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <span className="text-sm text-gray-700">Bloc appartements</span>
-                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_appartements')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_appartements', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                      <span className="relative inline-flex items-center">
+                        <input type="checkbox" checked={isUiSectionVisible('show_immeuble_appartements')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_appartements', e.target.checked)} className="peer sr-only" />
+                        <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                        <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                      </span>
                     </label>
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <span className="text-sm text-gray-700">Bloc garages</span>
-                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_garages')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_garages', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                      <span className="relative inline-flex items-center">
+                        <input type="checkbox" checked={isUiSectionVisible('show_immeuble_garages')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_garages', e.target.checked)} className="peer sr-only" />
+                        <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                        <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                      </span>
                     </label>
                     <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <span className="text-sm text-gray-700">Bloc locaux commerciaux</span>
-                      <input type="checkbox" checked={isUiSectionVisible('show_immeuble_locaux_commerciaux')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_locaux_commerciaux', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                      <span className="relative inline-flex items-center">
+                        <input type="checkbox" checked={isUiSectionVisible('show_immeuble_locaux_commerciaux')} onChange={(e) => handleUiSectionVisibilityChange('show_immeuble_locaux_commerciaux', e.target.checked)} className="peer sr-only" />
+                        <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                        <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                      </span>
                     </label>
                   </>}
                   {isLotissementVente && <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                     <span className="text-sm text-gray-700">Bloc terrains du lotissement</span>
-                    <input type="checkbox" checked={isUiSectionVisible('show_lotissement_terrains')} onChange={(e) => handleUiSectionVisibilityChange('show_lotissement_terrains', e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                    <span className="relative inline-flex items-center">
+                      <input type="checkbox" checked={isUiSectionVisible('show_lotissement_terrains')} onChange={(e) => handleUiSectionVisibilityChange('show_lotissement_terrains', e.target.checked)} className="peer sr-only" />
+                      <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                      <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                    </span>
                   </label>}
                 </div>
                 {isTerrainVente && terrainTabsForRender.length > 0 && (
@@ -3446,7 +3492,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       {terrainTabsForRender.map((tab) => (
                         <label key={`ui-tab-${tab.id}`} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
                           <span className="text-sm text-gray-700">{tab.label}</span>
-                          <input type="checkbox" checked={uiConfig.terrain_tabs?.[tab.id] !== false} onChange={(e) => setTerrainTabVisible(tab.id, e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                          <span className="relative inline-flex items-center">
+                            <input type="checkbox" checked={uiConfig.terrain_tabs?.[tab.id] !== false} onChange={(e) => setTerrainTabVisible(tab.id, e.target.checked)} className="peer sr-only" />
+                            <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                            <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                          </span>
                         </label>
                       ))}
                     </div>

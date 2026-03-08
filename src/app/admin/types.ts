@@ -370,6 +370,7 @@ export interface Bien {
   charges?: number;
   statut: BienStatut;
   visible_sur_site?: boolean;
+  is_featured?: boolean;
   ui_config?: BienUiConfig | null;
   location_saisonniere_config?: LocationSaisonniereConfig | null;
   menage_en_cours: boolean;

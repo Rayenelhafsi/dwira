@@ -73,14 +73,11 @@ export default function HomePage() {
     }
     const defaultMode = orderedModeTabs[0]?.value || "location_saisonniere";
     setSelectedMode(defaultMode);
-    setSearchParams((prev) => {
-      if (prev.get("mode") === defaultMode) {
-        return prev;
-      }
-      const next = new URLSearchParams(prev);
+    const next = new URLSearchParams(searchParams);
+    if (next.get("mode") !== defaultMode) {
       next.set("mode", defaultMode);
-      return next;
-    }, { replace: true });
+      setSearchParams(next, { replace: true });
+    }
   }, [loading, orderedModeTabs, searchParams, setSearchParams]);
 
   // Calendar calculations
@@ -261,11 +258,9 @@ export default function HomePage() {
                 onClick={() => {
                   setSelectedMode(tab.value);
                   setHasSearched(false);
-                  setSearchParams((prev) => {
-                    const next = new URLSearchParams(prev);
-                    next.set("mode", tab.value);
-                    return next;
-                  }, { replace: true });
+                  const next = new URLSearchParams(searchParams);
+                  next.set("mode", tab.value);
+                  setSearchParams(next, { replace: true });
                 }}
                 className={`relative min-w-0 rounded-[18px] border px-2 py-3 text-xs font-semibold leading-tight transition-all duration-200 sm:px-3 sm:text-sm md:rounded-[22px] md:px-5 ${
                   selectedMode === tab.value
