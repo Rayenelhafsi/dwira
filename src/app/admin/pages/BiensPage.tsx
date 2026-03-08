@@ -918,6 +918,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newZoneGouvernerat, setNewZoneGouvernerat] = useState('');
   const [newZoneRegion, setNewZoneRegion] = useState('');
   const [newZoneQuartier, setNewZoneQuartier] = useState('');
+  const [newZoneGoogleMapsUrl, setNewZoneGoogleMapsUrl] = useState('');
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
@@ -2346,6 +2347,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         gouvernerat: newZoneGouvernerat.trim() || null,
         region: newZoneRegion.trim() || null,
         quartier: newZoneQuartier.trim() || null,
+        google_maps_url: newZoneGoogleMapsUrl.trim() || null,
       };
       const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
@@ -2356,6 +2358,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setNewZoneGouvernerat('');
       setNewZoneRegion('');
       setNewZoneQuartier('');
+      setNewZoneGoogleMapsUrl('');
       setShowAddZone(false);
       toast.success('Zone ajoutée');
     } catch {
@@ -3377,6 +3380,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       <datalist id="zone-quartier-options">
                         {quartierOptions.map((item) => <option key={`quartier-${item}`} value={item} />)}
                       </datalist>
+                      <input type="url" value={newZoneGoogleMapsUrl} onChange={(e) => setNewZoneGoogleMapsUrl(e.target.value)} placeholder="Lien Google Maps (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <button type="button" onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer zone</button>
                     </div>
                   )}

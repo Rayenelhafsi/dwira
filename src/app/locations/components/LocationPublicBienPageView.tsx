@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
+import { Circle, CircleMarker, MapContainer, TileLayer } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -14,6 +16,9 @@ type FeatureApiRow = {
   unite?: string | null;
   visibilite_client?: number | null;
 };
+
+type LatLng = { lat: number; lng: number };
+type NearbyPlace = { id: string; lat: number; lng: number; name: string; kind: 'cafe' | 'restaurant'; distanceKm: number };
 
 type ToggleHandler = (type: 'section', key: string, nextValue: boolean) => void | Promise<void>;
 type FeatureToggleHandler = (feature: FeatureApiRow, nextValue: boolean) => FeatureApiRow | null | void | Promise<FeatureApiRow | null | void>;
@@ -80,6 +85,52 @@ const FUMEURS_LABELS: Record<string, string> = { autorise: 'Autorise', interdit:
 const ALCOOL_LABELS: Record<string, string> = { autorise: 'Autorise', interdit: 'Interdit' };
 const ANIMAUX_LABELS: Record<string, string> = { autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' };
 
+const isValidLatLng = (lat: number, lng: number) => Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+const toRad = (deg: number) => (deg * Math.PI) / 180;
+const haversineKm = (a: LatLng, b: LatLng) => {
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const aa = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(aa));
+};
+
+const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
+  const value = String(url || '').trim();
+  if (!value) return null;
+
+  const decoded = decodeURIComponent(value);
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
+    /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = decoded.match(pattern);
+    if (!match) continue;
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+    if (isValidLatLng(lat, lng)) return { lat, lng };
+  }
+  return null;
+};
+
+const hashString = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+};
+
+const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
+  const h = hashString(seed || 'dwira');
+  const angle = (h % 360) * (Math.PI / 180);
+  const distanceKm = 0.45 + ((h % 250) / 1000); // 450m -> 700m
+  const latOffset = (distanceKm / 111) * Math.cos(angle);
+  const lngOffset = (distanceKm / (111 * Math.cos(toRad(exact.lat)))) * Math.sin(angle);
+  const candidate = { lat: exact.lat + latOffset, lng: exact.lng + lngOffset };
+  return isValidLatLng(candidate.lat, candidate.lng) ? candidate : exact;
+};
+
 export default function LocationPublicBienPageView({
   bien,
   zones,
@@ -90,7 +141,10 @@ export default function LocationPublicBienPageView({
   featureReloadKey = 0,
 }: Props) {
   const [allFeatures, setAllFeatures] = useState<FeatureApiRow[]>([]);
+  const [displayLocation, setDisplayLocation] = useState<LatLng | null>(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const uiConfig: BienUiConfig = bien.ui_config || {};
+  const selectedZone = useMemo(() => zones.find((item) => item.id === bien.zone_id), [zones, bien.zone_id]);
 
   useEffect(() => {
     let disposed = false;
@@ -123,7 +177,7 @@ export default function LocationPublicBienPageView({
 
   const images = (bien.media || []).filter((item) => item.type !== 'video').map((item) => resolveMediaUrl(item.url)).filter(Boolean);
   const videos = (bien.media || []).filter((item) => item.type === 'video').map((item) => String(item.url || '').trim()).filter(Boolean);
-  const zoneName = zones.find((item) => item.id === bien.zone_id)?.nom || 'Zone non definie';
+  const zoneName = selectedZone?.nom || 'Zone non definie';
   const selectedFeatureIds = new Set((Array.isArray(bien.caracteristique_ids) ? bien.caracteristique_ids : []).map((item) => String(item)));
   const selectedFeatureNames = new Set((Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []).map((item) => normalizeFeatureName(String(item))));
   const selectedFeatures = allFeatures.filter((item) => selectedFeatureIds.has(String(item.id || '')) || selectedFeatureNames.has(normalizeFeatureName(String(item.nom || ''))));
@@ -172,6 +226,103 @@ export default function LocationPublicBienPageView({
     ? selectedFeatures.filter((item) => String(item.onglet_id || '').trim().length > 0)
     : visibleSelectedFeatures;
   const showBookingCard = isVisible('show_booking_card') && isVisible('show_tarification_publique');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const geocodeFromZone = async (): Promise<LatLng | null> => {
+      const q = [
+        selectedZone?.quartier,
+        selectedZone?.region,
+        selectedZone?.gouvernerat,
+        selectedZone?.pays,
+        selectedZone?.nom,
+      ].map((item) => String(item || '').trim()).filter(Boolean).join(', ');
+      if (!q) return null;
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return null;
+        const rows = await response.json();
+        const first = Array.isArray(rows) ? rows[0] : null;
+        const lat = Number(first?.lat);
+        const lng = Number(first?.lon);
+        return isValidLatLng(lat, lng) ? { lat, lng } : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const load = async () => {
+      const exact = parseGoogleMapsLatLng(selectedZone?.google_maps_url) || await geocodeFromZone();
+      if (cancelled) return;
+      if (!exact) {
+        setDisplayLocation(null);
+        setNearbyPlaces([]);
+        return;
+      }
+      const approx = obfuscateLocation(exact, `${bien.id || ''}-${selectedZone?.id || ''}`);
+      setDisplayLocation(approx);
+    };
+
+    void load();
+    return () => { cancelled = true; };
+  }, [selectedZone?.google_maps_url, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, bien.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadNearby = async () => {
+      if (!displayLocation) {
+        setNearbyPlaces([]);
+        return;
+      }
+      const query = `
+[out:json][timeout:12];
+(
+  node["amenity"="cafe"](around:1800,${displayLocation.lat},${displayLocation.lng});
+  node["amenity"="restaurant"](around:1800,${displayLocation.lat},${displayLocation.lng});
+);
+out body 20;
+`;
+      try {
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: query,
+        });
+        if (!response.ok) throw new Error('overpass_failed');
+        const payload = await response.json();
+        if (cancelled) return;
+        const items = (Array.isArray(payload?.elements) ? payload.elements : [])
+          .map((item: any) => {
+            const lat = Number(item?.lat);
+            const lng = Number(item?.lon);
+            if (!isValidLatLng(lat, lng)) return null;
+            const name = String(item?.tags?.name || '').trim();
+            if (!name) return null;
+            const amenity = String(item?.tags?.amenity || '').trim();
+            if (amenity !== 'cafe' && amenity !== 'restaurant') return null;
+            return {
+              id: String(item?.id || `${lat}-${lng}`),
+              lat,
+              lng,
+              name,
+              kind: amenity as 'cafe' | 'restaurant',
+              distanceKm: haversineKm(displayLocation, { lat, lng }),
+            } as NearbyPlace;
+          })
+          .filter(Boolean)
+          .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
+          .slice(0, 6);
+        setNearbyPlaces(items);
+      } catch {
+        if (!cancelled) setNearbyPlaces([]);
+      }
+    };
+
+    void loadNearby();
+    return () => { cancelled = true; };
+  }, [displayLocation?.lat, displayLocation?.lng]);
 
   const block = (key: string, title: string, content: React.ReactNode, className = '') => {
     const visible = isVisible(key);
@@ -312,12 +463,69 @@ export default function LocationPublicBienPageView({
                   <h3 className="text-xl font-bold">Ou se situe le logement</h3>
                   {sectionToggle('show_localisation')}
                 </div>
-                <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">
-                  <img src="https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=1600&auto=format&fit=crop" alt="Map" className="w-full h-full object-cover opacity-50 grayscale" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="bg-white p-4 rounded-full shadow-lg"><MapPin size={32} className="text-emerald-600" /></div>
+                {displayLocation ? (
+                  <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
+                    <div className="h-[320px] relative">
+                      <MapContainer
+                        center={[displayLocation.lat, displayLocation.lng]}
+                        zoom={13}
+                        scrollWheelZoom={false}
+                        className="h-full w-full"
+                      >
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        <Circle
+                          center={[displayLocation.lat, displayLocation.lng]}
+                          radius={700}
+                          pathOptions={{ color: '#059669', weight: 1.5, fillColor: '#10b981', fillOpacity: 0.12 }}
+                        />
+                        <CircleMarker
+                          center={[displayLocation.lat, displayLocation.lng]}
+                          radius={9}
+                          pathOptions={{ color: '#065f46', weight: 2, fillColor: '#10b981', fillOpacity: 1 }}
+                        />
+                        {nearbyPlaces.map((place) => (
+                          <CircleMarker
+                            key={place.id}
+                            center={[place.lat, place.lng]}
+                            radius={5}
+                            pathOptions={{
+                              color: place.kind === 'cafe' ? '#1d4ed8' : '#b45309',
+                              weight: 1.5,
+                              fillColor: place.kind === 'cafe' ? '#3b82f6' : '#f59e0b',
+                              fillOpacity: 0.9,
+                            }}
+                          />
+                        ))}
+                      </MapContainer>
+                    </div>
+                    <div className="border-t border-gray-100 p-4">
+                      {nearbyPlaces.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {nearbyPlaces.slice(0, 4).map((place) => (
+                            <span
+                              key={`nearby-${place.id}`}
+                              className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700"
+                            >
+                              {place.kind === 'cafe' ? 'Cafe' : 'Restaurant'}: {place.name} (~{place.distanceKm.toFixed(1)} km)
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">Commodites proches: cafes et restaurants dans le quartier.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">
+                    <img src="https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=1600&auto=format&fit=crop" alt="Map" className="w-full h-full object-cover opacity-50 grayscale" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="bg-white p-4 rounded-full shadow-lg"><MapPin size={32} className="text-emerald-600" /></div>
+                    </div>
+                  </div>
+                )}
                 <p className="mt-4 text-gray-600 text-sm">L'emplacement exact sera communique apres la reservation.</p>
               </div>
             ))}
