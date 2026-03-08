@@ -248,6 +248,7 @@ export default function LocationPublicBienPageView({
       try {
         const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
         const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        console.debug('[LocationMapDebug] nominatim:response', { zoneId: selectedZone?.id, query: q, ok: response.ok, status: response.status });
         if (!response.ok) return null;
         const rows = await response.json();
         const first = Array.isArray(rows) ? rows[0] : null;
@@ -260,14 +261,24 @@ export default function LocationPublicBienPageView({
     };
 
     const load = async () => {
-      const exact = parseGoogleMapsLatLng(selectedZone?.google_maps_url) || await geocodeFromZone();
+      const parsed = parseGoogleMapsLatLng(selectedZone?.google_maps_url);
+      console.debug('[LocationMapDebug] parseMaps', {
+        bienId: bien.id,
+        zoneId: selectedZone?.id,
+        zoneName: selectedZone?.nom,
+        mapsLink: String(selectedZone?.google_maps_url || ''),
+        parsed,
+      });
+      const exact = parsed || await geocodeFromZone();
       if (cancelled) return;
       if (!exact) {
+        console.debug('[LocationMapDebug] location:missing', { bienId: bien.id, zoneId: selectedZone?.id });
         setDisplayLocation(null);
         setNearbyPlaces([]);
         return;
       }
       const approx = obfuscateLocation(exact, `${bien.id || ''}-${selectedZone?.id || ''}`);
+      console.debug('[LocationMapDebug] location:resolved', { bienId: bien.id, zoneId: selectedZone?.id, exact, approx });
       setDisplayLocation(approx);
     };
 
@@ -279,6 +290,7 @@ export default function LocationPublicBienPageView({
     let cancelled = false;
     const loadNearby = async () => {
       if (!effectiveMapCenter) {
+        console.debug('[LocationMapDebug] nearby:skip', { reason: 'no_map_center', bienId: bien.id, zoneId: selectedZone?.id });
         setNearbyPlaces([]);
         return;
       }
@@ -296,6 +308,7 @@ out body 20;
           headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
           body: query,
         });
+        console.debug('[LocationMapDebug] nearby:response', { ok: response.ok, status: response.status, bienId: bien.id, zoneId: selectedZone?.id });
         if (!response.ok) throw new Error('overpass_failed');
         const payload = await response.json();
         if (cancelled) return;
@@ -320,8 +333,10 @@ out body 20;
           .filter(Boolean)
           .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
           .slice(0, 6);
+        console.debug('[LocationMapDebug] nearby:loaded', { count: items.length, sample: items.slice(0, 3) });
         setNearbyPlaces(items);
       } catch {
+        console.debug('[LocationMapDebug] nearby:error', { bienId: bien.id, zoneId: selectedZone?.id });
         if (!cancelled) setNearbyPlaces([]);
       }
     };
@@ -340,6 +355,18 @@ out body 20;
     return { lat: baseLat + latJitter, lng: baseLng + lngJitter };
   }, [selectedZone?.id, selectedZone?.nom, bien.id]);
   const effectiveMapCenter = displayLocation || (selectedZone ? fallbackApproxLocation : null);
+
+  useEffect(() => {
+    console.debug('[LocationMapDebug] renderState', {
+      bienId: bien.id,
+      zoneId: selectedZone?.id,
+      zoneName: selectedZone?.nom,
+      hasMapsUrl: Boolean(String(selectedZone?.google_maps_url || '').trim()),
+      displayLocation,
+      fallbackApproxLocation,
+      effectiveMapCenter,
+    });
+  }, [bien.id, selectedZone?.id, selectedZone?.nom, selectedZone?.google_maps_url, displayLocation, fallbackApproxLocation, effectiveMapCenter]);
 
   const block = (key: string, title: string, content: React.ReactNode, className = '') => {
     const visible = isVisible(key);

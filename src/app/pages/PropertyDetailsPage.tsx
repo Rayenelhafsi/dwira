@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
+﻿import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
@@ -48,6 +48,52 @@ const normalizeFeatureName = (value: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+type LatLng = { lat: number; lng: number };
+
+const isValidLatLng = (lat: number, lng: number) =>
+  Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+
+const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
+  const value = String(url || '').trim();
+  if (!value) return null;
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    decoded = value;
+  }
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
+    /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = decoded.match(pattern);
+    if (!match) continue;
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+    if (isValidLatLng(lat, lng)) return { lat, lng };
+  }
+  return null;
+};
+
+const hashString = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+};
+
+const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
+  const h = hashString(seed || 'dwira');
+  const angle = (h % 360) * (Math.PI / 180);
+  const distanceKm = 0.45 + ((h % 250) / 1000);
+  const latOffset = (distanceKm / 111) * Math.cos(angle);
+  const lngOffset = (distanceKm / (111 * Math.cos((exact.lat * Math.PI) / 180))) * Math.sin(angle);
+  const candidate = { lat: exact.lat + latOffset, lng: exact.lng + lngOffset };
+  return isValidLatLng(candidate.lat, candidate.lng) ? candidate : exact;
+};
 
 export default function PropertyDetailsPage() {
   // Use shared context for properties
@@ -116,6 +162,57 @@ export default function PropertyDetailsPage() {
     () => zones.find((item) => item.id === sourceBien?.zone_id),
     [sourceBien?.zone_id, zones]
   );
+  const selectedZoneMapsUrl = String(selectedZone?.google_maps_url || '').trim();
+  const [mapCenter, setMapCenter] = useState<LatLng | null>(null);
+  const mapEmbedUrl = useMemo(() => {
+    if (!mapCenter) return '';
+    const delta = 0.01;
+    const left = mapCenter.lng - delta;
+    const right = mapCenter.lng + delta;
+    const top = mapCenter.lat + delta;
+    const bottom = mapCenter.lat - delta;
+    return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${mapCenter.lat}%2C${mapCenter.lng}`;
+  }, [mapCenter]);
+
+  useEffect(() => {
+    let disposed = false;
+    const geocodeFromZone = async (): Promise<LatLng | null> => {
+      const q = [
+        selectedZone?.quartier,
+        selectedZone?.region,
+        selectedZone?.gouvernerat,
+        selectedZone?.pays,
+        selectedZone?.nom,
+      ].map((v) => String(v || '').trim()).filter(Boolean).join(', ');
+      if (!q) return null;
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return null;
+        const rows = await response.json();
+        const first = Array.isArray(rows) ? rows[0] : null;
+        const lat = Number(first?.lat);
+        const lng = Number(first?.lon);
+        return isValidLatLng(lat, lng) ? { lat, lng } : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const load = async () => {
+      const parsed = parseGoogleMapsLatLng(selectedZoneMapsUrl);
+      const exact = parsed || await geocodeFromZone();
+      if (disposed) return;
+      if (!exact) {
+        setMapCenter(null);
+        return;
+      }
+      setMapCenter(obfuscateLocation(exact, `${property?.id || ''}-${selectedZone?.id || ''}`));
+    };
+
+    void load();
+    return () => { disposed = true; };
+  }, [selectedZoneMapsUrl, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, property?.id]);
   const seasonalConfig = property?.seasonalConfig;
   const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
@@ -154,6 +251,39 @@ export default function PropertyDetailsPage() {
     Number.isFinite(value)
       ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
       : "0,0";
+
+  useEffect(() => {
+    console.debug('[PropertyDetailsDebug] route', {
+      pathname: location.pathname,
+      slug,
+      propertyId: property?.id,
+      sourceBienId: sourceBien?.id,
+      sourceBienZoneId: sourceBien?.zone_id,
+    });
+  }, [location.pathname, slug, property?.id, sourceBien?.id, sourceBien?.zone_id]);
+
+  useEffect(() => {
+    console.debug('[PropertyDetailsDebug] zone', {
+      selectedZoneId: selectedZone?.id,
+      selectedZoneName: selectedZone?.nom,
+      selectedZoneMapsUrl: selectedZoneMapsUrl || null,
+      zonesCount: Array.isArray(zones) ? zones.length : 0,
+      zoneSample: (Array.isArray(zones) ? zones.slice(0, 3) : []).map((z) => ({
+        id: z?.id,
+        nom: z?.nom,
+        google_maps_url: z?.google_maps_url || null,
+      })),
+    });
+  }, [selectedZone?.id, selectedZone?.nom, selectedZoneMapsUrl, zones]);
+
+  useEffect(() => {
+    console.debug('[PropertyDetailsDebug] localisationSection', {
+      usesStaticPlaceholder: false,
+      hasGoogleMapsUrl: Boolean(selectedZoneMapsUrl),
+      hasMapCenter: Boolean(mapCenter),
+      mapCenter,
+    });
+  }, [selectedZoneMapsUrl, mapCenter]);
   const seasonalHighlights = useMemo(() => {
     if (isSaleProperty) return [];
     const rows = [
@@ -701,7 +831,7 @@ export default function PropertyDetailsPage() {
       try {
         await navigator.share({
           title: property?.title || 'Logement',
-          text: `Découvrez ce logement: ${property?.title}`,
+          text: `DÃ©couvrez ce logement: ${property?.title}`,
           url: shareUrl,
         });
         return;
@@ -713,7 +843,7 @@ export default function PropertyDetailsPage() {
     // Fallback to clipboard copy
     try {
       await navigator.clipboard.writeText(shareUrl);
-      toast.success("Lien copié dans le presse-papiers !");
+      toast.success("Lien copiÃ© dans le presse-papiers !");
     } catch (err) {
       toast.error("Impossible de copier le lien");
     }
@@ -730,7 +860,7 @@ export default function PropertyDetailsPage() {
       const updated = savedProperties.filter((id: number) => id !== property.id);
       localStorage.setItem('savedProperties', JSON.stringify(updated));
       setIsSaved(false);
-      toast.success("Retiré des favoris");
+      toast.success("RetirÃ© des favoris");
     } else {
       // Add to saved
       savedProperties.push(property.id);
@@ -746,7 +876,7 @@ export default function PropertyDetailsPage() {
           clientName: user.name,
         }).catch(() => {});
       }
-      toast.success("Ajouté aux favoris");
+      toast.success("AjoutÃ© aux favoris");
     }
   };
 
@@ -884,7 +1014,7 @@ export default function PropertyDetailsPage() {
   if (!property) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <h1 className="text-2xl font-bold mb-4">Logement non trouvé</h1>
+        <h1 className="text-2xl font-bold mb-4">Logement non trouvÃ©</h1>
         <Link to="/logements" className="text-emerald-600 hover:underline">
           Retour aux logements
         </Link>
@@ -941,7 +1071,7 @@ export default function PropertyDetailsPage() {
               }`}
             >
               <Heart size={18} className={isSaved ? 'fill-current' : ''} />
-              <span className="hidden sm:inline">{isSaved ? 'Sauvegardé' : 'Sauvegarder'}</span>
+              <span className="hidden sm:inline">{isSaved ? 'SauvegardÃ©' : 'Sauvegarder'}</span>
             </button>
           </div>
         </div>
@@ -974,7 +1104,7 @@ export default function PropertyDetailsPage() {
                         allowFullScreen
                       />
                       <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                        Vidéo
+                        VidÃ©o
                       </div>
                     </>
                   ) : (
@@ -1020,7 +1150,7 @@ export default function PropertyDetailsPage() {
                           allowFullScreen
                         />
                         <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                          Vidéo
+                          VidÃ©o
                         </div>
                       </>
                     ) : (
@@ -1032,7 +1162,7 @@ export default function PropertyDetailsPage() {
             </div>
             {/* Navigation Buttons for Slider could be added here */}
             <div className="absolute bottom-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-sm">
-               {galleryItems.length} média{galleryItems.length > 1 ? "s" : ""}
+               {galleryItems.length} mÃ©dia{galleryItems.length > 1 ? "s" : ""}
             </div>
           </div>
         </div>
@@ -1041,11 +1171,11 @@ export default function PropertyDetailsPage() {
           <div className="mb-12 rounded-3xl border border-emerald-100 bg-emerald-50/40 p-6 md:p-8">
             <div className="flex items-center justify-between gap-3 mb-5">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Visite vidéo</h2>
-                <p className="text-sm text-gray-600 mt-1">Regardez le bien avant de réserver ou demander une visite.</p>
+                <h2 className="text-2xl font-bold text-gray-900">Visite vidÃ©o</h2>
+                <p className="text-sm text-gray-600 mt-1">Regardez le bien avant de rÃ©server ou demander une visite.</p>
               </div>
               <div className="text-sm font-medium text-emerald-700">
-                {propertyVideos.length} vidéo{propertyVideos.length > 1 ? "s" : ""}
+                {propertyVideos.length} vidÃ©o{propertyVideos.length > 1 ? "s" : ""}
               </div>
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
@@ -1073,9 +1203,9 @@ export default function PropertyDetailsPage() {
                  <h2 className="text-xl font-bold mb-1">Logement entier : {property.category}</h2>
                  <div className="flex gap-4 text-gray-600 text-sm">
                    <span className="font-medium text-emerald-700">{maxGuests} voyageurs max</span>
-                   <span>·</span>
+                   <span>Â·</span>
                    <span>{property.bedrooms} chambres</span>
-                   <span>·</span>
+                   <span>Â·</span>
                    <span>{property.bathrooms} salles de bain</span>
                  </div>
                </div>
@@ -1085,7 +1215,7 @@ export default function PropertyDetailsPage() {
             </div>
 
             <div className="py-8 border-b border-gray-100">
-              <h3 className="text-xl font-bold mb-4">À propos de ce logement</h3>
+              <h3 className="text-xl font-bold mb-4">Ã€ propos de ce logement</h3>
               <p className="text-gray-600 leading-relaxed whitespace-pre-line">
                 {property.description}
               </p>
@@ -1203,19 +1333,30 @@ export default function PropertyDetailsPage() {
 
             <div className="py-8">
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
-               <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">
-                 {/* Static Map Placeholder */}
-                 <img 
-                    src="https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=1600&auto=format&fit=crop" 
-                    alt="Map" 
-                    className="w-full h-full object-cover opacity-50 grayscale"
-                 />
-                 <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="bg-white p-4 rounded-full shadow-lg">
-                      <MapPin size={32} className="text-emerald-600" />
-                    </div>
+               {mapEmbedUrl ? (
+                 <div className="rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white">
+                   <iframe
+                     title="Carte de localisation approximative"
+                     src={mapEmbedUrl}
+                     className="w-full h-full border-0"
+                     loading="lazy"
+                     referrerPolicy="no-referrer-when-downgrade"
+                   />
                  </div>
-               </div>
+               ) : (
+                 <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">
+                   <img
+                      src="https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=1600&auto=format&fit=crop"
+                      alt="Map"
+                      className="w-full h-full object-cover opacity-50 grayscale"
+                   />
+                   <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="bg-white p-4 rounded-full shadow-lg">
+                        <MapPin size={32} className="text-emerald-600" />
+                      </div>
+                   </div>
+                 </div>
+               )}
                <p className="mt-4 text-gray-600 text-sm">
                  L'emplacement exact sera communiqué après la réservation.
                </p>
@@ -1225,10 +1366,10 @@ export default function PropertyDetailsPage() {
             <div className="py-8 border-t border-gray-100">
               <div className="flex items-center gap-2 mb-6">
                 <Calendar size={24} className="text-emerald-600" />
-                <h3 className="text-xl font-bold">Disponibilités</h3>
+                <h3 className="text-xl font-bold">DisponibilitÃ©s</h3>
               </div>
               <p className="text-gray-600 mb-6">
-                Sélectionnez vos dates pour voir les disponibilités et réserver votre séjour.
+                SÃ©lectionnez vos dates pour voir les disponibilitÃ©s et rÃ©server votre sÃ©jour.
               </p>
               {!isSaleProperty && (
                 <p className="text-sm text-emerald-700 mb-4">
@@ -1317,7 +1458,7 @@ export default function PropertyDetailsPage() {
                       }`}>
                         {includeCleaningFee && <Check size={12} className="text-white" />}
                       </div>
-                      <span className="text-sm font-medium text-gray-700">Frais de ménage</span>
+                      <span className="text-sm font-medium text-gray-700">Frais de mÃ©nage</span>
                     </div>
                     <span className="text-sm font-semibold text-gray-900">{property.cleaningFee} TND</span>
                   </div>
@@ -1423,7 +1564,7 @@ export default function PropertyDetailsPage() {
                    </div>
                    {pricing.cleaningFee > 0 && (
                      <div className="flex justify-between">
-                       <span className="underline">Frais de ménage</span>
+                       <span className="underline">Frais de mÃ©nage</span>
                        <span>{pricing.cleaningFee} TND</span>
                      </div>
                    )}
@@ -1469,7 +1610,7 @@ export default function PropertyDetailsPage() {
                 {hasPendingDates && getPaymentDeadline() && (
                   <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                     <p className="text-xs text-orange-800 leading-relaxed">
-                      <span className="font-semibold">Liste d'attente :</span> Votre demande sera en liste d'attente car il y a une demande de confirmation en cours. Si l'autre demande est annulée, d'ici vers <span className="font-semibold">{getPaymentDeadline()}</span> nous allons traiter votre demande de confirmation et procéder vers le paiement.
+                      <span className="font-semibold">Liste d'attente :</span> Votre demande sera en liste d'attente car il y a une demande de confirmation en cours. Si l'autre demande est annulÃ©e, d'ici vers <span className="font-semibold">{getPaymentDeadline()}</span> nous allons traiter votre demande de confirmation et procÃ©der vers le paiement.
                     </p>
                   </div>
                 )}
@@ -1548,7 +1689,7 @@ export default function PropertyDetailsPage() {
                         </div>
                         <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
                           <span>{otherProperty.guests} voyageurs</span>
-                          <span>·</span>
+                          <span>Â·</span>
                           <span>{otherProperty.category}</span>
                         </div>
                       </div>
@@ -1700,3 +1841,5 @@ export default function PropertyDetailsPage() {
     </div>
   );
 }
+
+

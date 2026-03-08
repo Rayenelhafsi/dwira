@@ -480,15 +480,26 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
+      console.debug('[PropertiesDebug] fetchData:start', { apiUrl: API_URL });
       const [biensResponse, zonesResponse, propsResponse, modePrioritiesResponse] = await Promise.all([
         fetch(`${API_URL}/biens`),
         fetch(`${API_URL}/zones`),
         fetch(`${API_URL}/proprietaires`),
         fetch(`${API_URL}/site-mode-priorities`),
       ]);
+      console.debug('[PropertiesDebug] responses', {
+        biensOk: biensResponse.ok,
+        zonesOk: zonesResponse.ok,
+        propsOk: propsResponse.ok,
+        prioritiesOk: modePrioritiesResponse.ok,
+      });
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
       const zonesData = zonesResponse.ok ? await zonesResponse.json() : [];
+      console.debug('[PropertiesDebug] zones:api', {
+        count: Array.isArray(zonesData) ? zonesData.length : 0,
+        sample: Array.isArray(zonesData) ? zonesData.slice(0, 3).map((z: any) => ({ id: z?.id, nom: z?.nom, google_maps_url: z?.google_maps_url || null })) : [],
+      });
       const propsData = propsResponse.ok ? await propsResponse.json() : [];
       const modePrioritiesData = modePrioritiesResponse.ok ? await modePrioritiesResponse.json() : null;
       
@@ -535,6 +546,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       });
     } catch (err: any) {
       console.warn('API unavailable, using local mock data:', err.message);
+      console.debug('[PropertiesDebug] fallback:mockZones');
       // Fall back to local mock data when API is unavailable
       const localModule = await import('../data/properties');
       const localProperties = localModule.properties;
@@ -654,6 +666,14 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         { id: 'z2', nom: 'El Mansoura', description: 'Quartier El Mansoura' },
         { id: 'z3', nom: 'Petit Paris', description: 'Quartier Petit Paris' }
       ]);
+      console.debug('[PropertiesDebug] zones:mock', {
+        count: 3,
+        sample: [
+          { id: 'z1', nom: 'KÃ©libia Centre', google_maps_url: null },
+          { id: 'z2', nom: 'El Mansoura', google_maps_url: null },
+          { id: 'z3', nom: 'Petit Paris', google_maps_url: null },
+        ],
+      });
       setProprietaires([
         { id: 'p1', nom: 'PropriÃ©taire 1', telephone: '', email: '', cin: '' },
         { id: 'p2', nom: 'PropriÃ©taire 2', telephone: '', email: '', cin: '' },
