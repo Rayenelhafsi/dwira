@@ -1,6 +1,6 @@
 ﻿import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves } from "lucide-react";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -52,6 +52,7 @@ const normalizeFeatureName = (value: string) =>
     .trim();
 
 type LatLng = { lat: number; lng: number };
+type NearbyPlace = { id: string; name: string; kind: "cafe" | "restaurant" | "shop"; distanceKm: number };
 
 const isValidLatLng = (lat: number, lng: number) =>
   Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
@@ -128,6 +129,22 @@ const hashString = (value: string) => {
   return Math.abs(hash);
 };
 
+const toRad = (deg: number) => (deg * Math.PI) / 180;
+const haversineKm = (a: LatLng, b: LatLng) => {
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const aa = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(aa));
+};
+
+const normalizeAmenity = (value: string) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
 const fallbackApproxLocation = (seed: string): LatLng => {
   const h = hashString(seed || 'kelibia');
   const baseLat = 36.847;
@@ -203,6 +220,7 @@ export default function PropertyDetailsPage() {
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
+  const [pulsePhase, setPulsePhase] = useState(0);
   const authPopupRef = useRef<Window | null>(null);
   const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
@@ -225,9 +243,14 @@ export default function PropertyDetailsPage() {
     return extracted.replace(/&amp;/g, '&').trim();
   }, [selectedBienMapsUrl, selectedZoneMapsUrl]);
   const [mapCenter, setMapCenter] = useState<LatLng | null>(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const displayMapCenter = useMemo(
     () => (mapCenter ? mapCenter : null),
     [mapCenter]
+  );
+  const animatedCircleRadius = useMemo(
+    () => 280 + Math.sin(pulsePhase * 2.4) * 35,
+    [pulsePhase]
   );
   const googleEmbedUrl = useMemo(() => {
     if (!displayMapCenter) return '';
@@ -277,6 +300,82 @@ export default function PropertyDetailsPage() {
     void load();
     return () => { disposed = true; };
   }, [selectedMapsUrl, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, property?.id]);
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setPulsePhase((Date.now() - startedAt) / 1000);
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const loadNearby = async () => {
+      if (!displayMapCenter) {
+        setNearbyPlaces([]);
+        return;
+      }
+      const query = `
+[out:json][timeout:12];
+(
+  node["amenity"="cafe"](around:1800,${displayMapCenter.lat},${displayMapCenter.lng});
+  node["amenity"="restaurant"](around:1800,${displayMapCenter.lat},${displayMapCenter.lng});
+  node["shop"="supermarket"](around:1800,${displayMapCenter.lat},${displayMapCenter.lng});
+  node["shop"="convenience"](around:1800,${displayMapCenter.lat},${displayMapCenter.lng});
+);
+out body 40;
+`;
+      try {
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: query,
+        });
+        if (!response.ok) throw new Error('overpass_failed');
+        const payload = await response.json();
+        if (cancelled) return;
+        const items = (Array.isArray(payload?.elements) ? payload.elements : [])
+          .map((item: any) => {
+            const lat = Number(item?.lat);
+            const lng = Number(item?.lon);
+            if (!isValidLatLng(lat, lng)) return null;
+            const name = String(item?.tags?.name || '').trim();
+            if (!name) return null;
+            const amenity = String(item?.tags?.amenity || '').trim();
+            const shop = String(item?.tags?.shop || '').trim();
+            const kind: NearbyPlace["kind"] | null =
+              amenity === 'cafe' ? 'cafe' :
+              amenity === 'restaurant' ? 'restaurant' :
+              (shop === 'supermarket' || shop === 'convenience') ? 'shop' :
+              null;
+            if (!kind) return null;
+            return {
+              id: String(item?.id || `${lat}-${lng}`),
+              name,
+              kind,
+              distanceKm: haversineKm(displayMapCenter, { lat, lng }),
+            } as NearbyPlace;
+          })
+          .filter(Boolean)
+          .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
+          .slice(0, 12);
+        setNearbyPlaces(items);
+      } catch {
+        if (!cancelled) setNearbyPlaces([]);
+      }
+    };
+    void loadNearby();
+    return () => { cancelled = true; };
+  }, [displayMapCenter?.lat, displayMapCenter?.lng]);
+  const amenityIcon = useCallback((amenity: string) => {
+    const key = normalizeAmenity(amenity);
+    if (key.includes('wifi')) return <Wifi size={16} className="text-emerald-600" />;
+    if (key.includes('clim')) return <Snowflake size={16} className="text-emerald-600" />;
+    if (key.includes('kitchen') || key.includes('cuisine')) return <UtensilsCrossed size={16} className="text-emerald-600" />;
+    if (key.includes('parking') || key.includes('garage')) return <Car size={16} className="text-emerald-600" />;
+    if (key.includes('tv') || key.includes('tele')) return <Tv size={16} className="text-emerald-600" />;
+    if (key.includes('plage') || key.includes('mer')) return <Waves size={16} className="text-emerald-600" />;
+    return <Check size={16} className="text-emerald-600" />;
+  }, []);
   const seasonalConfig = property?.seasonalConfig;
   const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
@@ -899,7 +998,7 @@ export default function PropertyDetailsPage() {
       try {
         await navigator.share({
           title: property?.title || 'Logement',
-          text: `DÃ©couvrez ce logement: ${property?.title}`,
+          text: `Découvrez ce logement: ${property?.title}`,
           url: shareUrl,
         });
         return;
@@ -911,7 +1010,7 @@ export default function PropertyDetailsPage() {
     // Fallback to clipboard copy
     try {
       await navigator.clipboard.writeText(shareUrl);
-      toast.success("Lien copiÃ© dans le presse-papiers !");
+      toast.success("Lien copié dans le presse-papiers !");
     } catch (err) {
       toast.error("Impossible de copier le lien");
     }
@@ -928,7 +1027,7 @@ export default function PropertyDetailsPage() {
       const updated = savedProperties.filter((id: number) => id !== property.id);
       localStorage.setItem('savedProperties', JSON.stringify(updated));
       setIsSaved(false);
-      toast.success("RetirÃ© des favoris");
+      toast.success("Retiré des favoris");
     } else {
       // Add to saved
       savedProperties.push(property.id);
@@ -944,7 +1043,7 @@ export default function PropertyDetailsPage() {
           clientName: user.name,
         }).catch(() => {});
       }
-      toast.success("AjoutÃ© aux favoris");
+      toast.success("Ajouté aux favoris");
     }
   };
 
@@ -1082,7 +1181,7 @@ export default function PropertyDetailsPage() {
   if (!property) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <h1 className="text-2xl font-bold mb-4">Logement non trouvÃ©</h1>
+        <h1 className="text-2xl font-bold mb-4">Logement non trouvé</h1>
         <Link to="/logements" className="text-emerald-600 hover:underline">
           Retour aux logements
         </Link>
@@ -1139,7 +1238,7 @@ export default function PropertyDetailsPage() {
               }`}
             >
               <Heart size={18} className={isSaved ? 'fill-current' : ''} />
-              <span className="hidden sm:inline">{isSaved ? 'SauvegardÃ©' : 'Sauvegarder'}</span>
+              <span className="hidden sm:inline">{isSaved ? 'Sauvegardé' : 'Sauvegarder'}</span>
             </button>
           </div>
         </div>
@@ -1172,7 +1271,7 @@ export default function PropertyDetailsPage() {
                         allowFullScreen
                       />
                       <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                        VidÃ©o
+                        Vidéo
                       </div>
                     </>
                   ) : (
@@ -1218,7 +1317,7 @@ export default function PropertyDetailsPage() {
                           allowFullScreen
                         />
                         <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                          VidÃ©o
+                          Vidéo
                         </div>
                       </>
                     ) : (
@@ -1230,7 +1329,7 @@ export default function PropertyDetailsPage() {
             </div>
             {/* Navigation Buttons for Slider could be added here */}
             <div className="absolute bottom-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-sm">
-               {galleryItems.length} mÃ©dia{galleryItems.length > 1 ? "s" : ""}
+               {galleryItems.length} média{galleryItems.length > 1 ? "s" : ""}
             </div>
           </div>
         </div>
@@ -1239,11 +1338,11 @@ export default function PropertyDetailsPage() {
           <div className="mb-12 rounded-3xl border border-emerald-100 bg-emerald-50/40 p-6 md:p-8">
             <div className="flex items-center justify-between gap-3 mb-5">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Visite vidÃ©o</h2>
-                <p className="text-sm text-gray-600 mt-1">Regardez le bien avant de rÃ©server ou demander une visite.</p>
+                <h2 className="text-2xl font-bold text-gray-900">Visite vidéo</h2>
+                <p className="text-sm text-gray-600 mt-1">Regardez le bien avant de réserver ou demander une visite.</p>
               </div>
               <div className="text-sm font-medium text-emerald-700">
-                {propertyVideos.length} vidÃ©o{propertyVideos.length > 1 ? "s" : ""}
+                {propertyVideos.length} vidéo{propertyVideos.length > 1 ? "s" : ""}
               </div>
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
@@ -1283,7 +1382,7 @@ export default function PropertyDetailsPage() {
             </div>
 
             <div className="py-8 border-b border-gray-100">
-              <h3 className="text-xl font-bold mb-4">Ã€ propos de ce logement</h3>
+              <h3 className="text-xl font-bold mb-4">À propos de ce logement</h3>
               <p className="text-gray-600 leading-relaxed whitespace-pre-line">
                 {property.description}
               </p>
@@ -1292,7 +1391,7 @@ export default function PropertyDetailsPage() {
             {!isSaleProperty && (
               <div className="py-8 border-b border-gray-100">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <h3 className="text-xl font-bold">Informations sejour</h3>
+                  <h3 className="text-xl font-bold">Informations séjour</h3>
                   <button
                     type="button"
                     onClick={() => setShowSeasonalDetails((prev) => !prev)}
@@ -1391,7 +1490,7 @@ export default function PropertyDetailsPage() {
                 {property.amenities.map((amenity, idx) => (
                   <div key={idx} className="flex items-center gap-3 text-gray-700">
                     <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center">
-                       <Check size={16} className="text-emerald-600" />
+                       {amenityIcon(amenity)}
                     </div>
                     <span>{amenity}</span>
                   </div>
@@ -1425,6 +1524,16 @@ export default function PropertyDetailsPage() {
                          fillOpacity: 0.2,
                        }}
                      />
+                     <Circle
+                       center={[displayMapCenter.lat, displayMapCenter.lng]}
+                       radius={animatedCircleRadius}
+                       pathOptions={{
+                         color: "#10b981",
+                         weight: 1.5,
+                         fillColor: "#6ee7b7",
+                         fillOpacity: 0.08,
+                       }}
+                     />
                    </MapContainer>
                  </div>
                ) : (
@@ -1444,16 +1553,39 @@ export default function PropertyDetailsPage() {
                <p className="mt-4 text-gray-600 text-sm">
                  Position approximative affichee. L'adresse exacte sera communiquee le jour d'arrivee.
                </p>
+               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Commodites les plus proches</p>
+                 <div className="flex flex-wrap gap-2">
+                   {nearbyPlaces.filter((p) => p.kind === 'restaurant').slice(0, 3).map((place) => (
+                     <span key={`restaurant-${place.id}`} className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
+                       Restaurant: {place.name} (~{place.distanceKm.toFixed(1)} km)
+                     </span>
+                   ))}
+                   {nearbyPlaces.filter((p) => p.kind === 'cafe').slice(0, 3).map((place) => (
+                     <span key={`cafe-${place.id}`} className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
+                       Cafe: {place.name} (~{place.distanceKm.toFixed(1)} km)
+                     </span>
+                   ))}
+                   {nearbyPlaces.filter((p) => p.kind === 'shop').slice(0, 3).map((place) => (
+                     <span key={`shop-${place.id}`} className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
+                       Magasin: {place.name} (~{place.distanceKm.toFixed(1)} km)
+                     </span>
+                   ))}
+                   {nearbyPlaces.length === 0 ? (
+                     <span className="text-xs text-gray-500">Cafes, restaurants et magasins proches du quartier.</span>
+                   ) : null}
+                 </div>
+               </div>
             </div>
 
             {/* Availability Calendar Section */}
             <div className="py-8 border-t border-gray-100">
               <div className="flex items-center gap-2 mb-6">
                 <Calendar size={24} className="text-emerald-600" />
-                <h3 className="text-xl font-bold">DisponibilitÃ©s</h3>
+                <h3 className="text-xl font-bold">Disponibilités</h3>
               </div>
               <p className="text-gray-600 mb-6">
-                SÃ©lectionnez vos dates pour voir les disponibilitÃ©s et rÃ©server votre sÃ©jour.
+                Sélectionnez vos dates pour voir les disponibilités et réserver votre séjour.
               </p>
               {!isSaleProperty && (
                 <p className="text-sm text-emerald-700 mb-4">
@@ -1542,7 +1674,7 @@ export default function PropertyDetailsPage() {
                       }`}>
                         {includeCleaningFee && <Check size={12} className="text-white" />}
                       </div>
-                      <span className="text-sm font-medium text-gray-700">Frais de mÃ©nage</span>
+                      <span className="text-sm font-medium text-gray-700">Frais de ménage</span>
                     </div>
                     <span className="text-sm font-semibold text-gray-900">{property.cleaningFee} TND</span>
                   </div>
@@ -1648,7 +1780,7 @@ export default function PropertyDetailsPage() {
                    </div>
                    {pricing.cleaningFee > 0 && (
                      <div className="flex justify-between">
-                       <span className="underline">Frais de mÃ©nage</span>
+                       <span className="underline">Frais de ménage</span>
                        <span>{pricing.cleaningFee} TND</span>
                      </div>
                    )}
@@ -1694,7 +1826,7 @@ export default function PropertyDetailsPage() {
                 {hasPendingDates && getPaymentDeadline() && (
                   <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                     <p className="text-xs text-orange-800 leading-relaxed">
-                      <span className="font-semibold">Liste d'attente :</span> Votre demande sera en liste d'attente car il y a une demande de confirmation en cours. Si l'autre demande est annulÃ©e, d'ici vers <span className="font-semibold">{getPaymentDeadline()}</span> nous allons traiter votre demande de confirmation et procÃ©der vers le paiement.
+                      <span className="font-semibold">Liste d'attente :</span> Votre demande sera en liste d'attente car il y a une demande de confirmation en cours. Si l'autre demande est annulée, d'ici vers <span className="font-semibold">{getPaymentDeadline()}</span> nous allons traiter votre demande de confirmation et procéder vers le paiement.
                     </p>
                   </div>
                 )}
