@@ -151,7 +151,6 @@ export default function LocationPublicBienPageView({
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const uiConfig: BienUiConfig = bien.ui_config || {};
   const selectedZone = useMemo(() => zones.find((item) => item.id === bien.zone_id), [zones, bien.zone_id]);
-  const hasMapsLink = String(selectedZone?.google_maps_url || '').trim().length > 0;
 
   useEffect(() => {
     let disposed = false;
@@ -279,15 +278,15 @@ export default function LocationPublicBienPageView({
   useEffect(() => {
     let cancelled = false;
     const loadNearby = async () => {
-      if (!displayLocation) {
+      if (!effectiveMapCenter) {
         setNearbyPlaces([]);
         return;
       }
       const query = `
 [out:json][timeout:12];
 (
-  node["amenity"="cafe"](around:1800,${displayLocation.lat},${displayLocation.lng});
-  node["amenity"="restaurant"](around:1800,${displayLocation.lat},${displayLocation.lng});
+  node["amenity"="cafe"](around:1800,${effectiveMapCenter.lat},${effectiveMapCenter.lng});
+  node["amenity"="restaurant"](around:1800,${effectiveMapCenter.lat},${effectiveMapCenter.lng});
 );
 out body 20;
 `;
@@ -315,7 +314,7 @@ out body 20;
               lng,
               name,
               kind: amenity as 'cafe' | 'restaurant',
-              distanceKm: haversineKm(displayLocation, { lat, lng }),
+              distanceKm: haversineKm(effectiveMapCenter, { lat, lng }),
             } as NearbyPlace;
           })
           .filter(Boolean)
@@ -329,7 +328,7 @@ out body 20;
 
     void loadNearby();
     return () => { cancelled = true; };
-  }, [displayLocation?.lat, displayLocation?.lng]);
+  }, [effectiveMapCenter?.lat, effectiveMapCenter?.lng]);
 
   const fallbackApproxLocation = useMemo<LatLng>(() => {
     const seed = `${selectedZone?.id || ''}-${selectedZone?.nom || ''}-${bien.id || ''}`;
@@ -340,6 +339,7 @@ out body 20;
     const lngJitter = ((((h / 7) | 0) % 240) - 120) / 1000;
     return { lat: baseLat + latJitter, lng: baseLng + lngJitter };
   }, [selectedZone?.id, selectedZone?.nom, bien.id]);
+  const effectiveMapCenter = displayLocation || (selectedZone ? fallbackApproxLocation : null);
 
   const block = (key: string, title: string, content: React.ReactNode, className = '') => {
     const visible = isVisible(key);
@@ -480,11 +480,11 @@ out body 20;
                   <h3 className="text-xl font-bold">Ou se situe le logement</h3>
                   {sectionToggle('show_localisation')}
                 </div>
-                {(displayLocation || hasMapsLink) ? (
+                {effectiveMapCenter ? (
                   <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
                     <div className="h-[320px] relative">
                       <MapContainer
-                        center={[(displayLocation || fallbackApproxLocation).lat, (displayLocation || fallbackApproxLocation).lng]}
+                        center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
                         zoom={13}
                         scrollWheelZoom={false}
                         className="h-full w-full"
@@ -494,12 +494,12 @@ out body 20;
                           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         />
                         <Circle
-                          center={[(displayLocation || fallbackApproxLocation).lat, (displayLocation || fallbackApproxLocation).lng]}
+                          center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
                           radius={700}
                           pathOptions={{ color: '#059669', weight: 1.5, fillColor: '#10b981', fillOpacity: 0.12 }}
                         />
                         <CircleMarker
-                          center={[(displayLocation || fallbackApproxLocation).lat, (displayLocation || fallbackApproxLocation).lng]}
+                          center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
                           radius={9}
                           pathOptions={{ color: '#065f46', weight: 2, fillColor: '#10b981', fillOpacity: 1 }}
                         />
