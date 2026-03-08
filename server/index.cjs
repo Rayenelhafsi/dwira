@@ -37,6 +37,14 @@ const ALLOWED_ORIGINS = [
 app.disable('x-powered-by');
 const AGENCY_TIME_ZONE = 'Africa/Tunis';
 
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED_REJECTION:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT_EXCEPTION:', error);
+});
+
 function isLocalDevOrigin(origin) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || '').trim());
 }
@@ -2825,15 +2833,26 @@ function normalizeReservationDemandStatus(value) {
   return RESERVATION_DEMAND_STATUSES.has(normalized) ? normalized : 'en_attente_reponse_proprietaire';
 }
 
+function normalizePaymentMode(value, fallback = 'avance') {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'totalite' || normalized === 'avance') return normalized;
+  return fallback;
+}
+
 function formatReservationDemandRow(row) {
   if (!row) return null;
   return {
     ...row,
     request_type: row.request_type === 'visite' ? 'visite' : 'reservation',
+    payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
     guests: Number(row.guests || 1),
+    total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
+    amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     owner_notified_at: row.owner_notified_at || null,
     owner_response_at: row.owner_response_at || null,
     client_confirmation_clicked_at: row.client_confirmation_clicked_at || null,
+    identity_first_name: row.identity_first_name || null,
+    identity_last_name: row.identity_last_name || null,
     identity_submitted_at: row.identity_submitted_at || null,
     contract_generated_at: row.contract_generated_at || null,
     finalization_due_at: row.finalization_due_at || null,
@@ -2855,6 +2874,12 @@ function normalizeIdentityNumber(value) {
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');
+}
+
+function normalizePersonName(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function escapeHtml(value) {
@@ -2906,46 +2931,134 @@ function extractIdentityNumberFromText(rawText, documentType) {
   return filtered || passportMatch[0] || '';
 }
 
-async function extractIdentityDataFromImage(imageAbsolutePath, documentType) {
+function extractIdentityNamesFromText(rawText, documentType) {
+  const text = String(rawText || '');
+  if (!text.trim()) {
+    return { firstName: '', lastName: '' };
+  }
+
+  const compact = text.replace(/\r/g, '\n');
+  const clean = compact.replace(/[^\S\n]+/g, ' ');
+
+  const pickByLabel = (patterns) => {
+    for (const pattern of patterns) {
+      const match = clean.match(pattern);
+      if (match && match[1]) {
+        return normalizePersonName(match[1].replace(/[_<>]/g, ' '));
+      }
+    }
+    return '';
+  };
+
+  const lastName = pickByLabel([
+    /(?:\bnom\b|\bsurname\b|\bfamily\s*name\b|\blast\s*name\b)\s*[:\-]?\s*([A-ZÀ-ÿ][A-ZÀ-ÿ' -]{1,80})/i,
+    /(?:\u0627\u0644\u0644\u0642\u0628|لقب)\s*[:\-]?\s*([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})/i,
+  ]);
+  const firstName = pickByLabel([
+    /(?:\bpr[ée]nom(?:s)?\b|\bgiven\s*name(?:s)?\b|\bfirst\s*name\b|\bforename\b)\s*[:\-]?\s*([A-ZÀ-ÿ][A-ZÀ-ÿ' -]{1,80})/i,
+    /(?:\u0627\u0644\u0627\u0633\u0645|اسم)\s*[:\-]?\s*([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})/i,
+  ]);
+
+  if (firstName || lastName) {
+    return { firstName, lastName };
+  }
+
+  const mrz = clean.toUpperCase().match(/P<([A-Z<]{3})([A-Z<]+)<<([A-Z<]+)/);
+  if (mrz) {
+    return {
+      firstName: normalizePersonName((mrz[3] || '').replace(/</g, ' ')),
+      lastName: normalizePersonName((mrz[2] || '').replace(/</g, ' ')),
+    };
+  }
+
+  const lines = clean
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const upperLines = lines
+    .map((line) => line.replace(/[^A-ZÀ-ÿ' -]/g, '').trim())
+    .filter((line) => line.length >= 4 && /\s/.test(line));
+
+  if ((documentType === 'cin_tn' || documentType === 'passport_tn' || documentType === 'passport_foreign') && upperLines.length > 0) {
+    const candidate = upperLines.find((line) => line.split(' ').length >= 2) || '';
+    const parts = candidate.split(' ').filter(Boolean);
+    if (parts.length >= 2) {
+      return {
+        firstName: normalizePersonName(parts.slice(1).join(' ')),
+        lastName: normalizePersonName(parts[0]),
+      };
+    }
+  }
+
+  return { firstName: '', lastName: '' };
+}
+
+async function extractIdentityDataFromImage(imageAbsolutePath, documentType, options = {}) {
+  const { maxSizeBytes = 4 * 1024 * 1024, fileSize = 0 } = options;
+  if (fileSize > maxSizeBytes) {
+    return {
+      ocrText: '',
+      extractedNumber: '',
+      skipped: true,
+      reason: 'file_too_large',
+    };
+  }
   try {
-    const result = await Tesseract.recognize(imageAbsolutePath, 'eng+fra+ara', {});
+    const recognitionPromise = Tesseract.recognize(imageAbsolutePath, 'eng+fra+ara', {});
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('OCR timeout')), 15000);
+    });
+    const result = await Promise.race([recognitionPromise, timeoutPromise]);
     const text = String(result?.data?.text || '');
+    const names = extractIdentityNamesFromText(text, documentType);
     return {
       ocrText: text,
       extractedNumber: extractIdentityNumberFromText(text, documentType),
+      extractedFirstName: names.firstName,
+      extractedLastName: names.lastName,
+      skipped: false,
+      reason: '',
     };
   } catch (error) {
     console.warn('OCR extraction failed for reservation identity:', error?.message || error);
     return {
       ocrText: '',
       extractedNumber: '',
+      extractedFirstName: '',
+      extractedLastName: '',
+      skipped: true,
+      reason: String(error?.message || 'ocr_failed'),
     };
   }
 }
 
-async function generateReservationContractHtml({
+async function generateReservationClientContractHtml({
   demand,
   bien,
-  owner,
   contractId,
   contractCreatedAt,
   totalAmount,
+  amountDueNow,
+  paymentMode,
   identityNumber,
   identityDocumentType,
+  identityFirstName,
+  identityLastName,
 }) {
   const contractsDir = path.join(__dirname, 'contracts');
   if (!fs.existsSync(contractsDir)) {
     fs.mkdirSync(contractsDir, { recursive: true });
   }
-  const fileName = `contract-${contractId}.html`;
+  const fileName = `contract-client-${contractId}.html`;
   const filePath = path.join(contractsDir, fileName);
   const nights = computeNights(demand.start_date, demand.end_date);
-  const paymentAdvance = Number(bien?.avance || 0);
-  const balance = Math.max(0, Number(totalAmount || 0) - paymentAdvance);
+  const amountNow = Number(amountDueNow || 0);
+  const balance = Math.max(0, Number(totalAmount || 0) - amountNow);
   const nowDisplay = new Date(String(contractCreatedAt).replace(' ', 'T')).toLocaleString('fr-FR', { timeZone: AGENCY_TIME_ZONE, hour12: false });
   const docLabel = identityDocumentType === 'cin_tn'
     ? 'CIN tunisienne'
     : (identityDocumentType === 'passport_tn' ? 'Passeport tunisien' : 'Passeport etranger');
+  const paymentModeLabel = paymentMode === 'totalite' ? 'Totalite' : 'Avance';
 
   const html = `<!doctype html>
 <html lang="fr">
@@ -2977,14 +3090,13 @@ async function generateReservationContractHtml({
     <div class="meta">
       <div class="box">
         <h2>Locataire</h2>
-        <p><strong>Nom:</strong> ${escapeHtml(demand.client_name || 'Client')}</p>
+        <p><strong>Nom:</strong> ${escapeHtml(identityLastName || '-')}</p>
+        <p><strong>Prenom:</strong> ${escapeHtml(identityFirstName || '-')}</p>
         <p><strong>Email:</strong> ${escapeHtml(demand.client_email || '-')}</p>
         <p><strong>Identite:</strong> ${escapeHtml(docLabel)} - ${escapeHtml(identityNumber || '-')}</p>
       </div>
       <div class="box">
-        <h2>Proprietaire et agence</h2>
-        <p><strong>Proprietaire:</strong> ${escapeHtml(owner?.nom || 'N/A')}</p>
-        <p><strong>Email proprietaire:</strong> ${escapeHtml(owner?.email || '-')}</p>
+        <h2>Agence</h2>
         <p><strong>Agence:</strong> Dwira Immobilier</p>
       </div>
     </div>
@@ -2994,14 +3106,15 @@ async function generateReservationContractHtml({
       <p><strong>Reference:</strong> ${escapeHtml(bien?.reference || demand.bien_id)}</p>
       <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
       <p><strong>Type:</strong> ${escapeHtml(bien?.type || '-')}</p>
-      <p><strong>Periode:</strong> du ${escapeHtml(formatDateFr(demand.start_date))} au ${escapeHtml(formatDateFr(demand.end_date))} (${escapeHtml(String(nights))} nuit(s))</p>
+      <p><strong>Periode:</strong> ${escapeHtml(formatDateFr(demand.start_date))} au ${escapeHtml(formatDateFr(demand.end_date))} - ${escapeHtml(String(nights))} nuit(s)</p>
       <p><strong>Voyageurs:</strong> ${escapeHtml(String(Number(demand.guests || 1)))}</p>
     </div>
 
-    <h2>Conditions financieres</h2>
+    <h2>Details reservation</h2>
     <div class="grid3">
       <div class="box"><p class="muted">Montant total</p><p><strong>${escapeHtml(formatCurrency(totalAmount))}</strong></p></div>
-      <div class="box"><p class="muted">Avance</p><p><strong>${escapeHtml(formatCurrency(paymentAdvance))}</strong></p></div>
+      <div class="box"><p class="muted">Methode de paiement</p><p><strong>${escapeHtml(paymentModeLabel)}</strong></p></div>
+      <div class="box"><p class="muted">A payer maintenant</p><p><strong>${escapeHtml(formatCurrency(amountNow))}</strong></p></div>
       <div class="box"><p class="muted">Reste a payer</p><p><strong>${escapeHtml(formatCurrency(balance))}</strong></p></div>
     </div>
 
@@ -3014,10 +3127,96 @@ async function generateReservationContractHtml({
       </ul>
     </div>
 
-    <div class="sign">
+    <div class="sign" style="grid-template-columns: repeat(2, minmax(0,1fr));">
       <div class="box"><p><strong>Signature locataire</strong></p><p class="muted">Lu et approuve</p></div>
       <div class="box"><p><strong>Signature agence</strong></p><p class="muted">Cachet et signature</p></div>
+    </div>
+  </main>
+</body>
+</html>`;
+
+  await fs.promises.writeFile(filePath, html, 'utf8');
+  return `/contracts/${fileName}`;
+}
+
+async function generateReservationOwnerContractHtml({
+  demand,
+  bien,
+  owner,
+  contractId,
+  contractCreatedAt,
+  totalAmount,
+  amountDueNow,
+  paymentMode,
+}) {
+  const contractsDir = path.join(__dirname, 'contracts');
+  if (!fs.existsSync(contractsDir)) {
+    fs.mkdirSync(contractsDir, { recursive: true });
+  }
+  const fileName = `contract-owner-${contractId}.html`;
+  const filePath = path.join(contractsDir, fileName);
+  const nights = computeNights(demand.start_date, demand.end_date);
+  const balance = Math.max(0, Number(totalAmount || 0) - Number(amountDueNow || 0));
+  const nowDisplay = new Date(String(contractCreatedAt).replace(' ', 'T')).toLocaleString('fr-FR', { timeZone: AGENCY_TIME_ZONE, hour12: false });
+  const paymentModeLabel = paymentMode === 'totalite' ? 'Totalite' : 'Avance';
+
+  const html = `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Contrat proprietaire ${escapeHtml(contractId)}</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; background: #f4f6f8; color: #0f172a; }
+    .page { max-width: 980px; margin: 28px auto; background: #fff; border: 1px solid #d7dee5; border-radius: 14px; padding: 24px; }
+    h1 { margin: 0; font-size: 28px; }
+    h2 { margin: 20px 0 8px; font-size: 17px; color: #0b4f39; }
+    .muted { color: #64748b; font-size: 13px; }
+    .meta { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 14px; }
+    .box { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+    p { margin: 4px 0; line-height: 1.5; }
+    ul { margin: 6px 0 0 20px; }
+    .sign { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 20px; }
+    .sign .box { min-height: 110px; }
+    @media print { body { background: #fff; } .page { margin: 0; border: 0; border-radius: 0; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>Contrat agence - proprietaire</h1>
+    <p class="muted">Genere automatiquement le ${escapeHtml(nowDisplay)} - Ref contrat: ${escapeHtml(contractId)}</p>
+
+    <div class="meta">
+      <div class="box">
+        <h2>Proprietaire</h2>
+        <p><strong>Nom:</strong> ${escapeHtml(owner?.nom || '-')}</p>
+        <p><strong>Email:</strong> ${escapeHtml(owner?.email || '-')}</p>
+      </div>
+      <div class="box">
+        <h2>Agence</h2>
+        <p><strong>Agence:</strong> Dwira Immobilier</p>
+      </div>
+    </div>
+
+    <h2>Reservation associee</h2>
+    <div class="box">
+      <p><strong>Reference:</strong> ${escapeHtml(bien?.reference || demand.bien_id)}</p>
+      <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
+      <p><strong>Periode:</strong> ${escapeHtml(formatDateFr(demand.start_date))} au ${escapeHtml(formatDateFr(demand.end_date))} - ${escapeHtml(String(nights))} nuit(s)</p>
+      <p><strong>Voyageurs:</strong> ${escapeHtml(String(Number(demand.guests || 1)))}</p>
+    </div>
+
+    <h2>Conditions financieres</h2>
+    <div class="grid3">
+      <div class="box"><p class="muted">Montant total reservation</p><p><strong>${escapeHtml(formatCurrency(totalAmount))}</strong></p></div>
+      <div class="box"><p class="muted">Methode de paiement client</p><p><strong>${escapeHtml(paymentModeLabel)}</strong></p></div>
+      <div class="box"><p class="muted">Reste client</p><p><strong>${escapeHtml(formatCurrency(balance))}</strong></p></div>
+    </div>
+
+    <div class="sign">
       <div class="box"><p><strong>Signature proprietaire</strong></p><p class="muted">Lu et approuve</p></div>
+      <div class="box"><p><strong>Signature agence</strong></p><p class="muted">Cachet et signature</p></div>
     </div>
   </main>
 </body>
@@ -3333,6 +3532,7 @@ pool.getConnection()
   .then(() => ensureMaintenanceWorkflowSchema())
   .then(() => ensureClientelesTasksSchema())
   .then(() => ensureReservationDemandSchema())
+  .then(() => ensureContractsSchema())
   .then(() => ensureZonesSchema())
   .then(() => ensureMessengerSchema())
   .then(() => ensureBiensWorkflowSchema())
@@ -4268,7 +4468,7 @@ app.get('/api/contrats/:id', async (req, res) => {
 
 app.post('/api/contrats', async (req, res) => {
   try {
-    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut } = req.body;
+    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut } = req.body;
     const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
     if (locataireProfile && (locataireProfile.globalStatus === 'blackliste' || locataireProfile.locataireStatus === 'blackliste')) {
       return res.status(400).json({ error: 'Creation impossible: ce locataire est blackliste' });
@@ -4276,8 +4476,8 @@ app.post('/api/contrats', async (req, res) => {
     const id = 'c' + Date.now();
     const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
     await pool.query(
-      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, url_pdf || null, statut || 'actif', created_at]
+      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, url_pdf || null, owner_url_pdf || null, statut || 'actif', created_at]
     );
     const [matchingDemandRows] = await pool.query(
       `SELECT d.id
@@ -4600,7 +4800,7 @@ app.delete('/api/contrats/:id', async (req, res) => {
 
 app.put('/api/contrats/:id', async (req, res) => {
   try {
-    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut } = req.body;
+    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut } = req.body;
     if (locataire_id) {
       const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
       if (locataireProfile && (locataireProfile.globalStatus === 'blackliste' || locataireProfile.locataireStatus === 'blackliste')) {
@@ -4627,6 +4827,7 @@ app.put('/api/contrats/:id', async (req, res) => {
     if (date_fin !== undefined) { fields.push('date_fin = ?'); values.push(date_fin); }
     if (montant_recu !== undefined) { fields.push('montant_recu = ?'); values.push(montant_recu); }
     if (url_pdf !== undefined) { fields.push('url_pdf = ?'); values.push(url_pdf); }
+    if (owner_url_pdf !== undefined) { fields.push('owner_url_pdf = ?'); values.push(owner_url_pdf); }
     if (statut !== undefined) { fields.push('statut = ?'); values.push(statut); }
 
     if (fields.length === 0) {
@@ -4667,6 +4868,33 @@ const contractUpload = multer({
     if (isPdfMime || isPdfExt) return cb(null, true);
     cb(new Error('Only PDF files are allowed'));
   }
+});
+
+const reservationIdentityStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const identityDir = path.join(__dirname, 'uploads', 'reservation-identities');
+    if (!fs.existsSync(identityDir)) {
+      fs.mkdirSync(identityDir, { recursive: true });
+    }
+    cb(null, identityDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `identity-${uniqueSuffix}${ext}`);
+  },
+});
+
+const reservationIdentityUpload = multer({
+  storage: reservationIdentityStorage,
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.(jpg|jpeg|png|webp)$/i.test(path.extname(file.originalname || '').toLowerCase());
+    const mime = String(file.mimetype || '').toLowerCase();
+    const allowedMime = mime.startsWith('image/');
+    if (allowedExt && allowedMime) return cb(null, true);
+    cb(new Error('Only image files (jpg, jpeg, png, webp) are allowed'));
+  },
 });
 
 // ============================================
@@ -4805,6 +5033,9 @@ app.post('/api/reservation-demands', async (req, res) => {
       start_date,
       end_date,
       guests,
+      payment_mode,
+      total_amount,
+      amount_due_now,
       client_note,
       request_type,
     } = req.body || {};
@@ -4820,6 +5051,9 @@ app.post('/api/reservation-demands', async (req, res) => {
     const bien = bienRows[0];
     if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
     const requestType = bien.mode === 'vente' ? 'visite' : (request_type === 'visite' ? 'visite' : 'reservation');
+    const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
+    const normalizedTotalAmount = Number.isFinite(Number(total_amount)) ? Number(total_amount) : null;
+    const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) ? Number(amount_due_now) : null;
 
     const [overlapRows] = await pool.query(
       `SELECT id, status
@@ -4846,9 +5080,9 @@ app.post('/api/reservation-demands', async (req, res) => {
     await pool.query(
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, status, owner_notified_at, owner_response_at, admin_note, client_note,
+        start_date, end_date, guests, payment_mode, total_amount, amount_due_now, status, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         demandId,
         bien_id,
@@ -4862,6 +5096,9 @@ app.post('/api/reservation-demands', async (req, res) => {
         start_date,
         end_date,
         Number(guests || 1),
+        normalizedPaymentMode,
+        normalizedTotalAmount,
+        normalizedAmountDueNow,
         'en_attente_reponse_proprietaire',
         null,
         null,
@@ -4955,12 +5192,23 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
         );
     const adminNote = body.admin_note !== undefined ? body.admin_note : current.admin_note;
     const clientNote = body.client_note !== undefined ? body.client_note : current.client_note;
+    const paymentMode = body.payment_mode !== undefined
+      ? normalizePaymentMode(body.payment_mode, current.payment_mode || 'avance')
+      : normalizePaymentMode(current.payment_mode, 'avance');
+    const totalAmount = body.total_amount !== undefined
+      ? (Number.isFinite(Number(body.total_amount)) ? Number(body.total_amount) : null)
+      : (current.total_amount === null || current.total_amount === undefined ? null : Number(current.total_amount));
+    const amountDueNow = body.amount_due_now !== undefined
+      ? (Number.isFinite(Number(body.amount_due_now)) ? Number(body.amount_due_now) : null)
+      : (current.amount_due_now === null || current.amount_due_now === undefined ? null : Number(current.amount_due_now));
     const identityDocumentType = body.identity_document_type !== undefined
       ? normalizeIdentityDocumentType(body.identity_document_type, current.identity_document_type || 'cin_tn')
       : current.identity_document_type;
     const identityDocumentNumber = body.identity_document_number !== undefined
       ? normalizeIdentityNumber(body.identity_document_number)
       : current.identity_document_number;
+    const identityFirstName = body.identity_first_name !== undefined ? normalizePersonName(body.identity_first_name) || null : current.identity_first_name;
+    const identityLastName = body.identity_last_name !== undefined ? normalizePersonName(body.identity_last_name) || null : current.identity_last_name;
     const identityDocumentCountry = body.identity_document_country !== undefined ? String(body.identity_document_country || '').trim() || null : current.identity_document_country;
     const identityDocumentImageUrl = body.identity_document_image_url !== undefined ? String(body.identity_document_image_url || '').trim() || null : current.identity_document_image_url;
     const identityOcrText = body.identity_ocr_text !== undefined ? String(body.identity_ocr_text || '').trim() || null : current.identity_ocr_text;
@@ -4973,7 +5221,9 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
     await pool.query(
       `UPDATE reservation_demands
        SET status = ?, owner_notified_at = ?, owner_response_at = ?, client_confirmation_clicked_at = ?,
+           payment_mode = ?, total_amount = ?, amount_due_now = ?,
            identity_document_type = ?, identity_document_number = ?, identity_document_country = ?,
+           identity_first_name = ?, identity_last_name = ?,
            identity_document_image_url = ?, identity_ocr_text = ?, identity_submitted_at = ?, contract_generated_at = ?,
            admin_note = ?, client_note = ?, finalization_due_at = ?, contract_id = ?, payment_id = ?, updated_at = ?
        WHERE id = ?`,
@@ -4982,9 +5232,14 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
         ownerNotifiedAt || null,
         ownerResponseAt || null,
         clientConfirmationClickedAt || null,
+        paymentMode,
+        totalAmount,
+        amountDueNow,
         identityDocumentType || null,
         identityDocumentNumber || null,
         identityDocumentCountry || null,
+        identityFirstName,
+        identityLastName,
         identityDocumentImageUrl || null,
         identityOcrText || null,
         identitySubmittedAt || null,
@@ -5049,6 +5304,56 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
   }
 });
 
+app.post('/api/reservation-demands/:id/extract-identity', reservationIdentityUpload.single('document'), async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    if (!demandId) {
+      return res.status(400).json({ error: 'Demande introuvable' });
+    }
+    const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = demandRows[0];
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!['attente_envoi_coordonnees_contrat', 'reponse_positive_attente_confirmation_client'].includes(String(current.status || ''))) {
+      return res.status(400).json({ error: 'Cette demande n est pas dans une etape de collecte des coordonnees' });
+    }
+
+    const documentType = normalizeIdentityDocumentType(req.body?.document_type || req.body?.identity_document_type, 'cin_tn');
+    const manualDocumentNumber = normalizeIdentityNumber(req.body?.manual_document_number || req.body?.identity_document_number);
+    const imageUrl = req.file ? `/uploads/reservation-identities/${req.file.filename}` : String(req.body?.identity_document_image_url || '').trim();
+    if (!imageUrl && !manualDocumentNumber) {
+      return res.status(400).json({ error: 'Une image du document ou un numero manuel est requis' });
+    }
+
+    const ocrPayload = req.file
+      ? await extractIdentityDataFromImage(req.file.path, documentType, { fileSize: Number(req.file.size || 0) })
+      : { ocrText: '', extractedNumber: '', extractedFirstName: '', extractedLastName: '', skipped: true, reason: 'no_file' };
+    const identityDocumentNumber = manualDocumentNumber || normalizeIdentityNumber(ocrPayload.extractedNumber);
+    const identityFirstName = normalizePersonName(req.body?.manual_first_name || req.body?.identity_first_name || ocrPayload.extractedFirstName);
+    const identityLastName = normalizePersonName(req.body?.manual_last_name || req.body?.identity_last_name || ocrPayload.extractedLastName);
+
+    if (!identityDocumentNumber) {
+      const ocrReason = ocrPayload?.reason ? ` (${ocrPayload.reason})` : '';
+      return res.status(400).json({ error: `Numero de document non detecte${ocrReason}. Veuillez le saisir manuellement.` });
+    }
+
+    res.json({
+      demand_id: demandId,
+      document_type: documentType,
+      identity_document_number: identityDocumentNumber,
+      identity_first_name: identityFirstName || '',
+      identity_last_name: identityLastName || '',
+      identity_document_image_url: imageUrl || null,
+      ocr_skipped: !!ocrPayload.skipped,
+      ocr_reason: ocrPayload.reason || '',
+      ocr_text_preview: String(ocrPayload.ocrText || '').slice(0, 600),
+    });
+  } catch (error) {
+    console.error('Error extracting reservation identity data:', error);
+    res.status(500).json({ error: 'Extraction OCR impossible' });
+  }
+});
+
 app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUpload.single('document'), async (req, res) => {
   try {
     await ensureReservationDemandSchema();
@@ -5069,6 +5374,8 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
     const documentCountry = String(req.body?.document_country || '').trim() || (documentType === 'passport_foreign' ? 'etranger' : 'tunisie');
     const actorId = String(req.body?.actor_id || current.client_user_id || current.client_email || 'client').trim();
     const manualDocumentNumber = normalizeIdentityNumber(req.body?.manual_document_number || req.body?.identity_document_number);
+    const manualFirstName = normalizePersonName(req.body?.manual_first_name || req.body?.identity_first_name || req.body?.confirmed_first_name);
+    const manualLastName = normalizePersonName(req.body?.manual_last_name || req.body?.identity_last_name || req.body?.confirmed_last_name);
     const imageUrl = req.file ? `/uploads/reservation-identities/${req.file.filename}` : String(req.body?.identity_document_image_url || '').trim();
 
     if (!imageUrl && !manualDocumentNumber) {
@@ -5076,11 +5383,22 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
     }
 
     const ocrPayload = req.file
-      ? await extractIdentityDataFromImage(req.file.path, documentType)
-      : { ocrText: '', extractedNumber: '' };
+      ? await extractIdentityDataFromImage(req.file.path, documentType, { fileSize: Number(req.file.size || 0) })
+      : { ocrText: '', extractedNumber: '', extractedFirstName: '', extractedLastName: '', skipped: true, reason: 'no_file' };
     const identityDocumentNumber = manualDocumentNumber || normalizeIdentityNumber(ocrPayload.extractedNumber);
     if (!identityDocumentNumber) {
-      return res.status(400).json({ error: 'Numero de document non detecte. Veuillez le saisir manuellement.' });
+      const ocrReason = ocrPayload?.reason ? ` (${ocrPayload.reason})` : '';
+      return res.status(400).json({ error: `Numero de document non detecte${ocrReason}. Veuillez le saisir manuellement.` });
+    }
+    let identityFirstName = manualFirstName || normalizePersonName(ocrPayload.extractedFirstName);
+    let identityLastName = manualLastName || normalizePersonName(ocrPayload.extractedLastName);
+    if (!identityFirstName || !identityLastName) {
+      const nameParts = String(current.client_name || '').trim().split(/\s+/).filter(Boolean);
+      if (!identityLastName && nameParts.length > 0) identityLastName = nameParts[0];
+      if (!identityFirstName && nameParts.length > 1) identityFirstName = nameParts.slice(1).join(' ');
+    }
+    if (!identityFirstName || !identityLastName) {
+      return res.status(400).json({ error: 'Nom et prenom obligatoires. Verifiez puis confirmez les donnees OCR.' });
     }
 
     const [bienRows] = await pool.query(
@@ -5095,33 +5413,96 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
     if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
 
     const now = getAgencySqlDateTime();
-    const locataireId = String(current.client_user_id || current.client_email || `loc_${Date.now()}`).slice(0, 100);
+    let locataireId = '';
+    const clientUserId = String(current.client_user_id || '').trim();
+    const clientEmail = String(current.client_email || '').trim().toLowerCase();
+    if (clientUserId) {
+      const [locByIdRows] = await pool.query('SELECT id FROM locataires WHERE id = ? LIMIT 1', [clientUserId]);
+      if (locByIdRows[0]?.id) {
+        locataireId = String(locByIdRows[0].id);
+      }
+    }
+    if (!locataireId && clientEmail) {
+      const [locByEmailRows] = await pool.query(
+        'SELECT id FROM locataires WHERE LOWER(TRIM(email)) = ? ORDER BY created_at DESC LIMIT 1',
+        [clientEmail]
+      );
+      if (locByEmailRows[0]?.id) {
+        locataireId = String(locByEmailRows[0].id);
+      }
+    }
+    if (!locataireId) {
+      locataireId = `l${Date.now()}`;
+      const locataireCreatedAt = new Date().toISOString().split('T')[0];
+      await pool.query(
+        `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          locataireId,
+          `${identityLastName} ${identityFirstName}`.trim() || String(current.client_name || 'Client').trim() || 'Client',
+          '',
+          clientEmail || `${locataireId}@dwira.local`,
+          documentType === 'cin_tn' ? identityDocumentNumber : '',
+          5,
+          locataireCreatedAt,
+        ]
+      );
+    } else {
+      await pool.query(
+        `UPDATE locataires
+         SET nom = COALESCE(NULLIF(?, ''), nom),
+             cin = CASE WHEN ? = 'cin_tn' THEN ? ELSE cin END
+         WHERE id = ?`,
+        [`${identityLastName} ${identityFirstName}`.trim(), documentType, identityDocumentNumber, locataireId]
+      );
+    }
     const contractId = String(current.contract_id || `c${Date.now()}`);
     const nights = computeNights(current.start_date, current.end_date);
-    const totalAmount = Number(bien.prix_nuitee || 0) * nights;
-    const contractUrl = await generateReservationContractHtml({
-      demand: current,
-      bien,
-      owner: { nom: bien.proprietaire_nom, email: bien.proprietaire_email },
-      contractId,
-      contractCreatedAt: now,
-      totalAmount,
-      identityNumber: identityDocumentNumber,
-      identityDocumentType: documentType,
-    });
+    const totalAmount = Number.isFinite(Number(current.total_amount)) && Number(current.total_amount) > 0
+      ? Number(current.total_amount)
+      : (Number(bien.prix_nuitee || 0) * nights);
+    const paymentMode = normalizePaymentMode(current.payment_mode || req.body?.payment_mode, 'avance');
+    const amountDueNow = Number.isFinite(Number(current.amount_due_now)) && Number(current.amount_due_now) >= 0
+      ? Number(current.amount_due_now)
+      : (paymentMode === 'totalite' ? totalAmount : Math.min(totalAmount, Number(bien.avance || 0)));
+    const [contractUrl, ownerContractUrl] = await Promise.all([
+      generateReservationClientContractHtml({
+        demand: current,
+        bien,
+        contractId,
+        contractCreatedAt: now,
+        totalAmount,
+        amountDueNow,
+        paymentMode,
+        identityNumber: identityDocumentNumber,
+        identityDocumentType: documentType,
+        identityFirstName,
+        identityLastName,
+      }),
+      generateReservationOwnerContractHtml({
+        demand: current,
+        bien,
+        owner: { nom: bien.proprietaire_nom, email: bien.proprietaire_email },
+        contractId,
+        contractCreatedAt: now,
+        totalAmount,
+        amountDueNow,
+        paymentMode,
+      }),
+    ]);
 
     if (current.contract_id) {
       await pool.query(
         `UPDATE contrats
-         SET bien_id = ?, locataire_id = ?, date_debut = ?, date_fin = ?, montant_recu = ?, url_pdf = ?, statut = ?
+         SET bien_id = ?, locataire_id = ?, date_debut = ?, date_fin = ?, montant_recu = ?, url_pdf = ?, owner_url_pdf = ?, statut = ?
          WHERE id = ?`,
-        [current.bien_id, locataireId, current.start_date, current.end_date, Number(bien.avance || 0), contractUrl, 'actif', contractId]
+        [current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'actif', contractId]
       );
     } else {
       await pool.query(
-        `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, statut, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [contractId, current.bien_id, locataireId, current.start_date, current.end_date, Number(bien.avance || 0), contractUrl, 'actif', now]
+        `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [contractId, current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'actif', now]
       );
     }
 
@@ -5130,8 +5511,13 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
        SET status = 'contrat_realise',
            contract_id = ?,
            client_confirmation_clicked_at = COALESCE(client_confirmation_clicked_at, ?),
+           payment_mode = ?,
+           total_amount = ?,
+           amount_due_now = ?,
            identity_document_type = ?,
            identity_document_number = ?,
+           identity_first_name = ?,
+           identity_last_name = ?,
            identity_document_country = ?,
            identity_document_image_url = ?,
            identity_ocr_text = ?,
@@ -5142,8 +5528,13 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
       [
         contractId,
         now,
+        paymentMode,
+        totalAmount,
+        amountDueNow,
         documentType,
         identityDocumentNumber,
+        identityFirstName,
+        identityLastName,
         documentCountry,
         imageUrl || null,
         (ocrPayload.ocrText || '').slice(0, 10000) || null,
@@ -5162,10 +5553,14 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
     }
 
     if (current.client_user_id && documentType === 'cin_tn') {
-      await pool.query(
-        'UPDATE utilisateurs SET cin = ?, cin_image_url = COALESCE(?, cin_image_url), updated_at = ? WHERE id = ?',
-        [identityDocumentNumber, imageUrl || null, now, current.client_user_id]
-      );
+      try {
+        await pool.query(
+          'UPDATE utilisateurs SET cin = ?, cin_image_url = COALESCE(?, cin_image_url) WHERE id = ?',
+          [identityDocumentNumber, imageUrl || null, current.client_user_id]
+        );
+      } catch (userUpdateError) {
+        console.warn('Non blocking user identity sync error:', userUpdateError?.message || userUpdateError);
+      }
     }
 
     await appendReservationDemandHistory(
@@ -5206,7 +5601,11 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
     res.json(formatReservationDemandRow(updatedRows[0]));
   } catch (error) {
     console.error('Error submitting reservation demand identity:', error);
-    res.status(500).json({ error: 'Impossible de soumettre les coordonnees du client' });
+    const detail = String(error?.message || '').trim();
+    res.status(500).json({
+      error: detail ? `Impossible de soumettre les coordonnees du client (${detail})` : 'Impossible de soumettre les coordonnees du client',
+      detail,
+    });
   }
 });
 
@@ -5534,12 +5933,17 @@ async function ensureReservationDemandSchema() {
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
       guests INT NOT NULL DEFAULT 1,
+      payment_mode VARCHAR(20) NULL,
+      total_amount DECIMAL(12,2) NULL,
+      amount_due_now DECIMAL(12,2) NULL,
       status VARCHAR(80) NOT NULL,
       owner_notified_at DATETIME NULL,
       owner_response_at DATETIME NULL,
       client_confirmation_clicked_at DATETIME NULL,
       identity_document_type VARCHAR(30) NULL,
       identity_document_number VARCHAR(80) NULL,
+      identity_first_name VARCHAR(120) NULL,
+      identity_last_name VARCHAR(120) NULL,
       identity_document_country VARCHAR(80) NULL,
       identity_document_image_url VARCHAR(500) NULL,
       identity_ocr_text LONGTEXT NULL,
@@ -5584,14 +5988,29 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'client_confirmation_clicked_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_confirmation_clicked_at DATETIME NULL AFTER owner_response_at');
   }
+  if (!(await columnExists('reservation_demands', 'payment_mode'))) {
+    await pool.query("ALTER TABLE reservation_demands ADD COLUMN payment_mode VARCHAR(20) NULL AFTER guests");
+  }
+  if (!(await columnExists('reservation_demands', 'total_amount'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN total_amount DECIMAL(12,2) NULL AFTER payment_mode');
+  }
+  if (!(await columnExists('reservation_demands', 'amount_due_now'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN amount_due_now DECIMAL(12,2) NULL AFTER total_amount');
+  }
   if (!(await columnExists('reservation_demands', 'identity_document_type'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_type VARCHAR(30) NULL AFTER client_confirmation_clicked_at');
   }
   if (!(await columnExists('reservation_demands', 'identity_document_number'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_number VARCHAR(80) NULL AFTER identity_document_type');
   }
+  if (!(await columnExists('reservation_demands', 'identity_first_name'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_first_name VARCHAR(120) NULL AFTER identity_document_number');
+  }
+  if (!(await columnExists('reservation_demands', 'identity_last_name'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_last_name VARCHAR(120) NULL AFTER identity_first_name');
+  }
   if (!(await columnExists('reservation_demands', 'identity_document_country'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_country VARCHAR(80) NULL AFTER identity_document_number');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_country VARCHAR(80) NULL AFTER identity_last_name');
   }
   if (!(await columnExists('reservation_demands', 'identity_document_image_url'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_image_url VARCHAR(500) NULL AFTER identity_document_country');
@@ -5604,6 +6023,22 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'contract_generated_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN contract_generated_at DATETIME NULL AFTER identity_submitted_at');
+  }
+}
+
+async function ensureContractsSchema() {
+  const [rows] = await pool.query(
+    `
+    SELECT 1
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'contrats'
+      AND COLUMN_NAME = 'owner_url_pdf'
+    LIMIT 1
+    `
+  );
+  if (!rows[0]) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN owner_url_pdf VARCHAR(500) NULL AFTER url_pdf');
   }
 }
 
@@ -6413,33 +6848,6 @@ app.get('/api/auth/google/callback', async (req, res) => {
     console.error('Google callback error:', error);
     res.redirect(buildFrontendLoginUrl({ oauthError: 'google_callback_failed', returnTo }));
   }
-});
-
-const reservationIdentityStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const identityDir = path.join(__dirname, 'uploads', 'reservation-identities');
-    if (!fs.existsSync(identityDir)) {
-      fs.mkdirSync(identityDir, { recursive: true });
-    }
-    cb(null, identityDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `identity-${uniqueSuffix}${ext}`);
-  },
-});
-
-const reservationIdentityUpload = multer({
-  storage: reservationIdentityStorage,
-  limits: { fileSize: 12 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowedExt = /\.(jpg|jpeg|png|webp)$/i.test(path.extname(file.originalname || '').toLowerCase());
-    const mime = String(file.mimetype || '').toLowerCase();
-    const allowedMime = mime.startsWith('image/');
-    if (allowedExt && allowedMime) return cb(null, true);
-    cb(new Error('Only image files (jpg, jpeg, png, webp) are allowed'));
-  },
 });
 
 app.get('/api/auth/facebook/start', async (req, res) => {

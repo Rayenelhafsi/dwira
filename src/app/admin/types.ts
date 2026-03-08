@@ -426,6 +426,7 @@ export interface Contrat {
   date_fin: string;
   montant_recu: number;
   url_pdf?: string;
+  owner_url_pdf?: string;
   statut: ContratStatut;
   created_at: string;
 }
@@ -512,6 +513,9 @@ export interface ReservationDemand {
   start_date: string;
   end_date: string;
   guests: number;
+  payment_mode?: 'avance' | 'totalite' | null;
+  total_amount?: number | null;
+  amount_due_now?: number | null;
   status: ReservationDemandStatus;
   owner_notified_at?: string | null;
   owner_response_at?: string | null;
@@ -520,6 +524,8 @@ export interface ReservationDemand {
   client_note?: string | null;
   identity_document_type?: 'cin_tn' | 'passport_tn' | 'passport_foreign' | null;
   identity_document_number?: string | null;
+  identity_first_name?: string | null;
+  identity_last_name?: string | null;
   identity_document_country?: string | null;
   identity_document_image_url?: string | null;
   identity_ocr_text?: string | null;

@@ -25,6 +25,7 @@ type ContratApi = {
   date_fin: string;
   montant_recu: number;
   url_pdf?: string;
+  owner_url_pdf?: string;
   statut: 'actif' | 'termine' | 'resilie';
   created_at: string;
   bien_titre?: string;
@@ -395,6 +396,22 @@ export default function ContratsPage() {
                   className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50"
                 >
                   <Download size={16} /> Telecharger
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePreviewPdf(contrat.owner_url_pdf)}
+                  disabled={!contrat.owner_url_pdf}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
+                >
+                  <Eye size={16} /> Visualiser proprietaire
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadPdf(`${contrat.id}-owner`, contrat.owner_url_pdf)}
+                  disabled={!contrat.owner_url_pdf}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-200 text-amber-700 text-sm font-medium hover:bg-amber-50 disabled:opacity-50"
+                >
+                  <Download size={16} /> Telecharger proprietaire
                 </button>
                 <label className="col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 cursor-pointer">
                   <Upload size={16} />

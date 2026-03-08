@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, Navigate } from "react-router";
-import { CalendarClock, ShoppingBag, TimerReset } from "lucide-react";
+import { Link, Navigate, useNavigate } from "react-router";
+import { CalendarClock, Printer, ShoppingBag, TimerReset } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { useProperties } from "../context/PropertiesContext";
@@ -14,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -34,6 +33,8 @@ async function getApiErrorMessage(response: Response, fallback: string) {
   if (contentType.includes("application/json")) {
     const data = await response.json().catch(() => null);
     const message = String(data?.error || data?.message || "").trim();
+    const detail = String(data?.detail || "").trim();
+    if (message && detail && !message.includes(detail)) return `${message} - ${detail}`;
     if (message) return message;
   } else {
     const text = await response.text().catch(() => "");
@@ -49,6 +50,34 @@ function formatDateTime(value?: string | null) {
   return parsed.toLocaleString("fr-FR", { timeZone: "Africa/Tunis", hour12: false });
 }
 
+function parseDateOnly(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateOnly(value?: string | null) {
+  const parsed = parseDateOnly(value);
+  if (!parsed) return value || "-";
+  return parsed.toLocaleDateString("fr-FR", { timeZone: "Africa/Tunis" });
+}
+
+function computeNights(startDate?: string | null, endDate?: string | null) {
+  const start = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate);
+  if (!start || !end) return 1;
+  const diff = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  return Math.max(1, diff);
+}
+
+function formatReservationPeriod(reservation: ReservationDemand) {
+  if (reservation.request_type === "visite") {
+    return `${formatDateOnly(reservation.start_date)} au ${formatDateOnly(reservation.end_date)}`;
+  }
+  const nights = computeNights(reservation.start_date, reservation.end_date);
+  return `${formatDateOnly(reservation.start_date)} au ${formatDateOnly(reservation.end_date)} (${nights} nuit(s))`;
+}
+
 function resolveAssetUrl(url?: string) {
   if (!url) return "";
   if (/^https?:\/\//i.test(url)) return url;
@@ -61,18 +90,13 @@ type ContractApi = {
 };
 
 export default function MyReservationsPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { properties } = useProperties();
   const [reservations, setReservations] = useState<ReservationDemand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activePositiveDemandId, setActivePositiveDemandId] = useState<string | null>(null);
-  const [activeIdentityDemandId, setActiveIdentityDemandId] = useState<string | null>(null);
   const [activeContractDemandId, setActiveContractDemandId] = useState<string | null>(null);
-  const [clientTypeTab, setClientTypeTab] = useState<"tunisie" | "etranger">("tunisie");
-  const [tunisiaDocumentType, setTunisiaDocumentType] = useState<"cin_tn" | "passport_tn">("cin_tn");
-  const [manualDocumentNumber, setManualDocumentNumber] = useState("");
-  const [identityFile, setIdentityFile] = useState<File | null>(null);
-  const [submittingIdentity, setSubmittingIdentity] = useState(false);
   const [loadingContractId, setLoadingContractId] = useState<string | null>(null);
 
   const fetchReservations = useCallback(async () => {
@@ -157,47 +181,10 @@ export default function MyReservationsPage() {
       const updated = await response.json();
       updateReservationInState(updated);
       setActivePositiveDemandId(null);
-      setActiveIdentityDemandId(updated.id);
-      toast.success("Merci. Veuillez maintenant envoyer votre piece d'identite.");
+      navigate(`/mes-reservations/${encodeURIComponent(updated.id)}/coordonnees`);
+      toast.success("Merci. Veuillez maintenant valider vos coordonnees.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Mise a jour de la demande impossible");
-    }
-  };
-
-  const submitIdentity = async () => {
-    const demand = reservations.find((item) => item.id === activeIdentityDemandId);
-    if (!demand) return;
-    if (!identityFile && !manualDocumentNumber.trim()) {
-      toast.error("Ajoutez une image du document ou renseignez le numero manuellement.");
-      return;
-    }
-
-    setSubmittingIdentity(true);
-    try {
-      const formData = new FormData();
-      const documentType = clientTypeTab === "etranger" ? "passport_foreign" : tunisiaDocumentType;
-      formData.append("document_type", documentType);
-      formData.append("document_country", clientTypeTab === "etranger" ? "etranger" : "tunisie");
-      formData.append("manual_document_number", manualDocumentNumber.trim());
-      formData.append("actor_id", user?.id || user?.email || "client");
-      if (identityFile) formData.append("document", identityFile);
-
-      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/submit-identity`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Soumission des coordonnees impossible"));
-      const updated = await response.json();
-      updateReservationInState(updated);
-      setIdentityFile(null);
-      setManualDocumentNumber("");
-      setActiveIdentityDemandId(null);
-      setActiveContractDemandId(updated.id);
-      toast.success("Coordonnees confirmees. Le contrat a ete genere.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Soumission des coordonnees impossible");
-    } finally {
-      setSubmittingIdentity(false);
     }
   };
 
@@ -220,12 +207,32 @@ export default function MyReservationsPage() {
     }
   };
 
+  const printContract = async (demand: ReservationDemand) => {
+    if (!demand.contract_id) {
+      toast.error("Contrat indisponible.");
+      return;
+    }
+    setLoadingContractId(demand.contract_id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`);
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Impossible de charger le contrat"));
+      const contract = await response.json() as ContractApi;
+      if (!contract?.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");
+      const popup = window.open(resolveAssetUrl(contract.url_pdf), "_blank", "noopener,noreferrer");
+      if (!popup) throw new Error("Autorisez les popups pour imprimer le contrat");
+      popup.addEventListener("load", () => popup.print(), { once: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible d'imprimer le contrat");
+    } finally {
+      setLoadingContractId(null);
+    }
+  };
+
   if (!user || user.role !== "user") {
     return <Navigate to="/login" replace />;
   }
 
   const activePositiveDemand = reservations.find((item) => item.id === activePositiveDemandId) || null;
-  const activeIdentityDemand = reservations.find((item) => item.id === activeIdentityDemandId) || null;
   const activeContractDemand = reservations.find((item) => item.id === activeContractDemandId) || null;
 
   return (
@@ -282,8 +289,14 @@ export default function MyReservationsPage() {
                       </div>
                       <h2 className="mt-3 text-2xl font-bold text-gray-900">{reservation.bien_titre || "Bien"}</h2>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <Info label={reservation.request_type === "visite" ? "Creneau" : "Periode"} value={`${reservation.start_date} au ${reservation.end_date}`} />
+                        <Info label={reservation.request_type === "visite" ? "Creneau" : "Periode"} value={formatReservationPeriod(reservation)} />
                         <Info label={reservation.request_type === "visite" ? "Visiteurs" : "Voyageurs"} value={`${reservation.guests}`} />
+                        {reservation.request_type !== "visite" && (
+                          <Info label="Montant total" value={`${Number(reservation.total_amount || 0).toLocaleString("fr-FR")} TND`} />
+                        )}
+                        {reservation.request_type !== "visite" && (
+                          <Info label="Paiement choisi" value={reservation.payment_mode === "totalite" ? "Totalite" : "Avance"} />
+                        )}
                         <Info label="Cree le" value={formatDateTime(reservation.created_at)} icon={<CalendarClock className="h-4 w-4" />} />
                         <Info label="Derniere mise a jour" value={formatDateTime(reservation.updated_at)} />
                       </div>
@@ -303,23 +316,33 @@ export default function MyReservationsPage() {
                         </button>
                       )}
                       {reservation.status === "attente_envoi_coordonnees_contrat" && (
-                        <button
-                          type="button"
-                          onClick={() => setActiveIdentityDemandId(reservation.id)}
+                        <Link
+                          to={`/mes-reservations/${encodeURIComponent(reservation.id)}/coordonnees`}
                           className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
                         >
                           Fournir mes coordonnees
-                        </button>
+                        </Link>
                       )}
                       {(reservation.status === "contrat_realise" || reservation.status === "succes_paiement") && reservation.contract_id && (
-                        <button
-                          type="button"
-                          onClick={() => void openContract(reservation)}
-                          disabled={loadingContractId === reservation.contract_id}
-                          className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-                        >
-                          {loadingContractId === reservation.contract_id ? "Ouverture..." : "Consulter mon contrat"}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void openContract(reservation)}
+                            disabled={loadingContractId === reservation.contract_id}
+                            className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                          >
+                            {loadingContractId === reservation.contract_id ? "Ouverture..." : "Consulter mon contrat"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void printContract(reservation)}
+                            disabled={loadingContractId === reservation.contract_id}
+                            className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <Printer className="h-4 w-4" />
+                            Imprimer le contrat
+                          </button>
+                        </>
                       )}
                       {reservation.status === "contrat_realise" && (
                         <Link to="/contact" className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
@@ -359,74 +382,6 @@ export default function MyReservationsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!activeIdentityDemand} onOpenChange={(open) => !open && setActiveIdentityDemandId(null)}>
-        <DialogContent className="max-w-3xl p-7">
-          <DialogHeader>
-            <DialogTitle className="text-xl">Coordonnees pour contrat</DialogTitle>
-            <DialogDescription>
-              Envoyez votre document d'identite. Nous faisons une extraction OCR simple du numero puis nous generons le contrat automatiquement.
-            </DialogDescription>
-          </DialogHeader>
-
-          <Tabs value={clientTypeTab} onValueChange={(value) => setClientTypeTab(value as "tunisie" | "etranger")} className="mt-2">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="tunisie">Client tunisien</TabsTrigger>
-              <TabsTrigger value="etranger">Client etranger</TabsTrigger>
-            </TabsList>
-            <TabsContent value="tunisie" className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm">
-                  <input
-                    type="radio"
-                    checked={tunisiaDocumentType === "cin_tn"}
-                    onChange={() => setTunisiaDocumentType("cin_tn")}
-                  />
-                  Carte d'identite tunisienne
-                </label>
-                <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm">
-                  <input
-                    type="radio"
-                    checked={tunisiaDocumentType === "passport_tn"}
-                    onChange={() => setTunisiaDocumentType("passport_tn")}
-                  />
-                  Passeport tunisien
-                </label>
-              </div>
-            </TabsContent>
-            <TabsContent value="etranger" className="text-sm text-gray-600">
-              Importez votre passeport. Le numero sera detecte automatiquement si possible, sinon renseignez-le manuellement.
-            </TabsContent>
-          </Tabs>
-
-          <div className="space-y-3">
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/jpg,image/webp"
-              onChange={(event) => setIdentityFile(event.target.files?.[0] || null)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-            <input
-              type="text"
-              value={manualDocumentNumber}
-              onChange={(event) => setManualDocumentNumber(event.target.value)}
-              placeholder="Numero document (optionnel, utile si OCR ne detecte pas)"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => void submitIdentity()}
-              disabled={submittingIdentity}
-              className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {submittingIdentity ? "Generation en cours..." : "Confirmer mes coordonnees"}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!activeContractDemand} onOpenChange={(open) => !open && setActiveContractDemandId(null)}>
         <DialogContent className="max-w-2xl p-7">
           <DialogHeader>
@@ -446,6 +401,14 @@ export default function MyReservationsPage() {
               className="rounded-lg border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50"
             >
               Consulter le contrat
+            </button>
+            <button
+              type="button"
+              onClick={() => activeContractDemand && void printContract(activeContractDemand)}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              <Printer className="h-4 w-4" />
+              Imprimer le contrat
             </button>
             <Link to="/contact" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
               Proceder vers paiement

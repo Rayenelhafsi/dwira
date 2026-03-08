@@ -2,10 +2,13 @@ import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut, ShoppingBag } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
+import type { ReservationDemand } from "../admin/types";
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { getReservationsFromCache } from "../utils/reservations";
 import { buildTelLink, getPublicContactForMode, openPhoneApp } from "../utils/deepLinks";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
 // Custom TikTok Icon
 const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
@@ -46,6 +49,8 @@ export function Header() {
   const { user, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [reservationCount, setReservationCount] = useState(0);
+  const [actionableDemand, setActionableDemand] = useState<ReservationDemand | null>(null);
+  const [showActionableNotice, setShowActionableNotice] = useState(false);
   const isHomePage = location.pathname === "/";
   const useLightText = isHomePage && !isScrolled && !isOpen;
   const routeMode = resolveRouteMode(location.pathname, location.search);
@@ -80,9 +85,51 @@ export function Header() {
     query.set("client_email", user.email);
     fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands?${query.toString()}`)
       .then((response) => response.ok ? response.json() : [])
-      .then((rows) => setReservationCount(Array.isArray(rows) ? rows.length : 0))
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : [];
+        setReservationCount(list.length);
+        const nextDemand = list.find((item) =>
+          item.status === "reponse_positive_attente_confirmation_client" ||
+          item.status === "attente_envoi_coordonnees_contrat"
+        ) || null;
+        if (!nextDemand) return;
+        const key = `dwira_action_notice_${nextDemand.id}_${nextDemand.status}`;
+        if (!localStorage.getItem(key)) {
+          localStorage.setItem(key, "1");
+          setActionableDemand(nextDemand);
+          setShowActionableNotice(true);
+        }
+      })
       .catch(() => setReservationCount(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }).length));
   }, [user]);
+
+  const proceedToCoordinates = async () => {
+    if (!actionableDemand) return;
+    try {
+      const api = import.meta.env.VITE_API_URL || "/api";
+      if (actionableDemand.status === "reponse_positive_attente_confirmation_client") {
+        const response = await fetch(`${api}/reservation-demands/${encodeURIComponent(actionableDemand.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: "attente_envoi_coordonnees_contrat",
+            actor_type: "client",
+            actor_id: user?.id || user?.email || "client",
+            history_note: "Client notifie depuis l'accueil puis redirige vers la page coordonnees",
+          }),
+        });
+        const updated = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(String(updated?.error || "Mise a jour impossible"));
+        setShowActionableNotice(false);
+        navigate(`/mes-reservations/${encodeURIComponent(updated.id)}/coordonnees`);
+        return;
+      }
+      setShowActionableNotice(false);
+      navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/coordonnees`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Redirection impossible");
+    }
+  };
 
   const navLinks = [
     { name: "Accueil", path: "/" },
@@ -92,6 +139,7 @@ export function Header() {
   ];
 
   return (
+    <>
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         isScrolled ? "bg-white/95 backdrop-blur-md shadow-md py-2" : "bg-transparent py-4"
@@ -297,6 +345,28 @@ export function Header() {
         </AnimatePresence>
       </div>
     </header>
+    <Dialog open={showActionableNotice} onOpenChange={setShowActionableNotice}>
+      <DialogContent className="max-w-xl border-2 border-emerald-200 p-7">
+        <DialogHeader>
+          <DialogTitle className="text-2xl text-emerald-700">Action requise</DialogTitle>
+          <DialogDescription className="text-base text-gray-600">
+            {actionableDemand?.status === "reponse_positive_attente_confirmation_client"
+              ? "Le proprietaire a accepte votre demande. Veuillez envoyer vos coordonnees pour finaliser le contrat."
+              : "Vos coordonnees sont attendues pour finaliser votre contrat."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <button
+            type="button"
+            onClick={() => void proceedToCoordinates()}
+            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            Completer maintenant
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

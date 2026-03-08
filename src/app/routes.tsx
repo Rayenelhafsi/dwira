@@ -5,6 +5,7 @@ import PropertiesPage from "./pages/PropertiesPage";
 import PropertyDetailsPage from "./pages/PropertyDetailsPage";
 import ReservationConfirmationPage from "./pages/ReservationConfirmationPage";
 import MyReservationsPage from "./pages/MyReservationsPage";
+import ContractIdentityPage from "./pages/ContractIdentityPage";
 import ImmeubleVenteDetailsPage from "./pages/ImmeubleVenteDetailsPage";
 import LotissementVenteDetailsPage from "./pages/LotissementVenteDetailsPage";
 import ContactPage from "./pages/ContactPage";
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       { path: "properties/:slug", Component: PropertyDetailsPage },
       { path: "reservation/confirmation/:slug", Component: ReservationConfirmationPage },
       { path: "mes-reservations", Component: MyReservationsPage },
+      { path: "mes-reservations/:id/coordonnees", Component: ContractIdentityPage },
       { path: "vente/immeuble/:slug", Component: ImmeubleVenteDetailsPage },
       { path: "vente/lotissement/:slug", Component: LotissementVenteDetailsPage },
       {
