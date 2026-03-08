@@ -2978,28 +2978,115 @@ function extractIdentityNamesFromText(rawText, documentType) {
 
   const compact = text.replace(/\r/g, '\n');
   const clean = compact.replace(/[^\S\n]+/g, ' ');
+  const lines = clean
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const blockedNameTokens = new Set([
+    'REPUBLIQUE',
+    'TUNISIENNE',
+    'TUNISIE',
+    'CARTE',
+    'IDENTITE',
+    'NATIONALE',
+    'NATIONALITE',
+    'DATE',
+    'NAISSANCE',
+    'LIEU',
+    'DELIVRANCE',
+    'SEXE',
+    'SIGNATURE',
+    'PASSEPORT',
+    'PASSPORT',
+  ]);
+
+  const arabicHeaderPattern = /(\u0627\u0644\u062C\u0645\u0647\u0648\u0631\u064A\u0629|\u0627\u0644\u062A\u0648\u0646\u0633\u064A\u0629|\u0628\u0637\u0627\u0642\u0629|\u0627\u0644\u062A\u0639\u0631\u064A\u0641|\u0627\u0644\u0648\u0637\u0646\u064A\u0629|\u062A\u0627\u0631\u064A\u062E|\u0627\u0644\u0648\u0644\u0627\u062F\u0629)/i;
+
+  const normalizeNameCandidate = (value) => normalizePersonName(
+    String(value || '')
+      .replace(/[_<>]/g, ' ')
+      .replace(/[|`~]/g, ' ')
+      .replace(/\d/g, ' ')
+      .replace(/[^A-Za-z\u00C0-\u017F\u0600-\u06FF' -]/g, ' ')
+  );
+
+  const isLikelyNameLine = (value) => {
+    const candidate = normalizeNameCandidate(value);
+    if (!candidate || candidate.length < 2) return false;
+    if (!/[A-Za-z\u00C0-\u017F\u0600-\u06FF]/.test(candidate)) return false;
+    const words = candidate.split(' ').filter(Boolean);
+    if (words.length === 0 || words.length > 5) return false;
+    const upperWords = words.map((word) => word.toUpperCase());
+    if (upperWords.some((word) => blockedNameTokens.has(word))) return false;
+    if (arabicHeaderPattern.test(candidate)) return false;
+    return true;
+  };
 
   const pickByLabel = (patterns) => {
     for (const pattern of patterns) {
       const match = clean.match(pattern);
       if (match && match[1]) {
-        return normalizePersonName(match[1].replace(/[_<>]/g, ' '));
+        const candidate = normalizeNameCandidate(match[1]);
+        if (isLikelyNameLine(candidate)) return candidate;
       }
     }
     return '';
   };
 
   const lastName = pickByLabel([
-    /(?:\bnom\b|\bsurname\b|\bfamily\s*name\b|\blast\s*name\b)\s*[:\-]?\s*([A-ZÀ-ÿ][A-ZÀ-ÿ' -]{1,80})/i,
-    /(?:\u0627\u0644\u0644\u0642\u0628|لقب)\s*[:\-]?\s*([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})/i,
+    /(?:\bnom\b|\bsurname\b|\bfamily\s*name\b|\blast\s*name\b)\s*[:\-]?\s*([^\n]{1,80})/i,
+    /(?:\u0627\u0644\u0644\u0642\u0628)\s*[:\-]?\s*([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})/i,
+    /([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})\s*(?:\u0627\u0644\u0644\u0642\u0628)/i,
   ]);
   const firstName = pickByLabel([
-    /(?:\bpr[ée]nom(?:s)?\b|\bgiven\s*name(?:s)?\b|\bfirst\s*name\b|\bforename\b)\s*[:\-]?\s*([A-ZÀ-ÿ][A-ZÀ-ÿ' -]{1,80})/i,
-    /(?:\u0627\u0644\u0627\u0633\u0645|اسم)\s*[:\-]?\s*([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})/i,
+    /(?:\bpr.?nom(?:s)?\b|\bgiven\s*name(?:s)?\b|\bfirst\s*name\b|\bforename\b)\s*[:\-]?\s*([^\n]{1,80})/i,
+    /(?:\u0627\u0644\u0627\u0633\u0645)\s*[:\-]?\s*([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})/i,
+    /([\u0600-\u06FF][\u0600-\u06FF\s]{1,80})\s*(?:\u0627\u0644\u0627\u0633\u0645)/i,
   ]);
 
   if (firstName || lastName) {
     return { firstName, lastName };
+  }
+
+  const pickFromLabelledLines = (labelRegexList) => {
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const matchedRegex = labelRegexList.find((regex) => regex.test(line));
+      if (!matchedRegex) continue;
+
+      const inlineCandidate = normalizeNameCandidate(
+        line.replace(matchedRegex, '').replace(/^[:\- ]+/, '')
+      );
+      if (isLikelyNameLine(inlineCandidate)) {
+        return inlineCandidate;
+      }
+
+      for (let j = i + 1; j <= Math.min(i + 2, lines.length - 1); j += 1) {
+        if (isLikelyNameLine(lines[j])) {
+          return normalizeNameCandidate(lines[j]);
+        }
+      }
+    }
+    return '';
+  };
+
+  const labelledLastName = pickFromLabelledLines([
+    /\bnom\b/i,
+    /\bsurname\b/i,
+    /\bfamily\s*name\b/i,
+    /\blast\s*name\b/i,
+    /\u0627\u0644\u0644\u0642\u0628/i,
+  ]);
+  const labelledFirstName = pickFromLabelledLines([
+    /\bpr.?nom(?:s)?\b/i,
+    /\bgiven\s*name(?:s)?\b/i,
+    /\bfirst\s*name\b/i,
+    /\bforename\b/i,
+    /\u0627\u0644\u0627\u0633\u0645/i,
+  ]);
+  if (labelledFirstName || labelledLastName) {
+    return { firstName: labelledFirstName, lastName: labelledLastName };
   }
 
   const mrz = clean.toUpperCase().match(/P<([A-Z<]{3})([A-Z<]+)<<([A-Z<]+)/);
@@ -3010,17 +3097,19 @@ function extractIdentityNamesFromText(rawText, documentType) {
     };
   }
 
-  const lines = clean
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const upperLines = lines
-    .map((line) => line.replace(/[^A-ZÀ-ÿ' -]/g, '').trim())
-    .filter((line) => line.length >= 4 && /\s/.test(line));
+  const candidateLines = lines
+    .map((line) => normalizeNameCandidate(line))
+    .filter((line) => isLikelyNameLine(line));
 
-  if ((documentType === 'cin_tn' || documentType === 'passport_tn' || documentType === 'passport_foreign') && upperLines.length > 0) {
-    const candidate = upperLines.find((line) => line.split(' ').length >= 2) || '';
-    const parts = candidate.split(' ').filter(Boolean);
+  if ((documentType === 'cin_tn' || documentType === 'passport_tn' || documentType === 'passport_foreign') && candidateLines.length > 0) {
+    if (candidateLines.length >= 2) {
+      return {
+        firstName: normalizePersonName(candidateLines[1]),
+        lastName: normalizePersonName(candidateLines[0]),
+      };
+    }
+
+    const parts = candidateLines[0].split(' ').filter(Boolean);
     if (parts.length >= 2) {
       return {
         firstName: normalizePersonName(parts.slice(1).join(' ')),
@@ -3031,7 +3120,6 @@ function extractIdentityNamesFromText(rawText, documentType) {
 
   return { firstName: '', lastName: '' };
 }
-
 async function extractIdentityDataFromImage(imageAbsolutePath, documentType, options = {}) {
   const { maxSizeBytes = 4 * 1024 * 1024, fileSize = 0 } = options;
   if (fileSize > maxSizeBytes) {
