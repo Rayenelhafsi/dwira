@@ -246,6 +246,7 @@ export type LocationSaisonniereConfig = {
   frais_service_disponible?: boolean;
   frais_service?: number | null;
   services_payants?: ServicePayantBien[];
+  google_maps_embed_url?: string | null;
 };
 
 export interface Bien {

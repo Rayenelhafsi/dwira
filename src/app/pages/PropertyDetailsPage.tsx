@@ -161,14 +161,22 @@ export default function PropertyDetailsPage() {
     () => zones.find((item) => item.id === sourceBien?.zone_id),
     [sourceBien?.zone_id, zones]
   );
+  const selectedBienMapsUrl = String((sourceBien?.location_saisonniere_config as any)?.google_maps_embed_url || '').trim();
   const selectedZoneMapsUrl = String(selectedZone?.google_maps_url || '').trim();
+  const selectedMapsUrl = useMemo(() => {
+    const value = selectedBienMapsUrl || selectedZoneMapsUrl;
+    if (!value) return '';
+    const iframeSrcMatch = value.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i);
+    const extracted = iframeSrcMatch?.[1] || value;
+    return extracted.replace(/&amp;/g, '&').trim();
+  }, [selectedBienMapsUrl, selectedZoneMapsUrl]);
   const [mapCenter, setMapCenter] = useState<LatLng | null>(null);
   const googleEmbedUrl = useMemo(() => {
-    const directEmbed = /google\.[^/]+\/maps\/embed/i.test(selectedZoneMapsUrl);
-    if (directEmbed) return selectedZoneMapsUrl;
+    const directEmbed = /google\.[^/]+\/maps\/embed/i.test(selectedMapsUrl);
+    if (directEmbed) return selectedMapsUrl;
     if (!mapCenter) return '';
     return `https://www.google.com/maps?q=${mapCenter.lat},${mapCenter.lng}&z=15&t=k&output=embed`;
-  }, [selectedZoneMapsUrl, mapCenter]);
+  }, [selectedMapsUrl, mapCenter]);
 
   useEffect(() => {
     let disposed = false;
@@ -196,7 +204,7 @@ export default function PropertyDetailsPage() {
     };
 
     const load = async () => {
-      const parsed = parseGoogleMapsLatLng(selectedZoneMapsUrl);
+      const parsed = parseGoogleMapsLatLng(selectedMapsUrl);
       const exact = parsed || await geocodeFromZone();
       if (disposed) return;
       if (!exact) {
@@ -212,7 +220,7 @@ export default function PropertyDetailsPage() {
 
     void load();
     return () => { disposed = true; };
-  }, [selectedZoneMapsUrl, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, property?.id]);
+  }, [selectedMapsUrl, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, property?.id]);
   const seasonalConfig = property?.seasonalConfig;
   const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
@@ -266,7 +274,9 @@ export default function PropertyDetailsPage() {
     console.debug('[PropertyDetailsDebug] zone', {
       selectedZoneId: selectedZone?.id,
       selectedZoneName: selectedZone?.nom,
+      selectedBienMapsUrl: selectedBienMapsUrl || null,
       selectedZoneMapsUrl: selectedZoneMapsUrl || null,
+      selectedMapsUrl: selectedMapsUrl || null,
       zonesCount: Array.isArray(zones) ? zones.length : 0,
       zoneSample: (Array.isArray(zones) ? zones.slice(0, 3) : []).map((z) => ({
         id: z?.id,
@@ -274,17 +284,17 @@ export default function PropertyDetailsPage() {
         google_maps_url: z?.google_maps_url || null,
       })),
     });
-  }, [selectedZone?.id, selectedZone?.nom, selectedZoneMapsUrl, zones]);
+  }, [selectedZone?.id, selectedZone?.nom, selectedBienMapsUrl, selectedZoneMapsUrl, selectedMapsUrl, zones]);
 
   useEffect(() => {
     console.debug('[PropertyDetailsDebug] localisationSection', {
       usesStaticPlaceholder: false,
-      hasGoogleMapsUrl: Boolean(selectedZoneMapsUrl),
+      hasGoogleMapsUrl: Boolean(selectedMapsUrl),
       hasMapCenter: Boolean(mapCenter),
       mapCenter,
       hasGoogleEmbedUrl: Boolean(googleEmbedUrl),
     });
-  }, [selectedZoneMapsUrl, mapCenter, googleEmbedUrl]);
+  }, [selectedMapsUrl, mapCenter, googleEmbedUrl]);
   const seasonalHighlights = useMemo(() => {
     if (isSaleProperty) return [];
     const rows = [

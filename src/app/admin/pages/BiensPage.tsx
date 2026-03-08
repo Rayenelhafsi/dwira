@@ -282,6 +282,7 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   frais_service_disponible: false,
   frais_service: 0,
   services_payants: [],
+  google_maps_embed_url: null,
 };
 const TERRAIN_ONAS_OPTIONS = [
   { value: 'disponible', label: 'Disponible' },
@@ -884,6 +885,13 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
   const selectedZone = zones.find((item) => item.id === formData.zone_id);
   const toOuiNon = (value: boolean | null | undefined) => value ? 'Oui' : 'Non';
+  const normalizeMapsInput = (raw?: string | null) => {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    const iframeSrcMatch = value.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i);
+    const extracted = iframeSrcMatch?.[1] || value;
+    return extracted.replace(/&amp;/g, '&').trim() || null;
+  };
   const updateSaisonConfig = (patch: Partial<LocationSaisonniereConfig>) => {
     setFormData((prev) => ({
       ...prev,
@@ -4389,6 +4397,19 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                             <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Ville</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.region || selectedZone?.nom || '-'}</p></div>
                             <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Gouvernerat</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.gouvernerat || '-'}</p></div>
                             <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Coordonnees GPS</span><p className="font-semibold text-gray-900 mt-0.5 break-all">{selectedZone?.google_maps_url || '-'}</p></div>
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
+                            <div className="rounded border border-emerald-200 bg-emerald-50 p-2">
+                              <span className="text-emerald-700 font-semibold">Lien Maps du bien (separe de la zone)</span>
+                              <p className="text-gray-600 mt-1">Collez une URL embed Google Maps ou un iframe complet. Ce lien est prioritaire sur la zone.</p>
+                              <input
+                                type="text"
+                                value={String(saisonConfig.google_maps_embed_url || '')}
+                                onChange={(e) => updateSaisonConfig({ google_maps_embed_url: normalizeMapsInput(e.target.value) })}
+                                placeholder="https://www.google.com/maps/embed?pb=..."
+                                className="mt-2 block w-full rounded-lg border-gray-300 border p-2 text-sm bg-white"
+                              />
+                            </div>
                           </div>
                         </div>
                       )}

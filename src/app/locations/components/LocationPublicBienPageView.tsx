@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
-import { Circle, CircleMarker, MapContainer, TileLayer } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -151,6 +149,14 @@ export default function LocationPublicBienPageView({
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const uiConfig: BienUiConfig = bien.ui_config || {};
   const selectedZone = useMemo(() => zones.find((item) => item.id === bien.zone_id), [zones, bien.zone_id]);
+  const bienMapsRaw = String((bien.location_saisonniere_config as any)?.google_maps_embed_url || '').trim();
+  const selectedMapsUrl = useMemo(() => {
+    const value = bienMapsRaw || String(selectedZone?.google_maps_url || '').trim();
+    if (!value) return '';
+    const iframeSrcMatch = value.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i);
+    const extracted = iframeSrcMatch?.[1] || value;
+    return extracted.replace(/&amp;/g, '&').trim();
+  }, [bienMapsRaw, selectedZone?.google_maps_url]);
 
   useEffect(() => {
     let disposed = false;
@@ -261,12 +267,12 @@ export default function LocationPublicBienPageView({
     };
 
     const load = async () => {
-      const parsed = parseGoogleMapsLatLng(selectedZone?.google_maps_url);
+      const parsed = parseGoogleMapsLatLng(selectedMapsUrl);
       console.debug('[LocationMapDebug] parseMaps', {
         bienId: bien.id,
         zoneId: selectedZone?.id,
         zoneName: selectedZone?.nom,
-        mapsLink: String(selectedZone?.google_maps_url || ''),
+        mapsLink: selectedMapsUrl,
         parsed,
       });
       const exact = parsed || await geocodeFromZone();
@@ -284,7 +290,24 @@ export default function LocationPublicBienPageView({
 
     void load();
     return () => { cancelled = true; };
-  }, [selectedZone?.google_maps_url, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, bien.id]);
+  }, [selectedMapsUrl, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, bien.id]);
+
+  const fallbackApproxLocation = useMemo<LatLng>(() => {
+    const seed = `${selectedZone?.id || ''}-${selectedZone?.nom || ''}-${bien.id || ''}`;
+    const h = hashString(seed || 'kelibia');
+    const baseLat = 36.847;
+    const baseLng = 11.093;
+    const latJitter = ((h % 240) - 120) / 1000;
+    const lngJitter = ((((h / 7) | 0) % 240) - 120) / 1000;
+    return { lat: baseLat + latJitter, lng: baseLng + lngJitter };
+  }, [selectedZone?.id, selectedZone?.nom, bien.id]);
+  const effectiveMapCenter = displayLocation || (selectedZone ? fallbackApproxLocation : null);
+  const googleEmbedUrl = useMemo(() => {
+    const raw = selectedMapsUrl;
+    if (/google\.[^/]+\/maps\/embed/i.test(raw)) return raw;
+    if (effectiveMapCenter) return `https://www.google.com/maps?q=${effectiveMapCenter.lat},${effectiveMapCenter.lng}&z=14&t=k&output=embed`;
+    return '';
+  }, [selectedMapsUrl, effectiveMapCenter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -345,28 +368,17 @@ out body 20;
     return () => { cancelled = true; };
   }, [effectiveMapCenter?.lat, effectiveMapCenter?.lng]);
 
-  const fallbackApproxLocation = useMemo<LatLng>(() => {
-    const seed = `${selectedZone?.id || ''}-${selectedZone?.nom || ''}-${bien.id || ''}`;
-    const h = hashString(seed || 'kelibia');
-    const baseLat = 36.847;
-    const baseLng = 11.093;
-    const latJitter = ((h % 240) - 120) / 1000;
-    const lngJitter = ((((h / 7) | 0) % 240) - 120) / 1000;
-    return { lat: baseLat + latJitter, lng: baseLng + lngJitter };
-  }, [selectedZone?.id, selectedZone?.nom, bien.id]);
-  const effectiveMapCenter = displayLocation || (selectedZone ? fallbackApproxLocation : null);
-
   useEffect(() => {
     console.debug('[LocationMapDebug] renderState', {
       bienId: bien.id,
       zoneId: selectedZone?.id,
       zoneName: selectedZone?.nom,
-      hasMapsUrl: Boolean(String(selectedZone?.google_maps_url || '').trim()),
+      hasMapsUrl: Boolean(selectedMapsUrl),
       displayLocation,
       fallbackApproxLocation,
       effectiveMapCenter,
     });
-  }, [bien.id, selectedZone?.id, selectedZone?.nom, selectedZone?.google_maps_url, displayLocation, fallbackApproxLocation, effectiveMapCenter]);
+  }, [bien.id, selectedZone?.id, selectedZone?.nom, selectedMapsUrl, displayLocation, fallbackApproxLocation, effectiveMapCenter]);
 
   const block = (key: string, title: string, content: React.ReactNode, className = '') => {
     const visible = isVisible(key);
@@ -507,43 +519,17 @@ out body 20;
                   <h3 className="text-xl font-bold">Ou se situe le logement</h3>
                   {sectionToggle('show_localisation')}
                 </div>
-                {effectiveMapCenter ? (
+                {googleEmbedUrl ? (
                   <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
                     <div className="h-[320px] relative">
-                      <MapContainer
-                        center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
-                        zoom={13}
-                        scrollWheelZoom={false}
-                        className="h-full w-full"
-                      >
-                        <TileLayer
-                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        />
-                        <Circle
-                          center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
-                          radius={700}
-                          pathOptions={{ color: '#059669', weight: 1.5, fillColor: '#10b981', fillOpacity: 0.12 }}
-                        />
-                        <CircleMarker
-                          center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
-                          radius={9}
-                          pathOptions={{ color: '#065f46', weight: 2, fillColor: '#10b981', fillOpacity: 1 }}
-                        />
-                        {nearbyPlaces.map((place) => (
-                          <CircleMarker
-                            key={place.id}
-                            center={[place.lat, place.lng]}
-                            radius={5}
-                            pathOptions={{
-                              color: place.kind === 'cafe' ? '#1d4ed8' : '#b45309',
-                              weight: 1.5,
-                              fillColor: place.kind === 'cafe' ? '#3b82f6' : '#f59e0b',
-                              fillOpacity: 0.9,
-                            }}
-                          />
-                        ))}
-                      </MapContainer>
+                      <iframe
+                        title="Carte Google du bien"
+                        src={googleEmbedUrl}
+                        className="h-full w-full border-0"
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        allowFullScreen
+                      />
                     </div>
                     <div className="border-t border-gray-100 p-4">
                       {!displayLocation ? <p className="mb-2 text-xs text-gray-500">Position approximative de la zone.</p> : null}
