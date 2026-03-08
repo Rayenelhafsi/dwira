@@ -515,8 +515,16 @@ export interface ReservationDemand {
   status: ReservationDemandStatus;
   owner_notified_at?: string | null;
   owner_response_at?: string | null;
+  client_confirmation_clicked_at?: string | null;
   admin_note?: string | null;
   client_note?: string | null;
+  identity_document_type?: 'cin_tn' | 'passport_tn' | 'passport_foreign' | null;
+  identity_document_number?: string | null;
+  identity_document_country?: string | null;
+  identity_document_image_url?: string | null;
+  identity_ocr_text?: string | null;
+  identity_submitted_at?: string | null;
+  contract_generated_at?: string | null;
   finalization_due_at?: string | null;
   contract_id?: string | null;
   payment_id?: string | null;

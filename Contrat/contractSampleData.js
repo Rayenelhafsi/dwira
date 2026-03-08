@@ -1,0 +1,58 @@
+export const contractSampleData = {
+  contractNumber: "CTR-2026-00124",
+  owner: {
+    name: "Ala Eddin Jaballah",
+    idNumber: "12345678",
+    address: "Kélibia, Nabeul",
+    phone: "+216 00 000 000",
+  },
+  agency: {
+    name: "Wira Agence Immobilière",
+    registration: "MF / RC 000000X",
+    address: "Kélibia, Nabeul, Tunisie",
+    phone: "+216 00 000 000",
+    email: "contact@wira.tn",
+  },
+  tenant: {
+    name: "Nom du locataire",
+    idNumber: "CIN / Passeport",
+    address: "Adresse complète",
+    phone: "+216 00 000 000",
+    email: "locataire@email.com",
+  },
+  property: {
+    type: "Appartement S+2",
+    reference: "APP-238",
+    address: "Rue exemple, résidence exemple",
+    city: "Kélibia",
+    description: "Appartement meublé avec balcon et séjour lumineux.",
+    capacity: "5 personnes",
+    bedrooms: "2",
+    amenities: "Climatisation, Wi-Fi, cuisine équipée",
+  },
+  stay: {
+    arrivalDate: "14/07/2026",
+    departureDate: "20/07/2026",
+    checkInTime: "14:00",
+    checkOutTime: "11:00",
+    duration: "6 nuits",
+  },
+  pricing: {
+    totalRent: "2 400 DT",
+    bookingAdvance: "600 DT",
+    bookingAdvanceDate: "10/07/2026",
+    balanceDue: "1 800 DT",
+    securityDeposit: "500 DT",
+    paymentMethod: "Virement bancaire",
+  },
+  clauses: {
+    keyHandover: "Les clés sont remises par l'agence à l'arrivée après vérification de l'identité du locataire.",
+    depositReturnDelay: "La caution est restituée sous 48 heures après l'état des lieux de sortie, déduction faite des éventuels dommages.",
+    cancellationTerms: "Toute annulation à plus de 7 jours de l'arrivée donne lieu au remboursement de 50 % de l'acompte. En dessous, aucun remboursement.",
+    specialConditions: "Le nombre d'occupants ne doit pas dépasser la capacité autorisée. Les fêtes sont interdites.",
+  },
+  signing: {
+    city: "Kélibia",
+    date: "14/07/2026",
+  },
+};

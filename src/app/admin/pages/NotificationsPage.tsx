@@ -206,11 +206,17 @@ export default function NotificationsPage() {
                   </button>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 text-xs text-gray-500">
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4 text-xs text-gray-500">
                 <div>Etat: <span className="font-medium text-gray-700">{statusLabels[demand.status]}</span></div>
                 <div>Notif proprietaire: <span className="font-medium text-gray-700">{demand.owner_notified_at ? formatDateTime(demand.owner_notified_at) : 'Non envoyee'}</span></div>
                 <div>Reponse proprietaire: <span className="font-medium text-gray-700">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</span></div>
+                <div>Consultation client: <span className="font-medium text-gray-700">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</span></div>
               </div>
+              {(demand.identity_submitted_at || demand.identity_document_number) && (
+                <div className="mt-2 text-xs text-gray-500">
+                  Coordonnees client: <span className="font-medium text-gray-700">{demand.identity_document_type || '-'}</span> - numero <span className="font-medium text-gray-700">{demand.identity_document_number || '-'}</span> - soumis le <span className="font-medium text-gray-700">{demand.identity_submitted_at ? formatDateTime(demand.identity_submitted_at) : '-'}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
