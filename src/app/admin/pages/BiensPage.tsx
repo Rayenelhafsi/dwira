@@ -1797,8 +1797,19 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             ))}
             {typeRueProofImages.length === 0 && <span className="text-xs text-gray-500 col-span-full">Aucune preuve type de rue</span>}
           </div>
-        </div>
-        <div className="space-y-2">
+	                </div>
+	                <div className="space-y-2">
+	                  <label className="block text-sm font-medium text-gray-700 mb-1">Lien Maps du bien (iframe/URL)</label>
+	                  <input
+	                    type="text"
+	                    value={String(saisonConfig.google_maps_embed_url || '')}
+	                    onChange={(e) => updateSaisonConfig({ google_maps_embed_url: normalizeMapsInput(e.target.value) })}
+	                    placeholder="https://www.google.com/maps/embed?pb=... (prioritaire sur la zone)"
+	                    className="block w-full rounded-lg border-gray-300 border p-2"
+	                  />
+	                  <p className="text-xs text-gray-500">Ce lien est separé de la zone et sera utilise en priorite sur la page client.</p>
+	                </div>
+	                <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Upload className="h-4 w-4 text-emerald-600" />
             <span>Preuve type de papier</span>
