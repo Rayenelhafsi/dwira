@@ -24,6 +24,8 @@ const MESSENGER_PAGE_ID_VENTE = String(process.env.MESSENGER_PAGE_ID_VENTE || ''
 const MESSENGER_APP_SECRET = String(process.env.MESSENGER_APP_SECRET || '').trim();
 const MESSENGER_API_VERSION = String(process.env.MESSENGER_API_VERSION || 'v21.0').trim();
 const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY || '').trim();
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
+const OPENAI_OCR_MODEL = String(process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini').trim();
 const ALLOWED_ORIGINS = [
   ...String(process.env.FRONTEND_URL || CANONICAL_FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
   CANONICAL_FRONTEND_URL,
@@ -36,6 +38,8 @@ const ALLOWED_ORIGINS = [
 ];
 app.disable('x-powered-by');
 const AGENCY_TIME_ZONE = 'Africa/Tunis';
+
+console.log(`[OCR] OpenAI OCR enabled: ${OPENAI_API_KEY ? 'yes' : 'no'} (model=${OPENAI_OCR_MODEL || 'n/a'})`);
 
 process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED_REJECTION:', reason);
@@ -2047,6 +2051,7 @@ async function ensureBiensWorkflowSchema() {
       type_caracteristique ENUM('simple','choix_multiple','plusieurs_choix','valeur','texte') NOT NULL DEFAULT 'simple',
       choix_json LONGTEXT NULL,
       unite VARCHAR(50) NULL,
+      icon_name VARCHAR(50) NULL,
       visibilite_client TINYINT(1) NOT NULL DEFAULT 1,
       INDEX idx_nom (nom)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -2061,8 +2066,11 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('caracteristiques', 'unite'))) {
     await pool.query('ALTER TABLE caracteristiques ADD COLUMN unite VARCHAR(50) NULL AFTER choix_json');
   }
+  if (!(await columnExists('caracteristiques', 'icon_name'))) {
+    await pool.query('ALTER TABLE caracteristiques ADD COLUMN icon_name VARCHAR(50) NULL AFTER unite');
+  }
   if (!(await columnExists('caracteristiques', 'visibilite_client'))) {
-    await pool.query('ALTER TABLE caracteristiques ADD COLUMN visibilite_client TINYINT(1) NOT NULL DEFAULT 1 AFTER unite');
+    await pool.query('ALTER TABLE caracteristiques ADD COLUMN visibilite_client TINYINT(1) NOT NULL DEFAULT 1 AFTER icon_name');
   }
 
   await pool.query(`
@@ -3416,7 +3424,93 @@ async function extractIdentityDataFromImage(imageAbsolutePath, documentType, opt
     });
     return Promise.race([recognitionPromise, timeoutPromise]);
   };
+
+  const callOpenAiOcr = async () => {
+    if (!OPENAI_API_KEY) return null;
+    let timeoutId = null;
+    try {
+      const imageBuffer = fs.readFileSync(imageAbsolutePath);
+      const imageBase64 = imageBuffer.toString('base64');
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: OPENAI_OCR_MODEL,
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: 'Extract raw text from this identity document image. Return only plain text lines in reading order, with no explanation.',
+                },
+                {
+                  type: 'input_image',
+                  image_url: `data:image/jpeg;base64,${imageBase64}`,
+                },
+              ],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      timeoutId = null;
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        return {
+          ok: false,
+          status: response.status,
+          reason: `openai_http_${response.status}`,
+          detail: detail.slice(0, 200),
+        };
+      }
+
+      const payload = await response.json().catch(() => null);
+      const text = String(
+        payload?.output_text
+        || payload?.output?.map((item) => item?.content?.map((part) => part?.text || '').join('\n') || '').join('\n')
+        || ''
+      ).trim();
+
+      if (!text) {
+        return { ok: false, status: 500, reason: 'openai_empty_text', detail: '' };
+      }
+      return { ok: true, text };
+    } catch (error) {
+      if (String(error?.name || '').toLowerCase() === 'aborterror') {
+        return { ok: false, status: 504, reason: 'openai_timeout', detail: '' };
+      }
+      return { ok: false, status: 500, reason: 'openai_exception', detail: String(error?.message || error) };
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  };
   try {
+    const openAiResult = await callOpenAiOcr();
+    if (openAiResult?.ok && openAiResult.text) {
+      const openAiText = String(openAiResult.text || '');
+      const openAiNames = extractIdentityNamesFromText(openAiText, documentType);
+      const openAiNumber = extractIdentityNumberFromText(openAiText, documentType);
+      const hasUsefulOpenAiNames = !!(openAiNames.firstName || openAiNames.lastName);
+      if (openAiNumber || hasUsefulOpenAiNames) {
+        return {
+          ocrText: `OCR_OPENAI:\n${openAiText}`,
+          extractedNumber: openAiNumber || '',
+          extractedFirstName: openAiNames.firstName || '',
+          extractedLastName: openAiNames.lastName || '',
+          skipped: false,
+          reason: 'openai_primary',
+        };
+      }
+    }
+
     const mixedResult = await runOcrWithTimeout('eng+fra+ara', {});
     const mixedText = String(mixedResult?.data?.text || '');
 
@@ -3468,7 +3562,7 @@ async function extractIdentityDataFromImage(imageAbsolutePath, documentType, opt
       extractedFirstName: best.names.firstName || '',
       extractedLastName: best.names.lastName || '',
       skipped: false,
-      reason: `best_source:${best.source}`,
+      reason: openAiResult?.ok === false ? `${openAiResult.reason}|best_source:${best.source}` : `best_source:${best.source}`,
     };
   } catch (error) {
     console.warn('OCR extraction failed for reservation identity:', error?.message || error);
@@ -5800,6 +5894,7 @@ app.post('/api/reservation-demands/:id/extract-identity', reservationIdentityUpl
       ocr_reason: ocrPayload.reason || '',
       ocr_text_preview: String(ocrPayload.ocrText || '').slice(0, 600),
     });
+    console.log(`[OCR] extract-identity demand=${demandId} reason=${ocrPayload.reason || 'none'}`);
   } catch (error) {
     console.error('Error extracting reservation identity data:', error);
     res.status(500).json({ error: 'Extraction OCR impossible' });
@@ -6159,6 +6254,7 @@ app.get('/api/caracteristiques', async (req, res) => {
              COALESCE(bc.override_type_caracteristique, c.type_caracteristique) AS type_caracteristique,
              c.choix_json,
              COALESCE(bc.override_unite, c.unite) AS unite,
+             c.icon_name,
              bc.override_valeur_json AS valeur_json,
              COALESCE(bc.override_onglet_id, mo.onglet_id) AS onglet_id,
              co.nom AS onglet_nom,
@@ -6202,7 +6298,7 @@ app.get('/api/caracteristiques', async (req, res) => {
 app.post('/api/caracteristiques', async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
-    const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, onglet_id, visibilite_client } = req.body;
+    const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, icon_name, onglet_id, visibilite_client } = req.body;
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
     const featureName = String(nom || '').trim();
@@ -6213,6 +6309,7 @@ app.post('/api/caracteristiques', async (req, res) => {
       ? Array.from(new Set(choix.map((item) => String(item || '').trim()).filter(Boolean)))
       : [];
     const normalizedUnit = String(unite || '').trim() || null;
+    const normalizedIconName = String(icon_name || '').trim() || null;
     const visibleClient = Number(visibilite_client) === 0 ? 0 : 1;
     if (!featureName) {
       return res.status(400).json({ error: 'nom requis' });
@@ -6237,8 +6334,8 @@ app.post('/api/caracteristiques', async (req, res) => {
     if (!caracteristique) {
       const id = buildShortId('car', featureName, normalizedMode, normalizedType, Date.now(), Math.random());
       await pool.query(
-        'INSERT INTO caracteristiques (id, nom, type_caracteristique, choix_json, unite, visibilite_client) VALUES (?, ?, ?, ?, ?, ?)',
-        [id, featureName, featureType, featureChoicesJson, featureUnit, visibleClient]
+        'INSERT INTO caracteristiques (id, nom, type_caracteristique, choix_json, unite, icon_name, visibilite_client) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [id, featureName, featureType, featureChoicesJson, featureUnit, normalizedIconName, visibleClient]
       );
       caracteristique = {
         id,
@@ -6246,18 +6343,20 @@ app.post('/api/caracteristiques', async (req, res) => {
         type_caracteristique: featureType,
         choix_json: featureChoicesJson,
         unite: featureUnit,
+        icon_name: normalizedIconName,
         visibilite_client: visibleClient,
       };
     } else {
       await pool.query(
-        'UPDATE caracteristiques SET type_caracteristique = ?, choix_json = ?, unite = ?, visibilite_client = ? WHERE id = ?',
-        [featureType, featureChoicesJson, featureUnit, visibleClient, caracteristique.id]
+        'UPDATE caracteristiques SET type_caracteristique = ?, choix_json = ?, unite = ?, icon_name = ?, visibilite_client = ? WHERE id = ?',
+        [featureType, featureChoicesJson, featureUnit, normalizedIconName, visibleClient, caracteristique.id]
       );
       caracteristique = {
         ...caracteristique,
         type_caracteristique: featureType,
         choix_json: featureChoicesJson,
         unite: featureUnit,
+        icon_name: normalizedIconName,
         visibilite_client: visibleClient,
       };
     }
@@ -6581,6 +6680,7 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
       ? Array.from(new Set(req.body.choix.map((item) => String(item || '').trim()).filter(Boolean)))
       : [];
     const normalizedUnit = String(req.body.unite || '').trim() || null;
+    const normalizedIconName = String(req.body.icon_name || '').trim() || null;
     const normalizedOngletId = String(req.body.onglet_id || '').trim() || null;
     const visibleClient = Number(req.body.visibilite_client) === 0 ? 0 : 1;
 
@@ -6639,6 +6739,7 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
             COALESCE(bc.override_type_caracteristique, c.type_caracteristique) AS type_caracteristique,
             c.choix_json,
             COALESCE(bc.override_unite, c.unite) AS unite,
+            c.icon_name,
             COALESCE(bc.override_onglet_id, mo.onglet_id) AS onglet_id,
             co.nom AS onglet_nom,
             COALESCE(bc.visibilite_client, c.visibilite_client, 1) AS visibilite_client
@@ -6660,8 +6761,8 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
     }
 
     await pool.query(
-      'UPDATE caracteristiques SET nom = ?, type_caracteristique = ?, choix_json = ?, unite = ?, visibilite_client = ? WHERE id = ?',
-      [nom, featureType, (featureType === 'choix_multiple' || featureType === 'plusieurs_choix') ? JSON.stringify(normalizedChoices) : null, featureType === 'valeur' ? normalizedUnit : null, visibleClient, featureId]
+      'UPDATE caracteristiques SET nom = ?, type_caracteristique = ?, choix_json = ?, unite = ?, icon_name = ?, visibilite_client = ? WHERE id = ?',
+      [nom, featureType, (featureType === 'choix_multiple' || featureType === 'plusieurs_choix') ? JSON.stringify(normalizedChoices) : null, featureType === 'valeur' ? normalizedUnit : null, normalizedIconName, visibleClient, featureId]
     );
     await pool.query(
       'UPDATE caracteristique_contextes SET onglet_id = ? WHERE caracteristique_id = ? AND mode_bien = ? AND type_bien = ?',

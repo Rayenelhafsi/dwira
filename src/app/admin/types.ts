@@ -393,6 +393,7 @@ export interface Caracteristique {
   type_caracteristique?: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte';
   choix_json?: string | null;
   unite?: string | null;
+  icon_name?: string | null;
   onglet_id?: string | null;
   onglet_nom?: string | null;
   visibilite_client?: number | null;

@@ -8,6 +8,7 @@
     "build": "vite build",
     "dev": "vite",
     "server": "node server/index.cjs",
+    "sync:caracteristiques": "node scripts/sync-caracteristiques-from-vps.cjs",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },

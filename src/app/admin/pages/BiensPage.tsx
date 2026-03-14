@@ -9,6 +9,7 @@ import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
 import PublicBienPageView from '../../ventes/components/PublicBienPageView';
 import LocationPublicBienPageView from '../../locations/components/LocationPublicBienPageView';
+import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/featureIcons';
 import { isYouTubeUrl, toYouTubeEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -25,6 +26,81 @@ const resolveMediaUrl = (url?: string | null) => {
   if (value.startsWith('/')) return `${origin}${value}`;
   return value;
 };
+
+const renderFeatureIconPreview = (
+  iconName?: string | null,
+  featureName?: string | null,
+  options?: { onClick?: () => void; expanded?: boolean }
+) => {
+  const content = (
+    <>
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white shadow-sm">
+        {getFeatureIconElement(iconName, featureName, null)}
+      </span>
+      <span>{String(featureName || '').trim() || 'Apercu icone'}</span>
+      {options?.onClick && (
+        <span className="text-[11px] text-emerald-700/80">
+          {options.expanded ? 'Masquer' : 'Modifier'}
+        </span>
+      )}
+    </>
+  );
+
+  if (options?.onClick) {
+    return (
+      <button
+        type="button"
+        onClick={options.onClick}
+        className="inline-flex w-full items-center justify-between gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100/70"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+      {content}
+    </span>
+  );
+};
+
+const renderFeatureIconPicker = (
+  selectedIconName: string,
+  featureName: string,
+  onSelect: (iconName: string) => void
+) => (
+  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3">
+    <div className="mb-2 flex flex-wrap items-center gap-2">
+      {renderFeatureIconPreview(selectedIconName, featureName)}
+      <span className="text-xs text-emerald-800">Choisir une icone</span>
+    </div>
+    <div className="max-h-72 overflow-y-auto pr-1">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+      {FEATURE_ICON_OPTIONS.map((option) => {
+        const isActive = option.value === selectedIconName;
+        return (
+          <button
+            key={option.value || 'auto'}
+            type="button"
+            onClick={() => onSelect(option.value)}
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition ${
+              isActive
+                ? 'border-emerald-500 bg-white text-emerald-900 shadow-sm'
+                : 'border-emerald-100 bg-white/80 text-gray-700 hover:border-emerald-300 hover:bg-white'
+            }`}
+          >
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-50">
+              {getFeatureIconElement(option.value, featureName, null)}
+            </span>
+            <span className="leading-tight">{option.label}</span>
+          </button>
+        );
+      })}
+      </div>
+    </div>
+  </div>
+);
 
 const statusColors: Record<BienStatut, string> = { disponible: "bg-emerald-100 text-emerald-800 border-emerald-200", loue: "bg-blue-100 text-blue-800 border-blue-200", reserve: "bg-amber-100 text-amber-800 border-amber-200", maintenance: "bg-red-100 text-red-800 border-red-200", bloque: "bg-gray-200 text-gray-800 border-gray-300" };
 const statusLabels: Record<BienStatut, string> = { disponible: "Disponible", loue: "Loué", reserve: "Réservé", maintenance: "Maintenance", bloque: "Bloqué" };
@@ -190,6 +266,7 @@ type PendingFeatureAddition = {
   type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte';
   choix: string[];
   unite: string | null;
+  icon_name: string | null;
   onglet_id: string | null;
   visibilite_client: 0 | 1;
 };
@@ -971,12 +1048,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newFeatureType, setNewFeatureType] = useState<'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'>('simple');
   const [newFeatureChoices, setNewFeatureChoices] = useState('');
   const [newFeatureUnit, setNewFeatureUnit] = useState('');
+  const [newFeatureIconName, setNewFeatureIconName] = useState('');
+  const [openFeatureIconPickerId, setOpenFeatureIconPickerId] = useState<string | null>('new');
   const [newFeatureVisibilite, setNewFeatureVisibilite] = useState<0 | 1>(1);
   const [featureTabs, setFeatureTabs] = useState<CaracteristiqueOnglet[]>([]);
   const [featureTabDrafts, setFeatureTabDrafts] = useState<Record<string, string>>({});
   const [selectedFeatureTabId, setSelectedFeatureTabId] = useState<string>('');
   const [newFeatureTabName, setNewFeatureTabName] = useState('');
-  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
+  const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; icon_name: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
@@ -2077,13 +2156,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         setFeatureValueById((prev) => ({ ...prev, ...nextValueById }));
       }
       setFeatureDrafts((prev) => {
-        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
+        const nextDrafts: Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; icon_name: string; onglet_id: string; visibilite_client: 0 | 1 }> = {};
         for (const feature of nextFeatures) {
           nextDrafts[feature.id] = {
             nom: feature.nom || '',
             type_caracteristique: normalizeFeatureType(feature.type_caracteristique),
             choix: stringifyFeatureChoices(feature.choix_json),
             unite: feature.unite || '',
+            icon_name: feature.icon_name || '',
             onglet_id: feature.onglet_id || '',
             visibilite_client: Number(feature.visibilite_client) === 0 ? 0 : 1,
           };
@@ -2158,6 +2238,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setNewFeatureType('simple');
       setNewFeatureChoices('');
       setNewFeatureUnit('');
+      setNewFeatureIconName('');
+      setOpenFeatureIconPickerId('new');
       setNewFeatureVisibilite(1);
       setFeatureExistsDialog({
         open: false,
@@ -2212,6 +2294,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       type_caracteristique: newFeatureType,
       choix: (newFeatureType === 'choix_multiple' || newFeatureType === 'plusieurs_choix') ? parsedChoices : [],
       unite: newFeatureType === 'valeur' ? parsedUnit : null,
+      icon_name: newFeatureIconName || null,
       onglet_id: selectedFeatureTabId || null,
       visibilite_client: newFeatureVisibilite,
     };
@@ -2380,7 +2463,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
   };
 
-  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; onglet_id: string; visibilite_client: 0 | 1 }>) => {
+  const handleFeatureDraftChange = (featureId: string, patch: Partial<{ nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; icon_name: string; onglet_id: string; visibilite_client: 0 | 1 }>) => {
     setFeatureDrafts((prev) => ({
       ...prev,
       [featureId]: {
@@ -2388,6 +2471,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         type_caracteristique: prev[featureId]?.type_caracteristique || 'simple',
         choix: prev[featureId]?.choix || '',
         unite: prev[featureId]?.unite || '',
+        icon_name: prev[featureId]?.icon_name || '',
         onglet_id: prev[featureId]?.onglet_id || '',
         visibilite_client: prev[featureId]?.visibilite_client ?? 1,
         ...patch,
@@ -2431,6 +2515,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             type_caracteristique: draft.type_caracteristique,
             choix: (draft.type_caracteristique === 'choix_multiple' || draft.type_caracteristique === 'plusieurs_choix') ? normalizedChoices : [],
             unite: draft.type_caracteristique === 'valeur' ? normalizedUnit : null,
+            icon_name: draft.icon_name || null,
             onglet_id: draft.onglet_id || null,
             visibilite_client: draft.visibilite_client,
           }),
@@ -2460,12 +2545,14 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       const currentType = normalizeFeatureType(feature.type_caracteristique);
       const currentChoices = stringifyFeatureChoices(feature.choix_json);
       const currentUnit = String(feature.unite || '').trim();
+      const currentIconName = String(feature.icon_name || '').trim();
       const currentTab = String(feature.onglet_id || '').trim();
       const currentVisibility = Number(feature.visibilite_client) === 0 ? 0 : 1;
       const nextName = String(draft.nom || '').trim();
       const nextType = draft.type_caracteristique;
       const nextChoices = parseFeatureChoices(draft.choix);
       const nextUnit = String(draft.unite || '').trim();
+      const nextIconName = String(draft.icon_name || '').trim();
       const nextTab = String(draft.onglet_id || '').trim();
       const nextVisibility = draft.visibilite_client;
       const unchanged =
@@ -2473,6 +2560,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
         nextType === currentType &&
         draft.choix.trim() === currentChoices &&
         nextUnit === currentUnit &&
+        nextIconName === currentIconName &&
         nextTab === currentTab &&
         nextVisibility === currentVisibility;
       if (unchanged) continue;
@@ -2493,6 +2581,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             type_caracteristique: nextType,
             choix: (nextType === 'choix_multiple' || nextType === 'plusieurs_choix') ? nextChoices : [],
             unite: nextType === 'valeur' ? nextUnit : null,
+            icon_name: nextIconName || null,
             onglet_id: nextTab || null,
             visibilite_client: nextVisibility,
           }),
@@ -3834,25 +3923,32 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-                    <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="rounded-lg border-gray-300 border p-2 text-sm" />
-                    <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte')} className="rounded-lg border-gray-300 border p-2 text-sm">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                    <input type="text" value={newFeature} onChange={(e) => setNewFeature(e.target.value)} placeholder="Ex: Wifi, Vue mer, Clim centralisee" className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm" />
+                    <select value={newFeatureType} onChange={(e) => setNewFeatureType(e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte')} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="simple">Simple (Oui/Non)</option>
                       <option value="choix_multiple">Choix unique (liste)</option>
                       <option value="plusieurs_choix">Plusieurs a la fois (multi-selection)</option>
                       <option value="valeur">Valeur</option>
                       <option value="texte">Texte</option>
                     </select>
-                    <select value={newFeatureVisibilite} onChange={(e) => setNewFeatureVisibilite((Number(e.target.value) === 0 ? 0 : 1) as 0 | 1)} className="rounded-lg border-gray-300 border p-2 text-sm">
+                    <div className="min-w-0 flex items-center">
+                      {renderFeatureIconPreview(newFeatureIconName, newFeature, {
+                        onClick: () => setOpenFeatureIconPickerId((prev) => prev === 'new' ? null : 'new'),
+                        expanded: openFeatureIconPickerId === 'new',
+                      })}
+                    </div>
+                    <select value={newFeatureVisibilite} onChange={(e) => setNewFeatureVisibilite((Number(e.target.value) === 0 ? 0 : 1) as 0 | 1)} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                       <option value={1}>Externe (client)</option>
                       <option value={0}>Interne (admin)</option>
                     </select>
-                    <select value={selectedFeatureTabId} onChange={(e) => setSelectedFeatureTabId(e.target.value)} className="rounded-lg border-gray-300 border p-2 text-sm">
+                    <select value={selectedFeatureTabId} onChange={(e) => setSelectedFeatureTabId(e.target.value)} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="">-- Choisir onglet details --</option>
                       {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                     </select>
                     <button type="button" onClick={() => void handleAddFeature()} disabled={featureSaving || !canAddFeature} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">{featureSaving ? '...' : 'Ajouter'}</button>
                   </div>
+                  {openFeatureIconPickerId === 'new' && renderFeatureIconPicker(newFeatureIconName, newFeature, setNewFeatureIconName)}
                   {(newFeatureType === 'choix_multiple' || newFeatureType === 'plusieurs_choix') && (
                     <input
                       type="text"
@@ -3884,25 +3980,37 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                             type_caracteristique: normalizeFeatureType(feature.type_caracteristique),
                             choix: stringifyFeatureChoices(feature.choix_json),
                             unite: feature.unite || '',
+                            icon_name: feature.icon_name || '',
                             onglet_id: '',
                             visibilite_client: (Number(feature.visibilite_client) === 0 ? 0 : 1) as 0 | 1
                           };
                           return (
-                            <div key={`unassigned-${feature.id}`} className="grid grid-cols-1 md:grid-cols-5 gap-2 rounded-lg border border-amber-200 bg-white p-2">
-                              <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
-                              <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                            <div key={`unassigned-${feature.id}`} className="grid grid-cols-1 gap-2 rounded-lg border border-amber-200 bg-white p-2 sm:grid-cols-2 xl:grid-cols-6">
+                              <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm" />
+                              <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                                 <option value="">Choisir onglet</option>
                                 {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                               </select>
-                              <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                              <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                                 <option value="simple">Simple</option>
                                 <option value="choix_multiple">Choix unique</option>
                                 <option value="plusieurs_choix">Plusieurs a la fois</option>
                                 <option value="valeur">Valeur</option>
                                 <option value="texte">Texte</option>
                               </select>
-                              <input value={draft.type_caracteristique === 'choix_multiple' || draft.type_caracteristique === 'plusieurs_choix' ? draft.choix : draft.unite} onChange={(e) => handleFeatureDraftChange(feature.id, draft.type_caracteristique === 'choix_multiple' || draft.type_caracteristique === 'plusieurs_choix' ? { choix: e.target.value } : { unite: e.target.value })} placeholder={draft.type_caracteristique === 'choix_multiple' || draft.type_caracteristique === 'plusieurs_choix' ? 'Choix (si type choix)' : 'Unite (si valeur)'} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                              <div className="min-w-0 flex items-center">
+                                {renderFeatureIconPreview(draft.icon_name, draft.nom, {
+                                  onClick: () => setOpenFeatureIconPickerId((prev) => prev === feature.id ? null : feature.id),
+                                  expanded: openFeatureIconPickerId === feature.id,
+                                })}
+                              </div>
+                              <input value={draft.type_caracteristique === 'choix_multiple' || draft.type_caracteristique === 'plusieurs_choix' ? draft.choix : draft.unite} onChange={(e) => handleFeatureDraftChange(feature.id, draft.type_caracteristique === 'choix_multiple' || draft.type_caracteristique === 'plusieurs_choix' ? { choix: e.target.value } : { unite: e.target.value })} placeholder={draft.type_caracteristique === 'choix_multiple' || draft.type_caracteristique === 'plusieurs_choix' ? 'Choix (si type choix)' : 'Unite (si valeur)'} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm" />
                               <button type="button" onClick={() => void handleUpdateFeature(feature)} disabled={featureSaving || !draft.onglet_id} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Associer</button>
+                              {openFeatureIconPickerId === feature.id && (
+                                <div className="sm:col-span-2 xl:col-span-6">
+                                  {renderFeatureIconPicker(draft.icon_name, draft.nom, (iconName) => handleFeatureDraftChange(feature.id, { icon_name: iconName }))}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -3916,31 +4024,49 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         type_caracteristique: normalizeFeatureType(feature.type_caracteristique),
                         choix: stringifyFeatureChoices(feature.choix_json),
                         unite: feature.unite || '',
+                        icon_name: feature.icon_name || '',
                         onglet_id: feature.onglet_id || '',
                         visibilite_client: (Number(feature.visibilite_client) === 0 ? 0 : 1) as 0 | 1
                       };
                       return (
-                        <div key={feature.id} className="grid grid-cols-1 md:grid-cols-8 gap-2 p-2 bg-white border border-emerald-200 rounded-lg">
-                          <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
-                          <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' })} className="rounded-lg border-gray-300 border p-2 text-sm">
-                            <option value="simple">Simple</option>
-                            <option value="choix_multiple">Choix unique</option>
-                            <option value="plusieurs_choix">Plusieurs a la fois</option>
-                            <option value="valeur">Valeur</option>
-                            <option value="texte">Texte</option>
-                          </select>
-                          <select value={draft.visibilite_client} onChange={(e) => handleFeatureDraftChange(feature.id, { visibilite_client: (Number(e.target.value) === 0 ? 0 : 1) as 0 | 1 })} className="rounded-lg border-gray-300 border p-2 text-sm">
-                            <option value={1}>Externe</option>
-                            <option value={0}>Interne</option>
-                          </select>
-                          <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm">
-                            {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
-                          </select>
-                          <input value={draft.choix} onChange={(e) => handleFeatureDraftChange(feature.id, { choix: e.target.value })} placeholder="Choix (si multiple)" className="rounded-lg border-gray-300 border p-2 text-sm" />
-                          <input value={draft.unite} onChange={(e) => handleFeatureDraftChange(feature.id, { unite: e.target.value })} placeholder="Unite (si type valeur)" className="rounded-lg border-gray-300 border p-2 text-sm" />
-                          <button type="button" onClick={() => void handleUpdateFeature(feature)} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier</button>
-                          <button type="button" onClick={() => void handleUpdateFeatureWithScope(feature, true)} disabled={featureSaving} className="px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg text-sm disabled:opacity-60">Appliquer a tous</button>
-                          <button type="button" onClick={() => void handleRemoveFeature(feature)} disabled={featureSaving} className="px-3 py-2 border border-red-300 text-red-600 rounded-lg text-sm disabled:opacity-60">Supprimer</button>
+                        <div key={feature.id} className="space-y-2 p-2 bg-white border border-emerald-200 rounded-lg">
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm" />
+                            <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
+                              <option value="simple">Simple</option>
+                              <option value="choix_multiple">Choix unique</option>
+                              <option value="plusieurs_choix">Plusieurs a la fois</option>
+                              <option value="valeur">Valeur</option>
+                              <option value="texte">Texte</option>
+                            </select>
+                            <select value={draft.visibilite_client} onChange={(e) => handleFeatureDraftChange(feature.id, { visibilite_client: (Number(e.target.value) === 0 ? 0 : 1) as 0 | 1 })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
+                              <option value={1}>Externe</option>
+                              <option value={0}>Interne</option>
+                            </select>
+                            <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
+                              {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                            <div className="min-w-0 flex items-center">
+                              {renderFeatureIconPreview(draft.icon_name, draft.nom, {
+                                onClick: () => setOpenFeatureIconPickerId((prev) => prev === feature.id ? null : feature.id),
+                                expanded: openFeatureIconPickerId === feature.id,
+                              })}
+                            </div>
+                            <input value={draft.choix} onChange={(e) => handleFeatureDraftChange(feature.id, { choix: e.target.value })} placeholder="Choix (si multiple)" className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm" />
+                            <input value={draft.unite} onChange={(e) => handleFeatureDraftChange(feature.id, { unite: e.target.value })} placeholder="Unite (si type valeur)" className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm" />
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <button type="button" onClick={() => void handleUpdateFeature(feature)} disabled={featureSaving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">Modifier</button>
+                            <button type="button" onClick={() => void handleUpdateFeatureWithScope(feature, true)} disabled={featureSaving} className="px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg text-sm disabled:opacity-60">Appliquer a tous</button>
+                            <button type="button" onClick={() => void handleRemoveFeature(feature)} disabled={featureSaving} className="px-3 py-2 border border-red-300 text-red-600 rounded-lg text-sm disabled:opacity-60">Supprimer</button>
+                          </div>
+                          {openFeatureIconPickerId === feature.id && (
+                            <div>
+                              {renderFeatureIconPicker(draft.icon_name, draft.nom, (iconName) => handleFeatureDraftChange(feature.id, { icon_name: iconName }))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

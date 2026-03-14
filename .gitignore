@@ -41,3 +41,8 @@ dwira_local_before_sync.sql
 
 scripts/insert-demo-locs-appartement.sql
 dwira_pc_to_vps.sql
+backups/apply_vps_caracteristiques_sync_2026-03-14.sql
+backups/apply_vps_caracteristiques_sync_workbench_safe_2026-03-14.sql
+backups/local_caracteristiques_before_vps_sync_2026-03-14.sql
+backups/vps_caracteristiques_data_2026-03-14.sql
+backups/vps_caracteristiques_full_workbench_2026-03-14.sql

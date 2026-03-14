@@ -1,6 +1,6 @@
 ﻿import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell } from "lucide-react";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
@@ -14,6 +14,8 @@ import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { getFeatureIconElement } from "../utils/featureIcons";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import {
   clearAuthPendingLogin,
@@ -31,6 +33,10 @@ type FeatureApiRow = {
   nom: string;
   onglet_id?: string | null;
   onglet_nom?: string | null;
+  type_caracteristique?: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' | null;
+  unite?: string | null;
+  icon_name?: string | null;
+  valeur_json?: string | null;
   visibilite_client?: number | null;
 };
 
@@ -42,6 +48,8 @@ type FeatureTabRow = {
 
 type SeasonalDetailRow = { label: string; value: string };
 type SeasonalFallbackTab = { id: string; nom: string; rows: SeasonalDetailRow[] };
+type AmenitySection = { id: string; nom: string; features: FeatureApiRow[] };
+type FeatureDisplayItem = { id: string; label: string; meta: string | null; sectionName: string; feature: FeatureApiRow };
 
 const normalizeFeatureName = (value: string) =>
   String(value || '')
@@ -50,6 +58,26 @@ const normalizeFeatureName = (value: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+const cleanFeatureTabName = (value: string) =>
+  String(value || '')
+    .replace(/^\s*\d+\s*[\.\-:)]\s*/g, '')
+    .trim();
+
+const parseFeatureValueJson = (rawValue?: string | null): string[] => {
+  const text = String(rawValue || '').trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item || '').trim()).filter(Boolean);
+    }
+    const scalar = String(parsed || '').trim();
+    return scalar ? [scalar] : [];
+  } catch {
+    return text ? [text] : [];
+  }
+};
 
 type LatLng = { lat: number; lng: number };
 type NearbyPlace = {
@@ -251,6 +279,7 @@ export default function PropertyDetailsPage() {
   const [selectedPaidServiceIds, setSelectedPaidServiceIds] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance'>('avance');
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
+  const [showAmenitiesDialog, setShowAmenitiesDialog] = useState(false);
   const [seasonalDetailsTabId, setSeasonalDetailsTabId] = useState<string>('');
   const [allFeatures, setAllFeatures] = useState<FeatureApiRow[]>([]);
   const [featureTabs, setFeatureTabs] = useState<FeatureTabRow[]>([]);
@@ -476,15 +505,8 @@ out body 40;
     void loadNearby();
     return () => { cancelled = true; };
   }, [displayMapCenter?.lat, displayMapCenter?.lng]);
-  const amenityIcon = useCallback((amenity: string) => {
-    const key = normalizeAmenity(amenity);
-    if (key.includes('wifi')) return <Wifi size={16} className="text-emerald-600" />;
-    if (key.includes('clim')) return <Snowflake size={16} className="text-emerald-600" />;
-    if (key.includes('kitchen') || key.includes('cuisine')) return <UtensilsCrossed size={16} className="text-emerald-600" />;
-    if (key.includes('parking') || key.includes('garage')) return <Car size={16} className="text-emerald-600" />;
-    if (key.includes('tv') || key.includes('tele')) return <Tv size={16} className="text-emerald-600" />;
-    if (key.includes('plage') || key.includes('mer')) return <Waves size={16} className="text-emerald-600" />;
-    return <Check size={16} className="text-emerald-600" />;
+  const featureIcon = useCallback((iconName?: string | null, featureName?: string | null, tabName?: string | null) => {
+    return getFeatureIconElement(iconName, featureName, tabName);
   }, []);
   const scrollToSeasonalDetails = useCallback(() => {
     const target = seasonalDetailsPanelRef.current;
@@ -691,6 +713,27 @@ out body 40;
     () => selectedPublicFeatures.filter((item) => String(item.onglet_id || '').trim().length > 0),
     [selectedPublicFeatures]
   );
+  const amenitySections = useMemo<AmenitySection[]>(() => {
+    const orderLookup = new Map(featureTabs.map((tab) => [String(tab.id), Number(tab.ordre || 999)]));
+    const nameLookup = new Map(featureTabs.map((tab) => [String(tab.id), cleanFeatureTabName(tab.nom)]));
+    const grouped = new Map<string, AmenitySection>();
+
+    selectedVisibleFeatures.forEach((feature) => {
+      const tabId = String(feature.onglet_id || '').trim() || 'autres';
+      const tabName = String(feature.onglet_nom || nameLookup.get(tabId) || 'Autres équipements');
+      if (!grouped.has(tabId)) {
+        grouped.set(tabId, { id: tabId, nom: cleanFeatureTabName(tabName), features: [] });
+      }
+      grouped.get(tabId)?.features.push(feature);
+    });
+
+    return Array.from(grouped.values())
+      .map((section) => ({
+        ...section,
+        features: section.features.slice().sort((a, b) => String(a.nom || '').localeCompare(String(b.nom || ''), 'fr')),
+      }))
+      .sort((a, b) => (orderLookup.get(a.id) ?? 999) - (orderLookup.get(b.id) ?? 999));
+  }, [featureTabs, selectedVisibleFeatures]);
   const detailTabs = useMemo(() => {
     const availableTabIds = new Set(selectedVisibleFeatures.map((item) => String(item.onglet_id || '')));
     return featureTabs
@@ -901,6 +944,38 @@ out body 40;
     typeCautionLabel,
     vueLabel,
   ]);
+  const secondaryValueForFeature = useCallback((featureName: string) => {
+    const value = valueForFeature(featureName);
+    if (!value || value === '-' || value === 'Oui') return null;
+    return value;
+  }, [valueForFeature]);
+  const featureDisplayItems = useMemo<FeatureDisplayItem[]>(() => (
+    amenitySections.flatMap((section) => (
+      section.features.flatMap((feature) => {
+        const values = parseFeatureValueJson(feature.valeur_json);
+        if (values.length > 0) {
+          return values.map((value, index) => ({
+            id: `${feature.id}:${index}:${value}`,
+            label: value,
+            meta: feature.nom,
+            sectionName: section.nom,
+            feature,
+          }));
+        }
+        const fallbackValue = valueForFeature(feature.nom);
+        const isFallbackUseful = fallbackValue && fallbackValue !== '-' && fallbackValue !== 'Oui';
+        return [{
+          id: feature.id,
+          label: isFallbackUseful ? fallbackValue : feature.nom,
+          meta: isFallbackUseful ? feature.nom : null,
+          sectionName: section.nom,
+          feature,
+        }];
+      })
+    ))
+  ), [amenitySections, valueForFeature]);
+  const amenityPreviewItems = useMemo(() => featureDisplayItems.slice(0, 6), [featureDisplayItems]);
+  const totalAmenitiesCount = featureDisplayItems.length;
 
   // Load saved state from localStorage on mount
   useEffect(() => {
@@ -1612,18 +1687,82 @@ out body 40;
             )}
 
             <div className="py-8 border-b border-gray-100">
-              <h3 className="text-xl font-bold mb-6">Ce que propose ce logement</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {property.amenities.map((amenity, idx) => (
-                  <div key={idx} className="flex items-center gap-3 text-gray-700">
-                    <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center">
-                       {amenityIcon(amenity)}
-                    </div>
-                    <span>{amenity}</span>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between gap-4 mb-6">
+                <h3 className="text-xl font-bold">Ce que propose ce logement</h3>
+                {totalAmenitiesCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAmenitiesDialog(true)}
+                    className="hidden rounded-2xl border border-gray-900 px-4 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-50 md:inline-flex"
+                  >
+                    Afficher les {totalAmenitiesCount} équipements
+                  </button>
+                ) : null}
               </div>
+
+              {amenityPreviewItems.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {amenityPreviewItems.map((item) => {
+                      return (
+                        <div key={item.id} className="flex items-start gap-3 text-gray-800">
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-50">
+                            {featureIcon(item.feature.icon_name, item.label, item.sectionName)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-medium leading-6">{item.label}</div>
+                            {item.meta ? <div className="text-sm text-gray-500">{item.meta}</div> : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAmenitiesDialog(true)}
+                    className="mt-8 inline-flex rounded-2xl border border-gray-900 px-5 py-3 text-base font-semibold text-gray-900 transition-colors hover:bg-gray-50 md:hidden"
+                  >
+                    Afficher les {totalAmenitiesCount} équipements
+                  </button>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-5 text-sm text-gray-500">
+                  Aucune caractéristique visible pour ce logement.
+                </div>
+              )}
             </div>
+
+            <Dialog open={showAmenitiesDialog} onOpenChange={setShowAmenitiesDialog}>
+              <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-[2rem] border-0 p-0 shadow-2xl">
+                <DialogHeader className="border-b border-gray-100 px-8 pt-8 pb-6">
+                  <DialogTitle className="text-3xl font-bold text-gray-900">Ce que propose ce logement</DialogTitle>
+                </DialogHeader>
+                <div className="max-h-[calc(88vh-110px)] overflow-y-auto px-8 pb-8">
+                  <div className="space-y-10 pt-6">
+                    {amenitySections.map((section) => (
+                      <section key={section.id}>
+                        <h4 className="text-2xl font-semibold text-gray-900">{section.nom}</h4>
+                        <div className="mt-4 divide-y divide-gray-200">
+                          {featureDisplayItems
+                            .filter((item) => item.sectionName === section.nom)
+                            .map((item) => (
+                              <div key={item.id} className="flex items-start gap-4 py-5">
+                                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-50">
+                                  {featureIcon(item.feature.icon_name, item.label, section.nom)}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-xl font-medium text-gray-900">{item.label}</div>
+                                  {item.meta ? <p className="mt-1 text-sm text-gray-500">{item.meta}</p> : null}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
 
             <div className="py-8">
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
