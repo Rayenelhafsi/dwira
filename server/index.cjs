@@ -602,7 +602,9 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
+    const originalExt = path.extname(file.originalname);
+    const mime = String(file.mimetype || '').toLowerCase();
+    const ext = originalExt || (mime.includes('heic') ? '.heic' : (mime.includes('heif') ? '.heif' : ''));
     cb(null, 'image-' + uniqueSuffix + ext);
   }
 });
@@ -611,14 +613,17 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
   fileFilter: (req, file, cb) => {
-    const imageTypes = /jpeg|jpg|png|gif|webp/;
+    const imageTypes = /jpeg|jpg|png|gif|webp|heic|heif/;
     const videoTypes = /mp4|webm|mov|m4v|quicktime/;
     const ext = path.extname(file.originalname).toLowerCase();
     const normalizedExt = ext.replace('.', '');
+    const originalName = String(file.originalname || '').toLowerCase();
     const mime = String(file.mimetype || '').toLowerCase();
     const extAllowed = imageTypes.test(normalizedExt) || videoTypes.test(normalizedExt);
+    const nameAllowed = imageTypes.test(originalName) || videoTypes.test(originalName);
     const mimeAllowed = mime.startsWith('image/') || mime.startsWith('video/') || imageTypes.test(mime) || videoTypes.test(mime);
-    if (extAllowed && mimeAllowed) {
+    const looseMimeAllowed = mime === '' || mime === 'application/octet-stream';
+    if ((extAllowed || nameAllowed || looseMimeAllowed) && (mimeAllowed || looseMimeAllowed)) {
       return cb(null, true);
     }
     cb(new Error('Only image and video files are allowed'));

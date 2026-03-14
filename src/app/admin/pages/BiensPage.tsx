@@ -1506,8 +1506,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   }, [formData.lotissement_nb_terrains, formData.reference]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, motifOverride?: string | null) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const isLocalCommercial = selectedType === 'local_commercial';
     const resolvedMotif = motifOverride ?? (isLocalCommercial ? newImageMotif.trim() : null);
@@ -1517,23 +1517,38 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       return;
     }
     setUploading(true);
-    const uploadFormData = new FormData();
-    uploadFormData.append('image', file);
     try {
-      const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
-      if (!response.ok) throw new Error('Upload failed');
-      const data = await response.json();
-      const newMedia: Media = {
-        id: Math.random().toString(36).substr(2, 9),
-        bien_id: '',
-        type: 'image',
-        url: data.url,
-        motif_upload: resolvedMotif,
-      };
-      setImages([...images, newMedia]);
+      const uploadedMedia: Media[] = [];
+      for (const file of files) {
+        const uploadFormData = new FormData();
+        uploadFormData.append('image', file);
+        const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
+        if (!response.ok) {
+          let errorMessage = 'Upload failed';
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const payload = await response.json().catch(() => null);
+            errorMessage = String(payload?.error || errorMessage);
+          } else {
+            errorMessage = await response.text().catch(() => errorMessage);
+          }
+          throw new Error(errorMessage);
+        }
+        const data = await response.json();
+        uploadedMedia.push({
+          id: Math.random().toString(36).substr(2, 9),
+          bien_id: '',
+          type: String(data.mediaType || '').startsWith('video') ? 'video' : 'image',
+          url: data.url,
+          motif_upload: resolvedMotif,
+        });
+      }
+      setImages((prev) => [...prev, ...uploadedMedia]);
       if (isLocalCommercial && !motifOverride) setNewImageMotif('');
       toast.success('Image uploadée');
-    } catch { toast.error('Erreur upload'); }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erreur upload');
+    }
     finally { setUploading(false); e.target.value = ''; }
   };
 
@@ -2043,7 +2058,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           </label>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             multiple
             onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e)}
             disabled={uploading}
@@ -2084,7 +2099,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           </label>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             multiple
             onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e)}
             disabled={uploading}
@@ -4618,7 +4633,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                               </label>
                               <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/*,.heic,.heif"
                                 multiple
                                 onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e, `terrain_${idx + 1}`)}
                                 disabled={uploading}
@@ -4642,7 +4657,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                               </label>
                               <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/*,.heic,.heif"
                                 multiple
                                 onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e, `terrain_${idx + 1}`)}
                                 disabled={uploading}
@@ -4712,7 +4727,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                                 </label>
                                 <input
                                   type="file"
-                                  accept="image/*"
+                                  accept="image/*,.heic,.heif"
                                   multiple
                                   onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_RUE, e, `appartement_${idx + 1}`)}
                                   disabled={uploading}
@@ -4736,7 +4751,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                                 </label>
                                 <input
                                   type="file"
-                                  accept="image/*"
+                                  accept="image/*,.heic,.heif"
                                   multiple
                                   onChange={(e) => handleProofFileUpload(PROOF_MOTIF_TYPE_PAPIER, e, `appartement_${idx + 1}`)}
                                   disabled={uploading}
@@ -5204,7 +5219,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                             <Upload className="h-4 w-4 text-emerald-600" />
                             <span>Ou upload ({label})</span>
                           </label>
-                          <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, unitMotif)} disabled={uploading} className="block w-full text-sm" />
+                          <input type="file" accept="image/*,.heic,.heif" multiple onChange={(e) => handleFileUpload(e, unitMotif)} disabled={uploading} className="block w-full text-sm" />
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
                           {unitImages.map((img, index) => (
@@ -5240,7 +5255,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       <Upload className="h-4 w-4 text-emerald-600" />
                       <span>Ou upload</span>
                     </label>
-                    <input type="file" accept="image/*" onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
+                    <input type="file" accept="image/*,.heic,.heif" multiple onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
                     {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
