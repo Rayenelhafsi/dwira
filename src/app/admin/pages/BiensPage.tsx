@@ -5027,7 +5027,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold text-gray-700">Services payants (factures cote client)</p>
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700">Services payants (factures cote client)</p>
+                            <p className="text-[11px] text-gray-500">Les prix modifies ici s'appliquent seulement a ce bien.</p>
+                          </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <select
                               value={selectedServiceCatalogId}

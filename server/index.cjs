@@ -3019,15 +3019,7 @@ async function ensurePaidServicesSchema() {
         `INSERT INTO services_payants_catalogue (
            id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           categorie = VALUES(categorie),
-           label = VALUES(label),
-           description_courte = VALUES(description_courte),
-           prix_affiche = VALUES(prix_affiche),
-           prix_base = VALUES(prix_base),
-           type_tarification = VALUES(type_tarification),
-           enabled = VALUES(enabled),
-           updated_at = VALUES(updated_at)`,
+         ON DUPLICATE KEY UPDATE id = id`,
         [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
       );
       await pool.query(
@@ -3131,15 +3123,7 @@ async function syncBienPaidServices(bienId, services) {
       `INSERT INTO services_payants_catalogue (
          id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         categorie = VALUES(categorie),
-         label = VALUES(label),
-         description_courte = VALUES(description_courte),
-         prix_affiche = VALUES(prix_affiche),
-         prix_base = VALUES(prix_base),
-         type_tarification = VALUES(type_tarification),
-         enabled = VALUES(enabled),
-         updated_at = VALUES(updated_at)`,
+       ON DUPLICATE KEY UPDATE id = id`,
       [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
     );
     await pool.query(
