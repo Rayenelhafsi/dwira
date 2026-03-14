@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, CheckCircle2, History, MessageSquareShare, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Notification, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
+import { getServiceDisplayPrice } from '../../utils/servicePayants';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -52,6 +53,7 @@ export default function NotificationsPage() {
   const [historyDemandId, setHistoryDemandId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [serviceQuoteDrafts, setServiceQuoteDrafts] = useState<Record<string, Record<string, number>>>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -128,6 +130,32 @@ export default function NotificationsPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Impossible de marquer la notification comme lue');
     }
+  };
+
+  const getVariableServiceDrafts = (demand: ReservationDemand) => {
+    const existing = serviceQuoteDrafts[demand.id];
+    if (existing) return existing;
+    const base: Record<string, number> = {};
+    (demand.variable_services_quote || demand.selected_variable_services || []).forEach((service) => {
+      base[String(service.id)] = Number((service as any).prix_saisi ?? service.prix ?? 0);
+    });
+    return base;
+  };
+
+  const saveVariableServicesQuote = async (demand: ReservationDemand) => {
+    const sourceServices = demand.selected_variable_services || [];
+    const drafts = getVariableServiceDrafts(demand);
+    const quoteRows = sourceServices.map((service) => ({
+      ...service,
+      prix_saisi: Math.max(0, Number(drafts[String(service.id)] || 0)),
+    }));
+    const quoteTotal = quoteRows.reduce((sum, service) => sum + Number(service.prix_saisi || 0), 0);
+    await handleDemandUpdate(demand, {
+      variable_services_quote: quoteRows,
+      variable_services_quote_total: quoteTotal,
+      variable_services_quote_status: quoteRows.length > 0 ? 'devis_envoye' : 'aucun',
+      history_note: quoteRows.length > 0 ? `Devis services envoye (${quoteTotal} TND)` : 'Aucun devis services a envoyer',
+    });
   };
 
   if (loading) {
@@ -212,6 +240,65 @@ export default function NotificationsPage() {
                 <div>Reponse proprietaire: <span className="font-medium text-gray-700">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</span></div>
                 <div>Consultation client: <span className="font-medium text-gray-700">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</span></div>
               </div>
+              {(demand.selected_fixed_services?.length || demand.selected_variable_services?.length) ? (
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  {(demand.selected_fixed_services || []).length > 0 && (
+                    <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Services fixes inclus</p>
+                      <div className="mt-2 space-y-2 text-sm text-gray-700">
+                        {(demand.selected_fixed_services || []).map((service) => (
+                          <div key={`fixed-${service.id}`} className="flex items-center justify-between gap-3">
+                            <span>{service.label}</span>
+                            <span className="font-semibold text-gray-900">{getServiceDisplayPrice(service)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(demand.selected_variable_services || []).length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Services a deviser</p>
+                      <div className="mt-2 space-y-2">
+                        {(demand.selected_variable_services || []).map((service) => (
+                          <div key={`variable-${service.id}`} className="grid gap-2 sm:grid-cols-[1fr_120px]">
+                            <div className="text-sm text-gray-700">
+                              <div className="font-medium text-gray-900">{service.label}</div>
+                              <div className="text-xs text-gray-500">{service.categorie || 'Services client'} - {getServiceDisplayPrice(service)}</div>
+                            </div>
+                            <input
+                              type="number"
+                              min={0}
+                              value={getVariableServiceDrafts(demand)[String(service.id)] ?? 0}
+                              onChange={(event) => setServiceQuoteDrafts((prev) => ({
+                                ...prev,
+                                [demand.id]: {
+                                  ...getVariableServiceDrafts(demand),
+                                  [String(service.id)]: Number(event.target.value || 0),
+                                },
+                              }))}
+                              className="rounded-lg border border-amber-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs text-amber-800">
+                          Statut devis: <span className="font-semibold">{demand.variable_services_quote_status || 'a_traiter'}</span>
+                          {demand.variable_services_quote_total ? ` - ${demand.variable_services_quote_total} TND` : ''}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void saveVariableServicesQuote(demand)}
+                          disabled={savingId === demand.id}
+                          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-50"
+                        >
+                          Enregistrer devis services
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
               {(demand.identity_submitted_at || demand.identity_document_number) && (
                 <div className="mt-2 text-xs text-gray-500">
                   Coordonnees client: <span className="font-medium text-gray-700">{demand.identity_document_type || '-'}</span> - numero <span className="font-medium text-gray-700">{demand.identity_document_number || '-'}</span> - soumis le <span className="font-medium text-gray-700">{demand.identity_submitted_at ? formatDateTime(demand.identity_submitted_at) : '-'}</span>

@@ -93,7 +93,10 @@ export function Header() {
           item.status === "attente_envoi_coordonnees_contrat"
         ) || null;
         if (!nextDemand) return;
-        const key = `dwira_action_notice_${nextDemand.id}_${nextDemand.status}`;
+        const serviceQuoteKeyPart = nextDemand.variable_services_quote_status === "devis_envoye"
+          ? `${nextDemand.variable_services_quote_total || 0}_${nextDemand.updated_at || ""}`
+          : "no_quote";
+        const key = `dwira_action_notice_${nextDemand.id}_${nextDemand.status}_${serviceQuoteKeyPart}`;
         if (!localStorage.getItem(key)) {
           localStorage.setItem(key, "1");
           setActionableDemand(nextDemand);
@@ -351,17 +354,33 @@ export function Header() {
           <DialogTitle className="text-2xl text-emerald-700">Action requise</DialogTitle>
           <DialogDescription className="text-base text-gray-600">
             {actionableDemand?.status === "reponse_positive_attente_confirmation_client"
-              ? "Le proprietaire a accepte votre demande. Veuillez envoyer vos coordonnees pour finaliser le contrat."
-              : "Vos coordonnees sont attendues pour finaliser votre contrat."}
+              ? "Le proprietaire a accepté votre demande. Veuillez envoyer vos coordonnées pour finaliser le contrat."
+              : actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0
+                ? `Votre devis séparé pour les services additionnels est prêt (${Number(actionableDemand?.variable_services_quote_total || 0).toLocaleString("fr-FR")} TND).`
+                : "Vos coordonnées sont attendues pour finaliser votre contrat."}
           </DialogDescription>
         </DialogHeader>
+        {actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Vos services payants variables ont un devis séparé. Consultez votre demande pour voir le détail avant de continuer.
+          </div>
+        ) : null}
         <DialogFooter>
           <button
             type="button"
-            onClick={() => void proceedToCoordinates()}
+            onClick={() => {
+              if (actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0) {
+                setShowActionableNotice(false);
+                navigate("/mes-reservations");
+                return;
+              }
+              void proceedToCoordinates();
+            }}
             className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
           >
-            Completer maintenant
+            {actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0
+              ? "Voir mon devis services"
+              : "Completer maintenant"}
           </button>
         </DialogFooter>
       </DialogContent>

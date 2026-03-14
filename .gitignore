@@ -46,3 +46,8 @@ backups/apply_vps_caracteristiques_sync_workbench_safe_2026-03-14.sql
 backups/local_caracteristiques_before_vps_sync_2026-03-14.sql
 backups/vps_caracteristiques_data_2026-03-14.sql
 backups/vps_caracteristiques_full_workbench_2026-03-14.sql
+migrations/2026-03-14-create-paid-services-tables-workbench-fixed.sql
+migrations/2026-03-14-create-paid-services-tables-workbench-mysql57-safe.sql
+migrations/2026-03-14-create-paid-services-tables-workbench-no-json-table.sql
+migrations/2026-03-14-create-paid-services-tables.sql
+migrations/2026-03-14-seed-location-saisonniere-services.sql

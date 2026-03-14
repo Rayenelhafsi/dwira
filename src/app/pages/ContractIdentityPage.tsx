@@ -242,6 +242,10 @@ export default function ContractIdentityPage() {
     const nights = computeNights(demand.start_date, demand.end_date);
     return `${formatDateOnly(demand.start_date)} au ${formatDateOnly(demand.end_date)} (${nights} nuit(s))`;
   }, [demand]);
+  const reservationAmount = Number(demand?.total_amount || 0);
+  const servicesQuoteAmount = Number(demand?.variable_services_quote_total || 0);
+  const hasServicesQuote = servicesQuoteAmount > 0;
+  const globalAmount = reservationAmount + servicesQuoteAmount;
 
   if (!user || user.role !== "user") {
     return <Navigate to="/login" replace />;
@@ -298,9 +302,19 @@ export default function ContractIdentityPage() {
             <p><strong>Type:</strong> {demand.request_type === "visite" ? "Visite" : "Reservation"}</p>
             <p><strong>Periode:</strong> {periodText}</p>
             <p><strong>Voyageurs:</strong> {demand.guests}</p>
-            <p><strong>Montant total:</strong> {formatAmount(demand.total_amount)}</p>
+            <p><strong>Montant reservation:</strong> {formatAmount(reservationAmount)}</p>
+            {hasServicesQuote ? (
+              <p><strong>Devis services:</strong> {formatAmount(servicesQuoteAmount)}</p>
+            ) : null}
+            <p><strong>Montant global:</strong> {formatAmount(hasServicesQuote ? globalAmount : reservationAmount)}</p>
             <p><strong>Paiement choisi:</strong> {demand.payment_mode === "totalite" ? "Totalite" : "Avance"}</p>
           </div>
+
+          {hasServicesQuote ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Le montant global inclut la reservation et le devis de vos services payants variables.
+            </div>
+          ) : null}
 
           {demand.status === "reponse_positive_attente_confirmation_client" && (
             <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
@@ -391,6 +405,9 @@ export default function ContractIdentityPage() {
                   <Printer className="h-4 w-4" />
                   Imprimer le contrat
                 </button>
+                <Link to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement`} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                  Proceder vers paiement
+                </Link>
               </div>
             </div>
           )}

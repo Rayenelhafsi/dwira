@@ -7,6 +7,7 @@ import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
 import { saveReservationToCache } from "../utils/reservations";
+import { getServiceDisplayPrice, splitServicesByTarification } from "../utils/servicePayants";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 
 type LocationState = {
@@ -36,10 +37,11 @@ export default function ReservationConfirmationPage() {
   const hasServiceFee = !isVisitRequest
     && (seasonalConfig?.fraisServiceDisponible !== false)
     && Number(property?.serviceFee || 0) > 0;
-  const activePaidServices = useMemo(
-    () => (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && Number(service.prix || 0) > 0 && String(service.label || '').trim().length > 0),
+  const paidServicesBuckets = useMemo(
+    () => splitServicesByTarification(seasonalConfig?.servicesPayants || []),
     [seasonalConfig?.servicesPayants]
   );
+  const activePaidServices = paidServicesBuckets.all;
   const extraMattressPrice = Math.max(0, Number(seasonalConfig?.matelasSupplementairePrix || 0));
   const extraMattressMax = Math.max(0, Number(seasonalConfig?.matelasSupplementairesMax || 0));
 
@@ -54,7 +56,9 @@ export default function ReservationConfirmationPage() {
     const extraMattresses = Math.min(extraMattressMax, Math.max(0, Number(draft.extraMattresses || 0)));
     const extraMattressTotal = extraMattresses * extraMattressPrice;
     const paidServices = activePaidServices.filter((service) => (draft.selectedPaidServiceIds || []).includes(service.id));
-    const paidServicesTotal = paidServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
+    const fixedPaidServices = paidServices.filter((service) => service.type_tarification === 'fixe');
+    const variablePaidServices = paidServices.filter((service) => service.type_tarification !== 'fixe');
+    const paidServicesTotal = fixedPaidServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
     const productsAccueilFee = seasonalConfig?.produitsAccueilGratuits === false
       ? Number(seasonalConfig?.fraisProduitsAccueil || 0)
       : 0;
@@ -72,6 +76,8 @@ export default function ReservationConfirmationPage() {
       extraMattresses,
       extraMattressTotal,
       paidServicesTotal,
+      fixedPaidServices,
+      variablePaidServices,
       productsAccueilFee,
       extrasTotal,
       total,
@@ -116,6 +122,8 @@ export default function ReservationConfirmationPage() {
             payment_mode: summary.paymentMode,
             total_amount: summary.total,
             amount_due_now: summary.dueNow,
+            selected_fixed_services: summary.fixedPaidServices || [],
+            selected_variable_services: summary.variablePaidServices || [],
             client_note: draft.reservationNote || null,
             request_type: requestType,
           }),
@@ -145,6 +153,8 @@ export default function ReservationConfirmationPage() {
         payment_mode: summary?.paymentMode || 'avance',
         total_amount: summary?.total || null,
         amount_due_now: summary?.dueNow || null,
+        selected_fixed_services: summary?.fixedPaidServices || [],
+        selected_variable_services: summary?.variablePaidServices || [],
         status: "en_attente_reponse_proprietaire",
         owner_notified_at: null,
         owner_response_at: null,
@@ -253,8 +263,13 @@ export default function ReservationConfirmationPage() {
                   ) : null}
                   {!isVisitRequest && summary?.paidServicesTotal ? (
                     <div className="flex items-center justify-between gap-3">
-                      <span>Services payants</span>
+                      <span>Services fixes</span>
                       <span className="font-semibold text-gray-900">{summary.paidServicesTotal} TND</span>
+                    </div>
+                  ) : null}
+                  {!isVisitRequest && summary?.variablePaidServices?.length ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                      Services a confirmer par l&apos;admin: {summary.variablePaidServices.map((service) => `${service.label} (${getServiceDisplayPrice(service)})`).join(', ')}
                     </div>
                   ) : null}
                   {!isVisitRequest && summary?.productsAccueilFee ? (
@@ -387,7 +402,12 @@ export default function ReservationConfirmationPage() {
                 {summary?.cleaningFee ? <Line label="Frais de menage" value={`${summary.cleaningFee} TND`} /> : null}
                 {summary?.serviceFee ? <Line label="Frais de service" value={`${summary.serviceFee} TND`} /> : null}
                 {summary?.extraMattressTotal ? <Line label="Matelas supplementaires" value={`${summary.extraMattressTotal} TND`} /> : null}
-                {summary?.paidServicesTotal ? <Line label="Services payants" value={`${summary.paidServicesTotal} TND`} /> : null}
+                {summary?.paidServicesTotal ? <Line label="Services fixes" value={`${summary.paidServicesTotal} TND`} /> : null}
+                {summary?.variablePaidServices?.length ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                    Services a confirmer: {summary.variablePaidServices.map((service) => `${service.label} (${getServiceDisplayPrice(service)})`).join(', ')}
+                  </div>
+                ) : null}
                 {summary?.productsAccueilFee ? <Line label="Produits d'accueil" value={`${summary.productsAccueilFee} TND`} /> : null}
                 <Line label="Total frais supplementaires" value={`${summary?.extrasTotal || 0} TND`} />
                 <div className="border-t border-gray-100 pt-4">

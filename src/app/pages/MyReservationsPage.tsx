@@ -97,6 +97,7 @@ export default function MyReservationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activePositiveDemandId, setActivePositiveDemandId] = useState<string | null>(null);
   const [activeContractDemandId, setActiveContractDemandId] = useState<string | null>(null);
+  const [activeServiceQuoteDemandId, setActiveServiceQuoteDemandId] = useState<string | null>(null);
   const [loadingContractId, setLoadingContractId] = useState<string | null>(null);
 
   const fetchReservations = useCallback(async () => {
@@ -144,6 +145,24 @@ export default function MyReservationsPage() {
       if (!localStorage.getItem(key)) {
         localStorage.setItem(key, "1");
         setActiveContractDemandId(demand.id);
+        break;
+      }
+    }
+  }, [reservations]);
+
+  useEffect(() => {
+    for (const demand of reservations) {
+      if (
+        demand.status !== "attente_envoi_coordonnees_contrat" ||
+        demand.variable_services_quote_status !== "devis_envoye" ||
+        !Number(demand.variable_services_quote_total || 0)
+      ) {
+        continue;
+      }
+      const key = `dwira_service_quote_notice_${demand.id}_${demand.variable_services_quote_total}_${demand.updated_at}`;
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, "1");
+        setActiveServiceQuoteDemandId(demand.id);
         break;
       }
     }
@@ -238,6 +257,7 @@ export default function MyReservationsPage() {
 
   const activePositiveDemand = reservations.find((item) => item.id === activePositiveDemandId) || null;
   const activeContractDemand = reservations.find((item) => item.id === activeContractDemandId) || null;
+  const activeServiceQuoteDemand = reservations.find((item) => item.id === activeServiceQuoteDemandId) || null;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
@@ -298,12 +318,40 @@ export default function MyReservationsPage() {
                         {reservation.request_type !== "visite" && (
                           <Info label="Montant total" value={`${Number(reservation.total_amount || 0).toLocaleString("fr-FR")} TND`} />
                         )}
+                        {reservation.request_type !== "visite" && reservation.variable_services_quote_total ? (
+                          <Info label="Devis services" value={`${Number(reservation.variable_services_quote_total || 0).toLocaleString("fr-FR")} TND`} />
+                        ) : null}
                         {reservation.request_type !== "visite" && (
                           <Info label="Paiement choisi" value={reservation.payment_mode === "totalite" ? "Totalite" : "Avance"} />
                         )}
+                        {reservation.request_type !== "visite" ? (
+                          <Info
+                            label="Reservation"
+                            value={reservation.reservation_payment_id ? `Reglee le ${formatDateTime(reservation.reservation_payment_paid_at)}` : "Non reglee"}
+                          />
+                        ) : null}
+                        {reservation.request_type !== "visite" && reservation.variable_services_quote_status === "devis_envoye" && Number(reservation.variable_services_quote_total || 0) > 0 ? (
+                          <Info
+                            label="Services variables"
+                            value={reservation.services_payment_id || reservation.variable_services_quote_status === "paye" ? `Regles le ${formatDateTime(reservation.services_payment_paid_at)}` : "Devis a regler"}
+                          />
+                        ) : null}
                         <Info label="Cree le" value={formatDateTime(reservation.created_at)} icon={<CalendarClock className="h-4 w-4" />} />
                         <Info label="Derniere mise a jour" value={formatDateTime(reservation.updated_at)} />
                       </div>
+                      {reservation.status === "attente_envoi_coordonnees_contrat" && reservation.variable_services_quote_status === "devis_envoye" && Number(reservation.variable_services_quote_total || 0) > 0 ? (
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Devis services additionnels</p>
+                          <p className="mt-2 text-sm font-semibold text-gray-900">
+                            Un devis séparé est prêt pour vos services payants variables: {Number(reservation.variable_services_quote_total || 0).toLocaleString("fr-FR")} TND
+                          </p>
+                          {reservation.variable_services_quote?.length ? (
+                            <p className="mt-2 text-sm text-gray-700">
+                              {reservation.variable_services_quote.map((service) => `${service.label} (${Number((service as any).prix_saisi ?? service.prix ?? 0).toLocaleString("fr-FR")} TND)`).join(", ")}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="flex flex-wrap gap-3">
@@ -320,12 +368,23 @@ export default function MyReservationsPage() {
                         </button>
                       )}
                       {reservation.status === "attente_envoi_coordonnees_contrat" && (
-                        <Link
-                          to={`/mes-reservations/${encodeURIComponent(reservation.id)}/coordonnees`}
-                          className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
-                        >
-                          Fournir mes coordonnees
-                        </Link>
+                        <>
+                          {reservation.variable_services_quote_status === "devis_envoye" && Number(reservation.variable_services_quote_total || 0) > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveServiceQuoteDemandId(reservation.id)}
+                              className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+                            >
+                              Consulter devis services
+                            </button>
+                          ) : null}
+                          <Link
+                            to={`/mes-reservations/${encodeURIComponent(reservation.id)}/coordonnees`}
+                            className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+                          >
+                            Fournir mes coordonnees
+                          </Link>
+                        </>
                       )}
                       {(reservation.status === "contrat_realise" || reservation.status === "succes_paiement") && reservation.contract_id && (
                         <>
@@ -349,8 +408,13 @@ export default function MyReservationsPage() {
                         </>
                       )}
                       {reservation.status === "contrat_realise" && (
-                        <Link to="/contact" className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                        <Link to={`/mes-reservations/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                           Proceder vers paiement
+                        </Link>
+                      )}
+                      {reservation.status === "succes_paiement" && (
+                        <Link to={`/mes-reservations/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100">
+                          Voir les paiements
                         </Link>
                       )}
                     </div>
@@ -414,9 +478,55 @@ export default function MyReservationsPage() {
               <Printer className="h-4 w-4" />
               Imprimer le contrat
             </button>
-            <Link to="/contact" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+            <Link to={activeContractDemand ? `/mes-reservations/${encodeURIComponent(activeContractDemand.id)}/paiement` : "/mes-reservations"} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
               Proceder vers paiement
             </Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!activeServiceQuoteDemand} onOpenChange={(open) => !open && setActiveServiceQuoteDemandId(null)}>
+        <DialogContent className="max-w-2xl border-2 border-amber-200 p-7">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-amber-700">Devis services additionnels prêt</DialogTitle>
+            <DialogDescription>
+              Votre demande principale continue normalement, mais vos services payants variables ont maintenant un devis séparé.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-gray-800">
+            <p className="font-semibold text-gray-900">
+              Total devis services: {Number(activeServiceQuoteDemand?.variable_services_quote_total || 0).toLocaleString("fr-FR")} TND
+            </p>
+            {activeServiceQuoteDemand?.variable_services_quote?.length ? (
+              <div className="mt-3 space-y-2">
+                {activeServiceQuoteDemand.variable_services_quote.map((service) => (
+                  <div key={`${activeServiceQuoteDemand.id}-${service.id}`} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{service.label}</p>
+                      <p className="text-xs text-gray-500">{service.categorie || "Services client"}</p>
+                    </div>
+                    <span className="font-semibold text-gray-900">{Number((service as any).prix_saisi ?? service.prix ?? 0).toLocaleString("fr-FR")} TND</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setActiveServiceQuoteDemandId(null)}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Plus tard
+            </button>
+            {activeServiceQuoteDemand ? (
+              <Link
+                to={`/mes-reservations/${encodeURIComponent(activeServiceQuoteDemand.id)}/coordonnees`}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+              >
+                Continuer la demande
+              </Link>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

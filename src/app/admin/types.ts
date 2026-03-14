@@ -211,10 +211,16 @@ export type PolitiqueAnnulation = 'flexible' | 'moderee' | 'stricte' | 'non_remb
 export type TypeCaution = 'cash' | 'preautorisation' | 'virement' | 'aucune';
 export type RegleFumeurs = 'autorise' | 'interdit' | 'balcon_terrasse';
 export type RegleAnimaux = 'autorises' | 'interdits' | 'sous_conditions';
+export type ServicePayantTarification = 'fixe' | 'sur_demande' | 'a_partir_de';
+
 export type ServicePayantBien = {
   id: string;
+  categorie?: string;
   label: string;
+  description_courte?: string;
+  prix_affiche?: string;
   prix: number;
+  type_tarification?: ServicePayantTarification;
   enabled: boolean;
 };
 export type LocationSaisonniereConfig = {
@@ -519,6 +525,15 @@ export interface ReservationDemand {
   payment_mode?: 'avance' | 'totalite' | null;
   total_amount?: number | null;
   amount_due_now?: number | null;
+  selected_fixed_services?: ServicePayantBien[];
+  selected_variable_services?: ServicePayantBien[];
+  variable_services_quote?: Array<ServicePayantBien & { prix_saisi?: number | null }>;
+  variable_services_quote_total?: number | null;
+  variable_services_quote_status?: 'aucun' | 'a_traiter' | 'devis_envoye' | 'accepte' | 'paye' | null;
+  reservation_payment_id?: string | null;
+  reservation_payment_paid_at?: string | null;
+  services_payment_id?: string | null;
+  services_payment_paid_at?: string | null;
   status: ReservationDemandStatus;
   owner_notified_at?: string | null;
   owner_response_at?: string | null;

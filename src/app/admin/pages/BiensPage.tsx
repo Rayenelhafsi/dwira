@@ -10,9 +10,15 @@ import { useProperties } from '../../context/PropertiesContext';
 import PublicBienPageView from '../../ventes/components/PublicBienPageView';
 import LocationPublicBienPageView from '../../locations/components/LocationPublicBienPageView';
 import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/featureIcons';
+import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils/servicePayants';
 import { isYouTubeUrl, toYouTubeEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
+import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK = (locationSaisonniereServicesData as ServicePayantBien[]).map((service) =>
+  normalizeServicePayant(service)
+);
+
 const resolveMediaUrl = (url?: string | null) => {
   const value = String(url || '').trim();
   if (!value) return '';
@@ -1106,6 +1112,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : []));
   const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
   const [detailSectionTabId, setDetailSectionTabId] = useState<string>('informations_generales');
+  const [selectedServiceCatalogId, setSelectedServiceCatalogId] = useState<string>('');
+  const [serviceCatalogueOptions, setServiceCatalogueOptions] = useState<ServicePayantBien[]>(LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const normalizeLegacyType = (value?: BienType): BienType => {
     if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
@@ -1150,6 +1158,27 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     villa: 'V',
     local: 'C',
   };
+  useEffect(() => {
+    let cancelled = false;
+    const fetchServiceCatalogue = async () => {
+      try {
+        const response = await fetch(`${API_URL}/services-payants/catalogue`);
+        if (!response.ok) throw new Error('catalogue');
+        const data = await response.json();
+        if (!cancelled && Array.isArray(data) && data.length > 0) {
+          setServiceCatalogueOptions(data.map((service) => normalizeServicePayant(service)));
+        }
+      } catch {
+        if (!cancelled) {
+          setServiceCatalogueOptions(LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK);
+        }
+      }
+    };
+    fetchServiceCatalogue();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const normalizeAnnonceKey = (titre?: string | null, zoneId?: string | null, proprietaireId?: string | null) =>
     `${String(titre || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()}__${String(zoneId || '')}__${String(proprietaireId || '')}`;
   const generateReference = () => {
@@ -1735,20 +1764,49 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     electricite_steg: false,
   });
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.checked }));
+  const currentServiceIds = useMemo(
+    () => new Set((saisonConfig.services_payants || []).map((service) => String(service?.id || '').trim()).filter(Boolean)),
+    [saisonConfig.services_payants]
+  );
+  const availableServiceCatalogOptions = useMemo(
+    () => serviceCatalogueOptions.filter((service) => !currentServiceIds.has(service.id)),
+    [currentServiceIds, serviceCatalogueOptions]
+  );
   const addServicePayant = () => {
     const nextServices = Array.isArray(saisonConfig.services_payants) ? [...saisonConfig.services_payants] : [];
-    nextServices.push({
+    nextServices.push(normalizeServicePayant({
       id: `service_${Date.now()}`,
+      categorie: 'Services client',
       label: '',
+      description_courte: '',
       prix: 0,
+      type_tarification: 'fixe',
       enabled: true,
-    });
+    }));
     updateSaisonConfig({ services_payants: nextServices });
+  };
+  const addServicePayantFromCatalog = (serviceId: string) => {
+    const normalizedId = String(serviceId || '').trim();
+    if (!normalizedId) return;
+    if (currentServiceIds.has(normalizedId)) {
+      toast.info('Ce service payant est deja ajoute a ce bien.');
+      return;
+    }
+    const selectedService = serviceCatalogueOptions.find((service) => service.id === normalizedId);
+    if (!selectedService) {
+      toast.error('Service introuvable dans le catalogue.');
+      return;
+    }
+    const nextServices = Array.isArray(saisonConfig.services_payants) ? [...saisonConfig.services_payants] : [];
+    nextServices.push(normalizeServicePayant(selectedService));
+    updateSaisonConfig({ services_payants: nextServices });
+    setSelectedServiceCatalogId('');
+    toast.success('Service payant ajoute depuis le catalogue.');
   };
   const updateServicePayant = (index: number, patch: Partial<ServicePayantBien>) => {
     const nextServices = Array.isArray(saisonConfig.services_payants) ? [...saisonConfig.services_payants] : [];
     if (!nextServices[index]) return;
-    nextServices[index] = { ...nextServices[index], ...patch };
+    nextServices[index] = normalizeServicePayant({ ...nextServices[index], ...patch });
     updateSaisonConfig({ services_payants: nextServices });
   };
   const removeServicePayant = (index: number) => {
@@ -4970,16 +5028,67 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-semibold text-gray-700">Services payants (factures cote client)</p>
-                          <button type="button" onClick={addServicePayant} className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-white">Ajouter service</button>
-                        </div>
-                        {(saisonConfig.services_payants || []).map((service, index) => (
-                          <div key={service.id || index} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_90px_36px] gap-2 items-center">
-                            <input value={service.label || ''} onChange={(e) => updateServicePayant(index, { label: e.target.value })} placeholder="Nom du service" className="rounded-lg border-gray-300 border p-2 text-sm" />
-                            <input type="number" min={0} value={service.prix ?? 0} onChange={(e) => updateServicePayant(index, { prix: Number(e.target.value || 0) })} className="rounded-lg border-gray-300 border p-2 text-sm" />
-                            <label className="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" checked={service.enabled !== false} onChange={(e) => updateServicePayant(index, { enabled: e.target.checked })} />Actif</label>
-                            <button type="button" onClick={() => removeServicePayant(index)} className="h-8 w-8 rounded border border-red-300 text-red-600 text-sm">x</button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={selectedServiceCatalogId}
+                              onChange={(e) => setSelectedServiceCatalogId(e.target.value)}
+                              className="min-w-[260px] rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs text-gray-700"
+                            >
+                              <option value="">Choisir depuis catalogue</option>
+                              {availableServiceCatalogOptions.map((service) => (
+                                <option key={service.id} value={service.id}>
+                                  {service.categorie} - {service.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => addServicePayantFromCatalog(selectedServiceCatalogId)}
+                              disabled={!selectedServiceCatalogId}
+                              className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Ajouter depuis catalogue
+                            </button>
+                            <button type="button" onClick={addServicePayant} className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-white">Ajouter service manuel</button>
                           </div>
-                        ))}
+                        </div>
+                        {availableServiceCatalogOptions.length === 0 && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            Tous les services du catalogue sont deja disponibles pour ce bien.
+                          </div>
+                        )}
+                        <div className="overflow-x-auto rounded-lg border border-emerald-100 bg-white">
+                          <div className="grid min-w-[980px] grid-cols-[180px_180px_1.4fr_130px_180px_90px_48px] gap-0 text-xs font-semibold text-white">
+                            <div className="bg-slate-800 px-3 py-2">Categorie</div>
+                            <div className="bg-slate-800 px-3 py-2">Service</div>
+                            <div className="bg-slate-800 px-3 py-2">Description courte</div>
+                            <div className="bg-slate-800 px-3 py-2">Prix affiche</div>
+                            <div className="bg-slate-800 px-3 py-2">Type de tarification</div>
+                            <div className="bg-slate-800 px-3 py-2">Actif</div>
+                            <div className="bg-slate-800 px-3 py-2 text-center">x</div>
+                          </div>
+                          {(saisonConfig.services_payants || []).map((service, index) => {
+                            const normalizedService = normalizeServicePayant(service);
+                            return (
+                              <div key={service.id || index} className="grid min-w-[980px] grid-cols-[180px_180px_1.4fr_130px_180px_90px_48px] gap-2 border-t border-emerald-50 p-2 items-center">
+                                <input value={normalizedService.categorie || ''} onChange={(e) => updateServicePayant(index, { categorie: e.target.value })} placeholder="Categorie" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <input value={normalizedService.label || ''} onChange={(e) => updateServicePayant(index, { label: e.target.value })} placeholder="Service" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <input value={normalizedService.description_courte || ''} onChange={(e) => updateServicePayant(index, { description_courte: e.target.value })} placeholder="Description courte" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <input type="number" min={0} value={normalizedService.prix ?? 0} onChange={(e) => updateServicePayant(index, { prix: Number(e.target.value || 0) })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <select value={normalizedService.type_tarification} onChange={(e) => updateServicePayant(index, { type_tarification: e.target.value as ServicePayantBien['type_tarification'] })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                                  <option value="fixe">{getServiceTarificationLabel('fixe')}</option>
+                                  <option value="sur_demande">{getServiceTarificationLabel('sur_demande')}</option>
+                                  <option value="a_partir_de">{getServiceTarificationLabel('a_partir_de')}</option>
+                                </select>
+                                <label className="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" checked={normalizedService.enabled !== false} onChange={(e) => updateServicePayant(index, { enabled: e.target.checked })} />Actif</label>
+                                <button type="button" onClick={() => removeServicePayant(index)} className="h-9 w-9 rounded border border-red-300 text-red-600 text-sm">x</button>
+                              </div>
+                            );
+                          })}
+                          {(saisonConfig.services_payants || []).length === 0 && (
+                            <div className="px-3 py-4 text-sm text-gray-500">Aucun service payant configure.</div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

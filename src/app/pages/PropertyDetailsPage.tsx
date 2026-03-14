@@ -16,6 +16,7 @@ import { toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
+import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import {
   clearAuthPendingLogin,
@@ -50,6 +51,16 @@ type SeasonalDetailRow = { label: string; value: string };
 type SeasonalFallbackTab = { id: string; nom: string; rows: SeasonalDetailRow[] };
 type AmenitySection = { id: string; nom: string; features: FeatureApiRow[] };
 type FeatureDisplayItem = { id: string; label: string; meta: string | null; sectionName: string; feature: FeatureApiRow };
+type PaidServiceItem = {
+  id: string;
+  label: string;
+  categorie?: string;
+  description_courte?: string;
+  prix_affiche?: string;
+  prix?: number;
+  type_tarification: 'fixe' | 'sur_demande' | 'a_partir_de';
+  enabled?: boolean;
+};
 
 const normalizeFeatureName = (value: string) =>
   String(value || '')
@@ -58,6 +69,34 @@ const normalizeFeatureName = (value: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+const getPaidServiceTypeMeta = (type: PaidServiceItem["type_tarification"]) => {
+  if (type === "sur_demande") {
+    return {
+      label: "Sur demande",
+      chipClass: "border-amber-200 bg-amber-50 text-amber-700",
+      panelClass: "border-amber-200 bg-amber-50/60",
+      icon: <MessageCircle size={14} className="text-amber-600" />,
+      hint: "Prix confirmé par l'agence selon disponibilité.",
+    };
+  }
+  if (type === "a_partir_de") {
+    return {
+      label: "A partir de",
+      chipClass: "border-sky-200 bg-sky-50 text-sky-700",
+      panelClass: "border-sky-200 bg-sky-50/60",
+      icon: <ArrowRight size={14} className="text-sky-600" />,
+      hint: "Le tarif final varie selon période et options.",
+    };
+  }
+  return {
+    label: "Prix fixe",
+    chipClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    panelClass: "border-emerald-200 bg-emerald-50/60",
+    icon: <Check size={14} className="text-emerald-600" />,
+    hint: "Ajouté directement au total de la réservation.",
+  };
+};
 
 const cleanFeatureTabName = (value: string) =>
   String(value || '')
@@ -280,6 +319,7 @@ export default function PropertyDetailsPage() {
   const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance'>('avance');
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
   const [showAmenitiesDialog, setShowAmenitiesDialog] = useState(false);
+  const [showPaidServicesDialog, setShowPaidServicesDialog] = useState(false);
   const [seasonalDetailsTabId, setSeasonalDetailsTabId] = useState<string>('');
   const [allFeatures, setAllFeatures] = useState<FeatureApiRow[]>([]);
   const [featureTabs, setFeatureTabs] = useState<FeatureTabRow[]>([]);
@@ -548,11 +588,22 @@ out body 40;
   const hasServiceFee = !isSaleProperty
     && (seasonalConfig?.fraisServiceDisponible !== false)
     && Number(property?.serviceFee || 0) > 0;
-  const activePaidServices = useMemo(
-    () => (seasonalConfig?.servicesPayants || []).filter((service) => service.enabled !== false && Number(service.prix || 0) > 0 && String(service.label || '').trim().length > 0),
+  const paidServicesBuckets = useMemo(
+    () => splitServicesByTarification(seasonalConfig?.servicesPayants || []),
     [seasonalConfig?.servicesPayants]
   );
+  const activePaidServices = paidServicesBuckets.all;
+  const variablePaidServices = paidServicesBuckets.variables;
   const hasPaidServices = !isSaleProperty && activePaidServices.length > 0;
+  const paidServicePreview = useMemo(() => activePaidServices.slice(0, 4), [activePaidServices]);
+  const paidServicesByType = useMemo(
+    () => ({
+      fixe: activePaidServices.filter((service) => service.type_tarification === "fixe"),
+      sur_demande: activePaidServices.filter((service) => service.type_tarification === "sur_demande"),
+      a_partir_de: activePaidServices.filter((service) => service.type_tarification === "a_partir_de"),
+    }),
+    [activePaidServices]
+  );
   const hasExtraMattress = !isSaleProperty && extraMattressMax > 0 && extraMattressPrice > 0;
   const reglesResume = [
     `Fumeurs: ${fumeursLabel || 'Non precise'}`,
@@ -1112,8 +1163,10 @@ out body 40;
 
   // Calculate total price
   const calculateTotal = () => {
-    const paidServices = activePaidServices.filter((service) => selectedPaidServiceIds.includes(service.id));
-    const paidServicesTotal = paidServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
+    const selectedServices = activePaidServices.filter((service) => selectedPaidServiceIds.includes(service.id));
+    const fixedSelectedServices = selectedServices.filter((service) => service.type_tarification === 'fixe');
+    const variableSelectedServices = selectedServices.filter((service) => service.type_tarification !== 'fixe');
+    const paidServicesTotal = fixedSelectedServices.reduce((sum, service) => sum + Number(service.prix || 0), 0);
     const productsAccueilFee = property?.seasonalConfig?.produitsAccueilGratuits === false
       ? Number(property?.seasonalConfig?.fraisProduitsAccueil || 0)
       : 0;
@@ -1124,6 +1177,8 @@ out body 40;
       serviceFee: 0,
       extraMattressTotal: 0,
       paidServicesTotal,
+      fixedSelectedServices,
+      variableSelectedServices,
       productsAccueilFee,
       extrasTotal: paidServicesTotal + productsAccueilFee,
       total: paidServicesTotal + productsAccueilFee
@@ -1143,6 +1198,8 @@ out body 40;
       serviceFee,
       extraMattressTotal,
       paidServicesTotal,
+      fixedSelectedServices,
+      variableSelectedServices,
       productsAccueilFee,
       extrasTotal,
       total
@@ -1567,18 +1624,18 @@ out body 40;
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Left Column: Info */}
           <div className="lg:col-span-2">
-            <div className="flex justify-between items-center py-6 border-b border-gray-100">
-               <div>
+            <div className="flex items-start justify-between gap-4 py-6 border-b border-gray-100">
+               <div className="min-w-0 flex-1">
                  <h2 className="text-xl font-bold mb-1">Logement entier : {property.category}</h2>
-                 <div className="flex gap-4 text-gray-600 text-sm">
+                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-600 sm:flex sm:flex-wrap sm:items-center sm:gap-4">
                    <span className="font-medium text-emerald-700">{maxGuests} voyageurs max</span>
-                   <span>Â·</span>
+                   <span className="hidden text-gray-300 sm:inline">|</span>
                    <span>{property.bedrooms} chambres</span>
-                   <span>Â·</span>
+                   <span className="hidden text-gray-300 sm:inline">|</span>
                    <span>{property.bathrooms} salles de bain</span>
                  </div>
                </div>
-               <div className="w-12 h-12 rounded-full p-1.5 bg-gradient-to-br from-emerald-50 to-emerald-200 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
+               <div className="mt-1 h-12 w-12 shrink-0 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-200 p-1.5 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
                  <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full bg-white object-contain p-1" />
                </div>
             </div>
@@ -1759,6 +1816,99 @@ out body 40;
                         </div>
                       </section>
                     ))}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={showPaidServicesDialog} onOpenChange={setShowPaidServicesDialog}>
+              <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-[2rem] border-0 p-0 shadow-2xl">
+                <DialogHeader className="border-b border-gray-100 px-8 pt-8 pb-6">
+                  <DialogTitle className="text-3xl font-bold text-gray-900">Services payants</DialogTitle>
+                  <p className="mt-2 text-sm text-gray-600">
+                    Sélectionnez les services qui vous intéressent. Les prix fixes s'ajoutent au total, les autres sont confirmés séparément.
+                  </p>
+                </DialogHeader>
+                <div className="max-h-[calc(88vh-120px)] overflow-y-auto px-8 pb-8">
+                  <div className="space-y-8 pt-6">
+                    <div className="rounded-3xl border border-gray-200 bg-gray-50/80 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">Répartition des {activePaidServices.length} services</div>
+                          <p className="mt-1 text-xs text-gray-600">Faites défiler pour consulter les trois groupes.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(["fixe", "a_partir_de", "sur_demande"] as const).map((type) => {
+                            const count = paidServicesByType[type].length;
+                            if (count === 0) return null;
+                            const meta = getPaidServiceTypeMeta(type);
+                            return (
+                              <span key={type} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${meta.chipClass}`}>
+                                {meta.icon}
+                                {meta.label}: {count}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                    {(["fixe", "a_partir_de", "sur_demande"] as const).map((type) => {
+                      const services = paidServicesByType[type];
+                      if (services.length === 0) return null;
+                      const meta = getPaidServiceTypeMeta(type);
+                      return (
+                        <section key={type} className="scroll-mt-20">
+                          <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                              <h4 className="text-2xl font-semibold text-gray-900">{meta.label}</h4>
+                              <p className="mt-1 text-sm text-gray-600">{meta.hint}</p>
+                            </div>
+                            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${meta.chipClass}`}>
+                              {meta.icon}
+                              {services.length} service{services.length > 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <div className="mb-4 h-px w-full bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
+                          <div className="space-y-3">
+                            {services.map((service) => {
+                              const checked = selectedPaidServiceIds.includes(service.id);
+                              return (
+                                <button
+                                  key={service.id}
+                                  type="button"
+                                  onClick={() => setSelectedPaidServiceIds((prev) => checked ? prev.filter((id) => id !== service.id) : [...prev, service.id])}
+                                  className={`w-full rounded-2xl border px-4 py-4 text-left transition ${checked ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                                >
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                    <div className="order-2 min-w-0 sm:order-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-base font-semibold text-gray-900">{service.label}</span>
+                                        {service.categorie ? (
+                                          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600">
+                                            {service.categorie}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      {service.description_courte ? (
+                                        <p className="mt-2 text-sm text-gray-600">{service.description_courte}</p>
+                                      ) : null}
+                                    </div>
+                                    <div className="order-1 flex items-start justify-between gap-3 sm:order-2 sm:block sm:shrink-0 sm:text-right">
+                                      <div className="text-base font-bold leading-6 text-gray-900 sm:max-w-[180px] sm:text-right">
+                                        {getServiceDisplayPrice(service)}
+                                      </div>
+                                      <div className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${checked ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-gray-300 text-gray-600'}`}>
+                                        {checked ? 'Sélectionné' : 'Sélectionner'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      );
+                    })}
                   </div>
                 </div>
               </DialogContent>
@@ -1999,22 +2149,94 @@ out body 40;
                 )}
 
                 {hasPaidServices && (
-                  <div className="rounded-lg border border-gray-200 p-3 space-y-2">
-                    <p className="text-xs font-bold uppercase text-gray-600">Services payants</p>
-                    {activePaidServices.map((service) => {
-                      const checked = selectedPaidServiceIds.includes(service.id);
-                      return (
-                        <button
-                          key={service.id}
-                          type="button"
-                          onClick={() => setSelectedPaidServiceIds((prev) => checked ? prev.filter((id) => id !== service.id) : [...prev, service.id])}
-                          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm ${checked ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white'}`}
-                        >
-                          <span>{service.label}</span>
-                          <span className="font-semibold">{Number(service.prix || 0)} TND</span>
-                        </button>
-                      );
-                    })}
+                  <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm space-y-3 sm:p-4 sm:space-y-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">Services payants</p>
+                        <h4 className="mt-1 text-base font-semibold leading-5 text-gray-900">Services additionnels disponibles</h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowPaidServicesDialog(true)}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 transition hover:border-emerald-300 hover:text-emerald-700 sm:w-auto sm:justify-start sm:rounded-full sm:px-3 sm:py-1.5"
+                      >
+                        <ListChecks size={14} />
+                        Voir les {activePaidServices.length} services
+                      </button>
+                    </div>
+
+                    <div className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:overflow-visible sm:pb-0">
+                      <div className="flex gap-2 px-1 sm:grid sm:grid-cols-3 sm:px-0">
+                      {(["fixe", "a_partir_de", "sur_demande"] as const).map((type) => {
+                        const meta = getPaidServiceTypeMeta(type);
+                        const count = paidServicesByType[type].length;
+                        if (count === 0) return null;
+                        return (
+                          <div key={type} className={`w-[220px] shrink-0 rounded-2xl border px-3 py-3 sm:w-auto ${meta.panelClass}`}>
+                            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                              {meta.icon}
+                              {meta.label}
+                            </div>
+                            <div className="mt-1 text-2xl font-bold text-gray-900">{count}</div>
+                            <p className="mt-1 line-clamp-2 text-xs text-gray-600">{meta.hint}</p>
+                          </div>
+                        );
+                      })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {paidServicePreview.map((service) => {
+                        const checked = selectedPaidServiceIds.includes(service.id);
+                        const meta = getPaidServiceTypeMeta(service.type_tarification);
+                        return (
+                          <button
+                            key={service.id}
+                            type="button"
+                            onClick={() => setSelectedPaidServiceIds((prev) => checked ? prev.filter((id) => id !== service.id) : [...prev, service.id])}
+                            className={`w-full rounded-2xl border px-3 py-3 text-left transition sm:px-4 ${checked ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                  <span className="text-sm font-semibold leading-5 text-gray-900">{service.label}</span>
+                                  <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${meta.chipClass}`}>
+                                    {meta.icon}
+                                    {meta.label}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-xs leading-5 text-gray-500">
+                                  {service.categorie}
+                                  {service.description_courte ? ` • ${service.description_courte}` : ""}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-base font-bold leading-5 text-gray-900 sm:text-sm">{getServiceDisplayPrice(service)}</div>
+                                <div className={`mt-3 inline-flex h-7 min-w-7 items-center justify-center rounded-full border text-[11px] font-bold ${checked ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-gray-300 text-gray-500'}`}>
+                                  {checked ? '✓' : '+'}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {activePaidServices.length > paidServicePreview.length && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPaidServicesDialog(true)}
+                        className="w-full rounded-2xl border border-dashed border-gray-300 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:border-emerald-300 hover:text-emerald-700"
+                      >
+                        Voir toute la liste des services payants
+                      </button>
+                    )}
+
+                    {variablePaidServices.length > 0 && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Les services "sur demande" et "a partir de" sont confirmés séparément par l'agence et peuvent faire l'objet d'une facture dédiée.
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2072,9 +2294,21 @@ out body 40;
                      </div>
                    )}
                    {pricing.paidServicesTotal > 0 && (
-                     <div className="flex justify-between">
-                       <span className="underline">Services payants</span>
-                       <span>{pricing.paidServicesTotal} TND</span>
+                     <div className="space-y-2">
+                       <div className="flex justify-between">
+                         <span className="underline">Services fixes</span>
+                         <span>{pricing.paidServicesTotal} TND</span>
+                       </div>
+                       {pricing.fixedSelectedServices?.length > 0 && (
+                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                           Services fixes sélectionnés: {pricing.fixedSelectedServices.map((service) => `${service.label} (${getServiceDisplayPrice(service)})`).join(', ')}
+                         </div>
+                       )}
+                     </div>
+                   )}
+                   {pricing.variableSelectedServices?.length > 0 && (
+                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                       Services à confirmer par l&apos;admin: {pricing.variableSelectedServices.map((service) => `${service.label} (${getServiceDisplayPrice(service)})`).join(', ')}
                      </div>
                    )}
                    {pricing.productsAccueilFee > 0 && (
@@ -2180,7 +2414,7 @@ out body 40;
                         </div>
                         <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
                           <span>{otherProperty.guests} voyageurs</span>
-                          <span>Â·</span>
+                          <span>|</span>
                           <span>{otherProperty.category}</span>
                         </div>
                       </div>

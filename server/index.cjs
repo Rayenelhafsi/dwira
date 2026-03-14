@@ -2886,6 +2886,278 @@ function normalizePaymentMode(value, fallback = 'avance') {
   return fallback;
 }
 
+function parseJsonArray(value) {
+  if (!value) return [];
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FILE = path.resolve(__dirname, '../src/app/data/locationSaisonniereServices.json');
+
+function readSeededPaidServicesCatalogue() {
+  try {
+    const raw = fs.readFileSync(LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn('Unable to read paid services catalogue seed file:', error.message);
+    return [];
+  }
+}
+
+function normalizePaidServiceTarification(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'sur_demande') return 'sur_demande';
+  if (normalized === 'a_partir_de') return 'a_partir_de';
+  return 'fixe';
+}
+
+function parsePaidServiceBasePrice(value) {
+  if (typeof value === 'number') return Math.max(0, value);
+  const text = String(value || '').replace(',', '.').trim();
+  const match = text.match(/(\d+(?:\.\d+)?)/);
+  return match ? Math.max(0, Number(match[1])) : 0;
+}
+
+function normalizePaidServiceRecord(service, defaults = {}) {
+  const label = String(service?.label || defaults.label || '').trim();
+  const prixAffiche = String(service?.prix_affiche || defaults.prix_affiche || '').trim();
+  return {
+    id: String(service?.id || defaults.id || `svc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+    categorie: String(service?.categorie || defaults.categorie || 'Services client').trim() || 'Services client',
+    label,
+    description_courte: String(service?.description_courte || defaults.description_courte || '').trim(),
+    prix_affiche: prixAffiche,
+    prix: Math.max(0, Number(service?.prix ?? defaults.prix ?? parsePaidServiceBasePrice(prixAffiche))),
+    type_tarification: normalizePaidServiceTarification(service?.type_tarification ?? defaults.type_tarification),
+    enabled: service?.enabled === undefined ? (defaults.enabled === undefined ? true : defaults.enabled !== false) : service.enabled !== false,
+  };
+}
+
+async function ensurePaidServicesSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS services_payants_catalogue (
+      id VARCHAR(120) NOT NULL PRIMARY KEY,
+      categorie VARCHAR(255) NOT NULL,
+      label VARCHAR(255) NOT NULL,
+      description_courte VARCHAR(500) NULL,
+      prix_affiche VARCHAR(255) NULL,
+      prix_base DECIMAL(12,2) NOT NULL DEFAULT 0,
+      type_tarification ENUM('fixe','sur_demande','a_partir_de') NOT NULL DEFAULT 'fixe',
+      enabled TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bien_services_payants (
+      id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      bien_id VARCHAR(120) NOT NULL,
+      service_catalogue_id VARCHAR(120) NOT NULL,
+      categorie_override VARCHAR(255) NULL,
+      label_override VARCHAR(255) NULL,
+      description_courte_override VARCHAR(500) NULL,
+      prix_affiche_override VARCHAR(255) NULL,
+      prix_override DECIMAL(12,2) NULL,
+      type_tarification_override ENUM('fixe','sur_demande','a_partir_de') NULL,
+      enabled TINYINT(1) NOT NULL DEFAULT 1,
+      ordre_affichage INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      UNIQUE KEY uq_bien_service_catalogue (bien_id, service_catalogue_id),
+      KEY idx_bien_services_bien (bien_id),
+      KEY idx_bien_services_catalogue (service_catalogue_id)
+    )
+  `);
+
+  const now = getAgencySqlDateTime();
+  const seededServices = readSeededPaidServicesCatalogue().map((service) => normalizePaidServiceRecord(service));
+  for (const service of seededServices) {
+    await pool.query(
+      `INSERT INTO services_payants_catalogue (
+         id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         categorie = VALUES(categorie),
+         label = VALUES(label),
+         description_courte = VALUES(description_courte),
+         prix_affiche = VALUES(prix_affiche),
+         prix_base = VALUES(prix_base),
+         type_tarification = VALUES(type_tarification),
+         enabled = VALUES(enabled),
+         updated_at = VALUES(updated_at)`,
+      [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
+    );
+  }
+
+  const [bienRows] = await pool.query(
+    `SELECT id, location_saisonniere_config_json
+     FROM biens
+     WHERE mode = 'location_saisonniere'`
+  );
+  for (const row of bienRows || []) {
+    let config = null;
+    try {
+      config = row.location_saisonniere_config_json
+        ? (typeof row.location_saisonniere_config_json === 'string'
+          ? JSON.parse(row.location_saisonniere_config_json)
+          : row.location_saisonniere_config_json)
+        : null;
+    } catch {
+      config = null;
+    }
+    const services = Array.isArray(config?.services_payants) ? config.services_payants : [];
+    if (services.length === 0) continue;
+    for (let index = 0; index < services.length; index += 1) {
+      const service = normalizePaidServiceRecord(services[index]);
+      await pool.query(
+        `INSERT INTO services_payants_catalogue (
+           id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           categorie = VALUES(categorie),
+           label = VALUES(label),
+           description_courte = VALUES(description_courte),
+           prix_affiche = VALUES(prix_affiche),
+           prix_base = VALUES(prix_base),
+           type_tarification = VALUES(type_tarification),
+           enabled = VALUES(enabled),
+           updated_at = VALUES(updated_at)`,
+        [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
+      );
+      await pool.query(
+        `INSERT INTO bien_services_payants (
+           bien_id, service_catalogue_id, categorie_override, label_override, description_courte_override,
+           prix_affiche_override, prix_override, type_tarification_override, enabled, ordre_affichage, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           categorie_override = VALUES(categorie_override),
+           label_override = VALUES(label_override),
+           description_courte_override = VALUES(description_courte_override),
+           prix_affiche_override = VALUES(prix_affiche_override),
+           prix_override = VALUES(prix_override),
+           type_tarification_override = VALUES(type_tarification_override),
+           enabled = VALUES(enabled),
+           ordre_affichage = VALUES(ordre_affichage),
+           updated_at = VALUES(updated_at)`,
+        [row.id, service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, index, now, now]
+      );
+    }
+  }
+}
+
+async function listPaidServicesCatalogue() {
+  await ensurePaidServicesSchema();
+  const [rows] = await pool.query(
+    `SELECT id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled
+     FROM services_payants_catalogue
+     ORDER BY categorie ASC, label ASC`
+  );
+  return (rows || []).map((row) => normalizePaidServiceRecord({
+    id: row.id,
+    categorie: row.categorie,
+    label: row.label,
+    description_courte: row.description_courte,
+    prix_affiche: row.prix_affiche,
+    prix: row.prix_base,
+    type_tarification: row.type_tarification,
+    enabled: row.enabled === 1 || row.enabled === true,
+  }));
+}
+
+async function listPaidServicesForBienIds(bienIds) {
+  await ensurePaidServicesSchema();
+  const ids = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await pool.query(
+    `SELECT
+       bsp.bien_id,
+       bsp.service_catalogue_id,
+       bsp.categorie_override,
+       bsp.label_override,
+       bsp.description_courte_override,
+       bsp.prix_affiche_override,
+       bsp.prix_override,
+       bsp.type_tarification_override,
+       bsp.enabled AS bien_enabled,
+       bsp.ordre_affichage,
+       c.categorie,
+       c.label,
+       c.description_courte,
+       c.prix_affiche,
+       c.prix_base,
+       c.type_tarification,
+       c.enabled AS catalogue_enabled
+     FROM bien_services_payants bsp
+     INNER JOIN services_payants_catalogue c ON c.id = bsp.service_catalogue_id
+     WHERE bsp.bien_id IN (${placeholders})
+     ORDER BY bsp.bien_id ASC, bsp.ordre_affichage ASC, c.categorie ASC, c.label ASC`,
+    ids
+  );
+  const byBienId = new Map();
+  for (const row of rows || []) {
+    const service = normalizePaidServiceRecord({
+      id: row.service_catalogue_id,
+      categorie: row.categorie_override || row.categorie,
+      label: row.label_override || row.label,
+      description_courte: row.description_courte_override || row.description_courte,
+      prix_affiche: row.prix_affiche_override || row.prix_affiche,
+      prix: row.prix_override ?? row.prix_base,
+      type_tarification: row.type_tarification_override || row.type_tarification,
+      enabled: (row.bien_enabled === 1 || row.bien_enabled === true) && (row.catalogue_enabled === 1 || row.catalogue_enabled === true),
+    });
+    if (!byBienId.has(row.bien_id)) byBienId.set(row.bien_id, []);
+    byBienId.get(row.bien_id).push(service);
+  }
+  return byBienId;
+}
+
+async function syncBienPaidServices(bienId, services) {
+  await ensurePaidServicesSchema();
+  const normalizedBienId = String(bienId || '').trim();
+  if (!normalizedBienId) return;
+  const list = Array.isArray(services) ? services.map((service) => normalizePaidServiceRecord(service)).filter((service) => service.label) : [];
+  const now = getAgencySqlDateTime();
+  await pool.query('DELETE FROM bien_services_payants WHERE bien_id = ?', [normalizedBienId]);
+  for (let index = 0; index < list.length; index += 1) {
+    const service = list[index];
+    await pool.query(
+      `INSERT INTO services_payants_catalogue (
+         id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         categorie = VALUES(categorie),
+         label = VALUES(label),
+         description_courte = VALUES(description_courte),
+         prix_affiche = VALUES(prix_affiche),
+         prix_base = VALUES(prix_base),
+         type_tarification = VALUES(type_tarification),
+         enabled = VALUES(enabled),
+         updated_at = VALUES(updated_at)`,
+      [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
+    );
+    await pool.query(
+      `INSERT INTO bien_services_payants (
+         bien_id, service_catalogue_id, categorie_override, label_override, description_courte_override,
+         prix_affiche_override, prix_override, type_tarification_override, enabled, ordre_affichage, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [normalizedBienId, service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, index, now, now]
+    );
+  }
+}
+
+function injectPaidServicesIntoConfig(rawConfig, services) {
+  const baseConfig = rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) ? { ...rawConfig } : {};
+  baseConfig.services_payants = Array.isArray(services) ? services : [];
+  return baseConfig;
+}
+
 function formatReservationDemandRow(row) {
   if (!row) return null;
   return {
@@ -2895,6 +3167,15 @@ function formatReservationDemandRow(row) {
     guests: Number(row.guests || 1),
     total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
+    selected_fixed_services: parseJsonArray(row.selected_fixed_services_json),
+    selected_variable_services: parseJsonArray(row.selected_variable_services_json),
+    variable_services_quote: parseJsonArray(row.variable_services_quote_json),
+    variable_services_quote_total: row.variable_services_quote_total === null || row.variable_services_quote_total === undefined ? null : Number(row.variable_services_quote_total),
+    variable_services_quote_status: row.variable_services_quote_status || null,
+    reservation_payment_id: row.reservation_payment_id || null,
+    reservation_payment_paid_at: row.reservation_payment_paid_at || null,
+    services_payment_id: row.services_payment_id || null,
+    services_payment_paid_at: row.services_payment_paid_at || null,
     owner_notified_at: row.owner_notified_at || null,
     owner_response_at: row.owner_response_at || null,
     client_confirmation_clicked_at: row.client_confirmation_clicked_at || null,
@@ -3596,8 +3877,12 @@ async function generateReservationClientContractHtml({
   const fileName = `contract-client-${contractId}.html`;
   const filePath = path.join(contractsDir, fileName);
   const nights = computeNights(demand.start_date, demand.end_date);
+  const reservationTotal = Number(totalAmount || 0);
+  const servicesQuoteTotal = Number(demand?.variable_services_quote_total || 0);
+  const hasServicesQuote = servicesQuoteTotal > 0;
+  const globalTotal = reservationTotal + servicesQuoteTotal;
   const amountNow = Number(amountDueNow || 0);
-  const balance = Math.max(0, Number(totalAmount || 0) - amountNow);
+  const balance = Math.max(0, reservationTotal - amountNow);
   const nowDisplay = new Date(String(contractCreatedAt).replace(' ', 'T')).toLocaleString('fr-FR', { timeZone: AGENCY_TIME_ZONE, hour12: false });
   const docLabel = identityDocumentType === 'cin_tn'
     ? 'CIN tunisienne'
@@ -3656,11 +3941,17 @@ async function generateReservationClientContractHtml({
 
     <h2>Details reservation</h2>
     <div class="grid3">
-      <div class="box"><p class="muted">Montant total</p><p><strong>${escapeHtml(formatCurrency(totalAmount))}</strong></p></div>
+      <div class="box"><p class="muted">Montant reservation</p><p><strong>${escapeHtml(formatCurrency(reservationTotal))}</strong></p></div>
+      ${hasServicesQuote ? `<div class="box"><p class="muted">Devis services</p><p><strong>${escapeHtml(formatCurrency(servicesQuoteTotal))}</strong></p></div>` : ''}
+      <div class="box"><p class="muted">Montant global</p><p><strong>${escapeHtml(formatCurrency(hasServicesQuote ? globalTotal : reservationTotal))}</strong></p></div>
       <div class="box"><p class="muted">Methode de paiement</p><p><strong>${escapeHtml(paymentModeLabel)}</strong></p></div>
       <div class="box"><p class="muted">A payer maintenant</p><p><strong>${escapeHtml(formatCurrency(amountNow))}</strong></p></div>
       <div class="box"><p class="muted">Reste a payer</p><p><strong>${escapeHtml(formatCurrency(balance))}</strong></p></div>
     </div>
+    ${hasServicesQuote ? `
+    <div class="box" style="margin-top: 10px;">
+      <p><strong>Note services payants:</strong> le montant global inclut le devis des services additionnels confirmes par l'agence.</p>
+    </div>` : ''}
 
     <h2>Clauses principales</h2>
     <div class="box">
@@ -3700,7 +3991,11 @@ async function generateReservationOwnerContractHtml({
   const fileName = `contract-owner-${contractId}.html`;
   const filePath = path.join(contractsDir, fileName);
   const nights = computeNights(demand.start_date, demand.end_date);
-  const balance = Math.max(0, Number(totalAmount || 0) - Number(amountDueNow || 0));
+  const reservationTotal = Number(totalAmount || 0);
+  const servicesQuoteTotal = Number(demand?.variable_services_quote_total || 0);
+  const hasServicesQuote = servicesQuoteTotal > 0;
+  const globalTotal = reservationTotal + servicesQuoteTotal;
+  const balance = Math.max(0, reservationTotal - Number(amountDueNow || 0));
   const nowDisplay = new Date(String(contractCreatedAt).replace(' ', 'T')).toLocaleString('fr-FR', { timeZone: AGENCY_TIME_ZONE, hour12: false });
   const paymentModeLabel = paymentMode === 'totalite' ? 'Totalite' : 'Avance';
 
@@ -3753,10 +4048,16 @@ async function generateReservationOwnerContractHtml({
 
     <h2>Conditions financieres</h2>
     <div class="grid3">
-      <div class="box"><p class="muted">Montant total reservation</p><p><strong>${escapeHtml(formatCurrency(totalAmount))}</strong></p></div>
+      <div class="box"><p class="muted">Montant reservation</p><p><strong>${escapeHtml(formatCurrency(reservationTotal))}</strong></p></div>
+      ${hasServicesQuote ? `<div class="box"><p class="muted">Devis services</p><p><strong>${escapeHtml(formatCurrency(servicesQuoteTotal))}</strong></p></div>` : ''}
+      <div class="box"><p class="muted">Montant global</p><p><strong>${escapeHtml(formatCurrency(hasServicesQuote ? globalTotal : reservationTotal))}</strong></p></div>
       <div class="box"><p class="muted">Methode de paiement client</p><p><strong>${escapeHtml(paymentModeLabel)}</strong></p></div>
       <div class="box"><p class="muted">Reste client</p><p><strong>${escapeHtml(formatCurrency(balance))}</strong></p></div>
     </div>
+    ${hasServicesQuote ? `
+    <div class="box" style="margin-top: 10px;">
+      <p><strong>Note services payants:</strong> le montant global inclut le devis des services additionnels confirmes pour cette reservation.</p>
+    </div>` : ''}
 
     <div class="sign">
       <div class="box"><p><strong>Signature proprietaire</strong></p><p class="muted">Lu et approuve</p></div>
@@ -4080,6 +4381,7 @@ pool.getConnection()
   .then(() => ensureZonesSchema())
   .then(() => ensureMessengerSchema())
   .then(() => ensureBiensWorkflowSchema())
+  .then(() => ensurePaidServicesSchema())
   .then(() => {
     console.log('✅ Auth schema and bien workflow ready');
   })
@@ -4126,8 +4428,19 @@ app.put('/api/site-mode-priorities', async (req, res) => {
   }
 });
 
+app.get('/api/services-payants/catalogue', async (req, res) => {
+  try {
+    const services = await listPaidServicesCatalogue();
+    res.json(services);
+  } catch (error) {
+    console.error('Error fetching paid services catalogue:', error);
+    res.status(500).json({ error: 'Impossible de charger le catalogue des services payants' });
+  }
+});
+
 app.get('/api/biens', async (req, res) => {
   try {
+    await ensurePaidServicesSchema();
     const [rows] = await pool.query(`
       SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom,
         (
@@ -4147,7 +4460,25 @@ app.get('/api/biens', async (req, res) => {
       LEFT JOIN proprietaires p ON b.proprietaire_id = p.id
       ORDER BY b.created_at DESC
     `);
-    res.json(rows);
+    const servicesByBienId = await listPaidServicesForBienIds((rows || []).map((row) => row.id));
+    const enrichedRows = (rows || []).map((row) => {
+      let config = null;
+      try {
+        config = row.location_saisonniere_config_json
+          ? (typeof row.location_saisonniere_config_json === 'string'
+            ? JSON.parse(row.location_saisonniere_config_json)
+            : row.location_saisonniere_config_json)
+          : null;
+      } catch {
+        config = null;
+      }
+      const nextConfig = injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || []);
+      return {
+        ...row,
+        location_saisonniere_config_json: JSON.stringify(nextConfig),
+      };
+    });
+    res.json(enrichedRows);
   } catch (error) {
     console.error('Error fetching biens:', error);
     res.status(500).json({ error: 'Failed to fetch biens' });
@@ -4157,6 +4488,7 @@ app.get('/api/biens', async (req, res) => {
 // GET single bien
 app.get('/api/biens/:id', async (req, res) => {
   try {
+    await ensurePaidServicesSchema();
     const [rows] = await pool.query(`
       SELECT b.*,
         (
@@ -4177,7 +4509,22 @@ app.get('/api/biens/:id', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Bien not found' });
     }
-    res.json(rows[0]);
+    const row = rows[0];
+    const servicesByBienId = await listPaidServicesForBienIds([row.id]);
+    let config = null;
+    try {
+      config = row.location_saisonniere_config_json
+        ? (typeof row.location_saisonniere_config_json === 'string'
+          ? JSON.parse(row.location_saisonniere_config_json)
+          : row.location_saisonniere_config_json)
+        : null;
+    } catch {
+      config = null;
+    }
+    res.json({
+      ...row,
+      location_saisonniere_config_json: JSON.stringify(injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || [])),
+    });
   } catch (error) {
     console.error('Error fetching bien:', error);
     res.status(500).json({ error: 'Failed to fetch bien' });
@@ -4398,6 +4745,7 @@ app.post('/api/biens', async (req, res) => {
       await syncBienCaracteristiques(bienId, caracteristique_ids);
       await syncBienCaracteristiqueValeurs(bienId, caracteristique_ids, caracteristique_valeurs);
     }
+    await syncBienPaidServices(bienId, location_saisonniere_config?.services_payants || []);
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
     res.status(201).json(newBien[0]);
@@ -4625,6 +4973,7 @@ app.put('/api/biens/:id', async (req, res) => {
       await syncBienCaracteristiques(req.params.id, caracteristique_ids);
       await syncBienCaracteristiqueValeurs(req.params.id, caracteristique_ids, caracteristique_valeurs);
     }
+    await syncBienPaidServices(req.params.id, location_saisonniere_config?.services_payants || []);
 
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
     res.json(updatedBien[0]);
@@ -5529,6 +5878,8 @@ app.get('/api/reservation-demands', async (req, res) => {
         DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
         DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+        DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+        DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
       FROM reservation_demands d
@@ -5582,6 +5933,8 @@ app.post('/api/reservation-demands', async (req, res) => {
       payment_mode,
       total_amount,
       amount_due_now,
+      selected_fixed_services,
+      selected_variable_services,
       client_note,
       request_type,
     } = req.body || {};
@@ -5600,6 +5953,9 @@ app.post('/api/reservation-demands', async (req, res) => {
     const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
     const normalizedTotalAmount = Number.isFinite(Number(total_amount)) ? Number(total_amount) : null;
     const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) ? Number(amount_due_now) : null;
+    const normalizedFixedServices = Array.isArray(selected_fixed_services) ? selected_fixed_services : [];
+    const normalizedVariableServices = Array.isArray(selected_variable_services) ? selected_variable_services : [];
+    const variableServicesQuoteStatus = normalizedVariableServices.length > 0 ? 'a_traiter' : 'aucun';
 
     const [overlapRows] = await pool.query(
       `SELECT id, status
@@ -5626,9 +5982,9 @@ app.post('/api/reservation-demands', async (req, res) => {
     await pool.query(
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, payment_mode, total_amount, amount_due_now, status, owner_notified_at, owner_response_at, admin_note, client_note,
+        start_date, end_date, guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
@@ -5645,6 +6001,11 @@ app.post('/api/reservation-demands', async (req, res) => {
         normalizedPaymentMode,
         normalizedTotalAmount,
         normalizedAmountDueNow,
+        JSON.stringify(normalizedFixedServices),
+        JSON.stringify(normalizedVariableServices),
+        JSON.stringify([]),
+        null,
+        variableServicesQuoteStatus,
         'en_attente_reponse_proprietaire',
         null,
         null,
@@ -5747,6 +6108,21 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
     const amountDueNow = body.amount_due_now !== undefined
       ? (Number.isFinite(Number(body.amount_due_now)) ? Number(body.amount_due_now) : null)
       : (current.amount_due_now === null || current.amount_due_now === undefined ? null : Number(current.amount_due_now));
+    const selectedFixedServices = body.selected_fixed_services !== undefined
+      ? (Array.isArray(body.selected_fixed_services) ? body.selected_fixed_services : [])
+      : parseJsonArray(current.selected_fixed_services_json);
+    const selectedVariableServices = body.selected_variable_services !== undefined
+      ? (Array.isArray(body.selected_variable_services) ? body.selected_variable_services : [])
+      : parseJsonArray(current.selected_variable_services_json);
+    const variableServicesQuote = body.variable_services_quote !== undefined
+      ? (Array.isArray(body.variable_services_quote) ? body.variable_services_quote : [])
+      : parseJsonArray(current.variable_services_quote_json);
+    const variableServicesQuoteTotal = body.variable_services_quote_total !== undefined
+      ? (Number.isFinite(Number(body.variable_services_quote_total)) ? Number(body.variable_services_quote_total) : null)
+      : (current.variable_services_quote_total === null || current.variable_services_quote_total === undefined ? null : Number(current.variable_services_quote_total));
+    const variableServicesQuoteStatus = body.variable_services_quote_status !== undefined
+      ? String(body.variable_services_quote_status || '').trim() || null
+      : (current.variable_services_quote_status || (selectedVariableServices.length > 0 ? 'a_traiter' : 'aucun'));
     const identityDocumentType = body.identity_document_type !== undefined
       ? normalizeIdentityDocumentType(body.identity_document_type, current.identity_document_type || 'cin_tn')
       : current.identity_document_type;
@@ -5768,6 +6144,7 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
       `UPDATE reservation_demands
        SET status = ?, owner_notified_at = ?, owner_response_at = ?, client_confirmation_clicked_at = ?,
            payment_mode = ?, total_amount = ?, amount_due_now = ?,
+           selected_fixed_services_json = ?, selected_variable_services_json = ?, variable_services_quote_json = ?, variable_services_quote_total = ?, variable_services_quote_status = ?,
            identity_document_type = ?, identity_document_number = ?, identity_document_country = ?,
            identity_first_name = ?, identity_last_name = ?,
            identity_document_image_url = ?, identity_ocr_text = ?, identity_submitted_at = ?, contract_generated_at = ?,
@@ -5781,6 +6158,11 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
         paymentMode,
         totalAmount,
         amountDueNow,
+        JSON.stringify(selectedFixedServices),
+        JSON.stringify(selectedVariableServices),
+        JSON.stringify(variableServicesQuote),
+        variableServicesQuoteTotal,
+        variableServicesQuoteStatus,
         identityDocumentType || null,
         identityDocumentNumber || null,
         identityDocumentCountry || null,
@@ -6156,6 +6538,154 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
   }
 });
 
+app.post('/api/reservation-demands/:id/pay', async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    const scope = String(req.body?.scope || '').trim().toLowerCase();
+    const method = String(req.body?.methode || req.body?.method || 'virement').trim() || 'virement';
+    const actorId = String(req.body?.actor_id || req.body?.actorId || 'client').trim() || 'client';
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    if (!['reservation', 'services', 'combined'].includes(scope)) {
+      return res.status(400).json({ error: 'Scope de paiement invalide' });
+    }
+
+    const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows[0];
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
+
+    const reservationAmount = Number.isFinite(Number(current.amount_due_now))
+      ? Number(current.amount_due_now)
+      : Number(current.total_amount || 0);
+    const servicesAmount = Number.isFinite(Number(current.variable_services_quote_total))
+      ? Number(current.variable_services_quote_total)
+      : 0;
+    const servicesQuoteIsPayable = String(current.variable_services_quote_status || '') === 'devis_envoye' && servicesAmount > 0;
+    const reservationAlreadyPaid = !!String(current.reservation_payment_id || '').trim();
+    const servicesAlreadyPaid = !!String(current.services_payment_id || '').trim()
+      || (servicesQuoteIsPayable && String(current.variable_services_quote_status || '') === 'paye');
+
+    if (scope === 'reservation' && (reservationAmount <= 0 || reservationAlreadyPaid)) {
+      return res.status(400).json({ error: reservationAlreadyPaid ? 'La reservation a deja ete reglee' : 'Aucun montant de reservation a regler' });
+    }
+    if (scope === 'services' && (!servicesQuoteIsPayable || servicesAlreadyPaid)) {
+      return res.status(400).json({ error: servicesAlreadyPaid ? 'Les services ont deja ete regles' : 'Aucun devis services payable pour le moment' });
+    }
+    if (scope === 'combined') {
+      if (reservationAlreadyPaid && (!servicesQuoteIsPayable || servicesAlreadyPaid)) {
+        return res.status(400).json({ error: 'Cette demande est deja entierement reglee' });
+      }
+      if (!reservationAlreadyPaid && reservationAmount <= 0) {
+        return res.status(400).json({ error: 'Aucun montant de reservation a regler' });
+      }
+    }
+
+    const now = getAgencySqlDateTime();
+    let reservationPaymentId = String(current.reservation_payment_id || '').trim() || null;
+    let servicesPaymentId = String(current.services_payment_id || '').trim() || null;
+    let reservationPaidAt = current.reservation_payment_paid_at || null;
+    let servicesPaidAt = current.services_payment_paid_at || null;
+    let variableServicesQuoteStatus = current.variable_services_quote_status || null;
+
+    if ((scope === 'reservation' || scope === 'combined') && !reservationAlreadyPaid && reservationAmount > 0) {
+      reservationPaymentId = `pay${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+      await pool.query(
+        'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
+        [reservationPaymentId, current.contract_id, reservationAmount, now, 'paye', method]
+      );
+      reservationPaidAt = now;
+    }
+
+    if ((scope === 'services' || scope === 'combined') && servicesQuoteIsPayable && !servicesAlreadyPaid) {
+      servicesPaymentId = `pay${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+      await pool.query(
+        'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
+        [servicesPaymentId, current.contract_id, servicesAmount, now, 'paye', method]
+      );
+      servicesPaidAt = now;
+      variableServicesQuoteStatus = 'paye';
+    }
+
+    const reservationIsPaidAfterUpdate = !!reservationPaymentId;
+    const servicesIsPaidAfterUpdate = !servicesQuoteIsPayable || !!servicesPaymentId;
+    const nextStatus = reservationIsPaidAfterUpdate && servicesIsPaidAfterUpdate ? 'succes_paiement' : 'contrat_realise';
+    const primaryPaymentId = reservationPaymentId || servicesPaymentId || current.payment_id || null;
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?,
+           payment_id = ?,
+           reservation_payment_id = ?,
+           reservation_payment_paid_at = ?,
+           services_payment_id = ?,
+           services_payment_paid_at = ?,
+           variable_services_quote_status = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [
+        nextStatus,
+        primaryPaymentId,
+        reservationPaymentId,
+        reservationPaidAt,
+        servicesPaymentId,
+        servicesPaidAt,
+        variableServicesQuoteStatus,
+        now,
+        demandId,
+      ]
+    );
+
+    const paidParts = [];
+    if (scope === 'combined') {
+      if (reservationPaymentId && !reservationAlreadyPaid) paidParts.push('reservation');
+      if (servicesPaymentId && !servicesAlreadyPaid) paidParts.push('services');
+    } else {
+      paidParts.push(scope);
+    }
+    await appendReservationDemandHistory(
+      demandId,
+      nextStatus,
+      'client',
+      actorId,
+      `Paiement client enregistre pour: ${paidParts.join(' + ')}`
+    );
+    await createAdminNotification(
+      'success',
+      `Paiement client recu pour la demande ${demandId}: ${paidParts.join(' + ')}`,
+      now
+    );
+
+    const [updatedRows] = await pool.query(
+      `SELECT
+        d.*,
+        b.titre AS bien_titre,
+        b.reference AS bien_reference,
+        p.nom AS proprietaire_nom,
+        DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+        DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+        DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+        DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+        DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+        DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+        DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+        DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      FROM reservation_demands d
+      LEFT JOIN biens b ON b.id = d.bien_id
+      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      WHERE d.id = ?
+      LIMIT 1`,
+      [demandId]
+    );
+    res.json(formatReservationDemandRow(updatedRows[0]));
+  } catch (error) {
+    console.error('Error creating reservation demand payment:', error);
+    res.status(500).json({ error: 'Impossible de traiter le paiement de cette demande' });
+  }
+});
+
 app.post('/api/caracteristique-onglets', async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
@@ -6498,6 +7028,11 @@ async function ensureReservationDemandSchema() {
       payment_mode VARCHAR(20) NULL,
       total_amount DECIMAL(12,2) NULL,
       amount_due_now DECIMAL(12,2) NULL,
+      selected_fixed_services_json LONGTEXT NULL,
+      selected_variable_services_json LONGTEXT NULL,
+      variable_services_quote_json LONGTEXT NULL,
+      variable_services_quote_total DECIMAL(12,2) NULL,
+      variable_services_quote_status VARCHAR(30) NULL,
       status VARCHAR(80) NOT NULL,
       owner_notified_at DATETIME NULL,
       owner_response_at DATETIME NULL,
@@ -6516,6 +7051,10 @@ async function ensureReservationDemandSchema() {
       finalization_due_at DATETIME NULL,
       contract_id VARCHAR(100) NULL,
       payment_id VARCHAR(100) NULL,
+      reservation_payment_id VARCHAR(100) NULL,
+      reservation_payment_paid_at DATETIME NULL,
+      services_payment_id VARCHAR(100) NULL,
+      services_payment_paid_at DATETIME NULL,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       KEY idx_reservation_demands_client (client_user_id, client_email),
@@ -6558,6 +7097,33 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'amount_due_now'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN amount_due_now DECIMAL(12,2) NULL AFTER total_amount');
+  }
+  if (!(await columnExists('reservation_demands', 'selected_fixed_services_json'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN selected_fixed_services_json LONGTEXT NULL AFTER amount_due_now');
+  }
+  if (!(await columnExists('reservation_demands', 'selected_variable_services_json'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN selected_variable_services_json LONGTEXT NULL AFTER selected_fixed_services_json');
+  }
+  if (!(await columnExists('reservation_demands', 'variable_services_quote_json'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN variable_services_quote_json LONGTEXT NULL AFTER selected_variable_services_json');
+  }
+  if (!(await columnExists('reservation_demands', 'variable_services_quote_total'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN variable_services_quote_total DECIMAL(12,2) NULL AFTER variable_services_quote_json');
+  }
+  if (!(await columnExists('reservation_demands', 'variable_services_quote_status'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN variable_services_quote_status VARCHAR(30) NULL AFTER variable_services_quote_total');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_payment_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_payment_id VARCHAR(100) NULL AFTER payment_id');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_payment_paid_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_payment_paid_at DATETIME NULL AFTER reservation_payment_id');
+  }
+  if (!(await columnExists('reservation_demands', 'services_payment_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN services_payment_id VARCHAR(100) NULL AFTER reservation_payment_paid_at');
+  }
+  if (!(await columnExists('reservation_demands', 'services_payment_paid_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN services_payment_paid_at DATETIME NULL AFTER services_payment_id');
   }
   if (!(await columnExists('reservation_demands', 'identity_document_type'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_type VARCHAR(30) NULL AFTER client_confirmation_clicked_at');
