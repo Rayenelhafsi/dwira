@@ -609,9 +609,12 @@ const storage = multer.diskStorage({
   }
 });
 
+const MEDIA_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+const MEDIA_UPLOAD_MAX_MESSAGE = 'File too large. Maximum size is 50 MB.';
+
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  limits: { fileSize: MEDIA_UPLOAD_MAX_BYTES },
   fileFilter: (req, file, cb) => {
     const imageTypes = /jpeg|jpg|png|gif|webp|heic|heif/;
     const videoTypes = /mp4|webm|mov|m4v|quicktime/;
@@ -637,7 +640,7 @@ function uploadMediaMiddleware(req, res, next) {
     }
     if (error instanceof multer.MulterError) {
       if (error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'File too large. Maximum size is 50 MB.' });
+        return res.status(413).json({ error: MEDIA_UPLOAD_MAX_MESSAGE });
       }
       return res.status(400).json({ error: error.message || 'Invalid upload request' });
     }
@@ -812,13 +815,6 @@ async function generateStructuredBienReference({ mode, type, titre, zoneId, prop
   const finalAnnonceNumber = annonceNumberForCurrent || (maxAnnonceNumber + 1);
   const finalUnitNumber = maxUnitForCurrentAnnonce + 1;
   return `${basePrefix}${finalAnnonceNumber}-${unitPrefix}${finalUnitNumber}`;
-}
-
-function isStructuredBienReference(reference, mode, type) {
-  const modeCode = MODE_REFERENCE_CODES[mode] || normalizeReferenceBase(mode).replace(/-/g, '');
-  const typeCode = TYPE_REFERENCE_CODES[type] || normalizeReferenceBase(type).replace(/-/g, '');
-  const pattern = new RegExp(`^REF-${escapeRegExp(modeCode)}-${escapeRegExp(typeCode)}-ANN\\d+-[A-Z]\\d+$`);
-  return pattern.test(String(reference || '').trim().toUpperCase());
 }
 
 function buildChildReference(baseReference, prefix, index) {
@@ -4582,10 +4578,8 @@ app.post('/api/biens', async (req, res) => {
     if (terrainDetails.error) {
       return res.status(400).json({ error: terrainDetails.error });
     }
-    const providedReference = String(reference || '').trim().toUpperCase();
-    const resolvedReference = isStructuredBienReference(providedReference, resolvedMode, resolvedType)
-      ? providedReference
-      : await generateStructuredBienReference({
+    const providedReference = String(reference || '').trim();
+    const resolvedReference = providedReference || await generateStructuredBienReference({
           mode: resolvedMode,
           type: resolvedType,
           titre,
@@ -4633,13 +4627,16 @@ app.post('/api/biens', async (req, res) => {
       }
     }
 
+    const persistedConfiguration = (resolvedMode === 'vente' && resolvedType === 'appartement')
+      ? details.configuration
+      : ((configuration !== undefined && configuration !== null ? String(configuration) : '').trim() || null);
     const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
-      ? deriveBedroomsFromConfiguration(details.configuration)
+      ? deriveBedroomsFromConfiguration(persistedConfiguration)
       : (resolvedMode === 'vente' && resolvedType === 'local_commercial')
         ? 0
         : (resolvedMode === 'vente' && (resolvedType === 'terrain' || resolvedType === 'lotissement'))
           ? 0
-        : Number(nb_chambres || 0);
+        : Math.max(Number(nb_chambres || 0), deriveBedroomsFromConfiguration(persistedConfiguration));
     const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain' || resolvedType === 'lotissement'))
       ? 0
       : Number(nb_salle_bain || 0);
@@ -4672,7 +4669,7 @@ app.post('/api/biens', async (req, res) => {
         date_ajout, created_at, updated_at) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [bienId, resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
-       resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
+       resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
        details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0,
        (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.eauPuits ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.eauPuits ? 1 : 0) : (details.eauPuits ? 1 : 0))),
@@ -4810,10 +4807,8 @@ app.put('/api/biens/:id', async (req, res) => {
       return res.status(400).json({ error: terrainDetails.error });
     }
     const currentId = req.params.id;
-    const providedReference = String(reference || '').trim().toUpperCase();
-    const resolvedReference = isStructuredBienReference(providedReference, resolvedMode, resolvedType)
-      ? providedReference
-      : await generateStructuredBienReference({
+    const providedReference = String(reference || '').trim();
+    const resolvedReference = providedReference || await generateStructuredBienReference({
           mode: resolvedMode,
           type: resolvedType,
           titre,
@@ -4862,13 +4857,16 @@ app.put('/api/biens/:id', async (req, res) => {
       }
     }
 
+    const persistedConfiguration = (resolvedMode === 'vente' && resolvedType === 'appartement')
+      ? details.configuration
+      : ((configuration !== undefined && configuration !== null ? String(configuration) : '').trim() || null);
     const resolvedNbChambres = (resolvedMode === 'vente' && resolvedType === 'appartement')
-      ? deriveBedroomsFromConfiguration(details.configuration)
+      ? deriveBedroomsFromConfiguration(persistedConfiguration)
       : (resolvedMode === 'vente' && resolvedType === 'local_commercial')
         ? 0
         : (resolvedMode === 'vente' && (resolvedType === 'terrain' || resolvedType === 'lotissement'))
           ? 0
-        : Number(nb_chambres || 0);
+        : Math.max(Number(nb_chambres || 0), deriveBedroomsFromConfiguration(persistedConfiguration));
     const resolvedNbSalleBain = (resolvedMode === 'vente' && (resolvedType === 'local_commercial' || resolvedType === 'terrain' || resolvedType === 'lotissement'))
       ? 0
       : Number(nb_salle_bain || 0);
@@ -4900,7 +4898,7 @@ app.put('/api/biens/:id', async (req, res) => {
         statut = ?, visible_sur_site = ?, is_featured = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
        WHERE id = ?`,
       [resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
-       resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, details.configuration, details.anneeConstruction, details.distancePlageM,
+       resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
        details.syndic ? 1 : 0, details.meuble ? 1 : 0, details.independant ? 1 : 0,
        (resolvedMode === 'vente' && resolvedType === 'local_commercial' ? (localDetails.eauPuits ? 1 : 0) : (resolvedMode === 'vente' && resolvedType === 'terrain' ? (terrainDetails.eauPuits ? 1 : 0) : (details.eauPuits ? 1 : 0))),
@@ -8436,6 +8434,22 @@ app.delete('/api/utilisateurs/:id', async (req, res) => {
     console.error('Error deleting utilisateur:', error);
     res.status(500).json({ error: 'Failed to delete utilisateur' });
   }
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: MEDIA_UPLOAD_MAX_MESSAGE });
+  }
+
+  if (error?.type === 'entity.too.large' || error?.status === 413) {
+    return res.status(413).json({ error: MEDIA_UPLOAD_MAX_MESSAGE });
+  }
+
+  return next(error);
 });
 
 // Start server

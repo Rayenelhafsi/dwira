@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
+import { resolveBienCapacity } from '../../utils/bienCapacity';
 import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
@@ -14,6 +15,29 @@ type FeatureApiRow = {
   unite?: string | null;
   visibilite_client?: number | null;
 };
+
+const parseFeatureValueJson = (rawValue?: string | null): string[] => {
+  const text = String(rawValue || '').trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item || '').trim()).filter(Boolean);
+    }
+    const scalar = String(parsed || '').trim();
+    return scalar ? [scalar] : [];
+  } catch {
+    return text ? [text] : [];
+  }
+};
+
+const cleanFeatureTabName = (value: string) =>
+  String(value || '')
+    .replace(/^\s*\d+\s*[\.\-:)]\s*/g, '')
+    .trim();
+
+const isCharacteristicsTabName = (value: string) =>
+  normalizeFeatureName(cleanFeatureTabName(value)).includes('caracteristique');
 
 type LatLng = { lat: number; lng: number };
 type NearbyPlace = { id: string; lat: number; lng: number; name: string; kind: 'cafe' | 'restaurant'; distanceKm: number };
@@ -151,6 +175,12 @@ export default function LocationPublicBienPageView({
   const [displayLocation, setDisplayLocation] = useState<LatLng | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const uiConfig: BienUiConfig = bien.ui_config || {};
+  const resolvedCapacity = useMemo(() => resolveBienCapacity({
+    nbChambres: bien.nb_chambres,
+    nbSalleBain: bien.nb_salle_bain,
+    configuration: bien.configuration,
+    caracteristiques: bien.caracteristiques,
+  }), [bien.nb_chambres, bien.nb_salle_bain, bien.configuration, bien.caracteristiques]);
   const selectedZone = useMemo(() => zones.find((item) => item.id === bien.zone_id), [zones, bien.zone_id]);
   const bienMapsRaw = String((bien.location_saisonniere_config as any)?.google_maps_embed_url || '').trim();
   const selectedMapsUrl = useMemo(() => {
@@ -197,10 +227,8 @@ export default function LocationPublicBienPageView({
   const selectedFeatureNames = new Set((Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []).map((item) => normalizeFeatureName(String(item))));
   const selectedFeatures = allFeatures.filter((item) => selectedFeatureIds.has(String(item.id || '')) || selectedFeatureNames.has(normalizeFeatureName(String(item.nom || ''))));
   const visibleSelectedFeatures = selectedFeatures.filter((item) => Number(item.visibilite_client) !== 0 && String(item.onglet_id || '').trim().length > 0);
-  const booleanFeatureTags = Object.entries(FEATURE_LABELS)
-    .filter(([key]) => isTruthy((bien as unknown as Record<string, unknown>)[key]))
-    .map(([, label]) => label)
-    .filter((label) => !selectedFeatures.some((item) => normalizeFeatureName(String(item.nom || '')) === normalizeFeatureName(label)));
+  const characteristicFeatures = (previewMode ? selectedFeatures : visibleSelectedFeatures)
+    .filter((item) => isCharacteristicsTabName(String((item as any).onglet_nom || '')));
 
   const isVisible = (key: keyof BienUiConfig | string) => (uiConfig as Record<string, unknown>)[key] !== false;
   const busyToggle = (key: string) => togglingKey === key;
@@ -237,9 +265,24 @@ export default function LocationPublicBienPageView({
     );
   };
 
-  const amenityRows = previewMode
-    ? selectedFeatures.filter((item) => String(item.onglet_id || '').trim().length > 0)
-    : visibleSelectedFeatures;
+  const amenityRows = characteristicFeatures;
+  const amenityDisplayRows = amenityRows.flatMap((feature) => {
+    const values = parseFeatureValueJson((feature as any).valeur_json);
+    const normalizedType = String(feature.type_caracteristique || 'simple').trim().toLowerCase();
+    if (values.length > 0) {
+      return [{
+        ...feature,
+        displayValue: values.join(', '),
+      }];
+    }
+    if (normalizedType !== 'simple') {
+      return [];
+    }
+    return [{
+      ...feature,
+      displayValue: null,
+    }];
+  });
   const showBookingCard = isVisible('show_booking_card') && isVisible('show_tarification_publique');
 
   useEffect(() => {
@@ -462,13 +505,13 @@ out body 20;
               <div className="py-6 border-b border-gray-100">
                 <div className="flex justify-between items-center gap-3 mb-6">
                   <div>
-                    <h2 className="text-xl font-bold mb-1">Logement entier : {bien.configuration || bien.type}</h2>
+                    <h2 className="text-xl font-bold mb-1">Logement entier : {resolvedCapacity.configuration || bien.type}</h2>
                     <div className="flex gap-4 text-gray-600 text-sm">
-                      <span className="font-medium text-emerald-700">{Math.max((bien.nb_chambres || 0) + 1, 1)} voyageurs max</span>
+                      <span className="font-medium text-emerald-700">{Math.max((resolvedCapacity.bedrooms || 0) + 1, 1)} voyageurs max</span>
                       <span>·</span>
-                      <span>{bien.nb_chambres || 0} chambres</span>
+                      <span>{resolvedCapacity.bedrooms || 0} chambres</span>
                       <span>·</span>
-                      <span>{bien.nb_salle_bain || 0} salles de bain</span>
+                      <span>{resolvedCapacity.bathrooms || 0} salles de bain</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -485,33 +528,28 @@ out body 20;
               </div>
             ), 'border-b border-gray-100')}
 
-            {block('show_caracteristiques', 'Caracteristiques', (
+            {(previewMode || amenityDisplayRows.length > 0) && block('show_caracteristiques', 'Caracteristiques', (
               <div className="py-8 border-b border-gray-100">
                 <div className="flex items-center justify-between gap-3 mb-6">
                   <h3 className="text-xl font-bold">Ce que propose ce logement</h3>
                   {sectionToggle('show_caracteristiques')}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {amenityRows.map((feature) => (
+                  {amenityDisplayRows.map((feature) => (
                     <div key={feature.id} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-3 ${Number(feature.visibilite_client) === 0 ? 'border-gray-200 bg-gray-50 text-gray-400' : 'border-transparent text-gray-700'}`}>
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center">
                           <Check size={16} className="text-emerald-600" />
                         </div>
-                        <span>{feature.nom}</span>
+                        <div>
+                          <div>{feature.nom}</div>
+                          {(feature as any).displayValue ? <div className="text-sm text-gray-500">{(feature as any).displayValue}</div> : null}
+                        </div>
                       </div>
                       {featureToggle(feature)}
                     </div>
                   ))}
-                  {booleanFeatureTags.map((feature) => (
-                    <div key={feature} className="flex items-center gap-3 text-gray-700">
-                      <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center">
-                        <Check size={16} className="text-emerald-600" />
-                      </div>
-                      <span>{feature}</span>
-                    </div>
-                  ))}
-                  {amenityRows.length === 0 && booleanFeatureTags.length === 0 ? <p className="text-sm text-gray-500">Aucune caracteristique visible.</p> : null}
+                  {amenityDisplayRows.length === 0 ? <p className="text-sm text-gray-500">Aucune caracteristique visible.</p> : null}
                 </div>
               </div>
             ))}

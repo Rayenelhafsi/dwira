@@ -43,6 +43,10 @@ An example server block is available in:
 
 - `scripts/nginx-dwiraimmobilier.conf.example`
 
+Important for media uploads:
+
+- Nginx must include `client_max_body_size 50M;` or uploads can fail with `413 Request Entity Too Large` before Node receives the file.
+
 Minimum production checks:
 
 1. `https://www.dwiraimmobilier.com/api/health` must return JSON.

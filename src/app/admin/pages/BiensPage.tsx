@@ -12,12 +12,15 @@ import LocationPublicBienPageView from '../../locations/components/LocationPubli
 import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/featureIcons';
 import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils/servicePayants';
 import { isYouTubeUrl, toYouTubeEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
+import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../../utils/bienCapacity';
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK = (locationSaisonniereServicesData as ServicePayantBien[]).map((service) =>
   normalizeServicePayant(service)
 );
+const buildDefaultPaidServices = (services: ServicePayantBien[] = LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK) =>
+  services.map((service) => normalizeServicePayant(service));
 
 const resolveMediaUrl = (url?: string | null) => {
   const value = String(url || '').trim();
@@ -167,6 +170,12 @@ const normalizeLegacyType = (value?: BienType): BienType => {
   if (value === 'villa') return 'villa_maison';
   if (value === 'local') return 'local_commercial';
   return (value || 'appartement') as BienType;
+};
+const toNonNegativeIntegerOrNull = (value: unknown): number | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.floor(parsed));
 };
 const extractGoogleMapsLatLng = (raw?: string | null): { lat: number; lng: number } | null => {
   const value = String(raw || '').trim();
@@ -392,7 +401,7 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   frais_menage: 0,
   frais_service_disponible: false,
   frais_service: 0,
-  services_payants: [],
+  services_payants: buildDefaultPaidServices(),
   google_maps_embed_url: null,
 };
 const TERRAIN_ONAS_OPTIONS = [
@@ -1081,6 +1090,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [newOwnerCin, setNewOwnerCin] = useState('');
+  const [isReferenceManuallyEdited, setIsReferenceManuallyEdited] = useState(Boolean(initialData?.reference));
+  const [hasSeededDefaultPaidServices, setHasSeededDefaultPaidServices] = useState(Boolean(initialData));
   const [draggedImageIndex, setDraggedImageIndex] = useState<string | null>(null);
   const [validationDialogState, setValidationDialogState] = useState<{ open: boolean; issues: ValidationIssue[] }>({ open: false, issues: [] });
   const [zoneDeleteDialog, setZoneDeleteDialog] = useState<DeleteRelationDialogState>({
@@ -1309,10 +1320,34 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setRestoredFeatureValuesApplied(false);
     }
     setSelectedFeatureIds(initialData?.caracteristique_ids || []);
+    setIsReferenceManuallyEdited(Boolean(initialData?.reference));
+    setHasSeededDefaultPaidServices(Boolean(initialData));
   }, [initialData]);
 
   useEffect(() => { setZonesOptions(zones); }, [zones]);
   useEffect(() => { setProprietaireOptions(proprietaires); }, [proprietaires]);
+  useEffect(() => {
+    if (initialData || hasSeededDefaultPaidServices) return;
+    if ((formData.mode || 'location_saisonniere') !== 'location_saisonniere') return;
+    const nextDefaults = buildDefaultPaidServices(serviceCatalogueOptions);
+    if (nextDefaults.length === 0) return;
+    setFormData((prev) => {
+      const currentConfig = {
+        ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
+        ...((prev.location_saisonniere_config || {}) as LocationSaisonniereConfig),
+      };
+      const currentServices = Array.isArray(currentConfig.services_payants) ? currentConfig.services_payants : [];
+      if (currentServices.length > 0) return prev;
+      return {
+        ...prev,
+        location_saisonniere_config: {
+          ...currentConfig,
+          services_payants: nextDefaults,
+        },
+      };
+    });
+    setHasSeededDefaultPaidServices(true);
+  }, [initialData, hasSeededDefaultPaidServices, formData.mode, serviceCatalogueOptions]);
   useEffect(() => {
     const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
     if (currentMode === 'vente' && activeTab === 'calendar') {
@@ -1600,6 +1635,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
+    if (name === 'reference') {
+      setIsReferenceManuallyEdited(true);
+      setFormData((prev) => ({ ...prev, reference: value }));
+      return;
+    }
     const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'terrain_route_acces_largeur_m', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
     if (name === 'mode') {
       const nextMode = value as BienMode;
@@ -2800,14 +2840,36 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     const orderedMediaForSave = [...clientVisibleImages, ...clientVisibleVideos, ...images.filter((img) => isProofImage(img))];
     const imagesWithPositions = orderedMediaForSave.map((img, idx) => ({ ...img, position: idx }));
     const ventePaiement = computeVentePaiement(formData, venteTarification.prixFinal);
-    const deriveBedroomsFromConfiguration = (configuration?: string | null): number => {
-      if (!configuration) return 0;
-      const match = configuration.match(/S\s*\+\s*(\d+)/i);
-      if (!match) return 0;
-      return Number(match[1]) || 0;
-    };
+    const selectedFeatureEntries = availableFeatures
+      .filter((feature) => selectedFeatureIds.includes(String(feature.id || '')))
+      .map((feature) => {
+        const featureId = String(feature.id || '');
+        const featureType = normalizeFeatureType(feature.type_caracteristique);
+        let value: string | number | null = null;
+
+        if (featureType === 'choix_multiple') {
+          value = String((featureChoiceValuesById[featureId] || [])[0] || '').trim() || null;
+        } else if (featureType === 'plusieurs_choix') {
+          value = (featureChoiceValuesById[featureId] || []).map((item) => String(item || '').trim()).filter(Boolean).join(', ');
+        } else {
+          value = String(featureValueById[featureId] || '').trim() || null;
+        }
+
+        return {
+          name: String(feature.nom || '').trim(),
+          value,
+        };
+      });
+    const derivedCapacity = extractCapacityFromEntries(selectedFeatureEntries);
+    const resolvedConfiguration =
+      String(formData.configuration || '').trim()
+      || String(derivedCapacity.configuration || '').trim()
+      || null;
+    const resolvedReference = String(formData.reference || '').trim() || generateReference();
+    const explicitNbChambres = toNonNegativeIntegerOrNull(formData.nb_chambres);
+    const explicitNbSalleBain = toNonNegativeIntegerOrNull(formData.nb_salle_bain);
     const resolvedNbChambres = isAppartementVente
-      ? deriveBedroomsFromConfiguration(formData.configuration || null)
+      ? deriveBedroomsFromConfiguration(resolvedConfiguration)
       : isLocalCommercialVente
         ? 0
         : isTerrainVente
@@ -2816,8 +2878,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
             ? 0
           : isImmeubleVente
             ? 0
-        : Number(formData.nb_chambres || 0);
-    const resolvedNbSalleBain = (isLocalCommercialVente || isTerrainVente || isLotissementVente || isImmeubleVente) ? 0 : Number(formData.nb_salle_bain || 0);
+        : explicitNbChambres ?? derivedCapacity.bedrooms ?? 0;
+    const resolvedNbSalleBain = (isLocalCommercialVente || isTerrainVente || isLotissementVente || isImmeubleVente)
+      ? 0
+      : explicitNbSalleBain ?? derivedCapacity.bathrooms ?? 0;
     const appartementVenteData = isAppartementVente
       ? {
           type_rue: formData.type_rue || null,
@@ -3085,8 +3149,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       });
     const finalData: Bien = {
       ...formData,
+      reference: resolvedReference,
       mode: selectedMode,
       type: selectedType,
+      configuration: resolvedConfiguration,
       nb_chambres: resolvedNbChambres,
       nb_salle_bain: resolvedNbSalleBain,
       prix_nuitee: selectedMode === 'vente' ? venteTarification.prixAfficheClient : Number(formData.prix_nuitee || 0),
@@ -3797,7 +3863,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                   <label className="block text-sm font-medium text-gray-700 mb-1">Reference interne *</label>
                   <div className="flex gap-2">
                     <input required name="reference" value={formData.reference || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
-                    <button type="button" onClick={() => setFormData(prev => ({ ...prev, reference: generateReference() }))} className="px-3 py-2 rounded-lg border border-gray-300 text-xs">Auto</button>
+                    <button type="button" title={isReferenceManuallyEdited ? 'Revenir a la reference automatique' : 'Generer automatiquement la reference'} onClick={() => { setIsReferenceManuallyEdited(false); setFormData(prev => ({ ...prev, reference: generateReference() })); }} className="px-3 py-2 rounded-lg border border-gray-300 text-xs">Auto</button>
                   </div>
                 </div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Mode *</label><select name="mode" value={formData.mode || 'location_saisonniere'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{Object.entries(modeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
@@ -4167,8 +4233,12 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                       <input name="configuration" value={formData.configuration || ''} onChange={handleChange} placeholder="S+2, S+3..." className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de chambres</label>
+                      <input type="number" min={0} name="nb_chambres" value={formData.nb_chambres ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de SDB</label>
-                      <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Année construction</label>
@@ -4823,12 +4893,22 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                           <h5 className="text-sm font-semibold text-emerald-800">Parametres location saisonniere</h5>
                           <div className="rounded-lg border border-gray-200 bg-white p-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">1) Informations generales</p>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Reference</span><p className="font-semibold text-gray-900 mt-0.5">{formData.reference || '-'}</p></div>
-                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Titre annonce</span><p className="font-semibold text-gray-900 mt-0.5">{formData.titre || '-'}</p></div>
-                              <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Type logement</span><p className="font-semibold text-gray-900 mt-0.5">{typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || '-'}</p></div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Reference</span><p className="font-semibold text-gray-900 mt-0.5">{formData.reference || '-'}</p></div>
+                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Titre annonce</span><p className="font-semibold text-gray-900 mt-0.5">{formData.titre || '-'}</p></div>
+                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Type logement</span><p className="font-semibold text-gray-900 mt-0.5">{typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || '-'}</p></div>
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs text-gray-600 mb-1">Nombre de chambres global</label>
+                              <input type="number" min={0} name="nb_chambres" value={formData.nb_chambres ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2 text-sm bg-white" />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-600 mb-1">Nombre de SDB global</label>
+                              <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2 text-sm bg-white" />
                             </div>
                           </div>
+                        </div>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div><label className="block text-xs text-gray-600 mb-1">Categorie standing</label><select value={saisonConfig.categorie_standing || ''} onChange={(e) => updateSaisonConfig({ categorie_standing: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_STANDING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                             <div><label className="block text-xs text-gray-600 mb-1">Etage</label><select value={saisonConfig.etage || ''} onChange={(e) => updateSaisonConfig({ etage: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ETAGE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>

@@ -103,6 +103,8 @@ const cleanFeatureTabName = (value: string) =>
     .replace(/^\s*\d+\s*[\.\-:)]\s*/g, '')
     .trim();
 
+const isCharacteristicsTabName = (value: string) => normalizeFeatureName(cleanFeatureTabName(value)).includes('caracteristique');
+
 const parseFeatureValueJson = (rawValue?: string | null): string[] => {
   const text = String(rawValue || '').trim();
   if (!text) return [];
@@ -764,12 +766,16 @@ out body 40;
     () => selectedPublicFeatures.filter((item) => String(item.onglet_id || '').trim().length > 0),
     [selectedPublicFeatures]
   );
+  const selectedAmenityFeatures = useMemo(
+    () => selectedVisibleFeatures.filter((feature) => isCharacteristicsTabName(String(feature.onglet_nom || ''))),
+    [selectedVisibleFeatures]
+  );
   const amenitySections = useMemo<AmenitySection[]>(() => {
     const orderLookup = new Map(featureTabs.map((tab) => [String(tab.id), Number(tab.ordre || 999)]));
     const nameLookup = new Map(featureTabs.map((tab) => [String(tab.id), cleanFeatureTabName(tab.nom)]));
     const grouped = new Map<string, AmenitySection>();
 
-    selectedVisibleFeatures.forEach((feature) => {
+    selectedAmenityFeatures.forEach((feature) => {
       const tabId = String(feature.onglet_id || '').trim() || 'autres';
       const tabName = String(feature.onglet_nom || nameLookup.get(tabId) || 'Autres équipements');
       if (!grouped.has(tabId)) {
@@ -784,7 +790,7 @@ out body 40;
         features: section.features.slice().sort((a, b) => String(a.nom || '').localeCompare(String(b.nom || ''), 'fr')),
       }))
       .sort((a, b) => (orderLookup.get(a.id) ?? 999) - (orderLookup.get(b.id) ?? 999));
-  }, [featureTabs, selectedVisibleFeatures]);
+  }, [featureTabs, selectedAmenityFeatures]);
   const detailTabs = useMemo(() => {
     const availableTabIds = new Set(selectedVisibleFeatures.map((item) => String(item.onglet_id || '')));
     return featureTabs
@@ -995,38 +1001,56 @@ out body 40;
     typeCautionLabel,
     vueLabel,
   ]);
-  const secondaryValueForFeature = useCallback((featureName: string) => {
-    const value = valueForFeature(featureName);
-    if (!value || value === '-' || value === 'Oui') return null;
-    return value;
+  const valuesForFeature = useCallback((feature: FeatureApiRow): string[] => {
+    const directValues = parseFeatureValueJson(feature.valeur_json);
+    if (directValues.length > 0) return directValues;
+
+    const fallbackValue = valueForFeature(feature.nom);
+    const normalizedType = String(feature.type_caracteristique || 'simple').trim().toLowerCase();
+    const isSimpleType = normalizedType === 'simple';
+    if (!fallbackValue || fallbackValue === '-') return [];
+    if (!isSimpleType && fallbackValue === 'Oui') return [];
+    return [fallbackValue];
   }, [valueForFeature]);
   const featureDisplayItems = useMemo<FeatureDisplayItem[]>(() => (
     amenitySections.flatMap((section) => (
       section.features.flatMap((feature) => {
-        const values = parseFeatureValueJson(feature.valeur_json);
+        const values = valuesForFeature(feature);
+        const normalizedType = String(feature.type_caracteristique || 'simple').trim().toLowerCase();
+        const isSimpleType = normalizedType === 'simple';
+        if (values.length === 0 && !isSimpleType) {
+          return [];
+        }
         if (values.length > 0) {
-          return values.map((value, index) => ({
-            id: `${feature.id}:${index}:${value}`,
-            label: value,
-            meta: feature.nom,
+          const combinedValue = values.join(', ');
+          return [{
+            id: `${feature.id}:${combinedValue}`,
+            label: feature.nom,
+            meta: combinedValue === feature.nom ? null : combinedValue,
             sectionName: section.nom,
             feature,
-          }));
+          }];
         }
-        const fallbackValue = valueForFeature(feature.nom);
-        const isFallbackUseful = fallbackValue && fallbackValue !== '-' && fallbackValue !== 'Oui';
         return [{
           id: feature.id,
-          label: isFallbackUseful ? fallbackValue : feature.nom,
-          meta: isFallbackUseful ? feature.nom : null,
+          label: feature.nom,
+          meta: null,
           sectionName: section.nom,
           feature,
         }];
       })
     ))
-  ), [amenitySections, valueForFeature]);
+  ), [amenitySections, valuesForFeature]);
   const amenityPreviewItems = useMemo(() => featureDisplayItems.slice(0, 6), [featureDisplayItems]);
   const totalAmenitiesCount = featureDisplayItems.length;
+  const visibleSelectedDetailFeatures = useMemo(
+    () => selectedDetailFeatures.filter((feature) => {
+      const normalizedType = String(feature.type_caracteristique || 'simple').trim().toLowerCase();
+      return normalizedType === 'simple' || valuesForFeature(feature).length > 0;
+    }),
+    [selectedDetailFeatures, valuesForFeature]
+  );
+  const hasSeasonalStayInfo = seasonalHighlights.length > 0 || visibleDetailTabs.length > 0;
 
   // Load saved state from localStorage on mount
   useEffect(() => {
@@ -1647,7 +1671,7 @@ out body 40;
               </p>
             </div>
 
-            {!isSaleProperty && (
+            {!isSaleProperty && hasSeasonalStayInfo && (
               <div className="py-8 border-b border-gray-100">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="text-xl font-bold">Informations séjour</h3>
@@ -1713,13 +1737,13 @@ out body 40;
                             <ChevronRight className="mx-auto h-4 w-4" />
                           </button>
                         </div>
-                        {(usingConfiguredTabs ? selectedDetailFeatures.length > 0 : Boolean(selectedFallbackTab?.rows?.length)) ? (
+                        {(usingConfiguredTabs ? visibleSelectedDetailFeatures.length > 0 : Boolean(selectedFallbackTab?.rows?.length)) ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                             {usingConfiguredTabs ? (
-                              selectedDetailFeatures.map((feature) => (
+                              visibleSelectedDetailFeatures.map((feature) => (
                                 <div key={feature.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
                                   <span className="text-gray-500">{feature.nom}</span>
-                                  <div className="font-semibold text-gray-900">{valueForFeature(feature.nom)}</div>
+                                  <div className="font-semibold text-gray-900">{valuesForFeature(feature).join(', ') || 'Oui'}</div>
                                 </div>
                               ))
                             ) : (
@@ -1743,6 +1767,7 @@ out body 40;
               </div>
             )}
 
+            {totalAmenitiesCount > 0 && (
             <div className="py-8 border-b border-gray-100">
               <div className="flex items-center justify-between gap-4 mb-6">
                 <h3 className="text-xl font-bold">Ce que propose ce logement</h3>
@@ -1788,6 +1813,7 @@ out body 40;
                 </div>
               )}
             </div>
+            )}
 
             <Dialog open={showAmenitiesDialog} onOpenChange={setShowAmenitiesDialog}>
               <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-[2rem] border-0 p-0 shadow-2xl">

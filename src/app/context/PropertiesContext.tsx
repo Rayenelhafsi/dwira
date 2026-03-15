@@ -2,6 +2,7 @@
 import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig } from '../admin/types';
 import { Property } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
+import { resolveBienCapacity } from '../utils/bienCapacity';
 
 // API Base URL
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -138,17 +139,25 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     ? row.caracteristique_ids_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
 
+  const effectiveCaracteristiques = caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques;
+  const resolvedCapacity = resolveBienCapacity({
+    nbChambres: row.nb_chambres,
+    nbSalleBain: row.nb_salle_bain,
+    configuration: (row as any).configuration || null,
+    caracteristiques: effectiveCaracteristiques,
+  });
+
   return {
     id: row.id,
     reference: row.reference,
     titre: row.titre,
     description: parsedDescription.description,
-    caracteristiques: caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques,
+    caracteristiques: effectiveCaracteristiques,
     caracteristique_ids: caracteristiqueIdsFromDb,
     mode: (row.mode || row.mode_bien || DEFAULT_MODE) as BienMode,
     type: normalizeBienType(row.type),
-    nb_chambres: toNumber(row.nb_chambres),
-    nb_salle_bain: toNumber(row.nb_salle_bain),
+    nb_chambres: resolvedCapacity.bedrooms,
+    nb_salle_bain: resolvedCapacity.bathrooms,
     prix_nuitee: toNumber(row.prix_nuitee),
     tarification_methode: ((row as any).tarification_methode || null) as any,
     prix_affiche_client: toNullableNumber((row as any).prix_affiche_client),
@@ -172,7 +181,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     type_papier: ((row as any).type_papier || null) as TypePapierAppartementVente | null,
     superficie_m2: toNullableNumber((row as any).superficie_m2),
     etage: toNullableNumber((row as any).etage),
-    configuration: ((row as any).configuration || null) as string | null,
+    configuration: resolvedCapacity.configuration,
     annee_construction: toNullableNumber((row as any).annee_construction),
     distance_plage_m: toNullableNumber((row as any).distance_plage_m),
     proche_plage: toBoolean((row as any).proche_plage),
