@@ -1767,11 +1767,11 @@ out body 40;
               </div>
             )}
 
-            {totalAmenitiesCount > 0 && (
+            {featureDisplayItems.length > 0 && (
             <div className="py-8 border-b border-gray-100">
               <div className="flex items-center justify-between gap-4 mb-6">
                 <h3 className="text-xl font-bold">Ce que propose ce logement</h3>
-                {totalAmenitiesCount > 0 ? (
+                {featureDisplayItems.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => setShowAmenitiesDialog(true)}
@@ -1782,40 +1782,32 @@ out body 40;
                 ) : null}
               </div>
 
-              {amenityPreviewItems.length > 0 ? (
-                <>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    {amenityPreviewItems.map((item) => {
-                      return (
-                        <div key={item.id} className="flex items-start gap-3 text-gray-800">
-                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-50">
-                            {featureIcon(item.feature.icon_name, item.label, item.sectionName)}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-medium leading-6">{item.label}</div>
-                            {item.meta ? <div className="text-sm text-gray-500">{item.meta}</div> : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowAmenitiesDialog(true)}
-                    className="mt-8 inline-flex rounded-2xl border border-gray-900 px-5 py-3 text-base font-semibold text-gray-900 transition-colors hover:bg-gray-50 md:hidden"
-                  >
-                    Afficher les {totalAmenitiesCount} équipements
-                  </button>
-                </>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-5 text-sm text-gray-500">
-                  Aucune caractéristique visible pour ce logement.
-                </div>
-              )}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {amenityPreviewItems.map((item) => {
+                  return (
+                    <div key={item.id} className="flex items-start gap-3 text-gray-800">
+                      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-50">
+                        {featureIcon(item.feature.icon_name, item.label, item.sectionName)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium leading-6">{item.label}</div>
+                        {item.meta ? <div className="text-sm text-gray-500">{item.meta}</div> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAmenitiesDialog(true)}
+                className="mt-8 inline-flex rounded-2xl border border-gray-900 px-5 py-3 text-base font-semibold text-gray-900 transition-colors hover:bg-gray-50 md:hidden"
+              >
+                Afficher les {totalAmenitiesCount} équipements
+              </button>
             </div>
             )}
 
-            <Dialog open={showAmenitiesDialog} onOpenChange={setShowAmenitiesDialog}>
+            <Dialog open={featureDisplayItems.length > 0 && showAmenitiesDialog} onOpenChange={setShowAmenitiesDialog}>
               <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-[2rem] border-0 p-0 shadow-2xl">
                 <DialogHeader className="border-b border-gray-100 px-8 pt-8 pb-6">
                   <DialogTitle className="text-3xl font-bold text-gray-900">Ce que propose ce logement</DialogTitle>
