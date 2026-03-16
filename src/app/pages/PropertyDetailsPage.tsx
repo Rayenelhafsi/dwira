@@ -14,9 +14,11 @@ import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
+import { getOptimizedMediaUrl } from "../utils/media";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
+import { SmartImage } from "../components/SmartImage";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import {
   clearAuthPendingLogin,
@@ -287,13 +289,7 @@ export default function PropertyDetailsPage() {
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => p.slug === slug);
   const propertyVideos = property?.videos || [];
-  const galleryItems = useMemo(
-    () => [
-      ...propertyVideos.map((url, index) => ({ type: "video" as const, url, key: `video-${index}` })),
-      ...(property?.images || []).map((url, index) => ({ type: "image" as const, url, key: `image-${index}` })),
-    ],
-    [property?.images, propertyVideos]
-  );
+  const galleryImages = property?.images || [];
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
 
@@ -327,6 +323,7 @@ export default function PropertyDetailsPage() {
   const [featureTabs, setFeatureTabs] = useState<FeatureTabRow[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [lightboxImageLoading, setLightboxImageLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [reservationNote, setReservationNote] = useState("");
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
@@ -1127,6 +1124,7 @@ out body 40;
 
   const openLightbox = (index: number) => {
     setCurrentImageIndex(index);
+    setLightboxImageLoading(true);
     setLightboxOpen(true);
     document.body.style.overflow = 'hidden';
   };
@@ -1157,6 +1155,35 @@ out body 40;
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightboxOpen, nextImage, prevImage]);
+
+  useEffect(() => {
+    if (!lightboxOpen || galleryImages.length === 0) return;
+
+    setLightboxImageLoading(true);
+    const preloadIndexes = [
+      currentImageIndex,
+      (currentImageIndex + 1) % galleryImages.length,
+      (currentImageIndex - 1 + galleryImages.length) % galleryImages.length,
+    ];
+
+    preloadIndexes.forEach((index) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = getOptimizedMediaUrl(galleryImages[index], { width: 1800, quality: 76 });
+    });
+  }, [currentImageIndex, galleryImages, lightboxOpen]);
+
+  const visibleLightboxThumbIndexes = useMemo(() => {
+    if (galleryImages.length <= 7) {
+      return galleryImages.map((_, index) => index);
+    }
+
+    const indexes: number[] = [];
+    for (let offset = -3; offset <= 3; offset += 1) {
+      indexes.push((currentImageIndex + offset + galleryImages.length) % galleryImages.length);
+    }
+    return indexes;
+  }, [currentImageIndex, galleryImages]);
 
   const handleDateRangeSelect = (start: Date | null, end: Date | null) => {
     setSelectedStart(start);
@@ -1530,41 +1557,27 @@ out body 40;
         <div className="mb-12">
           {/* Desktop Grid */}
           <div className="hidden md:grid grid-cols-4 grid-rows-2 gap-2 h-[500px] rounded-xl overflow-hidden">
-            {galleryItems.slice(0, 5).map((item, index) => {
+            {galleryImages.slice(0, 5).map((imageUrl, index) => {
               const isPrimary = index === 0;
               const wrapperClass = isPrimary ? "col-span-2 row-span-2" : "col-span-1 row-span-1";
-              const fallbackImage = property.images[0];
-              const imageIndex = property.images.findIndex((img) => img === item.url);
+              const fallbackImage = galleryImages[0];
               const openImage = () => {
-                if (item.type === "image" && imageIndex >= 0) {
-                  openLightbox(imageIndex);
-                }
+                if (index >= 0) openLightbox(index);
               };
 
               return (
-                <div key={item.key} className={`${wrapperClass} relative`} onClick={openImage}>
-                  {item.type === "video" ? (
-                    <>
-                      <iframe
-                        src={toYouTubeEmbedUrl(item.url) || ""}
-                        title={`${property.title} video ${index + 1}`}
-                        className="w-full h-full bg-black"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        referrerPolicy="strict-origin-when-cross-origin"
-                        allowFullScreen
-                      />
-                      <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                        Vidéo
-                      </div>
-                    </>
-                  ) : (
-                    <img
-                      src={item.url || fallbackImage}
-                      alt={property.title}
-                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                    />
-                  )}
-                  {index === 4 && galleryItems.length > 5 && item.type === "image" && (
+                <div key={`gallery-image-${index}`} className={`${wrapperClass} relative`} onClick={openImage}>
+                  <SmartImage
+                    src={imageUrl || fallbackImage}
+                    alt={index === 0 ? property.title : `${property.title} ${index + 1}`}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
+                    loading={index === 0 ? "eager" : "lazy"}
+                    decoding="async"
+                    fetchPriority={index === 0 ? "high" : "low"}
+                    targetWidth={index === 0 ? 1200 : 720}
+                    quality={68}
+                  />
+                  {index === 4 && galleryImages.length > 5 && (
                     <div className="absolute inset-0 bg-black/30 flex items-center justify-center hover:bg-black/40 transition-colors cursor-pointer">
                       <span className="text-white font-semibold text-lg">Voir tout</span>
                     </div>
@@ -1577,42 +1590,32 @@ out body 40;
           {/* Mobile Slider using Embla Carousel */}
           <div className="md:hidden rounded-xl overflow-hidden shadow-lg relative group">
             <div className="overflow-hidden" ref={emblaRef}>
-              <div className="flex">
-                {galleryItems.map((item, idx) => (
+                <div className="flex">
+                {galleryImages.map((imageUrl, idx) => (
                   <div 
                     className="flex-[0_0_100%] min-w-0 relative h-[250px] sm:h-[300px]" 
-                    key={item.key}
+                    key={`gallery-mobile-image-${idx}`}
                     onClick={() => {
-                      if (item.type === "image") {
-                        const imageIndex = property.images.findIndex((img) => img === item.url);
-                        if (imageIndex >= 0) openLightbox(imageIndex);
-                      }
+                      openLightbox(idx);
                     }}
                   >
-                    {item.type === "video" ? (
-                      <>
-                        <iframe
-                          src={toYouTubeEmbedUrl(item.url) || ""}
-                          title={`${property.title} video mobile ${idx + 1}`}
-                          className="w-full h-full bg-black"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          referrerPolicy="strict-origin-when-cross-origin"
-                          allowFullScreen
-                        />
-                        <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                          Vidéo
-                        </div>
-                      </>
-                    ) : (
-                      <img src={item.url} alt={`${property.title} - ${idx + 1}`} className="w-full h-full object-cover cursor-pointer" />
-                    )}
+                    <SmartImage
+                      src={imageUrl}
+                      alt={`${property.title} - ${idx + 1}`}
+                      className="w-full h-full object-cover cursor-pointer"
+                      loading={idx === 0 ? "eager" : "lazy"}
+                      decoding="async"
+                      fetchPriority={idx === 0 ? "high" : "low"}
+                      targetWidth={960}
+                      quality={68}
+                    />
                   </div>
                 ))}
               </div>
             </div>
             {/* Navigation Buttons for Slider could be added here */}
             <div className="absolute bottom-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-sm">
-               {galleryItems.length} média{galleryItems.length > 1 ? "s" : ""}
+               {galleryImages.length} image{galleryImages.length > 1 ? "s" : ""}
             </div>
           </div>
         </div>
@@ -1635,6 +1638,7 @@ out body 40;
                     src={toYouTubeEmbedUrl(videoUrl) || ""}
                     title={`${property.title} visite video ${index + 1}`}
                     className="w-full h-[240px] md:h-[360px] bg-black"
+                    loading="lazy"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     referrerPolicy="strict-origin-when-cross-origin"
                     allowFullScreen
@@ -2489,19 +2493,31 @@ out body 40;
             className="relative w-full h-full flex items-center justify-center p-4 sm:p-8 md:p-16"
             onClick={(e) => e.stopPropagation()}
           >
-            <img 
-              src={property.images[currentImageIndex]} 
+            <SmartImage 
+              src={galleryImages[currentImageIndex]} 
               alt={`${property.title} - ${currentImageIndex + 1}`}
               className="max-w-full max-h-full object-contain rounded-lg shadow-2xl transition-all duration-500 ease-out transform"
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              targetWidth={1800}
+              quality={76}
+              onLoad={() => setLightboxImageLoading(false)}
+              onError={() => setLightboxImageLoading(false)}
               style={{
                 animation: 'fadeInScale 0.5s ease-out'
               }}
             />
+            {lightboxImageLoading && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="rounded-full border-2 border-white/20 border-t-white h-10 w-10 animate-spin" />
+              </div>
+            )}
           </div>
 
           {/* Thumbnail navigation */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 px-4 py-2 bg-black/50 rounded-full backdrop-blur-sm overflow-x-auto max-w-[90vw]">
-            {property.images.map((img, idx) => (
+            {visibleLightboxThumbIndexes.map((idx) => (
               <button
                 key={idx}
                 onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(idx); }}
@@ -2511,7 +2527,16 @@ out body 40;
                     : 'opacity-50 hover:opacity-80'
                 }`}
               >
-                <img src={img} alt="" className="w-full h-full object-cover" />
+                <SmartImage
+                  src={galleryImages[idx]}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  fetchPriority="low"
+                  targetWidth={240}
+                  quality={58}
+                />
               </button>
             ))}
           </div>

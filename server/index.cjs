@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const sharp = require('sharp');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const Tesseract = require('tesseract.js');
@@ -483,6 +484,56 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+function resolveUploadedMediaPath(rawSrc) {
+  const src = String(rawSrc || '').trim();
+  if (!src.startsWith('/uploads/')) return null;
+
+  const uploadsDir = path.join(__dirname, 'uploads');
+  const relativePath = src.replace(/^\/uploads\//, '');
+  const normalizedPath = path.normalize(relativePath);
+  const absolutePath = path.resolve(uploadsDir, normalizedPath);
+
+  if (!absolutePath.startsWith(path.resolve(uploadsDir))) return null;
+  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) return null;
+  return absolutePath;
+}
+
+app.get('/api/media', async (req, res) => {
+  try {
+    const sourcePath = resolveUploadedMediaPath(req.query.src);
+    if (!sourcePath) {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+
+    const width = Math.max(120, Math.min(2200, Number(req.query.w) || 1600));
+    const quality = Math.max(35, Math.min(90, Number(req.query.q) || 72));
+    const fileExt = path.extname(sourcePath).toLowerCase();
+
+    // Keep unsupported formats on the original file path instead of failing the gallery.
+    if (fileExt === '.gif' || fileExt === '.svg') {
+      return res.redirect(String(req.query.src || '').trim());
+    }
+
+    const transformed = await sharp(sourcePath)
+      .rotate()
+      .resize({ width, withoutEnlargement: true })
+      .webp({ quality })
+      .toBuffer();
+
+    res.setHeader('Content-Type', 'image/webp');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.send(transformed);
+  } catch (error) {
+    console.error('Error transforming media:', error);
+    const fallbackSrc = String(req.query.src || '').trim();
+    if (fallbackSrc.startsWith('/uploads/')) {
+      return res.redirect(fallbackSrc);
+    }
+    return res.status(500).json({ error: 'Failed to transform media' });
+  }
+});
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/contracts', express.static(path.join(__dirname, 'contracts')));
 

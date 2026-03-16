@@ -9,6 +9,7 @@ import { fr } from "date-fns/locale";
 import { useProperties } from '../../context/PropertiesContext';
 import PublicBienPageView from '../../ventes/components/PublicBienPageView';
 import LocationPublicBienPageView from '../../locations/components/LocationPublicBienPageView';
+import { SmartImage } from '../../components/SmartImage';
 import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/featureIcons';
 import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils/servicePayants';
 import { isYouTubeUrl, toYouTubeEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
@@ -982,7 +983,16 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
   return (
     <div className={`bg-white rounded-xl shadow-sm border overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col h-full group ${bien.is_featured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-200'}`}>
       <div className="relative h-44 sm:h-48 bg-gray-100 overflow-hidden">
-        <img src={mainImage} alt={bien.titre} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+        <SmartImage
+          src={mainImage}
+          alt={bien.titre}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
+          targetWidth={640}
+          quality={60}
+        />
         {bien.is_featured && (
           <>
             <div className="absolute inset-0 bg-gradient-to-b from-amber-300/25 via-transparent to-amber-500/20 pointer-events-none" />
@@ -1374,6 +1384,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     void loadFeatureTabs(selectedMode, selectedType);
   }, [formData.mode, formData.type]);
   useEffect(() => {
+    if (!Array.isArray(availableFeatures) || availableFeatures.length === 0) return;
     const allowedIds = new Set(availableFeatures.map((feature) => String(feature.id || '')));
     setSelectedFeatureIds((prev) => prev.filter((id) => allowedIds.has(String(id || ''))));
     setFeatureChoiceValuesById((prev) => {
@@ -1401,11 +1412,17 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
 
   useEffect(() => {
     if (restoredFeatureValuesApplied) return;
+    if (!Array.isArray(availableFeatures) || availableFeatures.length === 0) return;
+
     if (!Array.isArray(restoredFeatureLines) || restoredFeatureLines.length === 0) {
+      const allowedIds = new Set(availableFeatures.map((feature) => String(feature.id || '')));
+      const preservedInitialIds = (initialData?.caracteristique_ids || []).filter((id) => allowedIds.has(String(id || '')));
+      if (preservedInitialIds.length > 0) {
+        setSelectedFeatureIds((prev) => Array.from(new Set([...preservedInitialIds, ...prev])));
+      }
       setRestoredFeatureValuesApplied(true);
       return;
     }
-    if (!Array.isArray(availableFeatures) || availableFeatures.length === 0) return;
 
     const featureByNormalizedName = new Map<string, Caracteristique>();
     for (const feature of availableFeatures) {
@@ -2107,7 +2124,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           <div className="grid grid-cols-3 gap-2">
             {typeRueProofImages.map((img) => (
               <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
-                    <img src={resolveMediaUrl(img.url)} alt="Preuve type de rue" className="w-full h-20 object-cover" />
+                    <SmartImage src={resolveMediaUrl(img.url)} alt="Preuve type de rue" className="w-full h-20 object-cover" loading="lazy" decoding="async" fetchPriority="low" targetWidth={240} quality={52} />
                 <button
                   type="button"
                   onClick={() => handleRemoveImage(img.id)}
@@ -2148,7 +2165,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
           <div className="grid grid-cols-3 gap-2">
             {typePapierProofImages.map((img) => (
               <div key={img.id} className="relative rounded border border-gray-200 overflow-hidden">
-                    <img src={resolveMediaUrl(img.url)} alt="Preuve type de papier" className="w-full h-20 object-cover" />
+                    <SmartImage src={resolveMediaUrl(img.url)} alt="Preuve type de papier" className="w-full h-20 object-cover" loading="lazy" decoding="async" fetchPriority="low" targetWidth={240} quality={52} />
                 <button
                   type="button"
                   onClick={() => handleRemoveImage(img.id)}
@@ -5304,7 +5321,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
                           {unitImages.map((img, index) => (
                             <div key={img.id} className="relative group rounded-lg overflow-hidden border border-gray-200">
-                              <img src={resolveMediaUrl(img.url)} alt={label} className="w-full h-24 object-cover" />
+                              <SmartImage src={resolveMediaUrl(img.url)} alt={label} className="w-full h-24 object-cover" loading="lazy" decoding="async" fetchPriority="low" targetWidth={320} quality={55} />
                               <button
                                 type="button"
                                 onClick={() => handleRemoveImage(img.id)}
@@ -5348,8 +5365,18 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         onDrop={() => handleDrop(img.id)}
                         onDragEnd={handleDragEnd}
                         className={`relative group rounded-lg overflow-hidden border border-gray-200 ${draggedImageIndex === img.id ? 'opacity-60 ring-2 ring-emerald-300' : ''}`}
+                        style={{ contentVisibility: 'auto', containIntrinsicSize: '180px' }}
                       >
-                        <img src={resolveMediaUrl(img.url)} alt="" className="w-full h-32 object-cover" />
+                        <SmartImage
+                          src={resolveMediaUrl(img.url)}
+                          alt=""
+                          className="w-full h-32 object-cover"
+                          loading="lazy"
+                          decoding="async"
+                          fetchPriority="low"
+                          targetWidth={360}
+                          quality={55}
+                        />
                         <div className="absolute top-2 right-2 p-1 bg-black/40 text-white rounded cursor-grab"><GripVertical className="h-3.5 w-3.5" /></div>
                         <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                         <div className="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-2">

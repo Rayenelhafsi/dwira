@@ -3,6 +3,7 @@ import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPi
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { resolveBienCapacity } from '../../utils/bienCapacity';
 import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
+import { SmartImage } from '../../components/SmartImage';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -466,13 +467,60 @@ out body 20;
         </div>
 
         {images.length > 0 ? block('show_gallery', 'Galerie', (
-          <div className="mb-12">
+          <div className="mb-12" style={{ contentVisibility: 'auto', containIntrinsicSize: '520px' }}>
             <div className="hidden md:grid grid-cols-4 grid-rows-2 gap-2 h-[500px] rounded-xl overflow-hidden">
-              <div className="col-span-2 row-span-2"><img src={images[0] || ''} alt={bien.titre} className="w-full h-full object-cover" /></div>
-              {[1, 2, 3].map((index) => <div key={index} className="col-span-1 row-span-1"><img src={images[index] || images[0] || ''} alt={`${bien.titre} ${index + 1}`} className="w-full h-full object-cover" /></div>)}
-              <div className="col-span-1 row-span-1 relative"><img src={images[4] || images[0] || ''} alt={`${bien.titre} 5`} className="w-full h-full object-cover" /><div className="absolute inset-0 bg-black/30 flex items-center justify-center"><span className="text-white font-semibold text-lg">Voir tout</span></div></div>
+              <div className="col-span-2 row-span-2">
+                <SmartImage
+                  src={images[0] || ''}
+                  alt={bien.titre}
+                  className="w-full h-full object-cover"
+                  loading="eager"
+                  decoding="async"
+                  fetchPriority="high"
+                  targetWidth={1280}
+                  quality={70}
+                />
+              </div>
+              {[1, 2, 3].map((index) => (
+                <div key={index} className="col-span-1 row-span-1">
+                  <SmartImage
+                    src={images[index] || images[0] || ''}
+                    alt={`${bien.titre} ${index + 1}`}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                    fetchPriority="low"
+                    targetWidth={560}
+                    quality={62}
+                  />
+                </div>
+              ))}
+              <div className="col-span-1 row-span-1 relative">
+                <SmartImage
+                  src={images[4] || images[0] || ''}
+                  alt={`${bien.titre} 5`}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  fetchPriority="low"
+                  targetWidth={560}
+                  quality={62}
+                />
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center"><span className="text-white font-semibold text-lg">Voir tout</span></div>
+              </div>
             </div>
-            <div className="md:hidden rounded-xl overflow-hidden shadow-lg relative"><img src={images[0] || ''} alt={bien.titre} className="w-full h-[250px] object-cover" /></div>
+            <div className="md:hidden rounded-xl overflow-hidden shadow-lg relative">
+              <SmartImage
+                src={images[0] || ''}
+                alt={bien.titre}
+                className="w-full h-[250px] object-cover"
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+                targetWidth={960}
+                quality={68}
+              />
+            </div>
             {previewMode ? <div className="mt-4 flex justify-start">{sectionToggle('show_gallery')}</div> : null}
           </div>
         )) : null}

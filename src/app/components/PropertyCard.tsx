@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
 import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
+import { SmartImage } from "./SmartImage";
 
 interface PropertyCardProps {
   property: Property;
@@ -33,10 +34,15 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     <div className={`group bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'}`}>
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
-          <img
+          <SmartImage
             src={property.images[0]}
             alt={property.title}
             className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
+            targetWidth={720}
+            quality={62}
           />
           {property.isFeatured && (
             <>
