@@ -2,6 +2,14 @@
 @import './tailwind.css';
 @import './theme.css';
 
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Keep Leaflet map layers below fixed navbar on property details page */
 .property-location-map {
   position: relative;

@@ -292,6 +292,7 @@ export default function PropertyDetailsPage() {
   const galleryImages = property?.images || [];
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
+  const [mobileGalleryIndex, setMobileGalleryIndex] = useState(0);
 
   // Read filter state from URL
   const filterLocation = searchParams.get("location") || "";
@@ -1481,10 +1482,16 @@ out body 40;
   // Auto-play for embla carousel
   useEffect(() => {
     if (emblaApi) {
+      const syncSelected = () => setMobileGalleryIndex(emblaApi.selectedScrollSnap());
+      syncSelected();
+      emblaApi.on('select', syncSelected);
       const autoplay = setInterval(() => {
         emblaApi.scrollNext();
       }, 4000);
-      return () => clearInterval(autoplay);
+      return () => {
+        clearInterval(autoplay);
+        emblaApi.off('select', syncSelected);
+      };
     }
   }, [emblaApi]);
 
@@ -1503,11 +1510,94 @@ out body 40;
   }
 
   return (
-    <div className="bg-white pt-24 pb-20">
+    <div className="bg-white pb-20 md:pt-24">
       <div className="container mx-auto px-4 md:px-6">
+        <div className="md:hidden -mx-4 -mt-6 mb-8">
+          <div className="relative overflow-hidden bg-slate-950">
+            <div className="overflow-hidden" ref={emblaRef}>
+              <div className="flex">
+                {galleryImages.map((imageUrl, idx) => (
+                  <div
+                    className="relative min-w-0 flex-[0_0_100%] h-[360px]"
+                    key={`hero-mobile-image-${idx}`}
+                    onClick={() => openLightbox(idx)}
+                  >
+                    <SmartImage
+                      src={imageUrl}
+                      alt={`${property.title} - ${idx + 1}`}
+                      className="h-full w-full object-cover"
+                      loading={idx === 0 ? "eager" : "lazy"}
+                      decoding="async"
+                      fetchPriority={idx === 0 ? "high" : "low"}
+                      targetWidth={1080}
+                      quality={72}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent pointer-events-none" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/30 px-3 py-2 backdrop-blur-md">
+              {galleryImages.slice(0, Math.min(galleryImages.length, 5)).map((_, index) => (
+                <span
+                  key={`mobile-gallery-dot-${index}`}
+                  className={`h-1.5 rounded-full transition-all ${index === (mobileGalleryIndex % Math.min(galleryImages.length || 1, 5)) ? 'w-5 bg-white' : 'w-1.5 bg-white/55'}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="relative z-10 -mt-10 rounded-t-[2rem] bg-white px-5 pb-6 pt-5 shadow-[0_-12px_26px_rgba(15,23,42,0.08),0_-2px_0_rgba(255,255,255,0.92),0_18px_45px_rgba(15,23,42,0.10)]">
+            <div className="text-xs text-gray-500">
+              <Link to="/" className="hover:text-emerald-600">Accueil</Link>
+              <span className="mx-2">/</span>
+              <Link to="/logements" className="hover:text-emerald-600">Logements</Link>
+              <span className="mx-2">/</span>
+              <span className="text-gray-900">{property.title}</span>
+            </div>
+
+            <div className="mt-5">
+              <h1 className="text-[2.1rem] font-bold leading-[1.05] tracking-[-0.03em] text-slate-950">
+                {property.title}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
+                <div className="flex items-center gap-1.5">
+                  <MapPin size={15} />
+                  <span>{property.location}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Star size={15} className="fill-current text-amber-500" />
+                  <span className="font-medium text-slate-900">{formatRating(property.rating)}</span>
+                  <span>({property.reviews} avis)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={handleShare}
+                className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200 bg-white text-slate-800 shadow-sm transition-colors hover:bg-gray-50"
+                aria-label="Partager"
+              >
+                <Share2 size={18} />
+              </button>
+              <button
+                onClick={handleSave}
+                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm transition-colors ${
+                  isSaved
+                    ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+                    : 'border-gray-200 bg-white text-slate-800 hover:bg-gray-50'
+                }`}
+                aria-label={isSaved ? 'Sauvegardé' : 'Sauvegarder'}
+              >
+                <Heart size={18} className={isSaved ? 'fill-current' : ''} />
+              </button>
+            </div>
+          </div>
+        </div>
         
         {/* Breadcrumb */}
-        <div className="text-sm text-gray-500 mb-6">
+        <div className="hidden text-sm text-gray-500 mb-6 md:block">
           <Link to="/" className="hover:text-emerald-600">Accueil</Link>
           <span className="mx-2">/</span>
           <Link to="/logements" className="hover:text-emerald-600">Logements</Link>
@@ -1516,7 +1606,7 @@ out body 40;
         </div>
 
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start mb-6">
+        <div className="hidden md:flex flex-col md:flex-row justify-between items-start mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">{property.title}</h1>
             <div className="flex items-center gap-4 text-gray-600 text-sm">
@@ -1585,38 +1675,6 @@ out body 40;
                 </div>
               );
             })}
-          </div>
-
-          {/* Mobile Slider using Embla Carousel */}
-          <div className="md:hidden rounded-xl overflow-hidden shadow-lg relative group">
-            <div className="overflow-hidden" ref={emblaRef}>
-                <div className="flex">
-                {galleryImages.map((imageUrl, idx) => (
-                  <div 
-                    className="flex-[0_0_100%] min-w-0 relative h-[250px] sm:h-[300px]" 
-                    key={`gallery-mobile-image-${idx}`}
-                    onClick={() => {
-                      openLightbox(idx);
-                    }}
-                  >
-                    <SmartImage
-                      src={imageUrl}
-                      alt={`${property.title} - ${idx + 1}`}
-                      className="w-full h-full object-cover cursor-pointer"
-                      loading={idx === 0 ? "eager" : "lazy"}
-                      decoding="async"
-                      fetchPriority={idx === 0 ? "high" : "low"}
-                      targetWidth={960}
-                      quality={68}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* Navigation Buttons for Slider could be added here */}
-            <div className="absolute bottom-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-sm">
-               {galleryImages.length} image{galleryImages.length > 1 ? "s" : ""}
-            </div>
           </div>
         </div>
 

@@ -44,6 +44,7 @@ function resolveRouteMode(pathname: string, search: string) {
 
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
+  const [isAutoHidden, setIsAutoHidden] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -53,6 +54,7 @@ export function Header() {
   const [showActionableNotice, setShowActionableNotice] = useState(false);
   const isHomePage = location.pathname === "/";
   const useLightText = isHomePage && !isScrolled && !isOpen;
+  const useSolidHeader = !isHomePage || isScrolled || isOpen;
   const routeMode = resolveRouteMode(location.pathname, location.search);
   const headerContact = getPublicContactForMode(routeMode);
   const facebookUrl = `https://www.facebook.com/${encodeURIComponent(headerContact.messengerPage)}`;
@@ -70,10 +72,54 @@ export function Header() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  useEffect(() => {
+    if (isOpen) {
+      setIsAutoHidden(false);
+      return;
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleHide = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setIsAutoHidden(true);
+      }, 3000);
+    };
+
+    const revealHeader = () => {
+      setIsAutoHidden(false);
+      scheduleHide();
+    };
+
+    scheduleHide();
+    window.addEventListener("scroll", revealHeader, { passive: true });
+    window.addEventListener("mousemove", revealHeader, { passive: true });
+    window.addEventListener("touchstart", revealHeader, { passive: true });
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      window.removeEventListener("scroll", revealHeader);
+      window.removeEventListener("mousemove", revealHeader);
+      window.removeEventListener("touchstart", revealHeader);
+    };
+  }, [isOpen, location.pathname, location.search]);
+
   // Close mobile menu on route change
   useEffect(() => {
     setIsOpen(false);
   }, [location]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      document.body.style.overflow = "";
+      return;
+    }
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!user || user.role !== "user" || !user.email) {
@@ -145,12 +191,14 @@ export function Header() {
     <>
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled ? "bg-white/95 backdrop-blur-md shadow-md py-2" : "bg-transparent py-4"
-      }`}
+        useSolidHeader
+          ? "bg-white/92 backdrop-blur-xl shadow-sm py-2.5 md:py-2"
+          : "bg-transparent py-4"
+      } ${isAutoHidden ? "-translate-y-[115%] opacity-0" : "translate-y-0 opacity-100"}`}
     >
-      <div className="container mx-auto px-4 md:px-6 flex items-center justify-between">
+      <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
         <Link to="/" className="flex items-center gap-3 z-50">
-           <img src={logo} alt="Dwira Immobilier" className="h-12 w-auto object-contain" />
+           <img src={logo} alt="Dwira Immobilier" className="h-11 w-auto object-contain md:h-12" />
            <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-emerald-900"}`}>
              <span className="block text-lg">Dwira</span>
              <span className="block text-xs uppercase tracking-widest text-amber-500">Immobilier</span>
@@ -247,11 +295,16 @@ export function Header() {
 
         {/* Mobile Menu Button */}
         <button
-          className="md:hidden z-50 p-2"
+          className={`md:hidden z-[95] inline-flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm transition-colors ${
+            useSolidHeader
+              ? "border-gray-200 bg-white text-slate-900"
+              : "border-white/30 bg-white/12 text-white backdrop-blur-md"
+          }`}
           onClick={() => setIsOpen(!isOpen)}
+          aria-label={isOpen ? "Fermer le menu" : "Ouvrir le menu"}
         >
           {isOpen ? (
-            <X className={!useLightText || isOpen ? "text-gray-900" : "text-white"} />
+            <X className="text-gray-900" />
           ) : (
             <Menu className={useLightText ? "text-white" : "text-gray-900"} />
           )}
@@ -265,26 +318,29 @@ export function Header() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: "100%" }}
               transition={{ type: "tween", duration: 0.3 }}
-              className="fixed inset-0 bg-white z-40 flex flex-col items-center justify-center gap-8 md:hidden"
+              className="fixed inset-0 left-0 top-0 z-[90] h-dvh w-screen overflow-hidden bg-white md:hidden"
             >
-              <div className="flex flex-col items-center mb-8">
-                 <img src={logo} alt="Dwira Immobilier" className="h-20 w-auto mb-4" />
-                 <h2 className="text-2xl font-bold text-emerald-900">Dwira Immobilier</h2>
-              </div>
+              <div className="relative z-10 flex h-full flex-col overflow-y-auto px-6 pb-10 pt-28">
+                <div className="mb-8 flex flex-col items-center border-b border-gray-100 pb-6">
+                  <img src={logo} alt="Dwira Immobilier" className="mb-4 h-16 w-auto" />
+                  <h2 className="text-2xl font-bold text-emerald-900">Dwira Immobilier</h2>
+                </div>
               
-              {navLinks.map((link) => (
-                <Link
-                  key={link.path}
-                  to={link.path}
-                  className="text-2xl font-semibold text-gray-800 hover:text-emerald-600"
-                >
-                  {link.name}
-                </Link>
-              ))}
+                <div className="flex flex-col gap-5 py-8">
+                  {navLinks.map((link) => (
+                    <Link
+                      key={link.path}
+                      to={link.path}
+                      className="text-center text-2xl font-semibold text-gray-800 hover:text-emerald-600"
+                    >
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
               
               {/* Mobile Auth Section */}
               {user ? (
-                <div className="flex flex-col items-center gap-4 mt-4">
+                <div className="mt-2 flex flex-col items-center gap-4 border-t border-gray-100 pt-6">
                   <div className="flex items-center gap-3">
                     {user.avatar ? (
                       <img 
@@ -301,14 +357,14 @@ export function Header() {
                   </div>
                   <Link 
                     to={user.role === 'admin' ? '/admin' : '/'}
-                    className="text-lg text-emerald-600 hover:text-emerald-700"
+                    className="text-base font-semibold text-emerald-600 hover:text-emerald-700"
                   >
                     Mon espace
                   </Link>
                   {user.role === 'user' && (
                     <Link
                       to="/mes-reservations"
-                      className="text-lg text-emerald-600 hover:text-emerald-700 flex items-center gap-2"
+                      className="flex items-center gap-2 text-base font-semibold text-emerald-600 hover:text-emerald-700"
                     >
                       <ShoppingBag size={22} />
                       <span>Mes demandes{reservationCount > 0 ? ` (${reservationCount})` : ''}</span>
@@ -316,32 +372,35 @@ export function Header() {
                   )}
                   <button
                     onClick={handleLogout}
-                    className="flex items-center gap-2 px-6 py-2 bg-red-100 text-red-600 rounded-full font-medium hover:bg-red-200 transition-colors"
+                    className="flex items-center gap-2 rounded-full bg-red-100 px-6 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-200"
                   >
                     <LogOut size={18} />
                     <span>Déconnexion</span>
                   </button>
                 </div>
               ) : (
-                <Link
-                  to="/login"
-                  className="text-2xl font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-2"
-                >
-                  <User size={24} />
-                  <span>Connexion</span>
-                </Link>
+                <div className="mt-2 flex justify-center border-t border-gray-100 pt-6">
+                  <Link
+                    to="/login"
+                    className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
+                  >
+                    <User size={24} />
+                    <span>Connexion</span>
+                  </Link>
+                </div>
               )}
               
-              <div className="mt-8 flex gap-6">
-                <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-gray-600 hover:text-blue-600">
-                  <Facebook size={28} />
-                </a>
-                <a href="https://www.instagram.com/dwira.immobiliere" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-pink-600">
-                  <Instagram size={28} />
-                </a>
-                <a href="https://www.tiktok.com/@Dwira.immobilier" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-black">
-                  <TikTokIcon size={28} />
-                </a>
+                <div className="mt-auto flex justify-center gap-6 pt-10">
+                  <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-gray-600 hover:text-blue-600">
+                    <Facebook size={28} />
+                  </a>
+                  <a href="https://www.instagram.com/dwira.immobiliere" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-pink-600">
+                    <Instagram size={28} />
+                  </a>
+                  <a href="https://www.tiktok.com/@Dwira.immobilier" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-black">
+                    <TikTokIcon size={28} />
+                  </a>
+                </div>
               </div>
             </motion.div>
           )}
