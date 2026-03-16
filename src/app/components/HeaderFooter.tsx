@@ -68,7 +68,7 @@ export function Header() {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
-    window.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -198,7 +198,9 @@ export function Header() {
     >
       <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
         <Link to="/" className="flex items-center gap-3 z-50">
-           <img src={logo} alt="Dwira Immobilier" className="h-11 w-auto object-contain md:h-12" />
+           <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm md:h-12 md:w-12">
+             <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-cover" />
+           </span>
            <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-emerald-900"}`}>
              <span className="block text-lg">Dwira</span>
              <span className="block text-xs uppercase tracking-widest text-amber-500">Immobilier</span>
@@ -322,7 +324,9 @@ export function Header() {
             >
               <div className="relative z-10 flex h-full flex-col overflow-y-auto px-6 pb-10 pt-28">
                 <div className="mb-8 flex flex-col items-center border-b border-gray-100 pb-6">
-                  <img src={logo} alt="Dwira Immobilier" className="mb-4 h-16 w-auto" />
+                  <span className="mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
+                    <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-cover" />
+                  </span>
                   <h2 className="text-2xl font-bold text-emerald-900">Dwira Immobilier</h2>
                 </div>
               

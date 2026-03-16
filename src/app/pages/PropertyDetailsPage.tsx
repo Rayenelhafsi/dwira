@@ -337,6 +337,8 @@ export default function PropertyDetailsPage() {
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const seasonalDetailsPanelRef = useRef<HTMLDivElement | null>(null);
   const googlePlacesUnsupportedRef = useRef(false);
+  const nearbyPlacesCacheRef = useRef<Record<string, NearbyPlace[]>>({});
+  const nearbyPlacesFailureRef = useRef<Record<string, true>>({});
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -438,6 +440,16 @@ export default function PropertyDetailsPage() {
         setNearbyPlaces([]);
         return;
       }
+      const nearbyCacheKey = `${displayMapCenter.lat.toFixed(5)}:${displayMapCenter.lng.toFixed(5)}`;
+      const cachedNearbyPlaces = nearbyPlacesCacheRef.current[nearbyCacheKey];
+      if (cachedNearbyPlaces) {
+        setNearbyPlaces(cachedNearbyPlaces);
+        return;
+      }
+      if (nearbyPlacesFailureRef.current[nearbyCacheKey]) {
+        setNearbyPlaces([]);
+        return;
+      }
       const query = `
 [out:json][timeout:12];
 (
@@ -452,7 +464,7 @@ out body 40;
         if (!googlePlacesUnsupportedRef.current) {
           const googleNearbyUrl = buildApiUrl(`/google-places/nearby?lat=${encodeURIComponent(String(displayMapCenter.lat))}&lng=${encodeURIComponent(String(displayMapCenter.lng))}&radius=1800`);
           const googleResponse = await fetch(googleNearbyUrl);
-          if (googleResponse.status === 404) {
+          if (googleResponse.status === 404 || googleResponse.status === 503) {
             googlePlacesUnsupportedRef.current = true;
           } else if (googleResponse.ok) {
             const googlePayload = await googleResponse.json().catch(() => ({}));
@@ -480,6 +492,7 @@ out body 40;
               .sort((a: NearbyPlace, b: NearbyPlace) => a.distanceKm - b.distanceKm)
               .slice(0, 12);
             if (googleItems.length > 0) {
+              nearbyPlacesCacheRef.current[nearbyCacheKey] = googleItems;
               setNearbyPlaces(googleItems);
               return;
             }
@@ -537,8 +550,10 @@ out body 40;
             return { ...place, imageUrl: wikidataImage || null, imageSource: wikidataImage ? "osm" : "fallback" } as NearbyPlace;
           })
         );
+        nearbyPlacesCacheRef.current[nearbyCacheKey] = items;
         setNearbyPlaces(items);
       } catch {
+        nearbyPlacesFailureRef.current[nearbyCacheKey] = true;
         if (!cancelled) setNearbyPlaces([]);
       }
     };
@@ -615,42 +630,6 @@ out body 40;
       ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
       : "0,0";
 
-  useEffect(() => {
-    console.debug('[PropertyDetailsDebug] route', {
-      pathname: location.pathname,
-      slug,
-      propertyId: property?.id,
-      sourceBienId: sourceBien?.id,
-      sourceBienZoneId: sourceBien?.zone_id,
-    });
-  }, [location.pathname, slug, property?.id, sourceBien?.id, sourceBien?.zone_id]);
-
-  useEffect(() => {
-    console.debug('[PropertyDetailsDebug] zone', {
-      selectedZoneId: selectedZone?.id,
-      selectedZoneName: selectedZone?.nom,
-      selectedBienMapsUrl: selectedBienMapsUrl || null,
-      selectedZoneMapsUrl: selectedZoneMapsUrl || null,
-      selectedMapsUrl: selectedMapsUrl || null,
-      zonesCount: Array.isArray(zones) ? zones.length : 0,
-      zoneSample: (Array.isArray(zones) ? zones.slice(0, 3) : []).map((z) => ({
-        id: z?.id,
-        nom: z?.nom,
-        google_maps_url: z?.google_maps_url || null,
-      })),
-    });
-  }, [selectedZone?.id, selectedZone?.nom, selectedBienMapsUrl, selectedZoneMapsUrl, selectedMapsUrl, zones]);
-
-  useEffect(() => {
-    console.debug('[PropertyDetailsDebug] localisationSection', {
-      usesStaticPlaceholder: false,
-      hasGoogleMapsUrl: Boolean(selectedMapsUrl),
-      hasMapCenter: Boolean(mapCenter),
-      mapCenter,
-      displayMapCenter,
-      hasGoogleEmbedUrl: Boolean(googleEmbedUrl),
-    });
-  }, [selectedMapsUrl, mapCenter, displayMapCenter, googleEmbedUrl]);
   const seasonalHighlights = useMemo(() => {
     if (isSaleProperty) return [];
     const rows = [
