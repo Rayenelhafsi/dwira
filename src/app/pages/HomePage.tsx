@@ -625,6 +625,21 @@ export default function HomePage() {
                 })()}
               />
             ))}
+            {loading && filteredProperties.length === 0 && Array.from({ length: 3 }).map((_, index) => (
+              <div key={`property-skeleton-${index}`} className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+                <div className="aspect-[4/3] w-full animate-pulse bg-gray-200" />
+                <div className="p-5">
+                  <div className="mb-3 h-4 w-24 animate-pulse rounded bg-gray-200" />
+                  <div className="mb-3 h-7 w-4/5 animate-pulse rounded bg-gray-200" />
+                  <div className="mb-5 h-4 w-3/5 animate-pulse rounded bg-gray-200" />
+                  <div className="grid grid-cols-3 gap-3 border-t border-gray-100 pt-4">
+                    <div className="h-10 animate-pulse rounded bg-gray-100" />
+                    <div className="h-10 animate-pulse rounded bg-gray-100" />
+                    <div className="h-10 animate-pulse rounded bg-gray-100" />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
           
           {filteredProperties.length === 0 && hasSearched && (

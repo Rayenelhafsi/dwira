@@ -5712,6 +5712,29 @@ app.put('/api/notifications/:id/lu', async (req, res) => {
 // MEDIA API
 // ============================================
 
+app.get('/api/media-bulk', async (req, res) => {
+  try {
+    const bienIds = String(req.query.bien_ids || '')
+      .split(',')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    if (bienIds.length === 0) {
+      return res.json([]);
+    }
+
+    const placeholders = bienIds.map(() => '?').join(',');
+    const [rows] = await pool.query(
+      `SELECT * FROM media WHERE bien_id IN (${placeholders}) ORDER BY bien_id ASC, position ASC, id ASC`,
+      bienIds
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching bulk media:', error);
+    res.status(500).json({ error: 'Failed to fetch bulk media' });
+  }
+});
+
 app.get('/api/media/:bien_id', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM media WHERE bien_id = ? ORDER BY position ASC, id ASC', [req.params.bien_id]);

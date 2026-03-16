@@ -470,19 +470,93 @@ interface PropertiesContextType {
 }
 
 const PropertiesContext = createContext<PropertiesContextType | undefined>(undefined);
+const PROPERTIES_CACHE_KEY = 'dwira_properties_cache_v1';
+
+type PropertiesCachePayload = {
+  biens: Bien[];
+  zones: Zone[];
+  proprietaires: Proprietaire[];
+  modePriorities: Record<BienMode, number>;
+};
+
+function readPropertiesCache(): PropertiesCachePayload | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(PROPERTIES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      biens: Array.isArray(parsed.biens) ? parsed.biens : [],
+      zones: Array.isArray(parsed.zones) ? parsed.zones : [],
+      proprietaires: Array.isArray(parsed.proprietaires) ? parsed.proprietaires : [],
+      modePriorities: parsed.modePriorities || DEFAULT_MODE_PRIORITIES,
+    } as PropertiesCachePayload;
+  } catch {
+    return null;
+  }
+}
+
+function writePropertiesCache(payload: PropertiesCachePayload) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(PROPERTIES_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+}
 
 // ============================================
 // CONTEXT PROVIDER
 // ============================================
 
 export function PropertiesProvider({ children }: { children: ReactNode }) {
-  const [biens, setBiens] = useState<Bien[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [zones, setZones] = useState<Zone[]>([]);
-  const [proprietaires, setProprietaires] = useState<Proprietaire[]>([]);
-  const [modePriorities, setModePriorities] = useState<Record<BienMode, number>>(DEFAULT_MODE_PRIORITIES);
-  const [loading, setLoading] = useState(true);
+  const initialCache = readPropertiesCache();
+  const [biens, setBiens] = useState<Bien[]>(initialCache?.biens || []);
+  const [properties, setProperties] = useState<Property[]>(() => {
+    const cachedBiens = initialCache?.biens || [];
+    const cachedZones = initialCache?.zones || [];
+    const zoneNameById: Record<string, string> = {};
+    for (const zone of cachedZones) zoneNameById[zone.id] = zone.nom;
+    return cachedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zoneNameById));
+  });
+  const [zones, setZones] = useState<Zone[]>(initialCache?.zones || []);
+  const [proprietaires, setProprietaires] = useState<Proprietaire[]>(initialCache?.proprietaires || []);
+  const [modePriorities, setModePriorities] = useState<Record<BienMode, number>>(initialCache?.modePriorities || DEFAULT_MODE_PRIORITIES);
+  const [loading, setLoading] = useState(!initialCache);
   const [error, setError] = useState<string | null>(null);
+
+  const applyMappedBiens = (
+    mappedBiens: Bien[],
+    zonesData: Zone[],
+    propsData: Proprietaire[],
+    modePrioritiesData: any
+  ) => {
+    const zoneNameById: Record<string, string> = {};
+    for (const zone of Array.isArray(zonesData) ? zonesData : []) {
+      zoneNameById[zone.id] = zone.nom;
+    }
+
+    setBiens(mappedBiens);
+    setProperties(mappedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zoneNameById)));
+    setZones(Array.isArray(zonesData) ? zonesData : []);
+    setProprietaires(Array.isArray(propsData) ? propsData : []);
+    setModePriorities({
+      location_saisonniere: Number(modePrioritiesData?.location_saisonniere || DEFAULT_MODE_PRIORITIES.location_saisonniere),
+      vente: Number(modePrioritiesData?.vente || DEFAULT_MODE_PRIORITIES.vente),
+      location_annuelle: Number(modePrioritiesData?.location_annuelle || DEFAULT_MODE_PRIORITIES.location_annuelle),
+    });
+    writePropertiesCache({
+      biens: mappedBiens,
+      zones: Array.isArray(zonesData) ? zonesData : [],
+      proprietaires: Array.isArray(propsData) ? propsData : [],
+      modePriorities: {
+        location_saisonniere: Number(modePrioritiesData?.location_saisonniere || DEFAULT_MODE_PRIORITIES.location_saisonniere),
+        vente: Number(modePrioritiesData?.vente || DEFAULT_MODE_PRIORITIES.vente),
+        location_annuelle: Number(modePrioritiesData?.location_annuelle || DEFAULT_MODE_PRIORITIES.location_annuelle),
+      },
+    });
+  };
 
   // Fetch data from API
   const fetchData = async () => {
@@ -511,48 +585,61 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       });
       const propsData = propsResponse.ok ? await propsResponse.json() : [];
       const modePrioritiesData = modePrioritiesResponse.ok ? await modePrioritiesResponse.json() : null;
-      
-      // Fetch media and unavailable dates for each bien
-      const mappedBiens = await Promise.all(biensData.map(async (bien: any) => {
-        // Fetch media for this bien
-        let media: any[] = [];
-        try {
-          const mediaResponse = await fetch(`${API_URL}/media/${bien.id}`);
-          if (mediaResponse.ok) {
-            media = await mediaResponse.json();
-          }
-        } catch (e) {
-          console.warn(`Failed to fetch media for bien ${bien.id}`);
+
+      const bienIds = Array.isArray(biensData) ? biensData.map((bien: any) => String(bien?.id || '').trim()).filter(Boolean) : [];
+      let allMedia: any[] = [];
+      try {
+        const bulkMediaResponse = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`);
+        if (bulkMediaResponse.ok) {
+          allMedia = await bulkMediaResponse.json();
         }
-        
-        // Fetch unavailable dates for this bien
-        let unavailableDates: any[] = [];
-        try {
-          const datesResponse = await fetch(`${API_URL}/unavailable-dates/${bien.id}`);
-          if (datesResponse.ok) {
-            unavailableDates = await datesResponse.json();
-          }
-        } catch (e) {
-          console.warn(`Failed to fetch unavailable dates for bien ${bien.id}`);
-        }
-        
-        return dbRowToBien(bien, media, unavailableDates);
-      }));
-      
-      const zoneNameById: Record<string, string> = {};
-      for (const zone of Array.isArray(zonesData) ? zonesData : []) {
-        zoneNameById[zone.id] = zone.nom;
+      } catch (e) {
+        console.warn('Failed to fetch bulk media');
       }
 
-      setBiens(mappedBiens);
-      setProperties(mappedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zoneNameById)));
-      setZones(Array.isArray(zonesData) ? zonesData : []);
-      setProprietaires(Array.isArray(propsData) ? propsData : []);
-      setModePriorities({
-        location_saisonniere: Number(modePrioritiesData?.location_saisonniere || DEFAULT_MODE_PRIORITIES.location_saisonniere),
-        vente: Number(modePrioritiesData?.vente || DEFAULT_MODE_PRIORITIES.vente),
-        location_annuelle: Number(modePrioritiesData?.location_annuelle || DEFAULT_MODE_PRIORITIES.location_annuelle),
-      });
+      const mediaByBienId = new Map<string, any[]>();
+      for (const item of Array.isArray(allMedia) ? allMedia : []) {
+        const bienId = String(item?.bien_id || '').trim();
+        if (!bienId) continue;
+        const list = mediaByBienId.get(bienId) || [];
+        list.push(item);
+        mediaByBienId.set(bienId, list);
+      }
+
+      const mappedBiens = (Array.isArray(biensData) ? biensData : []).map((bien: any) =>
+        dbRowToBien(bien, mediaByBienId.get(String(bien?.id || '').trim()) || [], [])
+      );
+
+      applyMappedBiens(mappedBiens, zonesData, propsData, modePrioritiesData);
+      setLoading(false);
+
+      // Fetch unavailable dates after the homepage and lists are already usable.
+      void (async () => {
+        const datesByBienId = new Map<string, any[]>();
+        await Promise.all(
+          bienIds.map(async (bienId) => {
+            try {
+              const datesResponse = await fetch(`${API_URL}/unavailable-dates/${bienId}`);
+              if (!datesResponse.ok) return;
+              const rows = await datesResponse.json();
+              datesByBienId.set(bienId, Array.isArray(rows) ? rows : []);
+            } catch {
+              console.warn(`Failed to fetch unavailable dates for bien ${bienId}`);
+            }
+          })
+        );
+
+        const nextMappedBiens = (Array.isArray(biensData) ? biensData : []).map((bien: any) =>
+          dbRowToBien(
+            bien,
+            mediaByBienId.get(String(bien?.id || '').trim()) || [],
+            datesByBienId.get(String(bien?.id || '').trim()) || []
+          )
+        );
+
+        applyMappedBiens(nextMappedBiens, zonesData, propsData, modePrioritiesData);
+      })();
+      return;
     } catch (err: any) {
       console.warn('API unavailable, using local mock data:', err.message);
       console.debug('[PropertiesDebug] fallback:mockZones');
