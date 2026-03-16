@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { resolveBienCapacity } from '../../utils/bienCapacity';
-import { toYouTubeEmbedUrl } from '../../utils/videoLinks';
+import { isYouTubeShortUrl, toYouTubeEmbedUrl } from '../../utils/videoLinks';
 import { SmartImage } from '../../components/SmartImage';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
@@ -526,23 +526,44 @@ out body 20;
         )) : null}
 
         {videos.length > 0 && (
-          <div className="mb-12 rounded-2xl border border-gray-200 bg-white p-4 md:p-6">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <h3 className="text-xl font-bold text-gray-900">Video</h3>
+          <div className="mb-12 overflow-hidden rounded-[1.75rem] border border-emerald-100 bg-[linear-gradient(135deg,rgba(236,253,245,0.9),rgba(255,255,255,1)_55%,rgba(220,252,231,0.7))] shadow-[0_20px_50px_rgba(16,185,129,0.08)]">
+            <div className="flex items-center justify-between gap-3 border-b border-white/70 px-5 py-5 md:px-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Visite vidéo</h3>
+                <p className="mt-1 text-sm text-gray-600">Lecture confortable sur mobile et desktop.</p>
+              </div>
               {previewMode ? sectionToggle('show_gallery') : null}
             </div>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {videos.map((videoUrl, index) => (
-                <iframe
-                  key={`${videoUrl}-${index}`}
-                  src={toYouTubeEmbedUrl(videoUrl) || ''}
-                  title={`${bien.titre} video ${index + 1}`}
-                  className="w-full h-[240px] md:h-[360px] rounded-2xl bg-black"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  allowFullScreen
-                />
-              ))}
+            <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-6 md:py-6 xl:grid-cols-2">
+              {videos.map((videoUrl, index) => {
+                const isShortVideo = isYouTubeShortUrl(videoUrl);
+                return (
+                  <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_16px_35px_rgba(15,23,42,0.10)]">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Video {index + 1}</p>
+                        <p className="mt-1 text-sm font-medium text-slate-800">{isShortVideo ? 'Format vertical' : 'Format paysage'}</p>
+                      </div>
+                      <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">{isShortVideo ? 'Shorts' : 'HD'}</div>
+                    </div>
+                    <div className="bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_45%),linear-gradient(180deg,#0f172a,#111827)] p-3 md:p-4">
+                      <div className={`mx-auto overflow-hidden rounded-[1.35rem] border border-white/10 bg-black ${isShortVideo ? 'max-w-[360px]' : 'w-full'}`}>
+                        <div className={isShortVideo ? 'aspect-[9/16]' : 'aspect-video'}>
+                          <iframe
+                            src={toYouTubeEmbedUrl(videoUrl) || ''}
+                            title={`${bien.titre} video ${index + 1}`}
+                            className="h-full w-full bg-black"
+                            loading="lazy"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            referrerPolicy="strict-origin-when-cross-origin"
+                            allowFullScreen
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

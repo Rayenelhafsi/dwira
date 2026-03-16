@@ -21,6 +21,10 @@ export function isYouTubeUrl(input?: string | null): boolean {
   return extractYouTubeVideoId(input) !== null;
 }
 
+export function isYouTubeShortUrl(input?: string | null): boolean {
+  return /youtube\.com\/shorts\//i.test(String(input || "").trim());
+}
+
 export function toYouTubeEmbedUrl(input?: string | null): string | null {
   const videoId = extractYouTubeVideoId(input);
   return videoId ? `https://www.youtube.com/embed/${videoId}` : null;

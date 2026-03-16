@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
-import { toYouTubeEmbedUrl } from "../utils/videoLinks";
+import { isYouTubeShortUrl, toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl } from "../utils/media";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -1620,38 +1620,66 @@ out body 40;
           </div>
         </div>
 
-        {propertyVideos.length > 0 && (
-          <div className="mb-12 rounded-3xl border border-emerald-100 bg-emerald-50/40 p-6 md:p-8">
-            <div className="flex items-center justify-between gap-3 mb-5">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">Visite vidéo</h2>
-                <p className="text-sm text-gray-600 mt-1">Regardez le bien avant de réserver ou demander une visite.</p>
-              </div>
-              <div className="text-sm font-medium text-emerald-700">
-                {propertyVideos.length} vidéo{propertyVideos.length > 1 ? "s" : ""}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-              {propertyVideos.map((videoUrl, index) => (
-                <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-2xl bg-black shadow-lg">
-                  <iframe
-                    src={toYouTubeEmbedUrl(videoUrl) || ""}
-                    title={`${property.title} visite video ${index + 1}`}
-                    className="w-full h-[240px] md:h-[360px] bg-black"
-                    loading="lazy"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    allowFullScreen
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Left Column: Info */}
           <div className="lg:col-span-2">
+            {propertyVideos.length > 0 && (
+              <div className="mb-10 overflow-hidden rounded-[1.6rem] border border-emerald-100 bg-[linear-gradient(135deg,rgba(236,253,245,0.92),rgba(248,250,252,1)_55%,rgba(220,252,231,0.7))] shadow-[0_18px_50px_rgba(16,185,129,0.07)]">
+                <div className="flex flex-col gap-4 border-b border-white/70 px-5 py-5 md:flex-row md:items-end md:justify-between md:px-6">
+                  <div>
+                    <div className="inline-flex items-center rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
+                      Experience video
+                    </div>
+                    <h2 className="mt-3 text-2xl font-bold text-gray-900">Visite vidéo</h2>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-gray-600">
+                      Regardez le bien avant de réserver ou demander une visite, avec un affichage pensé pour les vidéos classiques et les formats verticaux.
+                    </p>
+                  </div>
+                  <div className="inline-flex items-center self-start rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm">
+                    {propertyVideos.length} vidéo{propertyVideos.length > 1 ? "s" : ""}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-5 md:py-5 xl:grid-cols-2">
+                  {propertyVideos.map((videoUrl, index) => {
+                    const isShortVideo = isYouTubeShortUrl(videoUrl);
+                    return (
+                    <div
+                      key={`${videoUrl}-${index}`}
+                      className="overflow-hidden rounded-[1.4rem] border border-slate-200/70 bg-white/92 shadow-[0_14px_34px_rgba(15,23,42,0.10)] backdrop-blur-sm xl:max-w-[520px]"
+                    >
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                            Video {index + 1}
+                          </p>
+                          <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+                            {isShortVideo ? "Format vertical optimise mobile" : "Format paysage optimise multi-ecrans"}
+                          </p>
+                        </div>
+                        <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
+                          {isShortVideo ? "Shorts" : "HD"}
+                        </div>
+                      </div>
+                      <div className="bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_45%),linear-gradient(180deg,#0f172a,#111827)] p-3">
+                        <div className={`mx-auto overflow-hidden rounded-[1.2rem] border border-white/10 bg-black shadow-[0_14px_30px_rgba(0,0,0,0.32)] ${isShortVideo ? "max-w-[280px]" : "w-full"}`}>
+                          <div className={isShortVideo ? "aspect-[9/16]" : "aspect-video"}>
+                            <iframe
+                              src={toYouTubeEmbedUrl(videoUrl) || ""}
+                              title={`${property.title} visite video ${index + 1}`}
+                              className="h-full w-full bg-black"
+                              loading="lazy"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              referrerPolicy="strict-origin-when-cross-origin"
+                              allowFullScreen
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )})}
+                </div>
+              </div>
+            )}
             <div className="flex items-start justify-between gap-4 py-6 border-b border-gray-100">
                <div className="min-w-0 flex-1">
                  <h2 className="text-xl font-bold mb-1">Logement entier : {property.category}</h2>
