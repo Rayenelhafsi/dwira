@@ -4,6 +4,8 @@ set -euo pipefail
 APP_DIR="/var/www/dwiraimmobilier.com/public"
 ENV_FILE="${APP_DIR}/.env"
 BRANCH="${1:-main}"
+STATE_DIR="${APP_DIR}/.deploy"
+LOCK_HASH_FILE="${STATE_DIR}/package-lock.sha256"
 
 if [ ! -d "${APP_DIR}/migrations" ]; then
   echo "[deploy] ERROR: migrations directory not found: ${APP_DIR}/migrations"
@@ -99,7 +101,23 @@ export npm_config_fund="false"
 export npm_config_progress="false"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=768}"
 
-npm ci --prefer-offline
+mkdir -p "${STATE_DIR}"
+CURRENT_LOCK_HASH="$(sha256sum package-lock.json | awk '{print $1}')"
+PREVIOUS_LOCK_HASH="$(cat "${LOCK_HASH_FILE}" 2>/dev/null || true)"
+
+NEEDS_INSTALL="1"
+if [ -d node_modules ] && [ -n "${PREVIOUS_LOCK_HASH}" ] && [ "${PREVIOUS_LOCK_HASH}" = "${CURRENT_LOCK_HASH}" ]; then
+  NEEDS_INSTALL="0"
+fi
+
+if [ "${NEEDS_INSTALL}" = "1" ]; then
+  echo "[deploy] package-lock changed (or first deploy): npm ci required"
+  npm ci --prefer-offline
+  echo "${CURRENT_LOCK_HASH}" > "${LOCK_HASH_FILE}"
+else
+  echo "[deploy] package-lock unchanged: reuse existing node_modules"
+fi
+
 npm run build
 
 apply_migrations
