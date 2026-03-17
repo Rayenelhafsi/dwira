@@ -499,6 +499,45 @@ function resolveUploadedMediaPath(rawSrc) {
   return absolutePath;
 }
 
+const MEDIA_TRANSFORM_CACHE_LIMIT = 220;
+const mediaTransformCache = new Map();
+
+function getAcceptedImageFormat(acceptHeader) {
+  const accept = String(acceptHeader || '').toLowerCase();
+  if (accept.includes('image/avif')) return 'avif';
+  return 'webp';
+}
+
+function getMediaContentType(format) {
+  return format === 'avif' ? 'image/avif' : 'image/webp';
+}
+
+function getMediaCacheKey(sourcePath, sourceStat, width, quality, format) {
+  return [
+    sourcePath,
+    String(sourceStat?.mtimeMs || 0),
+    String(sourceStat?.size || 0),
+    String(width),
+    String(quality),
+    format,
+  ].join('|');
+}
+
+function getMediaEtag(cacheKey) {
+  return `"${crypto.createHash('sha1').update(cacheKey).digest('hex')}"`;
+}
+
+function rememberTransformedMedia(cacheKey, payload) {
+  if (mediaTransformCache.has(cacheKey)) {
+    mediaTransformCache.delete(cacheKey);
+  }
+  mediaTransformCache.set(cacheKey, payload);
+
+  if (mediaTransformCache.size <= MEDIA_TRANSFORM_CACHE_LIMIT) return;
+  const oldest = mediaTransformCache.keys().next().value;
+  if (oldest) mediaTransformCache.delete(oldest);
+}
+
 app.get('/api/media', async (req, res) => {
   try {
     const sourcePath = resolveUploadedMediaPath(req.query.src);
@@ -509,20 +548,46 @@ app.get('/api/media', async (req, res) => {
     const width = Math.max(120, Math.min(2200, Number(req.query.w) || 1600));
     const quality = Math.max(35, Math.min(90, Number(req.query.q) || 72));
     const fileExt = path.extname(sourcePath).toLowerCase();
+    const format = getAcceptedImageFormat(req.headers.accept);
+    const contentType = getMediaContentType(format);
+    const sourceStat = fs.statSync(sourcePath);
+    const cacheKey = getMediaCacheKey(sourcePath, sourceStat, width, quality, format);
+    const etag = getMediaEtag(cacheKey);
 
     // Keep unsupported formats on the original file path instead of failing the gallery.
     if (fileExt === '.gif' || fileExt === '.svg') {
       return res.redirect(String(req.query.src || '').trim());
     }
 
-    const transformed = await sharp(sourcePath)
-      .rotate()
-      .resize({ width, withoutEnlargement: true })
-      .webp({ quality })
-      .toBuffer();
+    res.setHeader('Vary', 'Accept');
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable, stale-while-revalidate=604800');
+    if (String(req.headers['if-none-match'] || '').trim() === etag) {
+      return res.status(304).end();
+    }
 
-    res.setHeader('Content-Type', 'image/webp');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    const cached = mediaTransformCache.get(cacheKey);
+    if (cached) {
+      // Keep most recently used entries hot.
+      mediaTransformCache.delete(cacheKey);
+      mediaTransformCache.set(cacheKey, cached);
+      res.setHeader('Content-Type', contentType);
+      return res.send(cached.buffer);
+    }
+
+    const transformer = sharp(sourcePath)
+      .rotate()
+      .resize({ width, withoutEnlargement: true });
+
+    const transformed = format === 'avif'
+      ? await transformer.avif({ quality: Math.max(40, quality - 6), effort: 4 }).toBuffer()
+      : await transformer.webp({ quality }).toBuffer();
+
+    rememberTransformedMedia(cacheKey, {
+      buffer: transformed,
+    });
+
+    res.setHeader('Content-Type', contentType);
     return res.send(transformed);
   } catch (error) {
     console.error('Error transforming media:', error);

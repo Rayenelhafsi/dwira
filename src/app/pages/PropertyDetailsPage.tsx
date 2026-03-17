@@ -569,6 +569,7 @@ export default function PropertyDetailsPage() {
   const nearbyPlacesFailureRef = useRef<Record<string, true>>({});
   const lightboxTouchStartXRef = useRef<number | null>(null);
   const lightboxWheelLockRef = useRef(false);
+  const loadedLightboxSrcsRef = useRef<Set<string>>(new Set());
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -1253,6 +1254,15 @@ out body 40;
     typeCautionLabel,
     vueLabel,
   ]);
+
+  const lightboxMainTargetWidth = useMemo(() => {
+    if (typeof window === "undefined") return isMobileViewport ? 980 : 1600;
+    const viewportWidth = Math.max(320, window.innerWidth || 320);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const requested = Math.round(viewportWidth * dpr * 1.08);
+    const minWidth = isMobileViewport ? 900 : 1200;
+    return Math.max(minWidth, Math.min(1800, requested));
+  }, [isMobileViewport, lightboxOpen]);
   const valuesForFeature = useCallback((feature: FeatureApiRow): string[] => {
     const directValues = parseFeatureValueJson(feature.valeur_json);
     if (directValues.length > 0) return directValues;
@@ -1377,9 +1387,16 @@ out body 40;
     });
   }, [property?.id, filterMode, filterLocation, filterCategories, filterAmenities, filterFeatured, minPrice, maxPrice, properties]);
 
+  const getLightboxOptimizedSrc = useCallback((index: number, quality = 74) => {
+    if (galleryImages.length === 0) return "";
+    const safeIndex = ((index % galleryImages.length) + galleryImages.length) % galleryImages.length;
+    return getOptimizedMediaUrl(galleryImages[safeIndex], { width: lightboxMainTargetWidth, quality });
+  }, [galleryImages, lightboxMainTargetWidth]);
+
   const openLightbox = (index: number) => {
+    const initialSrc = getLightboxOptimizedSrc(index);
     setCurrentImageIndex(index);
-    setLightboxImageLoading(true);
+    setLightboxImageLoading(!loadedLightboxSrcsRef.current.has(initialSrc));
     setLightboxOpen(true);
     document.body.style.overflow = 'hidden';
   };
@@ -1414,19 +1431,20 @@ out body 40;
   useEffect(() => {
     if (!lightboxOpen || galleryImages.length === 0) return;
 
-    setLightboxImageLoading(true);
+    const currentOptimizedSrc = getLightboxOptimizedSrc(currentImageIndex);
+    setLightboxImageLoading(!loadedLightboxSrcsRef.current.has(currentOptimizedSrc));
     const preloadIndexes = [
       currentImageIndex,
       (currentImageIndex + 1) % galleryImages.length,
       (currentImageIndex - 1 + galleryImages.length) % galleryImages.length,
     ];
 
-    preloadIndexes.forEach((index) => {
+    preloadIndexes.forEach((index, preloadOrder) => {
       const image = new Image();
       image.decoding = "async";
-      image.src = getOptimizedMediaUrl(galleryImages[index], { width: 1800, quality: 76 });
+      image.src = getLightboxOptimizedSrc(index, preloadOrder === 0 ? 74 : 70);
     });
-  }, [currentImageIndex, galleryImages, lightboxOpen]);
+  }, [currentImageIndex, galleryImages, lightboxOpen, getLightboxOptimizedSrc]);
 
   const visibleLightboxThumbIndexes = useMemo(() => {
     if (galleryImages.length <= 7) {
@@ -3223,9 +3241,12 @@ out body 40;
               loading="eager"
               decoding="async"
               fetchPriority="high"
-              targetWidth={1800}
-              quality={76}
-              onLoad={() => setLightboxImageLoading(false)}
+              targetWidth={lightboxMainTargetWidth}
+              quality={74}
+              onLoad={() => {
+                loadedLightboxSrcsRef.current.add(getLightboxOptimizedSrc(currentImageIndex));
+                setLightboxImageLoading(false);
+              }}
               onError={() => setLightboxImageLoading(false)}
               style={{
                 animation: 'fadeInScale 0.5s ease-out'
