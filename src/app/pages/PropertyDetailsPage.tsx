@@ -1832,7 +1832,7 @@ out body 40;
     return <Navigate to={`${property.detailPath}${filterQueryString ? `?${filterQueryString}` : ""}`} replace />;
   }
 
-  const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog
+  const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog && !lightboxOpen
     ? createPortal(
         <div
           style={{
