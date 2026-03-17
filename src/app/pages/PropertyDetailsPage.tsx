@@ -1832,7 +1832,7 @@ out body 40;
     return <Navigate to={`${property.detailPath}${filterQueryString ? `?${filterQueryString}` : ""}`} replace />;
   }
 
-  const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog
+  const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog
     ? createPortal(
         <div
           style={{
@@ -1840,41 +1840,41 @@ out body 40;
             left: "50%",
             bottom: "max(16px, env(safe-area-inset-bottom))",
             transform: "translateX(-50%)",
-            width: "min(calc(100vw - 24px), 28rem)",
+            width: "min(calc(100vw - 16px), 28rem)",
             zIndex: 2147483646,
             pointerEvents: "none",
           }}
         >
-          <div className="pointer-events-auto grid grid-cols-3 gap-2 rounded-[1.4rem] border border-white/70 bg-white/82 p-2 shadow-[0_24px_60px_rgba(15,23,42,0.24),0_10px_30px_rgba(15,23,42,0.14)] ring-1 ring-white/60 backdrop-blur-2xl supports-[backdrop-filter]:bg-white/72">
+          <div className="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-[1.2rem] border border-white/70 bg-white/82 p-1.5 shadow-[0_24px_60px_rgba(15,23,42,0.24),0_10px_30px_rgba(15,23,42,0.14)] ring-1 ring-white/60 backdrop-blur-2xl supports-[backdrop-filter]:bg-white/72 sm:gap-2 sm:rounded-[1.4rem] sm:p-2">
             <button
               type="button"
               onClick={handleOpenAndScrollSeasonalDetails}
-              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#f3fdf8,#e8fbf1)] px-2 py-3 text-center text-[11px] font-semibold text-emerald-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_8px_18px_rgba(16,185,129,0.10)] transition-all duration-200 active:scale-[0.98]"
+              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#f3fdf8,#e8fbf1)] px-1.5 py-2.5 text-center text-[10px] font-semibold text-emerald-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_8px_18px_rgba(16,185,129,0.10)] transition-all duration-200 active:scale-[0.98] sm:px-2 sm:py-3 sm:text-[11px]"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/90 text-emerald-700 shadow-sm">
                 <ListChecks size={13} />
               </span>
-              <span className="leading-tight">Caractéristiques</span>
+              <span className="w-full truncate leading-tight">Caractéristiques</span>
             </button>
             <button
               type="button"
               onClick={() => scrollToSection(locationSectionRef.current)}
-              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-2 py-3 text-center text-[11px] font-semibold text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(15,23,42,0.08)] transition-all duration-200 active:scale-[0.98]"
+              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-1.5 py-2.5 text-center text-[10px] font-semibold text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(15,23,42,0.08)] transition-all duration-200 active:scale-[0.98] sm:px-2 sm:py-3 sm:text-[11px]"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm">
                 <MapPin size={13} />
               </span>
-              <span className="leading-tight">Emplacement</span>
+              <span className="w-full truncate leading-tight">Emplacement</span>
             </button>
             <button
               type="button"
               onClick={() => scrollToSection(calendarSectionRef.current)}
-              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-2 py-3 text-center text-[11px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 active:scale-[0.98]"
+              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-1.5 py-2.5 text-center text-[10px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 active:scale-[0.98] sm:px-2 sm:py-3 sm:text-[11px]"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/95 text-amber-700 shadow-sm">
                 <Calendar size={13} />
               </span>
-              <span className="leading-tight">Calendrier</span>
+              <span className="w-full truncate leading-tight">Calendrier</span>
             </button>
           </div>
         </div>,
@@ -2638,18 +2638,18 @@ out body 40;
               </div>
 
               <form className="space-y-4">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div className="col-span-1">
                     <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date souhaitee' : 'Arrivee'}</label>
                     <button
                       type="button"
                       onClick={() => setShowBookingCalendarDialog(true)}
-                      className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
                     >
-                      <span className={selectedStart ? "text-gray-900" : "text-gray-500"}>
+                      <span className={`truncate ${selectedStart ? "text-gray-900" : "text-gray-500"}`}>
                         {formatBookingFieldDate(selectedStart)}
                       </span>
-                      <Calendar size={16} className="text-gray-500" />
+                      <Calendar size={16} className="shrink-0 text-gray-500" />
                     </button>
                   </div>
                   <div className="col-span-1">
@@ -2657,12 +2657,12 @@ out body 40;
                     <button
                       type="button"
                       onClick={() => setShowBookingCalendarDialog(true)}
-                      className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
                     >
-                      <span className={selectedEnd ? "text-gray-900" : "text-gray-500"}>
+                      <span className={`truncate ${selectedEnd ? "text-gray-900" : "text-gray-500"}`}>
                         {formatBookingFieldDate(selectedEnd)}
                       </span>
-                      <Calendar size={16} className="text-gray-500" />
+                      <Calendar size={16} className="shrink-0 text-gray-500" />
                     </button>
                   </div>
                 </div>
@@ -3027,15 +3027,15 @@ out body 40;
       </div>
 
       <Dialog open={showBookingCalendarDialog} onOpenChange={setShowBookingCalendarDialog}>
-        <DialogContent className="max-w-3xl border-0 p-0 shadow-2xl">
-          <DialogHeader className="border-b border-gray-100 px-6 pb-4 pt-6">
-            <DialogTitle className="text-2xl font-bold text-gray-900">
+        <DialogContent className="max-h-[86vh] w-[min(94vw,760px)] overflow-hidden rounded-[1.75rem] border-0 p-0 shadow-2xl sm:w-[min(90vw,700px)]">
+          <DialogHeader className="border-b border-gray-100 px-5 pb-3 pt-5 sm:px-6 sm:pb-4 sm:pt-6">
+            <DialogTitle className="text-xl font-bold text-gray-900 sm:text-2xl">
               {isSaleProperty ? "Choisissez vos dates" : "Choisissez votre sejour"}
             </DialogTitle>
           </DialogHeader>
-          <div className="px-4 pb-4 pt-4 md:px-6 md:pb-6">
+          <div className="max-h-[calc(86vh-92px)] overflow-y-auto px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6 sm:pt-4">
             {!isSaleProperty && (
-              <p className="mb-4 text-sm text-emerald-700">
+              <p className="mb-3 text-xs text-emerald-700 sm:mb-4 sm:text-sm">
                 Duree autorisee: minimum {minStay} nuit(s), maximum {maxStay} nuit(s).
               </p>
             )}
