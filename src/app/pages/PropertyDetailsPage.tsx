@@ -336,6 +336,9 @@ export default function PropertyDetailsPage() {
   const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const seasonalDetailsPanelRef = useRef<HTMLDivElement | null>(null);
+  const stayInfoSectionRef = useRef<HTMLDivElement | null>(null);
+  const locationSectionRef = useRef<HTMLDivElement | null>(null);
+  const calendarSectionRef = useRef<HTMLDivElement | null>(null);
   const googlePlacesUnsupportedRef = useRef(false);
   const nearbyPlacesCacheRef = useRef<Record<string, NearbyPlace[]>>({});
   const nearbyPlacesFailureRef = useRef<Record<string, true>>({});
@@ -567,6 +570,11 @@ out body 40;
     const target = seasonalDetailsPanelRef.current;
     if (!target) return;
     const offset = 104;
+    const top = window.scrollY + target.getBoundingClientRect().top - offset;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }, []);
+  const scrollToSection = useCallback((target: HTMLElement | null, offset = 104) => {
+    if (!target) return;
     const top = window.scrollY + target.getBoundingClientRect().top - offset;
     window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }, []);
@@ -1489,10 +1497,10 @@ out body 40;
   }
 
   return (
-    <div className="bg-white pb-20 md:pt-24">
+    <div className="bg-white pb-28 md:pb-20 md:pt-24">
       <div className="container mx-auto px-4 md:px-6">
         <div className="md:hidden -mx-4 -mt-6 mb-8">
-          <div className="relative overflow-hidden bg-slate-950">
+          <div className="sticky top-0 z-0 overflow-hidden bg-slate-950">
             <div className="overflow-hidden" ref={emblaRef}>
               <div className="flex">
                 {galleryImages.map((imageUrl, idx) => (
@@ -1516,61 +1524,13 @@ out body 40;
                 ))}
               </div>
             </div>
-            <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/30 px-3 py-2 backdrop-blur-md">
+            <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/30 px-3 py-2 backdrop-blur-md">
               {galleryImages.slice(0, Math.min(galleryImages.length, 5)).map((_, index) => (
                 <span
                   key={`mobile-gallery-dot-${index}`}
                   className={`h-1.5 rounded-full transition-all ${index === (mobileGalleryIndex % Math.min(galleryImages.length || 1, 5)) ? 'w-5 bg-white' : 'w-1.5 bg-white/55'}`}
                 />
               ))}
-            </div>
-          </div>
-
-          <div className="relative z-10 -mt-10 rounded-t-[2rem] bg-white px-5 pb-6 pt-5 shadow-[0_-12px_26px_rgba(15,23,42,0.08),0_-2px_0_rgba(255,255,255,0.92),0_18px_45px_rgba(15,23,42,0.10)]">
-            <div className="text-xs text-gray-500">
-              <Link to="/" className="hover:text-emerald-600">Accueil</Link>
-              <span className="mx-2">/</span>
-              <Link to="/logements" className="hover:text-emerald-600">Logements</Link>
-              <span className="mx-2">/</span>
-              <span className="text-gray-900">{property.title}</span>
-            </div>
-
-            <div className="mt-5">
-              <h1 className="text-[2.1rem] font-bold leading-[1.05] tracking-[-0.03em] text-slate-950">
-                {property.title}
-              </h1>
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-                <div className="flex items-center gap-1.5">
-                  <MapPin size={15} />
-                  <span>{property.location}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Star size={15} className="fill-current text-amber-500" />
-                  <span className="font-medium text-slate-900">{formatRating(property.rating)}</span>
-                  <span>({property.reviews} avis)</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={handleShare}
-                className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200 bg-white text-slate-800 shadow-sm transition-colors hover:bg-gray-50"
-                aria-label="Partager"
-              >
-                <Share2 size={18} />
-              </button>
-              <button
-                onClick={handleSave}
-                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm transition-colors ${
-                  isSaved
-                    ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
-                    : 'border-gray-200 bg-white text-slate-800 hover:bg-gray-50'
-                }`}
-                aria-label={isSaved ? 'Sauvegardé' : 'Sauvegarder'}
-              >
-                <Heart size={18} className={isSaved ? 'fill-current' : ''} />
-              </button>
             </div>
           </div>
         </div>
@@ -1657,11 +1617,65 @@ out body 40;
           </div>
         </div>
 
+        <div className="relative z-10 -mx-4 -mt-[4.6rem] rounded-t-[2rem] bg-white px-5 pb-8 pt-4 shadow-[0_-18px_38px_rgba(15,23,42,0.10),0_-2px_0_rgba(255,255,255,0.94),0_24px_60px_rgba(15,23,42,0.12)] md:mx-0 md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pb-0 md:pt-0 md:shadow-none">
+          <div className="md:hidden">
+            <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.01em] text-gray-500">
+              <Link to="/" className="hover:text-emerald-600">Accueil</Link>
+              <span>/</span>
+              <Link to="/logements" className="hover:text-emerald-600">Logements</Link>
+              <span>/</span>
+              <span className="truncate text-gray-900">{property.title}</span>
+            </div>
+
+            <div className="mt-4">
+              <div className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                Sejour premium
+              </div>
+              <h1 className="mt-3 text-[2rem] font-bold leading-[1.02] tracking-[-0.04em] text-slate-950">
+                {property.title}
+              </h1>
+              <div className="mt-4 flex flex-wrap items-center gap-2.5 text-sm text-gray-600">
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-2">
+                  <MapPin size={15} />
+                  <span className="line-clamp-1">{property.location}</span>
+                </div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-2 text-amber-900">
+                  <Star size={15} className="fill-current text-amber-500" />
+                  <span className="font-medium text-slate-900">{formatRating(property.rating)}</span>
+                  <span>({property.reviews} avis)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={handleShare}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:bg-gray-50"
+                aria-label="Partager"
+              >
+                <Share2 size={18} />
+                <span>Partager</span>
+              </button>
+              <button
+                onClick={handleSave}
+                className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-sm transition-colors ${
+                  isSaved
+                    ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+                    : 'border-gray-200 bg-white text-slate-800 hover:bg-gray-50'
+                }`}
+                aria-label={isSaved ? 'Sauvegardé' : 'Sauvegarder'}
+              >
+                <Heart size={18} className={isSaved ? 'fill-current' : ''} />
+                <span>{isSaved ? 'Sauvegardé' : 'Sauvegarder'}</span>
+              </button>
+            </div>
+          </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Left Column: Info */}
           <div className="lg:col-span-2">
             {propertyVideos.length > 0 && (
-              <div className="mb-10 overflow-hidden rounded-[1.6rem] border border-emerald-100 bg-[linear-gradient(135deg,rgba(236,253,245,0.92),rgba(248,250,252,1)_55%,rgba(220,252,231,0.7))] shadow-[0_18px_50px_rgba(16,185,129,0.07)]">
+              <div className="mb-10 mt-7 overflow-hidden rounded-[1.6rem] border border-emerald-100 bg-[linear-gradient(135deg,rgba(236,253,245,0.92),rgba(248,250,252,1)_55%,rgba(220,252,231,0.7))] shadow-[0_18px_50px_rgba(16,185,129,0.07)]">
                 <div className="flex flex-col gap-4 border-b border-white/70 px-5 py-5 md:flex-row md:items-end md:justify-between md:px-6">
                   <div>
                     <div className="inline-flex items-center rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
@@ -1741,7 +1755,7 @@ out body 40;
             </div>
 
             {!isSaleProperty && hasSeasonalStayInfo && (
-              <div className="py-8 border-b border-gray-100">
+              <div ref={stayInfoSectionRef} className="py-8 border-b border-gray-100">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="text-xl font-bold">Informations séjour</h3>
                   <button
@@ -2001,7 +2015,7 @@ out body 40;
               </DialogContent>
             </Dialog>
 
-            <div className="py-8">
+            <div ref={locationSectionRef} className="py-8">
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
                {displayMapCenter ? (
                  <div className="property-location-map rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white relative">
@@ -2091,7 +2105,7 @@ out body 40;
             </div>
 
             {/* Availability Calendar Section */}
-            <div className="py-8 border-t border-gray-100">
+            <div ref={calendarSectionRef} className="py-8 border-t border-gray-100">
               <div className="flex items-center gap-2 mb-6">
                 <Calendar size={24} className="text-emerald-600" />
                 <h3 className="text-xl font-bold">Disponibilités</h3>
@@ -2429,6 +2443,42 @@ out body 40;
               </form>
             </div>
           </div>
+        </div>
+        </div>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-3 z-40 px-3 md:hidden">
+        <div className="mx-auto grid max-w-md grid-cols-3 gap-2 rounded-[1.4rem] border border-white/70 bg-white/78 p-2 shadow-[0_24px_60px_rgba(15,23,42,0.24),0_10px_30px_rgba(15,23,42,0.14)] ring-1 ring-white/60 backdrop-blur-2xl supports-[backdrop-filter]:bg-white/68">
+          <button
+            type="button"
+            onClick={handleOpenAndScrollSeasonalDetails}
+            className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#f3fdf8,#e8fbf1)] px-2 py-3 text-center text-[11px] font-semibold text-emerald-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_8px_18px_rgba(16,185,129,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_rgba(16,185,129,0.16)] active:translate-y-0 active:scale-[0.98]"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/90 text-emerald-700 shadow-sm transition-transform duration-200 group-hover:scale-110">
+              <ListChecks size={13} />
+            </span>
+            <span className="leading-tight">Caractéristiques</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection(locationSectionRef.current)}
+            className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-2 py-3 text-center text-[11px] font-semibold text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(15,23,42,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_12px_22px_rgba(15,23,42,0.12)] active:translate-y-0 active:scale-[0.98]"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm transition-transform duration-200 group-hover:scale-110">
+              <MapPin size={13} />
+            </span>
+            <span className="leading-tight">Emplacement</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection(calendarSectionRef.current)}
+            className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-2 py-3 text-center text-[11px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_12px_22px_rgba(245,158,11,0.16)] active:translate-y-0 active:scale-[0.98]"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/95 text-amber-700 shadow-sm transition-transform duration-200 group-hover:scale-110">
+              <Calendar size={13} />
+            </span>
+            <span className="leading-tight">Calendrier</span>
+          </button>
         </div>
       </div>
 
