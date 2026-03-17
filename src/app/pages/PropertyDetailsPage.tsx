@@ -780,6 +780,7 @@ out body 40;
     const availableTabIds = new Set(selectedVisibleFeatures.map((item) => String(item.onglet_id || '')));
     return featureTabs
       .filter((tab) => availableTabIds.has(String(tab.id || '')))
+      .map((tab) => ({ ...tab, nom: cleanFeatureTabName(String(tab.nom || '')) }))
       .slice()
       .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999));
   }, [featureTabs, selectedVisibleFeatures]);
@@ -855,7 +856,7 @@ out body 40;
       return [];
     };
     return sortedTabs
-      .map((tab) => ({ id: tab.id, nom: tab.nom, rows: rowsForTab(String(tab.nom || '')) }))
+      .map((tab) => ({ id: tab.id, nom: cleanFeatureTabName(String(tab.nom || '')), rows: rowsForTab(String(tab.nom || '')) }))
       .filter((tab) => tab.rows.length > 0);
   }, [
     accesLabel,

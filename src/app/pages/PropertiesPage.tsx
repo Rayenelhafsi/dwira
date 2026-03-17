@@ -20,12 +20,38 @@ const STANDING_OPTIONS = [
   { value: "premium", label: "Premium" },
   { value: "luxe", label: "Luxe" },
 ];
+const API_URL = import.meta.env.VITE_API_URL || "/api";
+
+type FeatureApiRow = {
+  id: string;
+  nom: string;
+  onglet_id?: string | null;
+  onglet_nom?: string | null;
+  visibilite_client?: number | null;
+};
+
+const normalizeFeatureName = (value: string) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const cleanFeatureTabName = (value: string) =>
+  String(value || "")
+    .replace(/^\s*\d+\s*[\.\-:)]\s*/g, "")
+    .trim();
+
+const isCharacteristicsTabName = (value: string) =>
+  normalizeFeatureName(cleanFeatureTabName(value)).includes("caracteristique");
 
 export default function PropertiesPage() {
-  const { properties, modePriorities, loading } = useProperties();
+  const { properties, biens, modePriorities, loading } = useProperties();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isFilterOpen, setIsFilterOpen] = useState(true);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
+  const [modeFeaturesByType, setModeFeaturesByType] = useState<Record<string, FeatureApiRow[]>>({});
 
   const orderedModeTabs = useMemo(
     () =>
@@ -68,6 +94,65 @@ export default function PropertiesPage() {
     () => properties.filter((p) => (p.mode || "location_saisonniere") === selectedMode),
     [properties, selectedMode]
   );
+  const modeBiens = useMemo(
+    () => biens.filter((bien) => (bien.mode || "location_saisonniere") === selectedMode),
+    [biens, selectedMode]
+  );
+  const bienById = useMemo(
+    () => new Map(biens.map((bien) => [String(bien.id), bien])),
+    [biens]
+  );
+
+  useEffect(() => {
+    let disposed = false;
+
+    const loadModeFeatures = async () => {
+      const uniqueTypes = Array.from(new Set(
+        modeBiens
+          .map((bien) => String(bien.type || "").trim())
+          .filter(Boolean)
+      ));
+
+      if (uniqueTypes.length === 0) {
+        if (!disposed) setModeFeaturesByType({});
+        return;
+      }
+
+      try {
+        const base = String(API_URL || "").replace(/\/+$/, "");
+        const normalizedBase = base.replace(/\/api$/i, "");
+        const entries = await Promise.all(uniqueTypes.map(async (type) => {
+          const currentMode = encodeURIComponent(selectedMode);
+          const currentType = encodeURIComponent(type);
+          const urls = [
+            `${base}/caracteristiques?mode_bien=${currentMode}&type_bien=${currentType}`,
+            `${normalizedBase}/api/caracteristiques?mode_bien=${currentMode}&type_bien=${currentType}`,
+          ];
+
+          let response: Response | null = null;
+          for (const url of Array.from(new Set(urls))) {
+            const next = await fetch(url);
+            response = next;
+            if (next.ok || next.status !== 404) break;
+          }
+
+          const rows = response?.ok ? await response.json() : [];
+          return [type, Array.isArray(rows) ? rows : []] as const;
+        }));
+
+        if (!disposed) {
+          setModeFeaturesByType(Object.fromEntries(entries));
+        }
+      } catch {
+        if (!disposed) setModeFeaturesByType({});
+      }
+    };
+
+    void loadModeFeatures();
+    return () => {
+      disposed = true;
+    };
+  }, [modeBiens, selectedMode]);
 
   const priceCeiling = useMemo(() => {
     const maxPrice = Math.max(0, ...modeProperties.map((p) => Number(p.pricePerNight || 0)));
@@ -85,12 +170,73 @@ export default function PropertiesPage() {
   );
 
   const amenitiesList = useMemo(
-    () =>
-      Array.from(new Set(modeProperties.flatMap((p) => p.amenities || [])))
-        .sort()
-        .slice(0, 24),
-    [modeProperties]
+    () => {
+      const amenityNames = new Set<string>();
+
+      modeProperties.forEach((property) => {
+        const sourceBien = bienById.get(String(property.id));
+        const type = String(sourceBien?.type || "").trim();
+        const typeFeatures = modeFeaturesByType[type] || [];
+        const selectedFeatureIds = new Set(
+          (Array.isArray(sourceBien?.caracteristique_ids) ? sourceBien?.caracteristique_ids : []).map((item) => String(item))
+        );
+        const selectedFeatureNames = new Set(
+          (Array.isArray(sourceBien?.caracteristiques) ? sourceBien?.caracteristiques : []).map((item) => normalizeFeatureName(String(item)))
+        );
+        const matchedFeatureNames = typeFeatures
+          .filter((feature) => {
+            if (Number(feature.visibilite_client) === 0) return false;
+            if (!isCharacteristicsTabName(String(feature.onglet_nom || ""))) return false;
+            const byId = selectedFeatureIds.has(String(feature.id || ""));
+            const byName = selectedFeatureNames.has(normalizeFeatureName(String(feature.nom || "")));
+            return byId || byName;
+          })
+          .map((feature) => String(feature.nom || "").trim())
+          .filter(Boolean);
+
+        if (matchedFeatureNames.length > 0) {
+          matchedFeatureNames.forEach((name) => amenityNames.add(name));
+          return;
+        }
+
+        (property.amenities || []).forEach((amenity) => amenityNames.add(amenity));
+      });
+
+      return Array.from(amenityNames).sort((a, b) => a.localeCompare(b, "fr")).slice(0, 24);
+    },
+    [modeProperties, bienById, modeFeaturesByType]
   );
+
+  const propertyAmenityMap = useMemo(() => {
+    const next = new Map<string, string[]>();
+
+    modeProperties.forEach((property) => {
+      const sourceBien = bienById.get(String(property.id));
+      const type = String(sourceBien?.type || "").trim();
+      const typeFeatures = modeFeaturesByType[type] || [];
+      const selectedFeatureIds = new Set(
+        (Array.isArray(sourceBien?.caracteristique_ids) ? sourceBien?.caracteristique_ids : []).map((item) => String(item))
+      );
+      const selectedFeatureNames = new Set(
+        (Array.isArray(sourceBien?.caracteristiques) ? sourceBien?.caracteristiques : []).map((item) => normalizeFeatureName(String(item)))
+      );
+
+      const amenityNames = typeFeatures
+        .filter((feature) => {
+          if (Number(feature.visibilite_client) === 0) return false;
+          if (!isCharacteristicsTabName(String(feature.onglet_nom || ""))) return false;
+          const byId = selectedFeatureIds.has(String(feature.id || ""));
+          const byName = selectedFeatureNames.has(normalizeFeatureName(String(feature.nom || "")));
+          return byId || byName;
+        })
+        .map((feature) => String(feature.nom || "").trim())
+        .filter(Boolean);
+
+      next.set(String(property.id), amenityNames.length > 0 ? amenityNames : (property.amenities || []));
+    });
+
+    return next;
+  }, [modeProperties, bienById, modeFeaturesByType]);
 
   const categoriesList = useMemo(() => {
     const list = Array.from(new Set(modeProperties.map((p) => p.category).filter(Boolean)));
@@ -178,7 +324,8 @@ export default function PropertiesPage() {
 
         if (location && !property.location.toLowerCase().includes(location.toLowerCase())) return false;
         if (selectedCategories.length > 0 && !selectedCategories.includes(property.category)) return false;
-        if (!selectedAmenities.every((am) => property.amenities.includes(am))) return false;
+        const propertyAmenities = propertyAmenityMap.get(String(property.id)) || property.amenities || [];
+        if (!selectedAmenities.every((am) => propertyAmenities.includes(am))) return false;
         if (Number(property.pricePerNight || 0) > priceMax) return false;
         if (isFeaturedOnly && !property.isFeatured) return false;
 
@@ -196,6 +343,7 @@ export default function PropertiesPage() {
       location,
       selectedCategories,
       selectedAmenities,
+      propertyAmenityMap,
       priceMax,
       isFeaturedOnly,
       selectedStanding,
