@@ -92,7 +92,14 @@ git fetch origin
 git reset --hard "origin/${BRANCH}"
 
 echo "[deploy] Install dependencies and build"
-npm ci
+# Low-memory defaults (override via env if needed)
+export npm_config_jobs="${NPM_JOBS:-1}"
+export npm_config_audit="false"
+export npm_config_fund="false"
+export npm_config_progress="false"
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=768}"
+
+npm ci --prefer-offline
 npm run build
 
 apply_migrations
