@@ -1,9 +1,10 @@
 ﻿import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info } from "lucide-react";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import useEmblaCarousel from 'embla-carousel-react';
-import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, cloneElement } from "react";
+import { createPortal } from "react-dom";
 import "leaflet/dist/leaflet.css";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import { format, differenceInDays, isWithinInterval, parseISO } from "date-fns";
@@ -64,6 +65,34 @@ type PaidServiceItem = {
   enabled?: boolean;
 };
 
+type PaidServiceCategoryMeta = {
+  label: string;
+  icon: JSX.Element;
+  cardClass: string;
+  iconWrapClass: string;
+  badgeClass: string;
+  watermarkClass: string;
+  imageUrl: string;
+};
+
+const paidServiceCategoryImages = {
+  arriveeDepart: new URL("../../../services_images_independantes/01_arrivee_et_depart.png", import.meta.url).href,
+  transport: new URL("../../../services_images_independantes/02_transfert_et_transport.png", import.meta.url).href,
+  menage: new URL("../../../services_images_independantes/03_menage_et_entretien.png", import.meta.url).href,
+  packs: new URL("../../../services_images_independantes/04_packs_accueil_et_restauration.png", import.meta.url).href,
+  famille: new URL("../../../services_images_independantes/05_famille_et_bebe.png", import.meta.url).href,
+  linge: new URL("../../../services_images_independantes/06_linge_et_confort.png", import.meta.url).href,
+  exterieur: new URL("../../../services_images_independantes/07_piscine_plage_et_exterieur.png", import.meta.url).href,
+  conciergerie: new URL("../../../services_images_independantes/08_conciergerie_et_assistance.png", import.meta.url).href,
+  loisirs: new URL("../../../services_images_independantes/09_loisirs_et_activites.png", import.meta.url).href,
+  proA: new URL("../../../services_images_independantes/10_services_professionnels_a.png", import.meta.url).href,
+  modificationsA: new URL("../../../services_images_independantes/11_modifications_et_frais_a.png", import.meta.url).href,
+  decoration: new URL("../../../services_images_independantes/12_decoration_et_evenements.png", import.meta.url).href,
+  proB: new URL("../../../services_images_independantes/13_services_professionnels_b.png", import.meta.url).href,
+  modificationsB: new URL("../../../services_images_independantes/14_modifications_et_frais_administratifs.png", import.meta.url).href,
+  premium: new URL("../../../services_images_independantes/15_experience_premium.png", import.meta.url).href,
+} as const;
+
 const normalizeFeatureName = (value: string) =>
   String(value || '')
     .toLowerCase()
@@ -97,6 +126,195 @@ const getPaidServiceTypeMeta = (type: PaidServiceItem["type_tarification"]) => {
     panelClass: "border-emerald-200 bg-emerald-50/60",
     icon: <Check size={14} className="text-emerald-600" />,
     hint: "Ajouté directement au total de la réservation.",
+  };
+};
+
+const getPaidServiceCategoryMeta = (category?: string | null): PaidServiceCategoryMeta => {
+  const normalized = normalizeFeatureName(String(category || ""));
+  if (normalized.includes("famille") || normalized.includes("bebe")) {
+    return {
+      label: category || "Famille et bebe",
+      icon: <Users size={18} className="text-rose-700" />,
+      cardClass: "border-rose-200 bg-[linear-gradient(180deg,#fff7fb,#fff1f6)]",
+      iconWrapClass: "bg-rose-100/90",
+      badgeClass: "bg-rose-100 text-rose-700",
+      watermarkClass: "text-rose-300/70",
+      imageUrl: paidServiceCategoryImages.famille,
+    };
+  }
+  if (normalized.includes("animaux") || normalized.includes("animal")) {
+    return {
+      label: category || "Services pour animaux",
+      icon: <PawPrint size={18} className="text-orange-700" />,
+      cardClass: "border-orange-200 bg-[linear-gradient(180deg,#fffaf5,#fff7ed)]",
+      iconWrapClass: "bg-orange-100/90",
+      badgeClass: "bg-orange-100 text-orange-700",
+      watermarkClass: "text-orange-300/70",
+      imageUrl: paidServiceCategoryImages.famille,
+    };
+  }
+  if (normalized.includes("check") || normalized.includes("acces")) {
+    return {
+      label: category || "Acces & check-in",
+      icon: <ConciergeBell size={18} className="text-emerald-700" />,
+      cardClass: "border-emerald-200 bg-[linear-gradient(180deg,#f4fdf8,#ecfdf3)]",
+      iconWrapClass: "bg-emerald-100/90",
+      badgeClass: "bg-emerald-100 text-emerald-700",
+      watermarkClass: "text-emerald-300/70",
+      imageUrl: paidServiceCategoryImages.arriveeDepart,
+    };
+  }
+  if (normalized.includes("accessibil")) {
+    return {
+      label: category || "Accessibilite",
+      icon: <Route size={18} className="text-sky-700" />,
+      cardClass: "border-sky-200 bg-[linear-gradient(180deg,#f6fbff,#eef8ff)]",
+      iconWrapClass: "bg-sky-100/90",
+      badgeClass: "bg-sky-100 text-sky-700",
+      watermarkClass: "text-sky-300/70",
+      imageUrl: paidServiceCategoryImages.famille,
+    };
+  }
+  if (normalized.includes("buander") || normalized.includes("linge")) {
+    return {
+      label: category || "Buanderie",
+      icon: <Bath size={18} className="text-cyan-700" />,
+      cardClass: "border-cyan-200 bg-[linear-gradient(180deg,#f5feff,#ecfeff)]",
+      iconWrapClass: "bg-cyan-100/90",
+      badgeClass: "bg-cyan-100 text-cyan-700",
+      watermarkClass: "text-cyan-300/70",
+      imageUrl: paidServiceCategoryImages.linge,
+    };
+  }
+  if (normalized.includes("cuisine") || normalized.includes("repas")) {
+    return {
+      label: category || "Cuisine & repas",
+      icon: <UtensilsCrossed size={18} className="text-amber-700" />,
+      cardClass: "border-amber-200 bg-[linear-gradient(180deg,#fffdf5,#fffbeb)]",
+      iconWrapClass: "bg-amber-100/90",
+      badgeClass: "bg-amber-100 text-amber-700",
+      watermarkClass: "text-amber-300/70",
+      imageUrl: paidServiceCategoryImages.packs,
+    };
+  }
+  if (normalized.includes("balcon") || normalized.includes("terrasse") || normalized.includes("exterieur")) {
+    return {
+      label: category || "Exterieur",
+      icon: <Trees size={18} className="text-lime-700" />,
+      cardClass: "border-lime-200 bg-[linear-gradient(180deg,#f9fff4,#f7fee7)]",
+      iconWrapClass: "bg-lime-100/90",
+      badgeClass: "bg-lime-100 text-lime-700",
+      watermarkClass: "text-lime-300/70",
+      imageUrl: paidServiceCategoryImages.exterieur,
+    };
+  }
+  if (normalized.includes("chauffage") || normalized.includes("clim")) {
+    return {
+      label: category || "Climatisation",
+      icon: <Snowflake size={18} className="text-cyan-700" />,
+      cardClass: "border-cyan-200 bg-[linear-gradient(180deg,#f7fdff,#ecfeff)]",
+      iconWrapClass: "bg-cyan-100/90",
+      badgeClass: "bg-cyan-100 text-cyan-700",
+      watermarkClass: "text-cyan-300/70",
+      imageUrl: paidServiceCategoryImages.premium,
+    };
+  }
+  if (normalized.includes("chambre")) {
+    return {
+      label: category || "Chambre & linge",
+      icon: <BedSingle size={18} className="text-violet-700" />,
+      cardClass: "border-violet-200 bg-[linear-gradient(180deg,#faf7ff,#f5f3ff)]",
+      iconWrapClass: "bg-violet-100/90",
+      badgeClass: "bg-violet-100 text-violet-700",
+      watermarkClass: "text-violet-300/70",
+      imageUrl: paidServiceCategoryImages.linge,
+    };
+  }
+  if (normalized.includes("parking") || normalized.includes("transport")) {
+    return {
+      label: category || "Transport",
+      icon: <Car size={18} className="text-slate-700" />,
+      cardClass: "border-slate-200 bg-[linear-gradient(180deg,#fbfcfd,#f8fafc)]",
+      iconWrapClass: "bg-slate-100/90",
+      badgeClass: "bg-slate-100 text-slate-700",
+      watermarkClass: "text-slate-300/70",
+      imageUrl: paidServiceCategoryImages.transport,
+    };
+  }
+  if (normalized.includes("internet") || normalized.includes("wifi")) {
+    return {
+      label: category || "Connexion",
+      icon: <Wifi size={18} className="text-blue-700" />,
+      cardClass: "border-blue-200 bg-[linear-gradient(180deg,#f6faff,#eff6ff)]",
+      iconWrapClass: "bg-blue-100/90",
+      badgeClass: "bg-blue-100 text-blue-700",
+      watermarkClass: "text-blue-300/70",
+      imageUrl: paidServiceCategoryImages.proA,
+    };
+  }
+  if (normalized.includes("concier") || normalized.includes("assist")) {
+    return {
+      label: category || "Conciergerie et assistance",
+      icon: <ConciergeBell size={18} className="text-emerald-700" />,
+      cardClass: "border-emerald-200 bg-[linear-gradient(180deg,#f8fffb,#eefcf5)]",
+      iconWrapClass: "bg-emerald-100/90",
+      badgeClass: "bg-emerald-100 text-emerald-700",
+      watermarkClass: "text-emerald-300/70",
+      imageUrl: paidServiceCategoryImages.conciergerie,
+    };
+  }
+  if (normalized.includes("menage") || normalized.includes("entretien")) {
+    return {
+      label: category || "Menage et entretien",
+      icon: <Bath size={18} className="text-cyan-700" />,
+      cardClass: "border-cyan-200 bg-[linear-gradient(180deg,#f5feff,#ecfeff)]",
+      iconWrapClass: "bg-cyan-100/90",
+      badgeClass: "bg-cyan-100 text-cyan-700",
+      watermarkClass: "text-cyan-300/70",
+      imageUrl: paidServiceCategoryImages.menage,
+    };
+  }
+  if (normalized.includes("activit") || normalized.includes("loisir")) {
+    return {
+      label: category || "Loisirs et activites",
+      icon: <Waves size={18} className="text-sky-700" />,
+      cardClass: "border-sky-200 bg-[linear-gradient(180deg,#f6fbff,#eef8ff)]",
+      iconWrapClass: "bg-sky-100/90",
+      badgeClass: "bg-sky-100 text-sky-700",
+      watermarkClass: "text-sky-300/70",
+      imageUrl: paidServiceCategoryImages.loisirs,
+    };
+  }
+  if (normalized.includes("evenement") || normalized.includes("decor")) {
+    return {
+      label: category || "Decoration et evenements",
+      icon: <Star size={18} className="text-amber-700" />,
+      cardClass: "border-amber-200 bg-[linear-gradient(180deg,#fffdf5,#fffbeb)]",
+      iconWrapClass: "bg-amber-100/90",
+      badgeClass: "bg-amber-100 text-amber-700",
+      watermarkClass: "text-amber-300/70",
+      imageUrl: paidServiceCategoryImages.decoration,
+    };
+  }
+  if (normalized.includes("premium") || normalized.includes("experience")) {
+    return {
+      label: category || "Experience premium",
+      icon: <Star size={18} className="text-amber-700" />,
+      cardClass: "border-amber-200 bg-[linear-gradient(180deg,#fffdf5,#fffbeb)]",
+      iconWrapClass: "bg-amber-100/90",
+      badgeClass: "bg-amber-100 text-amber-700",
+      watermarkClass: "text-amber-300/70",
+      imageUrl: paidServiceCategoryImages.premium,
+    };
+  }
+  return {
+    label: category || "Services",
+    icon: <ListChecks size={18} className="text-emerald-700" />,
+    cardClass: "border-emerald-200 bg-[linear-gradient(180deg,#f8fffb,#eefcf5)]",
+    iconWrapClass: "bg-emerald-100/90",
+    badgeClass: "bg-emerald-100 text-emerald-700",
+    watermarkClass: "text-emerald-300/70",
+    imageUrl: paidServiceCategoryImages.premium,
   };
 };
 
@@ -319,6 +537,11 @@ export default function PropertyDetailsPage() {
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
   const [showAmenitiesDialog, setShowAmenitiesDialog] = useState(false);
   const [showPaidServicesDialog, setShowPaidServicesDialog] = useState(false);
+  const [showVariablePaidServiceNotice, setShowVariablePaidServiceNotice] = useState(false);
+  const [hasSeenVariablePaidServiceNotice, setHasSeenVariablePaidServiceNotice] = useState(false);
+  const [selectedPaidServiceCategoryId, setSelectedPaidServiceCategoryId] = useState<string>("");
+  const [selectedPaidServiceTypeFilter, setSelectedPaidServiceTypeFilter] = useState<"all" | PaidServiceItem["type_tarification"]>("all");
+  const [showBookingCalendarDialog, setShowBookingCalendarDialog] = useState(false);
   const [seasonalDetailsTabId, setSeasonalDetailsTabId] = useState<string>('');
   const [allFeatures, setAllFeatures] = useState<FeatureApiRow[]>([]);
   const [featureTabs, setFeatureTabs] = useState<FeatureTabRow[]>([]);
@@ -332,9 +555,11 @@ export default function PropertyDetailsPage() {
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
   const [pulsePhase, setPulsePhase] = useState(0);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const authPopupRef = useRef<Window | null>(null);
   const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
+  const paidServicesCategoriesNavRef = useRef<HTMLDivElement | null>(null);
   const seasonalDetailsPanelRef = useRef<HTMLDivElement | null>(null);
   const stayInfoSectionRef = useRef<HTMLDivElement | null>(null);
   const locationSectionRef = useRef<HTMLDivElement | null>(null);
@@ -342,6 +567,8 @@ export default function PropertyDetailsPage() {
   const googlePlacesUnsupportedRef = useRef(false);
   const nearbyPlacesCacheRef = useRef<Record<string, NearbyPlace[]>>({});
   const nearbyPlacesFailureRef = useRef<Record<string, true>>({});
+  const lightboxTouchStartXRef = useRef<number | null>(null);
+  const lightboxWheelLockRef = useRef(false);
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -435,6 +662,14 @@ export default function PropertyDetailsPage() {
       setPulsePhase((Date.now() - startedAt) / 1000);
     }, 80);
     return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const syncViewport = () => {
+      setIsMobileViewport(window.innerWidth < 768);
+    };
+    syncViewport();
+    window.addEventListener("resize", syncViewport, { passive: true });
+    return () => window.removeEventListener("resize", syncViewport);
   }, []);
   useEffect(() => {
     let cancelled = false;
@@ -616,7 +851,6 @@ out body 40;
     [seasonalConfig?.servicesPayants]
   );
   const activePaidServices = paidServicesBuckets.all;
-  const variablePaidServices = paidServicesBuckets.variables;
   const hasPaidServices = !isSaleProperty && activePaidServices.length > 0;
   const paidServicePreview = useMemo(() => activePaidServices.slice(0, 4), [activePaidServices]);
   const paidServicesByType = useMemo(
@@ -626,6 +860,38 @@ out body 40;
       a_partir_de: activePaidServices.filter((service) => service.type_tarification === "a_partir_de"),
     }),
     [activePaidServices]
+  );
+  const paidServiceCategories = useMemo(() => {
+    const grouped = new Map<string, { id: string; label: string; services: PaidServiceItem[]; meta: PaidServiceCategoryMeta }>();
+    activePaidServices.forEach((service) => {
+      const rawLabel = String(service.categorie || "").trim() || "Services";
+      const id = normalizeFeatureName(rawLabel) || "services";
+      const existing = grouped.get(id);
+      if (existing) {
+        existing.services.push(service);
+        return;
+      }
+      grouped.set(id, {
+        id,
+        label: rawLabel,
+        services: [service],
+        meta: getPaidServiceCategoryMeta(rawLabel),
+      });
+    });
+    return Array.from(grouped.values()).sort((a, b) => b.services.length - a.services.length || a.label.localeCompare(b.label));
+  }, [activePaidServices]);
+  const visiblePaidServices = useMemo(() => (
+    activePaidServices.filter((service) => {
+      const categoryId = normalizeFeatureName(String(service.categorie || "").trim() || "Services") || "services";
+      const matchesCategory = selectedPaidServiceCategoryId === "all" || categoryId === selectedPaidServiceCategoryId;
+      const matchesType = selectedPaidServiceTypeFilter === "all" || service.type_tarification === selectedPaidServiceTypeFilter;
+      return matchesCategory && matchesType;
+    })
+  ), [activePaidServices, selectedPaidServiceCategoryId, selectedPaidServiceTypeFilter]);
+  const visiblePaidServicesPreview = useMemo(() => visiblePaidServices.slice(0, 3), [visiblePaidServices]);
+  const selectedPaidServiceCategory = useMemo(
+    () => paidServiceCategories.find((category) => category.id === selectedPaidServiceCategoryId) || null,
+    [paidServiceCategories, selectedPaidServiceCategoryId]
   );
   const hasExtraMattress = !isSaleProperty && extraMattressMax > 0 && extraMattressPrice > 0;
   const reglesResume = [
@@ -1174,10 +1440,54 @@ out body 40;
     return indexes;
   }, [currentImageIndex, galleryImages]);
 
+  const handleLightboxTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    lightboxTouchStartXRef.current = event.touches[0]?.clientX ?? null;
+  }, []);
+
+  const handleLightboxTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const startX = lightboxTouchStartXRef.current;
+    const endX = event.changedTouches[0]?.clientX ?? null;
+    lightboxTouchStartXRef.current = null;
+    if (startX === null || endX === null) return;
+    const deltaX = endX - startX;
+    if (Math.abs(deltaX) < 40) return;
+    if (deltaX < 0) {
+      nextImage();
+      return;
+    }
+    prevImage();
+  }, [nextImage, prevImage]);
+
+  const handleLightboxWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (Math.abs(dominantDelta) < 18 || lightboxWheelLockRef.current) return;
+    lightboxWheelLockRef.current = true;
+    window.setTimeout(() => {
+      lightboxWheelLockRef.current = false;
+    }, 220);
+    if (dominantDelta > 0) {
+      nextImage();
+      return;
+    }
+    prevImage();
+  }, [nextImage, prevImage]);
+
   const handleDateRangeSelect = (start: Date | null, end: Date | null) => {
     setSelectedStart(start);
     setSelectedEnd(end);
   };
+
+  const handleBookingDateRangeSelect = useCallback((start: Date | null, end: Date | null) => {
+    handleDateRangeSelect(start, end);
+    if (start && end) {
+      setShowBookingCalendarDialog(false);
+    }
+  }, []);
+
+  const formatBookingFieldDate = useCallback((value: Date | null) => {
+    if (!value) return "jj/mm/aaaa";
+    return format(value, "dd/MM/yyyy");
+  }, []);
 
   useEffect(() => {
     if (!property || draftHydratedRef.current) return;
@@ -1435,6 +1745,22 @@ out body 40;
     popup.focus();
   };
 
+  const togglePaidServiceSelection = useCallback((service: PaidServiceItem) => {
+    setSelectedPaidServiceIds((prev) => {
+      const alreadySelected = prev.includes(service.id);
+      if (!alreadySelected && service.type_tarification !== "fixe" && !hasSeenVariablePaidServiceNotice) {
+        setShowVariablePaidServiceNotice(true);
+        setHasSeenVariablePaidServiceNotice(true);
+      }
+      return alreadySelected ? prev.filter((id) => id !== service.id) : [...prev, service.id];
+    });
+  }, [hasSeenVariablePaidServiceNotice]);
+
+  const togglePaidServiceCategory = useCallback((categoryId: string) => {
+    setSelectedPaidServiceCategoryId((prev) => (prev === categoryId ? "" : categoryId));
+    setSelectedPaidServiceTypeFilter("all");
+  }, []);
+
   useEffect(() => {
     if (!property) return;
     if (!isAwaitingLogin && !isAuthPendingLogin()) return;
@@ -1466,6 +1792,15 @@ out body 40;
       return next;
     });
   }, [activePaidServices, hasCleaningFee, hasServiceFee]);
+  useEffect(() => {
+    if (paidServiceCategories.length === 0) {
+      setSelectedPaidServiceCategoryId("");
+      return;
+    }
+    if (selectedPaidServiceCategoryId !== "all" && !paidServiceCategories.some((category) => category.id === selectedPaidServiceCategoryId)) {
+      setSelectedPaidServiceCategoryId("");
+    }
+  }, [paidServiceCategories, selectedPaidServiceCategoryId]);
 
   // Auto-play for embla carousel
   useEffect(() => {
@@ -1497,11 +1832,100 @@ out body 40;
     return <Navigate to={`${property.detailPath}${filterQueryString ? `?${filterQueryString}` : ""}`} replace />;
   }
 
+  const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog
+    ? createPortal(
+        <div
+          style={{
+            position: "fixed",
+            left: "50%",
+            bottom: "max(16px, env(safe-area-inset-bottom))",
+            transform: "translateX(-50%)",
+            width: "min(calc(100vw - 24px), 28rem)",
+            zIndex: 2147483646,
+            pointerEvents: "none",
+          }}
+        >
+          <div className="pointer-events-auto grid grid-cols-3 gap-2 rounded-[1.4rem] border border-white/70 bg-white/82 p-2 shadow-[0_24px_60px_rgba(15,23,42,0.24),0_10px_30px_rgba(15,23,42,0.14)] ring-1 ring-white/60 backdrop-blur-2xl supports-[backdrop-filter]:bg-white/72">
+            <button
+              type="button"
+              onClick={handleOpenAndScrollSeasonalDetails}
+              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#f3fdf8,#e8fbf1)] px-2 py-3 text-center text-[11px] font-semibold text-emerald-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_8px_18px_rgba(16,185,129,0.10)] transition-all duration-200 active:scale-[0.98]"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/90 text-emerald-700 shadow-sm">
+                <ListChecks size={13} />
+              </span>
+              <span className="leading-tight">Caractéristiques</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection(locationSectionRef.current)}
+              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-2 py-3 text-center text-[11px] font-semibold text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(15,23,42,0.08)] transition-all duration-200 active:scale-[0.98]"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm">
+                <MapPin size={13} />
+              </span>
+              <span className="leading-tight">Emplacement</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection(calendarSectionRef.current)}
+              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-2 py-3 text-center text-[11px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 active:scale-[0.98]"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/95 text-amber-700 shadow-sm">
+                <Calendar size={13} />
+              </span>
+              <span className="leading-tight">Calendrier</span>
+            </button>
+          </div>
+        </div>,
+        document.body
+      )
+    : null;
+
   return (
     <div className="bg-white pb-28 md:pb-20 md:pt-24">
       <div className="container mx-auto px-4 md:px-6">
         <div className="md:hidden -mx-4 -mt-6 mb-8">
           <div className="sticky top-0 z-0 overflow-hidden bg-slate-950">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between px-4 pt-8">
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.history.length > 1) {
+                    navigate(-1);
+                    return;
+                  }
+                  navigate(backToListUrl);
+                }}
+                className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/35 bg-white/16 text-white shadow-[0_10px_25px_rgba(15,23,42,0.18)] backdrop-blur-md transition-all hover:bg-white/24"
+                aria-label="Retour"
+              >
+                <ChevronLeft size={20} />
+              </button>
+
+              <div className="pointer-events-auto flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/35 bg-white/16 text-white shadow-[0_10px_25px_rgba(15,23,42,0.18)] backdrop-blur-md transition-all hover:bg-white/24"
+                  aria-label="Partager"
+                >
+                  <Share2 size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-full border shadow-[0_10px_25px_rgba(15,23,42,0.18)] backdrop-blur-md transition-all ${
+                    isSaved
+                      ? "border-red-200/70 bg-red-500/85 text-white hover:bg-red-500"
+                      : "border-white/35 bg-white/16 text-white hover:bg-white/24"
+                  }`}
+                  aria-label={isSaved ? "Sauvegarde" : "Sauvegarder"}
+                >
+                  <Heart size={17} className={isSaved ? "fill-current" : ""} />
+                </button>
+              </div>
+            </div>
             <div className="overflow-hidden" ref={emblaRef}>
               <div className="flex">
                 {galleryImages.map((imageUrl, idx) => (
@@ -1618,7 +2042,8 @@ out body 40;
           </div>
         </div>
 
-        <div className="relative z-10 -mx-4 -mt-[4.6rem] rounded-t-[2rem] bg-white px-5 pb-8 pt-4 shadow-[0_-18px_38px_rgba(15,23,42,0.10),0_-2px_0_rgba(255,255,255,0.94),0_24px_60px_rgba(15,23,42,0.12)] md:mx-0 md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pb-0 md:pt-0 md:shadow-none">
+        <div className="dwira-soft-aurora relative z-10 -mx-4 -mt-[4.6rem] rounded-t-[2rem] bg-white px-5 pb-8 pt-4 shadow-[0_-18px_38px_rgba(15,23,42,0.10),0_-2px_0_rgba(255,255,255,0.94),0_24px_60px_rgba(15,23,42,0.12)] md:mx-0 md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pb-0 md:pt-0 md:shadow-none">
+          <div className="dwira-soft-aurora-ribbon" aria-hidden="true" />
           <div className="md:hidden">
             <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.01em] text-gray-500">
               <Link to="/" className="hover:text-emerald-600">Accueil</Link>
@@ -1648,47 +2073,19 @@ out body 40;
               </div>
             </div>
 
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={handleShare}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:bg-gray-50"
-                aria-label="Partager"
-              >
-                <Share2 size={18} />
-                <span>Partager</span>
-              </button>
-              <button
-                onClick={handleSave}
-                className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-sm transition-colors ${
-                  isSaved
-                    ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
-                    : 'border-gray-200 bg-white text-slate-800 hover:bg-gray-50'
-                }`}
-                aria-label={isSaved ? 'Sauvegardé' : 'Sauvegarder'}
-              >
-                <Heart size={18} className={isSaved ? 'fill-current' : ''} />
-                <span>{isSaved ? 'Sauvegardé' : 'Sauvegarder'}</span>
-              </button>
-            </div>
           </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Left Column: Info */}
           <div className="lg:col-span-2">
             {propertyVideos.length > 0 && (
-              <div className="mb-10 mt-7 overflow-hidden rounded-[1.6rem] border border-emerald-100 bg-[linear-gradient(135deg,rgba(236,253,245,0.92),rgba(248,250,252,1)_55%,rgba(220,252,231,0.7))] shadow-[0_18px_50px_rgba(16,185,129,0.07)]">
+              <div className="dwira-soft-aurora mb-10 mt-7 overflow-hidden rounded-[1.6rem] border border-emerald-100 bg-white shadow-[0_18px_50px_rgba(16,185,129,0.07)]">
+                <div className="dwira-soft-aurora-ribbon" aria-hidden="true" />
                 <div className="flex flex-col gap-4 border-b border-white/70 px-5 py-5 md:flex-row md:items-end md:justify-between md:px-6">
                   <div>
                     <div className="inline-flex items-center rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
-                      Experience video
+                      Visite video
                     </div>
-                    <h2 className="mt-3 text-2xl font-bold text-gray-900">Visite vidéo</h2>
-                    <p className="mt-2 max-w-xl text-sm leading-6 text-gray-600">
-                      Regardez le bien avant de réserver ou demander une visite, avec un affichage pensé pour les vidéos classiques et les formats verticaux.
-                    </p>
-                  </div>
-                  <div className="inline-flex items-center self-start rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm">
-                    {propertyVideos.length} vidéo{propertyVideos.length > 1 ? "s" : ""}
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-5 md:py-5 xl:grid-cols-2">
@@ -1703,9 +2100,6 @@ out body 40;
                         <div className="min-w-0">
                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
                             Video {index + 1}
-                          </p>
-                          <p className="mt-1 truncate text-sm font-semibold text-slate-900">
-                            {isShortVideo ? "Format vertical optimise mobile" : "Format paysage optimise multi-ecrans"}
                           </p>
                         </div>
                         <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
@@ -1734,13 +2128,25 @@ out body 40;
             )}
             <div className="flex items-start justify-between gap-4 py-6 border-b border-gray-100">
                <div className="min-w-0 flex-1">
-                 <h2 className="text-xl font-bold mb-1">Logement entier : {property.category}</h2>
-                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-600 sm:flex sm:flex-wrap sm:items-center sm:gap-4">
-                   <span className="font-medium text-emerald-700">{maxGuests} voyageurs max</span>
+                 <h2 className="mb-1 flex items-center gap-2 text-xl font-bold">
+                   <House size={20} className="shrink-0 text-emerald-600" />
+                   <span>Logement entier : {property.category}</span>
+                 </h2>
+                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:flex sm:flex-wrap sm:items-center sm:gap-4">
+                   <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                     <Users size={15} className="shrink-0" />
+                     <span>{maxGuests} voyageurs max</span>
+                   </span>
                    <span className="hidden text-gray-300 sm:inline">|</span>
-                   <span>{property.bedrooms} chambres</span>
+                   <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                     <BedSingle size={15} className="shrink-0 text-emerald-700" />
+                     <span>{property.bedrooms} chambres</span>
+                   </span>
                    <span className="hidden text-gray-300 sm:inline">|</span>
-                   <span>{property.bathrooms} salles de bain</span>
+                   <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                     <Bath size={15} className="shrink-0 text-emerald-700" />
+                     <span>{property.bathrooms} salles de bain</span>
+                   </span>
                  </div>
                </div>
                <div className="mt-1 h-12 w-12 shrink-0 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-200 p-1.5 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
@@ -1749,7 +2155,10 @@ out body 40;
             </div>
 
             <div className="py-8 border-b border-gray-100">
-              <h3 className="text-xl font-bold mb-4">À propos de ce logement</h3>
+              <h3 className="mb-4 flex items-center gap-2 text-xl font-bold">
+                <Info size={18} className="shrink-0 text-gray-700" />
+                <span>À propos de ce logement</span>
+              </h3>
               <p className="text-gray-600 leading-relaxed whitespace-pre-line">
                 {property.description}
               </p>
@@ -1924,93 +2333,179 @@ out body 40;
             </Dialog>
 
             <Dialog open={showPaidServicesDialog} onOpenChange={setShowPaidServicesDialog}>
-              <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-[2rem] border-0 p-0 shadow-2xl">
-                <DialogHeader className="border-b border-gray-100 px-8 pt-8 pb-6">
-                  <DialogTitle className="text-3xl font-bold text-gray-900">Services payants</DialogTitle>
-                  <p className="mt-2 text-sm text-gray-600">
-                    Sélectionnez les services qui vous intéressent. Les prix fixes s'ajoutent au total, les autres sont confirmés séparément.
+              <DialogContent className="max-h-[86vh] w-[min(94vw,920px)] overflow-hidden rounded-[2rem] border-0 p-0 shadow-2xl sm:w-[min(90vw,860px)]">
+                <DialogHeader className="border-b border-gray-100 px-5 pt-6 pb-4 sm:px-8 sm:pt-8 sm:pb-6">
+                  <DialogTitle className="text-2xl font-bold text-gray-900 sm:text-3xl">Services payants</DialogTitle>
+                  <p className="mt-2 text-xs text-gray-600 sm:text-sm">
+                    Choisissez d'abord une catégorie, puis faites défiler les types de tarification pour voir rapidement les services utiles.
                   </p>
                 </DialogHeader>
-                <div className="max-h-[calc(88vh-120px)] overflow-y-auto px-8 pb-8">
-                  <div className="space-y-8 pt-6">
-                    <div className="rounded-3xl border border-gray-200 bg-gray-50/80 p-4">
+                <div className="max-h-[calc(86vh-104px)] overflow-y-auto px-4 pb-[max(3.5rem,env(safe-area-inset-bottom))] sm:px-8 sm:pb-10">
+                  <div className="space-y-6 pt-4 sm:space-y-8 sm:pt-6">
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50/80 p-3 sm:rounded-3xl sm:p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold text-gray-900">Répartition des {activePaidServices.length} services</div>
-                          <p className="mt-1 text-xs text-gray-600">Faites défiler pour consulter les trois groupes.</p>
+                          <div className="text-xs font-semibold text-gray-900 sm:text-sm">{activePaidServices.length} services disponibles</div>
+                          <p className="mt-0.5 text-[11px] text-gray-600 sm:mt-1 sm:text-xs">Navigation par besoin client, avec filtres horizontaux.</p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPaidServiceCategoryId("");
+                            setSelectedPaidServiceTypeFilter("all");
+                          }}
+                          className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-gray-700 transition hover:border-emerald-300 hover:text-emerald-700 sm:text-xs"
+                        >
+                          <ListChecks size={14} />
+                          Tout afficher
+                        </button>
+                      </div>
+                    </div>
+                    <div className="-mx-2 overflow-x-auto px-2 pb-2 overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <div className="flex w-max min-w-full gap-3">
+                        {paidServiceCategories.map((category) => {
+                          const isActive = selectedPaidServiceCategoryId === category.id;
+                          return (
+                            <button
+                              key={category.id}
+                              type="button"
+                              onClick={() => togglePaidServiceCategory(category.id)}
+                              className={`flex min-w-[190px] shrink-0 flex-col rounded-[1.6rem] border px-4 py-4 text-left transition ${isActive ? `${category.meta.cardClass} shadow-[0_14px_32px_rgba(15,23,42,0.10)]` : "border-gray-200 bg-white hover:border-emerald-200"}`}
+                            >
+                              <div className="relative h-24 overflow-hidden rounded-[1.25rem] border border-white/70 bg-slate-100">
+                                <img
+                                  src={category.meta.imageUrl}
+                                  alt={category.label}
+                                  className="absolute inset-0 h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                                <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.26),rgba(255,255,255,0.06)),linear-gradient(180deg,rgba(15,23,42,0.04),rgba(15,23,42,0.14))]" />
+                                <div className={`absolute -right-2 -top-2 ${category.meta.watermarkClass} opacity-70`}>
+                                  {cloneElement(category.meta.icon, { size: 54 })}
+                                </div>
+                                <div className="absolute inset-x-0 bottom-0 p-3">
+                                  <span className={`flex h-10 w-10 items-center justify-center rounded-2xl shadow-sm ${category.meta.iconWrapClass}`}>
+                                    {category.meta.icon}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="mt-4 text-base font-semibold leading-5 text-gray-900">{category.label}</span>
+                              <span className="mt-2 text-sm text-gray-500">{category.services.length} service{category.services.length > 1 ? "s" : ""}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {selectedPaidServiceCategory ? (
+                      <div className="-mx-2 overflow-x-auto px-2 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <div className="flex gap-3 md:flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPaidServiceTypeFilter("all")}
+                            className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${selectedPaidServiceTypeFilter === "all" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"}`}
+                          >
+                            <ListChecks size={15} />
+                            Tous
+                            <span className={`rounded-full px-2 py-0.5 text-xs ${selectedPaidServiceTypeFilter === "all" ? "bg-white/15 text-white" : "bg-gray-100 text-gray-600"}`}>
+                              {selectedPaidServiceCategory.services.length}
+                            </span>
+                          </button>
                           {(["fixe", "a_partir_de", "sur_demande"] as const).map((type) => {
-                            const count = paidServicesByType[type].length;
+                            const count = visiblePaidServices.filter((service) => service.type_tarification === type).length;
                             if (count === 0) return null;
                             const meta = getPaidServiceTypeMeta(type);
+                            const isActive = selectedPaidServiceTypeFilter === type;
                             return (
-                              <span key={type} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${meta.chipClass}`}>
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => setSelectedPaidServiceTypeFilter(type)}
+                                className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${isActive ? meta.chipClass : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"}`}
+                              >
                                 {meta.icon}
-                                {meta.label}: {count}
-                              </span>
+                                {meta.label}
+                                <span className={`rounded-full px-2 py-0.5 text-xs ${isActive ? "bg-white/70 text-gray-700" : "bg-gray-100 text-gray-600"}`}>
+                                  {count}
+                                </span>
+                              </button>
                             );
                           })}
                         </div>
                       </div>
-                    </div>
-                    {(["fixe", "a_partir_de", "sur_demande"] as const).map((type) => {
-                      const services = paidServicesByType[type];
-                      if (services.length === 0) return null;
-                      const meta = getPaidServiceTypeMeta(type);
-                      return (
-                        <section key={type} className="scroll-mt-20">
-                          <div className="mb-4 flex items-center justify-between gap-3">
-                            <div>
-                              <h4 className="text-2xl font-semibold text-gray-900">{meta.label}</h4>
-                              <p className="mt-1 text-sm text-gray-600">{meta.hint}</p>
+                    ) : null}
+
+                    {selectedPaidServiceCategory ? (
+                      <div className={`rounded-3xl border p-5 ${selectedPaidServiceCategory.meta.cardClass}`}>
+                        <div className="flex items-start gap-4">
+                          <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.4rem] ${selectedPaidServiceCategory.meta.iconWrapClass}`}>
+                            {selectedPaidServiceCategory.meta.icon}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-xl font-semibold text-gray-900">{selectedPaidServiceCategory.label}</h4>
+                            <p className="mt-1 text-sm text-gray-600">
+                              {visiblePaidServices.length} service{visiblePaidServices.length > 1 ? "s" : ""} visible{visiblePaidServices.length > 1 ? "s" : ""} pour ce besoin.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-3xl border border-dashed border-gray-300 bg-white px-5 py-10 text-center text-sm text-gray-500">
+                        Choisissez une catégorie de services pour afficher les options disponibles.
+                      </div>
+                    )}
+
+                    {selectedPaidServiceCategory ? (
+                      <div className="space-y-3">
+                        {visiblePaidServices.map((service) => {
+                          const checked = selectedPaidServiceIds.includes(service.id);
+                          const meta = getPaidServiceTypeMeta(service.type_tarification);
+                          const categoryMeta = getPaidServiceCategoryMeta(service.categorie);
+                        return (
+                          <button
+                            key={service.id}
+                            type="button"
+                            onClick={() => togglePaidServiceSelection(service)}
+                            className={`w-full rounded-[1.6rem] border px-4 py-4 text-left transition ${checked ? "border-emerald-500 bg-emerald-50 shadow-[0_12px_28px_rgba(16,185,129,0.10)]" : "border-gray-200 bg-white hover:border-gray-300"}`}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-base font-semibold text-gray-900">{service.label}</span>
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${categoryMeta.badgeClass}`}>
+                                    {categoryMeta.icon}
+                                    {service.categorie || categoryMeta.label}
+                                  </span>
+                                  <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${meta.chipClass}`}>
+                                    {meta.icon}
+                                    {meta.label}
+                                  </span>
+                                </div>
+                                {service.description_courte ? (
+                                  <p className="mt-2 text-sm leading-6 text-gray-600">{service.description_courte}</p>
+                                ) : (
+                                  <p className="mt-2 text-sm leading-6 text-gray-500">Service additionnel disponible pour ce logement.</p>
+                                )}
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-lg font-bold text-gray-900">{getServiceDisplayPrice(service)}</div>
+                                <div className={`mt-3 inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${checked ? "border-emerald-500 bg-emerald-600 text-white" : "border-gray-300 text-gray-600"}`}>
+                                  {checked ? "Sélectionné" : "Sélectionner"}
+                                </div>
+                              </div>
                             </div>
-                            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${meta.chipClass}`}>
-                              {meta.icon}
-                              {services.length} service{services.length > 1 ? "s" : ""}
-                            </span>
-                          </div>
-                          <div className="mb-4 h-px w-full bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-                          <div className="space-y-3">
-                            {services.map((service) => {
-                              const checked = selectedPaidServiceIds.includes(service.id);
-                              return (
-                                <button
-                                  key={service.id}
-                                  type="button"
-                                  onClick={() => setSelectedPaidServiceIds((prev) => checked ? prev.filter((id) => id !== service.id) : [...prev, service.id])}
-                                  className={`w-full rounded-2xl border px-4 py-4 text-left transition ${checked ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
-                                >
-                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                                    <div className="order-2 min-w-0 sm:order-1">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="text-base font-semibold text-gray-900">{service.label}</span>
-                                        {service.categorie ? (
-                                          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600">
-                                            {service.categorie}
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                      {service.description_courte ? (
-                                        <p className="mt-2 text-sm text-gray-600">{service.description_courte}</p>
-                                      ) : null}
-                                    </div>
-                                    <div className="order-1 flex items-start justify-between gap-3 sm:order-2 sm:block sm:shrink-0 sm:text-right">
-                                      <div className="text-base font-bold leading-6 text-gray-900 sm:max-w-[180px] sm:text-right">
-                                        {getServiceDisplayPrice(service)}
-                                      </div>
-                                      <div className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${checked ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-gray-300 text-gray-600'}`}>
-                                        {checked ? 'Sélectionné' : 'Sélectionner'}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </section>
-                      );
-                    })}
+                          </button>
+                        );
+                      })}
+                      </div>
+                    ) : null}
+
+                    {selectedPaidServiceCategory && visiblePaidServices.length === 0 ? (
+                      <div className="rounded-3xl border border-dashed border-gray-300 bg-white px-5 py-10 text-center text-sm text-gray-500">
+                        Aucun service ne correspond à cette combinaison de catégorie et de tarification.
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </DialogContent>
@@ -2146,25 +2641,29 @@ out body 40;
                 <div className="grid grid-cols-2 gap-2">
                   <div className="col-span-1">
                     <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date souhaitee' : 'Arrivee'}</label>
-                    <div className="relative">
-                      <input 
-                        type="date" 
-                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                        value={selectedStart ? format(selectedStart, 'yyyy-MM-dd') : ''}
-                        onChange={(e) => setSelectedStart(e.target.value ? new Date(e.target.value) : null)}
-                      />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowBookingCalendarDialog(true)}
+                      className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
+                    >
+                      <span className={selectedStart ? "text-gray-900" : "text-gray-500"}>
+                        {formatBookingFieldDate(selectedStart)}
+                      </span>
+                      <Calendar size={16} className="text-gray-500" />
+                    </button>
                   </div>
                   <div className="col-span-1">
                     <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date alternative' : 'Depart'}</label>
-                    <div className="relative">
-                       <input 
-                        type="date" 
-                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                        value={selectedEnd ? format(selectedEnd, 'yyyy-MM-dd') : ''}
-                        onChange={(e) => setSelectedEnd(e.target.value ? new Date(e.target.value) : null)}
-                      />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowBookingCalendarDialog(true)}
+                      className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
+                    >
+                      <span className={selectedEnd ? "text-gray-900" : "text-gray-500"}>
+                        {formatBookingFieldDate(selectedEnd)}
+                      </span>
+                      <Calendar size={16} className="text-gray-500" />
+                    </button>
                   </div>
                 </div>
 
@@ -2256,6 +2755,7 @@ out body 40;
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">Services payants</p>
                         <h4 className="mt-1 text-base font-semibold leading-5 text-gray-900">Services additionnels disponibles</h4>
+                        <p className="mt-1 text-xs leading-5 text-gray-500">Choisissez un besoin, puis faites glisser les types de prix.</p>
                       </div>
                       <button
                         type="button"
@@ -2267,49 +2767,127 @@ out body 40;
                       </button>
                     </div>
 
-                    <div className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:overflow-visible sm:pb-0">
-                      <div className="flex gap-2 px-1 sm:grid sm:grid-cols-3 sm:px-0">
-                      {(["fixe", "a_partir_de", "sur_demande"] as const).map((type) => {
-                        const meta = getPaidServiceTypeMeta(type);
-                        const count = paidServicesByType[type].length;
-                        if (count === 0) return null;
-                        return (
-                          <div key={type} className={`w-[220px] shrink-0 rounded-2xl border px-3 py-3 sm:w-auto ${meta.panelClass}`}>
-                            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                              {meta.icon}
-                              {meta.label}
-                            </div>
-                            <div className="mt-1 text-2xl font-bold text-gray-900">{count}</div>
-                            <p className="mt-1 line-clamp-2 text-xs text-gray-600">{meta.hint}</p>
-                          </div>
-                        );
-                      })}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => paidServicesCategoriesNavRef.current?.scrollBy({ left: -220, behavior: "smooth" })}
+                        className="hidden h-8 w-8 shrink-0 rounded-full border border-gray-200 bg-white text-gray-600 transition hover:border-emerald-300 sm:inline-flex sm:items-center sm:justify-center"
+                        aria-label="Categories precedentes"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <div
+                        ref={paidServicesCategoriesNavRef}
+                        className="-mx-1 flex-1 overflow-x-auto pb-1 overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0"
+                      >
+                        <div className="flex w-max min-w-full gap-3 px-1 sm:px-0 sm:pr-1">
+                          {paidServiceCategories.map((category) => {
+                            const isActive = selectedPaidServiceCategoryId === category.id;
+                            return (
+                              <button
+                                key={category.id}
+                                type="button"
+                                onClick={() => togglePaidServiceCategory(category.id)}
+                                className={`w-[180px] shrink-0 rounded-[1.4rem] border px-4 py-4 text-left transition ${isActive ? `${category.meta.cardClass} shadow-[0_14px_32px_rgba(15,23,42,0.10)]` : "border-gray-200 bg-white hover:border-emerald-200"}`}
+                              >
+                                <div className="relative h-20 overflow-hidden rounded-[1.15rem] border border-white/70 bg-slate-100">
+                                  <img
+                                    src={category.meta.imageUrl}
+                                    alt={category.label}
+                                    className="absolute inset-0 h-full w-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
+                                  <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.26),rgba(255,255,255,0.06)),linear-gradient(180deg,rgba(15,23,42,0.04),rgba(15,23,42,0.14))]" />
+                                  <div className={`absolute -right-1 -top-1 ${category.meta.watermarkClass} opacity-70`}>
+                                    {cloneElement(category.meta.icon, { size: 44 })}
+                                  </div>
+                                  <div className="absolute inset-x-0 bottom-0 p-3">
+                                    <span className={`flex h-9 w-9 items-center justify-center rounded-2xl shadow-sm ${category.meta.iconWrapClass}`}>
+                                      {category.meta.icon}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="mt-4 text-sm font-semibold leading-5 text-gray-900">{category.label}</div>
+                                <div className="mt-1 text-xs text-gray-500">{category.services.length} service{category.services.length > 1 ? "s" : ""}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => paidServicesCategoriesNavRef.current?.scrollBy({ left: 220, behavior: "smooth" })}
+                        className="hidden h-8 w-8 shrink-0 rounded-full border border-gray-200 bg-white text-gray-600 transition hover:border-emerald-300 sm:inline-flex sm:items-center sm:justify-center"
+                        aria-label="Categories suivantes"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
                     </div>
 
-                    <div className="space-y-2">
-                      {paidServicePreview.map((service) => {
+                    {selectedPaidServiceCategory ? (
+                      <div className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <div className="flex gap-2 px-1 md:flex-wrap md:px-0">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPaidServiceTypeFilter("all")}
+                            className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition ${selectedPaidServiceTypeFilter === "all" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"}`}
+                          >
+                            <ListChecks size={14} />
+                            Tous
+                          </button>
+                          {(["fixe", "a_partir_de", "sur_demande"] as const).map((type) => {
+                            const count = visiblePaidServices.filter((service) => service.type_tarification === type).length;
+                            if (count === 0) return null;
+                            const meta = getPaidServiceTypeMeta(type);
+                            const isActive = selectedPaidServiceTypeFilter === type;
+                            return (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => setSelectedPaidServiceTypeFilter(type)}
+                                className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition ${isActive ? meta.chipClass : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"}`}
+                              >
+                                {meta.icon}
+                                {meta.label}
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] ${isActive ? "bg-white/70 text-gray-700" : "bg-gray-100 text-gray-600"}`}>
+                                  {count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedPaidServiceCategory ? (
+                      <div className="space-y-2">
+                        {visiblePaidServicesPreview.map((service) => {
                         const checked = selectedPaidServiceIds.includes(service.id);
                         const meta = getPaidServiceTypeMeta(service.type_tarification);
+                        const categoryMeta = getPaidServiceCategoryMeta(service.categorie);
                         return (
                           <button
                             key={service.id}
                             type="button"
-                            onClick={() => setSelectedPaidServiceIds((prev) => checked ? prev.filter((id) => id !== service.id) : [...prev, service.id])}
+                            onClick={() => togglePaidServiceSelection(service)}
                             className={`w-full rounded-2xl border px-3 py-3 text-left transition sm:px-4 ${checked ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300'}`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                   <span className="text-sm font-semibold leading-5 text-gray-900">{service.label}</span>
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${categoryMeta.badgeClass}`}>
+                                    {categoryMeta.icon}
+                                    {service.categorie || categoryMeta.label}
+                                  </span>
                                   <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${meta.chipClass}`}>
                                     {meta.icon}
                                     {meta.label}
                                   </span>
                                 </div>
                                 <div className="mt-1 text-xs leading-5 text-gray-500">
-                                  {service.categorie}
-                                  {service.description_courte ? ` • ${service.description_courte}` : ""}
+                                  {service.description_courte || "Service additionnel disponible pour ce besoin."}
                                 </div>
                               </div>
                               <div className="shrink-0 text-right">
@@ -2322,9 +2900,14 @@ out body 40;
                           </button>
                         );
                       })}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-gray-300 px-4 py-5 text-center text-sm text-gray-500">
+                        Cliquez sur une catégorie pour voir les services disponibles.
+                      </div>
+                    )}
 
-                    {activePaidServices.length > paidServicePreview.length && (
+                    {selectedPaidServiceCategory && visiblePaidServices.length > visiblePaidServicesPreview.length && (
                       <button
                         type="button"
                         onClick={() => setShowPaidServicesDialog(true)}
@@ -2334,11 +2917,6 @@ out body 40;
                       </button>
                     )}
 
-                    {variablePaidServices.length > 0 && (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                        Les services "sur demande" et "a partir de" sont confirmés séparément par l'agence et peuvent faire l'objet d'une facture dédiée.
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -2448,40 +3026,58 @@ out body 40;
         </div>
       </div>
 
-      <div className="fixed inset-x-0 bottom-3 z-40 px-3 md:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-3 gap-2 rounded-[1.4rem] border border-white/70 bg-white/78 p-2 shadow-[0_24px_60px_rgba(15,23,42,0.24),0_10px_30px_rgba(15,23,42,0.14)] ring-1 ring-white/60 backdrop-blur-2xl supports-[backdrop-filter]:bg-white/68">
-          <button
-            type="button"
-            onClick={handleOpenAndScrollSeasonalDetails}
-            className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#f3fdf8,#e8fbf1)] px-2 py-3 text-center text-[11px] font-semibold text-emerald-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_8px_18px_rgba(16,185,129,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_rgba(16,185,129,0.16)] active:translate-y-0 active:scale-[0.98]"
-          >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/90 text-emerald-700 shadow-sm transition-transform duration-200 group-hover:scale-110">
-              <ListChecks size={13} />
-            </span>
-            <span className="leading-tight">Caractéristiques</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => scrollToSection(locationSectionRef.current)}
-            className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-2 py-3 text-center text-[11px] font-semibold text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(15,23,42,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_12px_22px_rgba(15,23,42,0.12)] active:translate-y-0 active:scale-[0.98]"
-          >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm transition-transform duration-200 group-hover:scale-110">
-              <MapPin size={13} />
-            </span>
-            <span className="leading-tight">Emplacement</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => scrollToSection(calendarSectionRef.current)}
-            className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-2 py-3 text-center text-[11px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_12px_22px_rgba(245,158,11,0.16)] active:translate-y-0 active:scale-[0.98]"
-          >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/95 text-amber-700 shadow-sm transition-transform duration-200 group-hover:scale-110">
-              <Calendar size={13} />
-            </span>
-            <span className="leading-tight">Calendrier</span>
-          </button>
-        </div>
-      </div>
+      <Dialog open={showBookingCalendarDialog} onOpenChange={setShowBookingCalendarDialog}>
+        <DialogContent className="max-w-3xl border-0 p-0 shadow-2xl">
+          <DialogHeader className="border-b border-gray-100 px-6 pb-4 pt-6">
+            <DialogTitle className="text-2xl font-bold text-gray-900">
+              {isSaleProperty ? "Choisissez vos dates" : "Choisissez votre sejour"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-4 pb-4 pt-4 md:px-6 md:pb-6">
+            {!isSaleProperty && (
+              <p className="mb-4 text-sm text-emerald-700">
+                Duree autorisee: minimum {minStay} nuit(s), maximum {maxStay} nuit(s).
+              </p>
+            )}
+            <AvailabilityCalendar
+              unavailableDates={property.unavailableDates || []}
+              onDateRangeSelect={handleBookingDateRangeSelect}
+              selectedStart={selectedStart}
+              selectedEnd={selectedEnd}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showVariablePaidServiceNotice}
+        onOpenChange={(open) => {
+          setShowVariablePaidServiceNotice(open);
+          if (!open) setHasSeenVariablePaidServiceNotice(true);
+        }}
+      >
+        <DialogContent className="max-w-md rounded-[1.75rem] border-0 p-0 shadow-2xl">
+          <div className="p-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+              <MessageCircle size={22} />
+            </div>
+            <h3 className="mt-4 text-xl font-bold text-gray-900">Information tarifaire</h3>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              Les services <span className="font-semibold text-gray-900">Sur demande</span> et <span className="font-semibold text-gray-900">A partir de</span> sont confirmés séparément par l&apos;agence et peuvent faire l&apos;objet d&apos;une facture dédiée.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setHasSeenVariablePaidServiceNotice(true);
+                setShowVariablePaidServiceNotice(false);
+              }}
+              className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            >
+              Compris
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Other Properties Section */}
       <div className="container mx-auto px-4 md:px-6 mt-16 pt-12 border-t border-gray-200">
@@ -2569,6 +3165,8 @@ out body 40;
         )}
       </div>
 
+      {mobileFloatingActions}
+
       {/* Lightbox */}
       {lightboxOpen && (
         <div 
@@ -2588,31 +3186,40 @@ out body 40;
             {currentImageIndex + 1} / {property.images.length}
           </div>
 
-          {/* Previous button - almost transparent */}
-          <button 
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); prevImage(); }}
-            className="absolute left-2 sm:left-4 md:left-8 z-50 p-3 text-white/30 hover:text-white/80 hover:bg-white/10 rounded-full transition-all duration-300"
+            className="absolute inset-y-0 left-0 z-40 flex w-[20vw] min-w-[64px] items-center justify-start pl-2 sm:pl-4 md:w-[16vw] md:pl-8"
+            aria-label="Image precedente"
           >
-            <ChevronLeft size={40} strokeWidth={1.5} />
+            <span className="rounded-full border border-white/20 bg-black/42 p-1.5 text-white/90 shadow-[0_10px_24px_rgba(0,0,0,0.28)] backdrop-blur-md transition-all duration-300 hover:bg-black/60 hover:text-white">
+              <ChevronLeft size={22} strokeWidth={2} />
+            </span>
           </button>
 
-          {/* Next button - almost transparent */}
-          <button 
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); nextImage(); }}
-            className="absolute right-2 sm:right-4 md:right-8 z-50 p-3 text-white/30 hover:text-white/80 hover:bg-white/10 rounded-full transition-all duration-300"
+            className="absolute inset-y-0 right-0 z-40 flex w-[20vw] min-w-[64px] items-center justify-end pr-2 sm:pr-4 md:w-[16vw] md:pr-8"
+            aria-label="Image suivante"
           >
-            <ChevronRight size={40} strokeWidth={1.5} />
+            <span className="rounded-full border border-white/20 bg-black/42 p-1.5 text-white/90 shadow-[0_10px_24px_rgba(0,0,0,0.28)] backdrop-blur-md transition-all duration-300 hover:bg-black/60 hover:text-white">
+              <ChevronRight size={22} strokeWidth={2} />
+            </span>
           </button>
 
           {/* Main image with smooth transition */}
           <div 
             className="relative w-full h-full flex items-center justify-center p-4 sm:p-8 md:p-16"
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={handleLightboxTouchStart}
+            onTouchEnd={handleLightboxTouchEnd}
+            onWheel={handleLightboxWheel}
           >
             <SmartImage 
               src={galleryImages[currentImageIndex]} 
               alt={`${property.title} - ${currentImageIndex + 1}`}
-              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl transition-all duration-500 ease-out transform"
+              className="max-w-full max-h-full touch-pan-y object-contain rounded-lg shadow-2xl transition-all duration-500 ease-out transform select-none"
               loading="eager"
               decoding="async"
               fetchPriority="high"

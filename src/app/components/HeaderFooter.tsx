@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut, ShoppingBag } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -42,6 +42,10 @@ function resolveRouteMode(pathname: string, search: string) {
   return null;
 }
 
+function isPropertyDetailsPath(pathname: string) {
+  return pathname.startsWith("/properties/");
+}
+
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const [isAutoHidden, setIsAutoHidden] = useState(false);
@@ -52,7 +56,10 @@ export function Header() {
   const [reservationCount, setReservationCount] = useState(0);
   const [actionableDemand, setActionableDemand] = useState<ReservationDemand | null>(null);
   const [showActionableNotice, setShowActionableNotice] = useState(false);
+  const lastScrollYRef = useRef(0);
   const isHomePage = location.pathname === "/";
+  const isPropertyDetailsPage = isPropertyDetailsPath(location.pathname);
+  const isPropertyTopHidden = isPropertyDetailsPage && !isOpen && !isScrolled;
   const useLightText = isHomePage && !isScrolled && !isOpen;
   const useSolidHeader = !isHomePage || isScrolled || isOpen;
   const routeMode = resolveRouteMode(location.pathname, location.search);
@@ -75,7 +82,38 @@ export function Header() {
   useEffect(() => {
     if (isOpen) {
       setIsAutoHidden(false);
+      lastScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
       return;
+    }
+
+    if (isPropertyDetailsPage) {
+      lastScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
+      const handleDirectionalScroll = () => {
+        const currentY = Math.max(window.scrollY, 0);
+        const previousY = lastScrollYRef.current;
+        const delta = currentY - previousY;
+
+        setIsScrolled(currentY > 10);
+
+        if (currentY <= 24) {
+          setIsAutoHidden(true);
+          lastScrollYRef.current = currentY;
+          return;
+        }
+
+        if (delta > 8) {
+          setIsAutoHidden(true);
+        } else if (delta < -4) {
+          setIsAutoHidden(false);
+        }
+
+        lastScrollYRef.current = currentY;
+      };
+
+      window.addEventListener("scroll", handleDirectionalScroll, { passive: true });
+      return () => {
+        window.removeEventListener("scroll", handleDirectionalScroll);
+      };
     }
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -103,7 +141,7 @@ export function Header() {
       window.removeEventListener("mousemove", revealHeader);
       window.removeEventListener("touchstart", revealHeader);
     };
-  }, [isOpen, location.pathname, location.search]);
+  }, [isOpen, isPropertyDetailsPage, location.pathname, location.search]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -190,11 +228,11 @@ export function Header() {
   return (
     <>
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-50 transition-all ${isPropertyDetailsPage ? "duration-200" : "duration-300"} ${
         useSolidHeader
           ? "bg-white/92 backdrop-blur-xl shadow-sm py-2.5 md:py-2"
           : "bg-transparent py-4"
-      } ${isAutoHidden ? "-translate-y-[115%] opacity-0" : "translate-y-0 opacity-100"}`}
+      } ${(isAutoHidden || isPropertyTopHidden) ? "-translate-y-[115%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100"}`}
     >
       <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
         <Link to="/" className="flex items-center gap-3 z-50">

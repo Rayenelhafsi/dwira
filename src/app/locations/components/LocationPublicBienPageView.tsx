@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
+import { Bath, BedSingle, Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, House, Info, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { resolveBienCapacity } from '../../utils/bienCapacity';
 import { isYouTubeShortUrl, toYouTubeEmbedUrl } from '../../utils/videoLinks';
@@ -565,7 +565,10 @@ out body 20;
                   </div>
                 </div>
                 <div className="pb-8 border-b border-gray-100">
-                  <h3 className="text-xl font-bold mb-4">A propos de ce logement</h3>
+                  <h3 className="mb-4 flex items-center gap-2 text-xl font-bold">
+                    <Info size={18} className="shrink-0 text-gray-700" />
+                    <span>A propos de ce logement</span>
+                  </h3>
                   <p className="text-gray-600 leading-relaxed whitespace-pre-line">{bien.description || `Superbe ${bien.type}`}</p>
                 </div>
               </div>
