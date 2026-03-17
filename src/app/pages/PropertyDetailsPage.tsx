@@ -15,7 +15,7 @@ import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { isYouTubeShortUrl, toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
-import { getOptimizedMediaUrl } from "../utils/media";
+import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
@@ -569,7 +569,9 @@ export default function PropertyDetailsPage() {
   const nearbyPlacesFailureRef = useRef<Record<string, true>>({});
   const lightboxTouchStartXRef = useRef<number | null>(null);
   const lightboxWheelLockRef = useRef(false);
-  const loadedLightboxSrcsRef = useRef<Set<string>>(new Set());
+  const loadedLightboxPreviewSrcsRef = useRef<Set<string>>(new Set());
+  const loadedLightboxOriginalSrcsRef = useRef<Set<string>>(new Set());
+  const [lightboxOriginalLoaded, setLightboxOriginalLoaded] = useState(false);
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -1255,13 +1257,13 @@ out body 40;
     vueLabel,
   ]);
 
-  const lightboxMainTargetWidth = useMemo(() => {
-    if (typeof window === "undefined") return isMobileViewport ? 980 : 1600;
+  const lightboxPreviewTargetWidth = useMemo(() => {
+    if (typeof window === "undefined") return isMobileViewport ? 900 : 1440;
     const viewportWidth = Math.max(320, window.innerWidth || 320);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const requested = Math.round(viewportWidth * dpr * 1.08);
-    const minWidth = isMobileViewport ? 900 : 1200;
-    return Math.max(minWidth, Math.min(1800, requested));
+    const requested = Math.round(viewportWidth * dpr * 1.02);
+    const minWidth = isMobileViewport ? 860 : 1100;
+    return Math.max(minWidth, Math.min(1600, requested));
   }, [isMobileViewport, lightboxOpen]);
   const valuesForFeature = useCallback((feature: FeatureApiRow): string[] => {
     const directValues = parseFeatureValueJson(feature.valeur_json);
@@ -1387,16 +1389,23 @@ out body 40;
     });
   }, [property?.id, filterMode, filterLocation, filterCategories, filterAmenities, filterFeatured, minPrice, maxPrice, properties]);
 
-  const getLightboxOptimizedSrc = useCallback((index: number, quality = 74) => {
+  const getLightboxOriginalSrc = useCallback((index: number) => {
     if (galleryImages.length === 0) return "";
     const safeIndex = ((index % galleryImages.length) + galleryImages.length) % galleryImages.length;
-    return getOptimizedMediaUrl(galleryImages[safeIndex], { width: lightboxMainTargetWidth, quality });
-  }, [galleryImages, lightboxMainTargetWidth]);
+    return getOriginalMediaUrl(galleryImages[safeIndex]);
+  }, [galleryImages]);
+
+  const getLightboxPreviewSrc = useCallback((index: number, quality = 68) => {
+    if (galleryImages.length === 0) return "";
+    const safeIndex = ((index % galleryImages.length) + galleryImages.length) % galleryImages.length;
+    return getOptimizedMediaUrl(galleryImages[safeIndex], { width: lightboxPreviewTargetWidth, quality });
+  }, [galleryImages, lightboxPreviewTargetWidth]);
 
   const openLightbox = (index: number) => {
-    const initialSrc = getLightboxOptimizedSrc(index);
+    const initialOriginalSrc = getLightboxOriginalSrc(index);
     setCurrentImageIndex(index);
-    setLightboxImageLoading(!loadedLightboxSrcsRef.current.has(initialSrc));
+    setLightboxOriginalLoaded(loadedLightboxOriginalSrcsRef.current.has(initialOriginalSrc));
+    setLightboxImageLoading(!loadedLightboxOriginalSrcsRef.current.has(initialOriginalSrc));
     setLightboxOpen(true);
     document.body.style.overflow = 'hidden';
   };
@@ -1431,8 +1440,10 @@ out body 40;
   useEffect(() => {
     if (!lightboxOpen || galleryImages.length === 0) return;
 
-    const currentOptimizedSrc = getLightboxOptimizedSrc(currentImageIndex);
-    setLightboxImageLoading(!loadedLightboxSrcsRef.current.has(currentOptimizedSrc));
+    const currentOriginalSrc = getLightboxOriginalSrc(currentImageIndex);
+    const hasOriginal = loadedLightboxOriginalSrcsRef.current.has(currentOriginalSrc);
+    setLightboxOriginalLoaded(hasOriginal);
+    setLightboxImageLoading(!hasOriginal);
     const preloadIndexes = [
       currentImageIndex,
       (currentImageIndex + 1) % galleryImages.length,
@@ -1440,11 +1451,15 @@ out body 40;
     ];
 
     preloadIndexes.forEach((index, preloadOrder) => {
-      const image = new Image();
-      image.decoding = "async";
-      image.src = getLightboxOptimizedSrc(index, preloadOrder === 0 ? 74 : 70);
+      const previewImage = new Image();
+      previewImage.decoding = "async";
+      previewImage.src = getLightboxPreviewSrc(index, preloadOrder === 0 ? 68 : 62);
+
+      const originalImage = new Image();
+      originalImage.decoding = "async";
+      originalImage.src = getLightboxOriginalSrc(index);
     });
-  }, [currentImageIndex, galleryImages, lightboxOpen, getLightboxOptimizedSrc]);
+  }, [currentImageIndex, galleryImages, lightboxOpen, getLightboxOriginalSrc, getLightboxPreviewSrc]);
 
   const visibleLightboxThumbIndexes = useMemo(() => {
     if (galleryImages.length <= 7) {
@@ -1457,6 +1472,15 @@ out body 40;
     }
     return indexes;
   }, [currentImageIndex, galleryImages]);
+
+  const currentLightboxPreviewSrc = useMemo(
+    () => getLightboxPreviewSrc(currentImageIndex, 68),
+    [currentImageIndex, getLightboxPreviewSrc]
+  );
+  const currentLightboxOriginalSrc = useMemo(
+    () => getLightboxOriginalSrc(currentImageIndex),
+    [currentImageIndex, getLightboxOriginalSrc]
+  );
 
   const handleLightboxTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     lightboxTouchStartXRef.current = event.touches[0]?.clientX ?? null;
@@ -3234,22 +3258,37 @@ out body 40;
             onTouchEnd={handleLightboxTouchEnd}
             onWheel={handleLightboxWheel}
           >
-            <SmartImage 
-              src={galleryImages[currentImageIndex]} 
+            <SmartImage
+              src={galleryImages[currentImageIndex]}
               alt={`${property.title} - ${currentImageIndex + 1}`}
-              className="max-w-full max-h-full touch-pan-y object-contain rounded-lg shadow-2xl transition-all duration-500 ease-out transform select-none"
+              className={`max-w-full max-h-full touch-pan-y object-contain rounded-lg shadow-2xl transition-all duration-500 ease-out transform select-none ${lightboxOriginalLoaded ? 'opacity-0' : 'opacity-100'}`}
               loading="eager"
               decoding="async"
               fetchPriority="high"
-              targetWidth={lightboxMainTargetWidth}
-              quality={74}
+              targetWidth={lightboxPreviewTargetWidth}
+              quality={68}
               onLoad={() => {
-                loadedLightboxSrcsRef.current.add(getLightboxOptimizedSrc(currentImageIndex));
-                setLightboxImageLoading(false);
+                loadedLightboxPreviewSrcsRef.current.add(currentLightboxPreviewSrc);
               }}
-              onError={() => setLightboxImageLoading(false)}
               style={{
                 animation: 'fadeInScale 0.5s ease-out'
+              }}
+            />
+            <img
+              src={currentLightboxOriginalSrc}
+              alt={`${property.title} - ${currentImageIndex + 1}`}
+              className={`absolute max-w-full max-h-full touch-pan-y object-contain rounded-lg shadow-2xl transition-opacity duration-300 ease-out select-none ${lightboxOriginalLoaded ? 'opacity-100' : 'opacity-0'}`}
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              onLoad={() => {
+                loadedLightboxOriginalSrcsRef.current.add(currentLightboxOriginalSrc);
+                setLightboxOriginalLoaded(true);
+                setLightboxImageLoading(false);
+              }}
+              onError={() => {
+                setLightboxOriginalLoaded(false);
+                setLightboxImageLoading(false);
               }}
             />
             {lightboxImageLoading && (

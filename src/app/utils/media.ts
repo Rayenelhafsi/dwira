@@ -36,6 +36,33 @@ function optimizeUnsplashUrl(url: string, width: number, quality: number): strin
   return parsed.toString();
 }
 
+export function getOriginalMediaUrl(url?: string | null): string {
+  const value = String(url || "").trim();
+  if (!value) return "";
+
+  const parsed = parseUrl(value);
+  if (!parsed) return value;
+
+  if (/\/api\/media$/i.test(parsed.pathname)) {
+    const source = String(parsed.searchParams.get("src") || "").trim();
+    if (source.startsWith("/uploads/")) {
+      return buildApiUrl(source);
+    }
+  }
+
+  if (/images\.unsplash\.com/i.test(parsed.hostname)) {
+    // Keep the original asset URL and remove explicit downscaling/compression params.
+    parsed.searchParams.delete("w");
+    parsed.searchParams.delete("q");
+    parsed.searchParams.delete("dpr");
+    parsed.searchParams.delete("fit");
+    parsed.searchParams.delete("crop");
+    return parsed.toString();
+  }
+
+  return value;
+}
+
 export function getOptimizedMediaUrl(url?: string | null, options: MediaVariantOptions = {}): string {
   const value = String(url || "").trim();
   if (!value) return "";
