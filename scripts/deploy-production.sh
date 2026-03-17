@@ -99,6 +99,7 @@ export npm_config_jobs="${NPM_JOBS:-1}"
 export npm_config_audit="false"
 export npm_config_fund="false"
 export npm_config_progress="false"
+export npm_config_include="dev"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=768}"
 
 mkdir -p "${STATE_DIR}"
@@ -116,6 +117,11 @@ if [ "${NEEDS_INSTALL}" = "1" ]; then
   echo "${CURRENT_LOCK_HASH}" > "${LOCK_HASH_FILE}"
 else
   echo "[deploy] package-lock unchanged: reuse existing node_modules"
+fi
+
+if [ ! -x "${APP_DIR}/node_modules/.bin/vite" ]; then
+  echo "[deploy] vite missing in node_modules: install minimal build toolchain"
+  npm install --no-save --prefer-offline --include=dev vite @vitejs/plugin-react @tailwindcss/vite tailwindcss
 fi
 
 npm run build
