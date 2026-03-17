@@ -40,6 +40,11 @@ export function getOriginalMediaUrl(url?: string | null): string {
   const value = String(url || "").trim();
   if (!value) return "";
 
+  const uploadPath = extractUploadPath(value);
+  if (uploadPath) {
+    return buildApiUrl(uploadPath);
+  }
+
   const parsed = parseUrl(value);
   if (!parsed) return value;
 

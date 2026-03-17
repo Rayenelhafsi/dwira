@@ -1403,9 +1403,10 @@ out body 40;
 
   const openLightbox = (index: number) => {
     const initialOriginalSrc = getLightboxOriginalSrc(index);
+    const initialPreviewSrc = getLightboxPreviewSrc(index, 68);
     setCurrentImageIndex(index);
     setLightboxOriginalLoaded(loadedLightboxOriginalSrcsRef.current.has(initialOriginalSrc));
-    setLightboxImageLoading(!loadedLightboxOriginalSrcsRef.current.has(initialOriginalSrc));
+    setLightboxImageLoading(!loadedLightboxPreviewSrcsRef.current.has(initialPreviewSrc));
     setLightboxOpen(true);
     document.body.style.overflow = 'hidden';
   };
@@ -1441,9 +1442,11 @@ out body 40;
     if (!lightboxOpen || galleryImages.length === 0) return;
 
     const currentOriginalSrc = getLightboxOriginalSrc(currentImageIndex);
+    const currentPreviewSrc = getLightboxPreviewSrc(currentImageIndex, 68);
     const hasOriginal = loadedLightboxOriginalSrcsRef.current.has(currentOriginalSrc);
+    const hasPreview = loadedLightboxPreviewSrcsRef.current.has(currentPreviewSrc);
     setLightboxOriginalLoaded(hasOriginal);
-    setLightboxImageLoading(!hasOriginal);
+    setLightboxImageLoading(!hasPreview);
     const preloadIndexes = [
       currentImageIndex,
       (currentImageIndex + 1) % galleryImages.length,
@@ -3269,6 +3272,7 @@ out body 40;
               quality={68}
               onLoad={() => {
                 loadedLightboxPreviewSrcsRef.current.add(currentLightboxPreviewSrc);
+                setLightboxImageLoading(false);
               }}
               style={{
                 animation: 'fadeInScale 0.5s ease-out'
