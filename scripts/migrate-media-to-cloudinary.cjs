@@ -38,7 +38,7 @@ function parseArgs(argv) {
     apply: false,
     limit: null,
     bienId: null,
-    folder: 'dwira_uploads',
+    folder: String(process.env.CLOUDINARY_UPLOAD_FOLDER || 'dwira_uploads').trim().replace(/^\/+|\/+$/g, ''),
     tag: 'dwira_migrated',
     overwrite: false,
     help: false,
@@ -100,6 +100,26 @@ function extractUploadsRelativePath(mediaUrl) {
 
   try {
     const parsed = new URL(value);
+    // Handle Cloudinary fetch URLs by extracting the encoded origin URL.
+    if (/res\.cloudinary\.com$/i.test(parsed.hostname) && /\/image\/fetch\//i.test(parsed.pathname)) {
+      const marker = '/image/fetch/';
+      const idx = parsed.pathname.toLowerCase().indexOf(marker);
+      if (idx >= 0) {
+        const after = parsed.pathname.slice(idx + marker.length);
+        const firstSlash = after.indexOf('/');
+        if (firstSlash >= 0) {
+          const encodedOrigin = after.slice(firstSlash + 1);
+          try {
+            const decoded = decodeURIComponent(encodedOrigin);
+            const originParsed = new URL(decoded);
+            if (originParsed.pathname.startsWith('/api/uploads/')) return originParsed.pathname.replace(/^\/api\/uploads\//, '');
+            if (originParsed.pathname.startsWith('/uploads/')) return originParsed.pathname.replace(/^\/uploads\//, '');
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
     if (parsed.pathname.startsWith('/api/uploads/')) return parsed.pathname.replace(/^\/api\/uploads\//, '');
     if (parsed.pathname.startsWith('/uploads/')) return parsed.pathname.replace(/^\/uploads\//, '');
   } catch {
@@ -109,8 +129,12 @@ function extractUploadsRelativePath(mediaUrl) {
   return null;
 }
 
-function isCloudinaryUrl(value) {
-  return /(^https?:\/\/)?res\.cloudinary\.com\//i.test(String(value || '').trim());
+function isCloudinaryFetchUrl(value) {
+  return /(^https?:\/\/)?res\.cloudinary\.com\/.+\/image\/fetch\//i.test(String(value || '').trim());
+}
+
+function isCloudinaryUploadUrl(value) {
+  return /(^https?:\/\/)?res\.cloudinary\.com\/.+\/image\/upload\//i.test(String(value || '').trim());
 }
 
 function buildOriginUrl(mediaUrl) {
@@ -133,9 +157,17 @@ function buildPublicId(options, row) {
   const relative = extractUploadsRelativePath(row.url) || '';
   const relativeSafe = safePublicIdPart(relative);
   const fallback = `media_${safePublicIdPart(row.id) || Date.now()}`;
+  const folderKey = safePublicIdPart(
+    String(row.bien_reference || row.bien_id || 'unassigned')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  ) || 'unassigned';
   const base = relativeSafe || fallback;
   const folder = String(options.folder || '').replace(/^\/+|\/+$/g, '');
-  return folder ? `${folder}/${base}` : base;
+  const root = folder ? `${folder}/biens/${folderKey}` : `biens/${folderKey}`;
+  return `${root}/${base}`;
 }
 
 function signCloudinaryParams(params, apiSecret) {
@@ -225,10 +257,11 @@ async function main() {
   }
   const limitClause = options.limit ? `LIMIT ${Math.max(1, Math.trunc(options.limit))}` : '';
   const sql = `
-    SELECT id, bien_id, type, url, position
-    FROM media
+    SELECT m.id, m.bien_id, m.type, m.url, m.position, b.reference AS bien_reference
+    FROM media m
+    LEFT JOIN biens b ON b.id = m.bien_id
     WHERE ${where.join(' AND ')}
-    ORDER BY bien_id ASC, position ASC, id ASC
+    ORDER BY m.bien_id ASC, m.position ASC, m.id ASC
     ${limitClause}
   `;
 
@@ -244,7 +277,9 @@ async function main() {
     const candidates = allRows.filter((row) => {
       const url = String(row.url || '').trim();
       if (!url) return false;
-      if (isCloudinaryUrl(url)) return false;
+      // Keep already-uploaded Cloudinary URLs untouched, but allow Cloudinary fetch URLs
+      // so we can replace them with canonical /image/upload/ storage URLs.
+      if (isCloudinaryUploadUrl(url) && !isCloudinaryFetchUrl(url)) return false;
       return Boolean(extractUploadsRelativePath(url));
     });
 
@@ -335,4 +370,3 @@ main().catch((error) => {
   console.error(`ERROR: ${error.message}`);
   process.exit(1);
 });
-

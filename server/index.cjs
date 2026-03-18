@@ -53,6 +53,7 @@ function parseCloudinaryCredentials() {
 
 const CLOUDINARY_CREDS = parseCloudinaryCredentials();
 const CLOUDINARY_UPLOAD_FOLDER = String(process.env.CLOUDINARY_UPLOAD_FOLDER || 'dwira_uploads').trim().replace(/^\/+|\/+$/g, '');
+const CLOUDINARY_REQUIRED_UPLOAD = String(process.env.CLOUDINARY_REQUIRED_UPLOAD || '').trim().toLowerCase() === 'true';
 
 function signCloudinaryParams(params, apiSecret) {
   const signatureBase = Object.keys(params)
@@ -73,13 +74,15 @@ function buildCloudinaryPublicId(filename, folderPrefix = CLOUDINARY_UPLOAD_FOLD
   return cleanPrefix ? `${cleanPrefix}/${safeBase}` : safeBase;
 }
 
-async function uploadLocalMediaToCloudinary({ localUrlPath, filename, mimetype, folderPrefix }) {
+async function uploadLocalMediaToCloudinary({ localFilePath, filename, mimetype, folderPrefix }) {
   if (!CLOUDINARY_CREDS) return null;
   const mediaType = String(mimetype || '').startsWith('video/') ? 'video' : 'image';
   const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CREDS.cloudName}/${mediaType}/upload`;
   const timestamp = Math.floor(Date.now() / 1000);
   const publicId = buildCloudinaryPublicId(filename, folderPrefix);
-  const remoteFileUrl = `${CLOUDINARY_UPLOAD_SOURCE_BASE_URL}${localUrlPath.startsWith('/') ? localUrlPath : `/${localUrlPath}`}`;
+  const fileBuffer = await fs.promises.readFile(localFilePath);
+  const effectiveMime = String(mimetype || '').trim() || 'application/octet-stream';
+  const dataUri = `data:${effectiveMime};base64,${fileBuffer.toString('base64')}`;
 
   const paramsForSignature = {
     folder: '',
@@ -94,7 +97,7 @@ async function uploadLocalMediaToCloudinary({ localUrlPath, filename, mimetype, 
   const signature = signCloudinaryParams(paramsForSignature, CLOUDINARY_CREDS.apiSecret);
 
   const form = new FormData();
-  form.append('file', remoteFileUrl);
+  form.append('file', dataUri);
   form.append('public_id', publicId);
   form.append('overwrite', 'true');
   form.append('invalidate', 'true');
@@ -117,6 +120,83 @@ async function uploadLocalMediaToCloudinary({ localUrlPath, filename, mimetype, 
     resourceType: String(payload.resource_type || mediaType).trim(),
     bytes: Number(payload.bytes || 0),
   };
+}
+
+function isCloudinaryUrl(value) {
+  return /(^https?:\/\/)?res\.cloudinary\.com\//i.test(String(value || '').trim());
+}
+
+function isCloudinaryTransformationSegment(segment) {
+  const value = String(segment || '').trim();
+  if (!value) return false;
+  if (value.includes(',')) return true;
+  return /^(?:[a-z]{1,4}_[^/]+)$/i.test(value);
+}
+
+function extractCloudinaryPublicIdFromUrl(assetUrl) {
+  const value = String(assetUrl || '').trim();
+  if (!value) return null;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (!/res\.cloudinary\.com$/i.test(parsed.hostname)) return null;
+  const marker = '/image/upload/';
+  const idx = parsed.pathname.indexOf(marker);
+  if (idx < 0) return null;
+
+  const tail = parsed.pathname.slice(idx + marker.length);
+  const segments = tail.split('/').filter(Boolean);
+  if (segments.length === 0) return null;
+
+  let i = 0;
+  while (i < segments.length && isCloudinaryTransformationSegment(segments[i])) i += 1;
+  if (i < segments.length && /^v\d+$/i.test(segments[i])) i += 1;
+  const publicPath = segments.slice(i).join('/');
+  if (!publicPath) return null;
+
+  const decoded = decodeURIComponent(publicPath);
+  return decoded.replace(/\.[a-z0-9]+$/i, '');
+}
+
+async function deleteCloudinaryAssetByUrl(assetUrl, mediaTypeHint = 'image') {
+  if (!CLOUDINARY_CREDS) {
+    throw new Error('Cloudinary credentials missing');
+  }
+  const publicId = extractCloudinaryPublicIdFromUrl(assetUrl);
+  if (!publicId) {
+    throw new Error('Unable to extract Cloudinary public_id from URL');
+  }
+  const resourceType = String(mediaTypeHint || '').startsWith('video') ? 'video' : 'image';
+  const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CREDS.cloudName}/${resourceType}/destroy`;
+  const timestamp = Math.floor(Date.now() / 1000);
+  const paramsForSignature = {
+    invalidate: 'true',
+    public_id: publicId,
+    timestamp: String(timestamp),
+  };
+  const signature = signCloudinaryParams(paramsForSignature, CLOUDINARY_CREDS.apiSecret);
+
+  const form = new FormData();
+  form.append('public_id', publicId);
+  form.append('invalidate', 'true');
+  form.append('timestamp', String(timestamp));
+  form.append('api_key', CLOUDINARY_CREDS.apiKey);
+  form.append('signature', signature);
+
+  const response = await fetch(endpoint, { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+  const result = String(payload?.result || '').toLowerCase();
+  if (result !== 'ok' && result !== 'not found') {
+    throw new Error(`Cloudinary destroy failed: ${result || 'unknown result'}`);
+  }
+  return { publicId, result };
 }
 const ALLOWED_ORIGINS = [
   ...String(process.env.FRONTEND_URL || CANONICAL_FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
@@ -7631,7 +7711,7 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
       try {
         const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}biens/${folderKey}`;
         const uploaded = await uploadLocalMediaToCloudinary({
-          localUrlPath: localUrl,
+          localFilePath: req.file.path,
           filename: req.file.filename,
           mimetype: req.file.mimetype,
           folderPrefix: dynamicFolder,
@@ -7655,7 +7735,12 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
         }
       } catch (cloudError) {
         console.error('Cloudinary upload failed, fallback to local:', cloudError?.message || cloudError);
+        if (CLOUDINARY_REQUIRED_UPLOAD) {
+          return res.status(502).json({ error: 'Cloudinary upload failed' });
+        }
       }
+    } else if (CLOUDINARY_REQUIRED_UPLOAD) {
+      return res.status(500).json({ error: 'Cloudinary is required but not configured' });
     }
 
     res.json({
@@ -7768,9 +7853,21 @@ app.put('/api/media/bulk/positions', async (req, res) => {
 
 app.delete('/api/media/:id', async (req, res) => {
   try {
+    const [rows] = await pool.query('SELECT id, type, url FROM media WHERE id = ? LIMIT 1', [req.params.id]);
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    if (!row) {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+
+    const mediaUrl = String(row.url || '').trim();
+    if (isCloudinaryUrl(mediaUrl)) {
+      await deleteCloudinaryAssetByUrl(mediaUrl, row.type || 'image');
+    }
+
     await pool.query('DELETE FROM media WHERE id = ?', [req.params.id]);
     res.json({ message: 'Media deleted' });
   } catch (error) {
+    console.error('Error deleting media:', error);
     res.status(500).json({ error: 'Failed to delete media' });
   }
 });
