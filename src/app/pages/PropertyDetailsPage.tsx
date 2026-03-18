@@ -15,7 +15,6 @@ import { isYouTubeShortUrl, toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
-import { checkUploadsMediaAvailable } from "../utils/mediaAvailability";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
@@ -31,9 +30,10 @@ import {
   type PendingReservationDraft,
 } from "../utils/pendingReservation";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
-const GALLERY_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200&auto=format&fit=crop';
+const GALLERY_FALLBACK_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e5e7eb'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1200' height='675' fill='url(%23g)'/%3E%3C/svg%3E";
 const ENABLE_EXTERNAL_NEARBY_FALLBACK = String(import.meta.env.VITE_ENABLE_EXTERNAL_NEARBY_FALLBACK || '').trim().toLowerCase() === 'true';
-const ENABLE_MEDIA_AVAILABILITY_PROBE = import.meta.env.PROD;
+const ENABLE_MEDIA_AVAILABILITY_PROBE = String(import.meta.env.VITE_ENABLE_MEDIA_AVAILABILITY_PROBE || '').trim().toLowerCase() === 'true';
 
 type FeatureApiRow = {
   id: string;
@@ -517,16 +517,27 @@ export default function PropertyDetailsPage() {
     const base = galleryAvailabilityChecked
       ? (availableGalleryImages.length > 0 ? availableGalleryImages : [GALLERY_FALLBACK_IMAGE])
       : [GALLERY_FALLBACK_IMAGE];
-    const filtered = base.filter((url) => !hasFailedImageSource(getOriginalMediaUrl(url)));
-    return filtered.length > 0 ? filtered : base;
+    return base;
   }, [availableGalleryImages, galleryAvailabilityChecked]);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
   const [mobileGalleryIndex, setMobileGalleryIndex] = useState(0);
+  const mobileVisibleImageIndexes = useMemo(() => {
+    const total = galleryImages.length;
+    if (total <= 2) return new Set(Array.from({ length: total }, (_, index) => index));
+    const current = ((mobileGalleryIndex % total) + total) % total;
+    return new Set([
+      current,
+      (current + 1) % total,
+      (current - 1 + total) % total,
+    ]);
+  }, [galleryImages.length, mobileGalleryIndex]);
 
   useEffect(() => {
     let cancelled = false;
-    const source = Array.isArray(allGalleryImages) ? allGalleryImages : [];
+    const source = Array.isArray(allGalleryImages)
+      ? allGalleryImages.filter((item) => String(item || "").trim().length > 0)
+      : [];
     if (source.length === 0) {
       setAvailableGalleryImages([GALLERY_FALLBACK_IMAGE]);
       setGalleryAvailabilityChecked(true);
@@ -539,20 +550,9 @@ export default function PropertyDetailsPage() {
     }
 
     const validate = async () => {
-      const checks = await Promise.all(
-        source.map(async (url) => {
-          const original = getOriginalMediaUrl(url);
-          const ok = await checkUploadsMediaAvailable(original);
-          if (!ok) {
-            markFailedImageSource(original);
-            return null;
-          }
-          return url;
-        })
-      );
       if (cancelled) return;
-      const valid = checks.filter((item): item is string => Boolean(item));
-      setAvailableGalleryImages(valid.length > 0 ? valid : [GALLERY_FALLBACK_IMAGE]);
+      // Keep all images to preserve order/slots; failures are handled per-image with SmartImage fallback.
+      setAvailableGalleryImages(source);
       setGalleryAvailabilityChecked(true);
     };
 
@@ -1557,6 +1557,14 @@ out body 40;
   }, [currentImageIndex, galleryImages, lightboxOpen, getLightboxOriginalSrc, getLightboxPreviewSrc]);
 
   useEffect(() => {
+    if (!lightboxOpen || !lightboxImageLoading) return;
+    const timeoutId = window.setTimeout(() => {
+      setLightboxImageLoading(false);
+    }, 2800);
+    return () => window.clearTimeout(timeoutId);
+  }, [lightboxImageLoading, lightboxOpen, currentImageIndex]);
+
+  useEffect(() => {
     if (galleryImages.length === 0) return;
     const scheduler = (window as any).requestIdleCallback as ((cb: () => void) => number) | undefined;
     const cancelScheduler = (window as any).cancelIdleCallback as ((id: number) => void) | undefined;
@@ -2090,16 +2098,20 @@ out body 40;
                     key={`hero-mobile-image-${idx}`}
                     onClick={() => openLightbox(idx)}
                   >
-                    <SmartImage
-                      src={imageUrl}
-                      alt={`${property.title} - ${idx + 1}`}
-                      className="h-full w-full object-cover"
-                      loading={idx === 0 ? "eager" : "lazy"}
-                      decoding="async"
-                      fetchPriority={idx === 0 ? "high" : "low"}
-                      targetWidth={1080}
-                      quality={72}
-                    />
+                    {mobileVisibleImageIndexes.has(idx) ? (
+                      <SmartImage
+                        src={imageUrl}
+                        alt={`${property.title} - ${idx + 1}`}
+                        className="h-full w-full object-cover"
+                        loading={idx === mobileGalleryIndex ? "eager" : "lazy"}
+                        decoding="async"
+                        fetchPriority={idx === mobileGalleryIndex ? "high" : "low"}
+                        targetWidth={900}
+                        quality={62}
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-gradient-to-br from-slate-200 to-slate-300" />
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent pointer-events-none" />
                   </div>
                 ))}
