@@ -4,6 +4,15 @@ const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
 const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(value);
 
+const isLocalLikeHost = (host: string) => {
+  const value = String(host || '').toLowerCase();
+  if (!value) return false;
+  if (value === 'localhost' || value === '127.0.0.1' || value === '0.0.0.0' || value === '::1') return true;
+  if (value.startsWith('10.') || value.startsWith('192.168.') || value.startsWith('169.254.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(value)) return true;
+  return false;
+};
+
 export function getApiBaseCandidates(): string[] {
   const configured = String(RAW_API_BASE || '/api').trim() || '/api';
   const candidates = new Set<string>();
@@ -14,7 +23,25 @@ export function getApiBaseCandidates(): string[] {
   }
 
   if (isAbsoluteUrl(configured)) {
-    candidates.add(trimTrailingSlash(configured));
+    const parsed = new URL(configured);
+    const configuredBase = trimTrailingSlash(configured);
+    const relativeBase = parsed.pathname.startsWith('/') ? parsed.pathname : `/${parsed.pathname}`;
+    const sameOriginApi = `${window.location.origin}${relativeBase}`.replace(/\/+$/, '');
+    const currentHostIsLocal = isLocalLikeHost(window.location.hostname);
+    const targetHostIsLocal = isLocalLikeHost(parsed.hostname);
+    const isHttpsPage = window.location.protocol === 'https:';
+    const isInsecureTarget = parsed.protocol === 'http:';
+
+    // Avoid mixed-content and localhost targets when running on public HTTPS.
+    if ((!currentHostIsLocal && targetHostIsLocal) || (isHttpsPage && isInsecureTarget)) {
+      candidates.add(sameOriginApi);
+      return Array.from(candidates);
+    }
+
+    candidates.add(configuredBase);
+    if (!currentHostIsLocal && targetHostIsLocal) {
+      candidates.add(sameOriginApi);
+    }
     return Array.from(candidates);
   }
 

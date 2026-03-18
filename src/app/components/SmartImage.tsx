@@ -8,6 +8,16 @@ type SmartImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
   fetchPriority?: "high" | "low" | "auto";
 };
 
+const FAILED_IMAGE_SOURCES = new Set<string>();
+const FALLBACK_IMAGE_DATA_URI =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M170 240l92-90 64 64 54-54 90 80H170z' fill='%23cbd5e1'/%3E%3Ccircle cx='250' cy='126' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
+
+function getNextImageSource(optimized: string, original: string): string {
+  if (optimized && !FAILED_IMAGE_SOURCES.has(optimized)) return optimized;
+  if (original && !FAILED_IMAGE_SOURCES.has(original)) return original;
+  return FALLBACK_IMAGE_DATA_URI;
+}
+
 export function SmartImage({
   src,
   quality = 72,
@@ -24,25 +34,29 @@ export function SmartImage({
     return getOptimizedMediaUrl(originalSrc, { width: targetWidth, quality });
   }, [originalSrc, quality, targetWidth]);
 
-  const [currentSrc, setCurrentSrc] = useState(optimizedSrc);
+  const [currentSrc, setCurrentSrc] = useState(() => getNextImageSource(optimizedSrc, originalSrc));
 
   useEffect(() => {
-    setCurrentSrc(optimizedSrc);
-  }, [optimizedSrc]);
+    setCurrentSrc(getNextImageSource(optimizedSrc, originalSrc));
+  }, [optimizedSrc, originalSrc]);
 
   return (
     <img
       {...rest}
       {...(fetchPriority ? ({ fetchpriority: fetchPriority } as Record<string, string>) : {})}
-      src={currentSrc || originalSrc}
+      src={currentSrc || FALLBACK_IMAGE_DATA_URI}
       onLoad={(event) => {
         onLoad?.(event);
       }}
       onError={(event) => {
-        if (currentSrc && currentSrc !== originalSrc) {
+        if (currentSrc) {
+          FAILED_IMAGE_SOURCES.add(currentSrc);
+        }
+        if (currentSrc && currentSrc !== originalSrc && originalSrc && !FAILED_IMAGE_SOURCES.has(originalSrc)) {
           setCurrentSrc(originalSrc);
           return;
         }
+        setCurrentSrc(FALLBACK_IMAGE_DATA_URI);
         onError?.(event);
       }}
     />
