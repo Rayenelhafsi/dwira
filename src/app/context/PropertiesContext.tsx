@@ -7,6 +7,8 @@ import { resolveBienCapacity } from '../utils/bienCapacity';
 // API Base URL
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const CHARACTERISTICS_MARKER = '[CARACTERISTIQUES_JSON]';
+const PROPERTY_FALLBACK_IMAGE_DATA_URI =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e5e7eb'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1200' height='675' fill='url(%23g)'/%3E%3C/svg%3E";
 function resolvePublicMediaUrl(url?: string | null): string {
   const value = String(url || '').trim();
   if (!value) return '';
@@ -365,7 +367,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
   const videoUrls = bien.media && bien.media.length > 0
     ? bien.media.filter((m: any) => m.type === 'video' && m.url).map((m: any) => resolvePublicMediaUrl(m.url)).filter(Boolean)
     : [];
-  const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800&auto=format&fit=crop';
+  const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || PROPERTY_FALLBACK_IMAGE_DATA_URI;
   const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
   const resolvedGuests = bien.mode === 'location_saisonniere'
     ? (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1))

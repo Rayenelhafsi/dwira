@@ -9,7 +9,8 @@ interface PropertyCardProps {
   searchParams?: string;
 }
 
-const PROPERTY_CARD_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200&auto=format&fit=crop";
+const PROPERTY_CARD_FALLBACK_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Crect width='1200' height='800' fill='%23e5e7eb'/%3E%3Cpath d='M220 560l180-180 120 120 110-110 170 150H220z' fill='%23cbd5e1'/%3E%3Ccircle cx='430' cy='260' r='56' fill='%23cbd5e1'/%3E%3C/svg%3E";
 
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const baseDetailPath = property.detailPath || `/properties/${property.slug}`;

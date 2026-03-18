@@ -280,7 +280,12 @@ async function main() {
       // Keep already-uploaded Cloudinary URLs untouched, but allow Cloudinary fetch URLs
       // so we can replace them with canonical /image/upload/ storage URLs.
       if (isCloudinaryUploadUrl(url) && !isCloudinaryFetchUrl(url)) return false;
-      return Boolean(extractUploadsRelativePath(url));
+      // Migrate:
+      // - local uploads (/uploads, /api/uploads)
+      // - cloudinary fetch URLs
+      // - any other absolute image URL (e.g. Unsplash demo/seed)
+      const isAbsoluteHttp = /^https?:\/\//i.test(url);
+      return Boolean(extractUploadsRelativePath(url)) || isAbsoluteHttp;
     });
 
     console.log(`Scanned rows: ${allRows.length}`);

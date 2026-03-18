@@ -17,6 +17,8 @@ import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const ADMIN_IMAGE_FALLBACK =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M170 240l92-90 64 64 54-54 90 80H170z' fill='%23cbd5e1'/%3E%3Ccircle cx='250' cy='126' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
 const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK = (locationSaisonniereServicesData as ServicePayantBien[]).map((service) =>
   normalizeServicePayant(service)
 );
@@ -967,7 +969,7 @@ export default function BiensPage() {
 function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
   const firstImageMedia = (bien.media || []).find((media) => media.type !== 'video');
   const firstVideoMedia = (bien.media || []).find((media) => media.type === 'video');
-  const mainImage = resolveMediaUrl(firstImageMedia?.url) || toYouTubeThumbnailUrl(firstVideoMedia?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=800';
+  const mainImage = resolveMediaUrl(firstImageMedia?.url) || toYouTubeThumbnailUrl(firstVideoMedia?.url) || ADMIN_IMAGE_FALLBACK;
   const imageCount = bien.media?.length || 0;
   const terrainMode = bien.terrain_mode_affichage_prix || 'total_et_m2';
   const terrainTotal = Number(bien.terrain_prix_affiche_total ?? bien.prix_affiche_client ?? bien.prix_nuitee ?? 0);
