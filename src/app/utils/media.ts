@@ -5,6 +5,8 @@ type MediaVariantOptions = {
   quality?: number;
 };
 
+const USE_SERVER_MEDIA_TRANSFORM = String(import.meta.env.VITE_USE_MEDIA_TRANSFORM || "").trim().toLowerCase() === "true";
+
 function parseUrl(value: string): URL | null {
   try {
     return new URL(value);
@@ -18,11 +20,14 @@ function extractUploadPath(url: string): string | null {
   if (!value) return null;
 
   if (value.startsWith("/uploads/")) return value;
+  if (value.startsWith("/api/uploads/")) return value.replace(/^\/api\/uploads\//, "/uploads/");
 
   const parsed = parseUrl(value);
   if (!parsed) return null;
 
-  return parsed.pathname.startsWith("/uploads/") ? parsed.pathname : null;
+  if (parsed.pathname.startsWith("/uploads/")) return parsed.pathname;
+  if (parsed.pathname.startsWith("/api/uploads/")) return parsed.pathname.replace(/^\/api\/uploads\//, "/uploads/");
+  return null;
 }
 
 function optimizeUnsplashUrl(url: string, width: number, quality: number): string {
@@ -53,6 +58,9 @@ export function getOriginalMediaUrl(url?: string | null): string {
     if (source.startsWith("/uploads/")) {
       return buildApiUrl(source);
     }
+    if (source.startsWith("/api/uploads/")) {
+      return buildApiUrl(source.replace(/^\/api\/uploads\//, "/uploads/"));
+    }
   }
 
   if (/images\.unsplash\.com/i.test(parsed.hostname)) {
@@ -77,6 +85,9 @@ export function getOptimizedMediaUrl(url?: string | null, options: MediaVariantO
   const uploadPath = extractUploadPath(value);
 
   if (uploadPath) {
+    if (!USE_SERVER_MEDIA_TRANSFORM) {
+      return buildApiUrl(uploadPath);
+    }
     const query = new URLSearchParams({
       src: uploadPath,
       w: String(width),

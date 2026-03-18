@@ -2,7 +2,12 @@ const availabilityCache = new Map<string, boolean>();
 const pendingChecks = new Map<string, Promise<boolean>>();
 
 function normalizeUrl(value?: string | null): string {
-  return String(value || "").trim();
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (normalized.startsWith("/api/uploads/")) {
+    return normalized.replace(/^\/api\/uploads\//, "/uploads/");
+  }
+  return normalized;
 }
 
 function isUploadsUrl(value: string): boolean {
