@@ -1,5 +1,6 @@
 import { ImgHTMLAttributes, useEffect, useMemo, useState } from "react";
 import { getOptimizedMediaUrl } from "../utils/media";
+import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
 
 type SmartImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
   src: string;
@@ -8,13 +9,12 @@ type SmartImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
   fetchPriority?: "high" | "low" | "auto";
 };
 
-const FAILED_IMAGE_SOURCES = new Set<string>();
 const FALLBACK_IMAGE_DATA_URI =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M170 240l92-90 64 64 54-54 90 80H170z' fill='%23cbd5e1'/%3E%3Ccircle cx='250' cy='126' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
 
 function getNextImageSource(optimized: string, original: string): string {
-  if (optimized && !FAILED_IMAGE_SOURCES.has(optimized)) return optimized;
-  if (original && !FAILED_IMAGE_SOURCES.has(original)) return original;
+  if (optimized && !hasFailedImageSource(optimized)) return optimized;
+  if (original && !hasFailedImageSource(original)) return original;
   return FALLBACK_IMAGE_DATA_URI;
 }
 
@@ -50,9 +50,9 @@ export function SmartImage({
       }}
       onError={(event) => {
         if (currentSrc) {
-          FAILED_IMAGE_SOURCES.add(currentSrc);
+          markFailedImageSource(currentSrc);
         }
-        if (currentSrc && currentSrc !== originalSrc && originalSrc && !FAILED_IMAGE_SOURCES.has(originalSrc)) {
+        if (currentSrc && currentSrc !== originalSrc && originalSrc && !hasFailedImageSource(originalSrc)) {
           setCurrentSrc(originalSrc);
           return;
         }

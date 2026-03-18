@@ -16,6 +16,7 @@ import { getAuthProviders, startSocialLogin } from "../services/auth";
 import { isYouTubeShortUrl, toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
+import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
@@ -507,7 +508,11 @@ export default function PropertyDetailsPage() {
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => p.slug === slug);
   const propertyVideos = property?.videos || [];
-  const galleryImages = property?.images || [];
+  const allGalleryImages = property?.images || [];
+  const galleryImages = useMemo(() => {
+    const filtered = allGalleryImages.filter((url) => !hasFailedImageSource(getOriginalMediaUrl(url)));
+    return filtered.length > 0 ? filtered : allGalleryImages;
+  }, [allGalleryImages]);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
   const [mobileGalleryIndex, setMobileGalleryIndex] = useState(0);
@@ -567,8 +572,7 @@ export default function PropertyDetailsPage() {
   const googlePlacesUnsupportedRef = useRef(false);
   const nearbyPlacesCacheRef = useRef<Record<string, NearbyPlace[]>>({});
   const nearbyPlacesFailureRef = useRef<Record<string, true>>({});
-  const lightboxTouchStartXRef = useRef<number | null>(null);
-  const lightboxWheelLockRef = useRef(false);
+  const lightboxPointerStartXRef = useRef<number | null>(null);
   const loadedLightboxPreviewSrcsRef = useRef<Set<string>>(new Set());
   const loadedLightboxOriginalSrcsRef = useRef<Set<string>>(new Set());
   const [lightboxOriginalLoaded, setLightboxOriginalLoaded] = useState(false);
@@ -1417,12 +1421,20 @@ out body 40;
   };
 
   const nextImage = useCallback(() => {
-    setCurrentImageIndex((prev) => (prev + 1) % property!.images.length);
-  }, [property]);
+    setCurrentImageIndex((prev) => (prev + 1) % Math.max(1, galleryImages.length));
+  }, [galleryImages.length]);
 
   const prevImage = useCallback(() => {
-    setCurrentImageIndex((prev) => (prev - 1 + property!.images.length) % property!.images.length);
-  }, [property]);
+    setCurrentImageIndex((prev) => (prev - 1 + Math.max(1, galleryImages.length)) % Math.max(1, galleryImages.length));
+  }, [galleryImages.length]);
+
+  useEffect(() => {
+    if (galleryImages.length === 0) {
+      setCurrentImageIndex(0);
+      return;
+    }
+    setCurrentImageIndex((prev) => (prev >= galleryImages.length ? 0 : prev));
+  }, [galleryImages.length]);
 
   // Keyboard navigation for lightbox
   useEffect(() => {
@@ -1454,15 +1466,64 @@ out body 40;
     ];
 
     preloadIndexes.forEach((index, preloadOrder) => {
-      const previewImage = new Image();
-      previewImage.decoding = "async";
-      previewImage.src = getLightboxPreviewSrc(index, preloadOrder === 0 ? 68 : 62);
+      const previewSrc = getLightboxPreviewSrc(index, preloadOrder === 0 ? 68 : 62);
+      if (previewSrc && !hasFailedImageSource(previewSrc)) {
+        const previewImage = new Image();
+        previewImage.decoding = "async";
+        previewImage.onload = () => {
+          loadedLightboxPreviewSrcsRef.current.add(previewSrc);
+        };
+        previewImage.onerror = () => {
+          markFailedImageSource(previewSrc);
+        };
+        previewImage.src = previewSrc;
+      }
 
-      const originalImage = new Image();
-      originalImage.decoding = "async";
-      originalImage.src = getLightboxOriginalSrc(index);
+      const originalSrc = getLightboxOriginalSrc(index);
+      if (originalSrc && !hasFailedImageSource(originalSrc)) {
+        const originalImage = new Image();
+        originalImage.decoding = "async";
+        originalImage.onload = () => {
+          loadedLightboxOriginalSrcsRef.current.add(originalSrc);
+        };
+        originalImage.onerror = () => {
+          markFailedImageSource(originalSrc);
+        };
+        originalImage.src = originalSrc;
+      }
     });
   }, [currentImageIndex, galleryImages, lightboxOpen, getLightboxOriginalSrc, getLightboxPreviewSrc]);
+
+  useEffect(() => {
+    if (galleryImages.length === 0) return;
+    const scheduler = (window as any).requestIdleCallback as ((cb: () => void) => number) | undefined;
+    const cancelScheduler = (window as any).cancelIdleCallback as ((id: number) => void) | undefined;
+    const task = () => {
+      galleryImages.forEach((_, index) => {
+        const previewSrc = getLightboxPreviewSrc(index, 60);
+        if (!previewSrc || hasFailedImageSource(previewSrc) || loadedLightboxPreviewSrcsRef.current.has(previewSrc)) return;
+        const img = new Image();
+        img.decoding = "async";
+        img.onload = () => {
+          loadedLightboxPreviewSrcsRef.current.add(previewSrc);
+        };
+        img.onerror = () => {
+          markFailedImageSource(previewSrc);
+        };
+        img.src = previewSrc;
+      });
+    };
+
+    if (scheduler) {
+      const id = scheduler(task);
+      return () => {
+        if (cancelScheduler) cancelScheduler(id);
+      };
+    }
+
+    const timeoutId = window.setTimeout(task, 250);
+    return () => window.clearTimeout(timeoutId);
+  }, [galleryImages, getLightboxPreviewSrc]);
 
   const visibleLightboxThumbIndexes = useMemo(() => {
     if (galleryImages.length <= 7) {
@@ -1485,32 +1546,20 @@ out body 40;
     [currentImageIndex, getLightboxOriginalSrc]
   );
 
-  const handleLightboxTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    lightboxTouchStartXRef.current = event.touches[0]?.clientX ?? null;
+  const handleLightboxPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    lightboxPointerStartXRef.current = event.clientX;
   }, []);
 
-  const handleLightboxTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    const startX = lightboxTouchStartXRef.current;
-    const endX = event.changedTouches[0]?.clientX ?? null;
-    lightboxTouchStartXRef.current = null;
+  const handleLightboxPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    const startX = lightboxPointerStartXRef.current;
+    const endX = event.clientX ?? null;
+    lightboxPointerStartXRef.current = null;
     if (startX === null || endX === null) return;
     const deltaX = endX - startX;
     if (Math.abs(deltaX) < 40) return;
     if (deltaX < 0) {
-      nextImage();
-      return;
-    }
-    prevImage();
-  }, [nextImage, prevImage]);
-
-  const handleLightboxWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (Math.abs(dominantDelta) < 18 || lightboxWheelLockRef.current) return;
-    lightboxWheelLockRef.current = true;
-    window.setTimeout(() => {
-      lightboxWheelLockRef.current = false;
-    }, 220);
-    if (dominantDelta > 0) {
       nextImage();
       return;
     }
@@ -3257,9 +3306,8 @@ out body 40;
           <div 
             className="relative w-full h-full flex items-center justify-center p-4 sm:p-8 md:p-16"
             onClick={(e) => e.stopPropagation()}
-            onTouchStart={handleLightboxTouchStart}
-            onTouchEnd={handleLightboxTouchEnd}
-            onWheel={handleLightboxWheel}
+            onPointerDown={handleLightboxPointerDown}
+            onPointerUp={handleLightboxPointerUp}
           >
             <SmartImage
               src={galleryImages[currentImageIndex]}
@@ -3291,6 +3339,7 @@ out body 40;
                 setLightboxImageLoading(false);
               }}
               onError={() => {
+                markFailedImageSource(currentLightboxOriginalSrc);
                 setLightboxOriginalLoaded(false);
                 setLightboxImageLoading(false);
               }}

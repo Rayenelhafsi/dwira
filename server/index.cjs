@@ -615,7 +615,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/google-places/nearby', async (req, res) => {
   try {
     if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(503).json({ error: 'GOOGLE_MAPS_API_KEY is not configured' });
+      return res.json({ places: [], disabled: true });
     }
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
