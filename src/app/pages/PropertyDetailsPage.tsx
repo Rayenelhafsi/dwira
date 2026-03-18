@@ -3255,10 +3255,15 @@ out body 40;
                       className="block bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group/card"
                     >
                       <div className="relative h-48 overflow-hidden">
-                        <img 
-                          src={otherProperty.images[0]} 
+                        <SmartImage
+                          src={otherProperty.images?.[0] || GALLERY_FALLBACK_IMAGE}
                           alt={otherProperty.title}
                           className="w-full h-full object-cover group-hover/card:scale-110 transition-transform duration-500"
+                          loading="lazy"
+                          decoding="async"
+                          fetchPriority="low"
+                          targetWidth={640}
+                          quality={60}
                         />
                         <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1">
                           <Star size={12} className="text-amber-500 fill-current" />

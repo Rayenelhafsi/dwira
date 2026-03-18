@@ -9,6 +9,8 @@ interface PropertyCardProps {
   searchParams?: string;
 }
 
+const PROPERTY_CARD_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200&auto=format&fit=crop";
+
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const baseDetailPath = property.detailPath || `/properties/${property.slug}`;
   const linkTo = searchParams 
@@ -35,7 +37,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <SmartImage
-            src={property.images[0]}
+            src={property.images?.[0] || PROPERTY_CARD_FALLBACK_IMAGE}
             alt={property.title}
             className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
             loading="lazy"
