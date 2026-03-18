@@ -1,11 +1,9 @@
 ﻿import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
 import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info } from "lucide-react";
-import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, cloneElement } from "react";
 import { createPortal } from "react-dom";
-import "leaflet/dist/leaflet.css";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import { format, differenceInDays, isWithinInterval, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -17,6 +15,7 @@ import { isYouTubeShortUrl, toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
+import { checkUploadsMediaAvailable } from "../utils/mediaAvailability";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
@@ -32,6 +31,8 @@ import {
   type PendingReservationDraft,
 } from "../utils/pendingReservation";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const GALLERY_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200&auto=format&fit=crop';
+const ENABLE_EXTERNAL_NEARBY_FALLBACK = import.meta.env.PROD;
 
 type FeatureApiRow = {
   id: string;
@@ -509,13 +510,46 @@ export default function PropertyDetailsPage() {
   const property = properties.find((p) => p.slug === slug);
   const propertyVideos = property?.videos || [];
   const allGalleryImages = property?.images || [];
+  const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>(allGalleryImages);
   const galleryImages = useMemo(() => {
-    const filtered = allGalleryImages.filter((url) => !hasFailedImageSource(getOriginalMediaUrl(url)));
-    return filtered.length > 0 ? filtered : allGalleryImages;
-  }, [allGalleryImages]);
+    const base = availableGalleryImages.length > 0 ? availableGalleryImages : allGalleryImages;
+    const filtered = base.filter((url) => !hasFailedImageSource(getOriginalMediaUrl(url)));
+    return filtered.length > 0 ? filtered : base;
+  }, [allGalleryImages, availableGalleryImages]);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
   const [mobileGalleryIndex, setMobileGalleryIndex] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const source = Array.isArray(allGalleryImages) ? allGalleryImages : [];
+    if (source.length === 0) {
+      setAvailableGalleryImages([]);
+      return;
+    }
+
+    const validate = async () => {
+      const checks = await Promise.all(
+        source.map(async (url) => {
+          const original = getOriginalMediaUrl(url);
+          const ok = await checkUploadsMediaAvailable(original);
+          if (!ok) {
+            markFailedImageSource(original);
+            return null;
+          }
+          return url;
+        })
+      );
+      if (cancelled) return;
+      const valid = checks.filter((item): item is string => Boolean(item));
+      setAvailableGalleryImages(valid.length > 0 ? valid : [GALLERY_FALLBACK_IMAGE]);
+    };
+
+    void validate();
+    return () => {
+      cancelled = true;
+    };
+  }, [allGalleryImages]);
 
   // Read filter state from URL
   const filterLocation = searchParams.get("location") || "";
@@ -711,6 +745,11 @@ out body 40;
           const googleResponse = await fetch(googleNearbyUrl);
           if (googleResponse.status === 404 || googleResponse.status === 503) {
             googlePlacesUnsupportedRef.current = true;
+            if (googleResponse.status === 503 || !ENABLE_EXTERNAL_NEARBY_FALLBACK) {
+              nearbyPlacesFailureRef.current[nearbyCacheKey] = true;
+              setNearbyPlaces([]);
+              return;
+            }
           } else if (googleResponse.ok) {
             const googlePayload = await googleResponse.json().catch(() => ({}));
             const googleRows = Array.isArray(googlePayload?.places) ? googlePayload.places : [];
@@ -742,6 +781,11 @@ out body 40;
               return;
             }
           }
+        }
+        if (!ENABLE_EXTERNAL_NEARBY_FALLBACK) {
+          nearbyPlacesFailureRef.current[nearbyCacheKey] = true;
+          setNearbyPlaces([]);
+          return;
         }
         const response = await fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST',
@@ -2609,39 +2653,14 @@ out body 40;
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
                {displayMapCenter ? (
                  <div className="property-location-map rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white relative">
-                   <MapContainer
-                     center={[displayMapCenter.lat, displayMapCenter.lng]}
-                     zoom={14}
-                     scrollWheelZoom
-                     className="h-full w-full property-location-map__leaflet"
-                   >
-                     <TileLayer
-                       attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
-                       url="https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}"
-                       subdomains={["mt0", "mt1", "mt2", "mt3"]}
-                       maxZoom={20}
-                     />
-                     <Circle
-                       center={[displayMapCenter.lat, displayMapCenter.lng]}
-                       radius={280}
-                       pathOptions={{
-                         color: "#10b981",
-                         weight: 2,
-                         fillColor: "#34d399",
-                         fillOpacity: 0.2,
-                       }}
-                     />
-                     <Circle
-                       center={[displayMapCenter.lat, displayMapCenter.lng]}
-                       radius={animatedCircleRadius}
-                       pathOptions={{
-                         color: "#10b981",
-                         weight: 1.5,
-                         fillColor: "#6ee7b7",
-                         fillOpacity: 0.08,
-                       }}
-                     />
-                   </MapContainer>
+                   <iframe
+                     title="Carte Google du bien"
+                     src={googleEmbedUrl}
+                     className="h-full w-full border-0"
+                     loading="lazy"
+                     referrerPolicy="no-referrer-when-downgrade"
+                     allowFullScreen
+                   />
                  </div>
                ) : (
                  <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">
@@ -3277,7 +3296,7 @@ out body 40;
 
           {/* Image counter */}
           <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm font-medium">
-            {currentImageIndex + 1} / {property.images.length}
+            {currentImageIndex + 1} / {galleryImages.length}
           </div>
 
           <button
@@ -3332,7 +3351,7 @@ out body 40;
               className={`absolute max-w-full max-h-full touch-pan-y object-contain rounded-lg shadow-2xl transition-opacity duration-300 ease-out select-none ${lightboxOriginalLoaded ? 'opacity-100' : 'opacity-0'}`}
               loading="eager"
               decoding="async"
-              fetchPriority="high"
+              {...({ fetchpriority: "high" } as Record<string, string>)}
               onLoad={() => {
                 loadedLightboxOriginalSrcsRef.current.add(currentLightboxOriginalSrc);
                 setLightboxOriginalLoaded(true);
