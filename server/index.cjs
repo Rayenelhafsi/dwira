@@ -27,6 +27,97 @@ const MESSENGER_API_VERSION = String(process.env.MESSENGER_API_VERSION || 'v21.0
 const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY || '').trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_OCR_MODEL = String(process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini').trim();
+const CLOUDINARY_UPLOAD_SOURCE_BASE_URL = String(process.env.CLOUDINARY_UPLOAD_SOURCE_BASE_URL || 'https://www.dwiraimmobilier.com').trim().replace(/\/+$/, '');
+
+function parseCloudinaryCredentials() {
+  const cloudinaryUrl = String(process.env.CLOUDINARY_URL || '').trim();
+  if (cloudinaryUrl.startsWith('cloudinary://')) {
+    try {
+      const parsed = new URL(cloudinaryUrl);
+      const cloudName = String(parsed.hostname || '').trim();
+      const apiKey = decodeURIComponent(String(parsed.username || '').trim());
+      const apiSecret = decodeURIComponent(String(parsed.password || '').trim());
+      if (cloudName && apiKey && apiSecret) {
+        return { cloudName, apiKey, apiSecret };
+      }
+    } catch {
+      // fallback to explicit env vars
+    }
+  }
+  const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+  const apiKey = String(process.env.CLOUDINARY_API_KEY || '').trim();
+  const apiSecret = String(process.env.CLOUDINARY_API_SECRET || '').trim();
+  if (!cloudName || !apiKey || !apiSecret) return null;
+  return { cloudName, apiKey, apiSecret };
+}
+
+const CLOUDINARY_CREDS = parseCloudinaryCredentials();
+const CLOUDINARY_UPLOAD_FOLDER = String(process.env.CLOUDINARY_UPLOAD_FOLDER || 'dwira_uploads').trim().replace(/^\/+|\/+$/g, '');
+
+function signCloudinaryParams(params, apiSecret) {
+  const signatureBase = Object.keys(params)
+    .filter((key) => params[key] !== undefined && params[key] !== null && params[key] !== '')
+    .sort()
+    .map((key) => `${key}=${params[key]}`)
+    .join('&');
+  return crypto.createHash('sha1').update(`${signatureBase}${apiSecret}`).digest('hex');
+}
+
+function buildCloudinaryPublicId(filename, folderPrefix = CLOUDINARY_UPLOAD_FOLDER) {
+  const safeBase = String(filename || '')
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[^a-zA-Z0-9/_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '') || `media_${Date.now()}`;
+  const cleanPrefix = String(folderPrefix || '').trim().replace(/^\/+|\/+$/g, '');
+  return cleanPrefix ? `${cleanPrefix}/${safeBase}` : safeBase;
+}
+
+async function uploadLocalMediaToCloudinary({ localUrlPath, filename, mimetype, folderPrefix }) {
+  if (!CLOUDINARY_CREDS) return null;
+  const mediaType = String(mimetype || '').startsWith('video/') ? 'video' : 'image';
+  const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CREDS.cloudName}/${mediaType}/upload`;
+  const timestamp = Math.floor(Date.now() / 1000);
+  const publicId = buildCloudinaryPublicId(filename, folderPrefix);
+  const remoteFileUrl = `${CLOUDINARY_UPLOAD_SOURCE_BASE_URL}${localUrlPath.startsWith('/') ? localUrlPath : `/${localUrlPath}`}`;
+
+  const paramsForSignature = {
+    folder: '',
+    invalidate: 'true',
+    overwrite: 'true',
+    public_id: publicId,
+    timestamp: String(timestamp),
+    type: 'upload',
+    unique_filename: 'false',
+    use_filename: 'false',
+  };
+  const signature = signCloudinaryParams(paramsForSignature, CLOUDINARY_CREDS.apiSecret);
+
+  const form = new FormData();
+  form.append('file', remoteFileUrl);
+  form.append('public_id', publicId);
+  form.append('overwrite', 'true');
+  form.append('invalidate', 'true');
+  form.append('unique_filename', 'false');
+  form.append('use_filename', 'false');
+  form.append('type', 'upload');
+  form.append('timestamp', String(timestamp));
+  form.append('api_key', CLOUDINARY_CREDS.apiKey);
+  form.append('signature', signature);
+
+  const response = await fetch(endpoint, { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+  return {
+    url: String(payload.secure_url || '').trim(),
+    publicId: String(payload.public_id || publicId).trim(),
+    resourceType: String(payload.resource_type || mediaType).trim(),
+    bytes: Number(payload.bytes || 0),
+  };
+}
 const ALLOWED_ORIGINS = [
   ...String(process.env.FRONTEND_URL || CANONICAL_FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
   CANONICAL_FRONTEND_URL,
@@ -7523,14 +7614,57 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    
-    const mediaUrl = `/uploads/${req.file.filename}`;
-    res.json({ 
-      success: true, 
-      url: mediaUrl,
+
+    const mediaType = String(req.file.mimetype || '').startsWith('video/') ? 'video' : 'image';
+    const localUrl = `/uploads/${req.file.filename}`;
+    const bienIdRaw = Array.isArray(req.body?.bien_id) ? req.body.bien_id[0] : req.body?.bien_id;
+    const bienRefRaw = Array.isArray(req.body?.bien_reference) ? req.body.bien_reference[0] : req.body?.bien_reference;
+    const bienId = String(bienIdRaw || '').trim();
+    const bienReference = String(bienRefRaw || '').trim();
+    const folderKey = (bienReference || bienId || 'unassigned')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'unassigned';
+
+    if (CLOUDINARY_CREDS) {
+      try {
+        const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}biens/${folderKey}`;
+        const uploaded = await uploadLocalMediaToCloudinary({
+          localUrlPath: localUrl,
+          filename: req.file.filename,
+          mimetype: req.file.mimetype,
+          folderPrefix: dynamicFolder,
+        });
+
+        if (uploaded?.url) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch {
+            // keep local file if deletion fails
+          }
+          return res.json({
+            success: true,
+            url: uploaded.url,
+            provider: 'cloudinary',
+            publicId: uploaded.publicId,
+            filename: req.file.filename,
+            mimetype: req.file.mimetype,
+            mediaType,
+          });
+        }
+      } catch (cloudError) {
+        console.error('Cloudinary upload failed, fallback to local:', cloudError?.message || cloudError);
+      }
+    }
+
+    res.json({
+      success: true,
+      url: localUrl,
+      provider: 'local',
       filename: req.file.filename,
       mimetype: req.file.mimetype,
-      mediaType: String(req.file.mimetype || '').startsWith('video/') ? 'video' : 'image'
+      mediaType,
     });
   } catch (error) {
     console.error('Error uploading media:', error);

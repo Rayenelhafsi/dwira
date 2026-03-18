@@ -1574,6 +1574,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       for (const file of files) {
         const uploadFormData = new FormData();
         uploadFormData.append('image', file);
+        uploadFormData.append('bien_id', String(formData.id || ''));
+        uploadFormData.append('bien_reference', String(formData.reference || ''));
         const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
         if (!response.ok) {
           let errorMessage = 'Upload failed';
@@ -1617,6 +1619,8 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       for (const file of files) {
         const uploadFormData = new FormData();
         uploadFormData.append('image', file);
+        uploadFormData.append('bien_id', String(formData.id || ''));
+        uploadFormData.append('bien_reference', String(formData.reference || ''));
         const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
         if (!response.ok) {
           continue;
