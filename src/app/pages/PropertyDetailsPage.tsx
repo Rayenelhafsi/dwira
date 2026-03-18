@@ -510,12 +510,15 @@ export default function PropertyDetailsPage() {
   const property = properties.find((p) => p.slug === slug);
   const propertyVideos = property?.videos || [];
   const allGalleryImages = property?.images || [];
-  const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>(allGalleryImages);
+  const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>([GALLERY_FALLBACK_IMAGE]);
+  const [galleryAvailabilityChecked, setGalleryAvailabilityChecked] = useState(false);
   const galleryImages = useMemo(() => {
-    const base = availableGalleryImages.length > 0 ? availableGalleryImages : allGalleryImages;
+    const base = galleryAvailabilityChecked
+      ? (availableGalleryImages.length > 0 ? availableGalleryImages : [GALLERY_FALLBACK_IMAGE])
+      : [GALLERY_FALLBACK_IMAGE];
     const filtered = base.filter((url) => !hasFailedImageSource(getOriginalMediaUrl(url)));
     return filtered.length > 0 ? filtered : base;
-  }, [allGalleryImages, availableGalleryImages]);
+  }, [availableGalleryImages, galleryAvailabilityChecked]);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const lastTrackedVisitKeyRef = useRef<string>('');
   const [mobileGalleryIndex, setMobileGalleryIndex] = useState(0);
@@ -524,7 +527,8 @@ export default function PropertyDetailsPage() {
     let cancelled = false;
     const source = Array.isArray(allGalleryImages) ? allGalleryImages : [];
     if (source.length === 0) {
-      setAvailableGalleryImages([]);
+      setAvailableGalleryImages([GALLERY_FALLBACK_IMAGE]);
+      setGalleryAvailabilityChecked(true);
       return;
     }
 
@@ -543,8 +547,10 @@ export default function PropertyDetailsPage() {
       if (cancelled) return;
       const valid = checks.filter((item): item is string => Boolean(item));
       setAvailableGalleryImages(valid.length > 0 ? valid : [GALLERY_FALLBACK_IMAGE]);
+      setGalleryAvailabilityChecked(true);
     };
 
+    setGalleryAvailabilityChecked(false);
     void validate();
     return () => {
       cancelled = true;

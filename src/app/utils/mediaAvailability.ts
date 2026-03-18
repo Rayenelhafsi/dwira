@@ -8,9 +8,10 @@ function normalizeUrl(value?: string | null): string {
 function isUploadsUrl(value: string): boolean {
   if (!value) return false;
   if (value.startsWith("/uploads/")) return true;
+  if (value.startsWith("/api/uploads/")) return true;
   try {
     const parsed = new URL(value);
-    return parsed.pathname.startsWith("/uploads/");
+    return parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/uploads/");
   } catch {
     return false;
   }
