@@ -32,7 +32,8 @@ import {
 } from "../utils/pendingReservation";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const GALLERY_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200&auto=format&fit=crop';
-const ENABLE_EXTERNAL_NEARBY_FALLBACK = import.meta.env.PROD;
+const ENABLE_EXTERNAL_NEARBY_FALLBACK = String(import.meta.env.VITE_ENABLE_EXTERNAL_NEARBY_FALLBACK || '').trim().toLowerCase() === 'true';
+const ENABLE_MEDIA_AVAILABILITY_PROBE = import.meta.env.PROD;
 
 type FeatureApiRow = {
   id: string;
@@ -531,6 +532,11 @@ export default function PropertyDetailsPage() {
       setGalleryAvailabilityChecked(true);
       return;
     }
+    if (!ENABLE_MEDIA_AVAILABILITY_PROBE) {
+      setAvailableGalleryImages(source);
+      setGalleryAvailabilityChecked(true);
+      return;
+    }
 
     const validate = async () => {
       const checks = await Promise.all(
@@ -758,6 +764,12 @@ out body 40;
             }
           } else if (googleResponse.ok) {
             const googlePayload = await googleResponse.json().catch(() => ({}));
+            if (googlePayload?.disabled === true) {
+              googlePlacesUnsupportedRef.current = true;
+              nearbyPlacesFailureRef.current[nearbyCacheKey] = true;
+              setNearbyPlaces([]);
+              return;
+            }
             const googleRows = Array.isArray(googlePayload?.places) ? googlePayload.places : [];
             const googleItems = googleRows
               .map((row: any) => {
@@ -3345,6 +3357,9 @@ out body 40;
               quality={68}
               onLoad={() => {
                 loadedLightboxPreviewSrcsRef.current.add(currentLightboxPreviewSrc);
+                setLightboxImageLoading(false);
+              }}
+              onError={() => {
                 setLightboxImageLoading(false);
               }}
               style={{
