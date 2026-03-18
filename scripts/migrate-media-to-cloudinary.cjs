@@ -153,9 +153,9 @@ function safePublicIdPart(input) {
     .replace(/^_+|_+$/g, '');
 }
 
-function buildPublicId(options, row) {
+function buildCloudinaryTarget(options, row) {
   const relative = extractUploadsRelativePath(row.url) || '';
-  const relativeSafe = safePublicIdPart(relative);
+  const relativeSafe = safePublicIdPart(path.basename(relative));
   const fallback = `media_${safePublicIdPart(row.id) || Date.now()}`;
   const folderKey = safePublicIdPart(
     String(row.bien_reference || row.bien_id || 'unassigned')
@@ -164,10 +164,10 @@ function buildPublicId(options, row) {
       .replace(/-+/g, '-')
       .replace(/^-+|-+$/g, '')
   ) || 'unassigned';
-  const base = relativeSafe || fallback;
+  const publicId = relativeSafe || fallback;
   const folder = String(options.folder || '').replace(/^\/+|\/+$/g, '');
-  const root = folder ? `${folder}/biens/${folderKey}` : `biens/${folderKey}`;
-  return `${root}/${base}`;
+  const targetFolder = folder ? `${folder}/biens/${folderKey}` : `biens/${folderKey}`;
+  return { targetFolder, publicId };
 }
 
 function signCloudinaryParams(params, apiSecret) {
@@ -182,7 +182,7 @@ function signCloudinaryParams(params, apiSecret) {
 async function uploadToCloudinary(creds, row, options) {
   const endpoint = `https://api.cloudinary.com/v1_1/${creds.cloudName}/image/upload`;
   const timestamp = Math.floor(Date.now() / 1000);
-  const publicId = buildPublicId(options, row);
+  const { targetFolder, publicId } = buildCloudinaryTarget(options, row);
   const file = buildOriginUrl(row.url);
 
   if (!file) {
@@ -190,7 +190,7 @@ async function uploadToCloudinary(creds, row, options) {
   }
 
   const paramsForSignature = {
-    folder: '',
+    folder: targetFolder,
     invalidate: 'true',
     overwrite: options.overwrite ? 'true' : 'false',
     public_id: publicId,
@@ -205,6 +205,7 @@ async function uploadToCloudinary(creds, row, options) {
 
   const form = new FormData();
   form.append('file', file);
+  if (targetFolder) form.append('folder', targetFolder);
   form.append('public_id', publicId);
   form.append('overwrite', options.overwrite ? 'true' : 'false');
   form.append('invalidate', 'true');
@@ -249,7 +250,7 @@ async function main() {
   console.log(`Tag: ${options.tag}`);
   console.log(`Overwrite: ${options.overwrite ? 'yes' : 'no'}`);
 
-  const where = ["type = 'image'"];
+  const where = ["m.type = 'image'"];
   const params = [];
   if (options.bienId) {
     where.push('bien_id = ?');

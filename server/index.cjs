@@ -70,8 +70,7 @@ function buildCloudinaryPublicId(filename, folderPrefix = CLOUDINARY_UPLOAD_FOLD
     .replace(/[^a-zA-Z0-9/_-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '') || `media_${Date.now()}`;
-  const cleanPrefix = String(folderPrefix || '').trim().replace(/^\/+|\/+$/g, '');
-  return cleanPrefix ? `${cleanPrefix}/${safeBase}` : safeBase;
+  return safeBase;
 }
 
 async function uploadLocalMediaToCloudinary({ localFilePath, filename, mimetype, folderPrefix }) {
@@ -80,12 +79,13 @@ async function uploadLocalMediaToCloudinary({ localFilePath, filename, mimetype,
   const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CREDS.cloudName}/${mediaType}/upload`;
   const timestamp = Math.floor(Date.now() / 1000);
   const publicId = buildCloudinaryPublicId(filename, folderPrefix);
+  const cloudinaryFolder = String(folderPrefix || '').trim().replace(/^\/+|\/+$/g, '');
   const fileBuffer = await fs.promises.readFile(localFilePath);
   const effectiveMime = String(mimetype || '').trim() || 'application/octet-stream';
   const dataUri = `data:${effectiveMime};base64,${fileBuffer.toString('base64')}`;
 
   const paramsForSignature = {
-    folder: '',
+    folder: cloudinaryFolder,
     invalidate: 'true',
     overwrite: 'true',
     public_id: publicId,
@@ -98,6 +98,9 @@ async function uploadLocalMediaToCloudinary({ localFilePath, filename, mimetype,
 
   const form = new FormData();
   form.append('file', dataUri);
+  if (cloudinaryFolder) {
+    form.append('folder', cloudinaryFolder);
+  }
   form.append('public_id', publicId);
   form.append('overwrite', 'true');
   form.append('invalidate', 'true');

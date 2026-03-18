@@ -104,7 +104,7 @@ export default function VentesListPage() {
             {venteBiens.map((bien) => {
               const zoneName = zones.find((z) => z.id === bien.zone_id)?.nom || 'Zone non definie';
               const displayImages = (bien.media || []).filter((m) => !String(m.motif_upload || '').startsWith('preuve_type_'));
-              const imageUrl = resolveMediaUrl(displayImages[0]?.url) || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?q=80&w=1200&auto=format&fit=crop';
+              const imageUrl = resolveMediaUrl(displayImages[0]?.url) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Crect width='1200' height='800' fill='%23e5e7eb'/%3E%3Cpath d='M220 560l180-180 120 120 110-110 170 150H220z' fill='%23cbd5e1'/%3E%3Ccircle cx='430' cy='260' r='56' fill='%23cbd5e1'/%3E%3C/svg%3E";
               const publicPrice = getPublicPrice(bien);
               const contactPhone = normalizePhone(proprietaires.find((owner) => owner.id === bien.proprietaire_id)?.telephone) || DEFAULT_CONTACT_PHONE;
               const contactConfig = getPublicContactForMode(bien.mode);

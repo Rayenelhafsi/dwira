@@ -1572,38 +1572,45 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     }
     setUploading(true);
     try {
-      const uploadedMedia: Media[] = [];
+      let uploadedCount = 0;
+      let failedCount = 0;
       for (const file of files) {
-        const uploadFormData = new FormData();
-        uploadFormData.append('image', file);
-        uploadFormData.append('bien_id', String(formData.id || ''));
-        uploadFormData.append('bien_reference', String(formData.reference || ''));
-        const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
-        if (!response.ok) {
-          let errorMessage = 'Upload failed';
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const payload = await response.json().catch(() => null);
-            errorMessage = String(payload?.error || errorMessage);
-          } else {
-            errorMessage = await response.text().catch(() => errorMessage);
+        try {
+          const uploadFormData = new FormData();
+          uploadFormData.append('image', file);
+          uploadFormData.append('bien_id', String(formData.id || ''));
+          uploadFormData.append('bien_reference', String(formData.reference || ''));
+          const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
+          if (!response.ok) {
+            let errorMessage = 'Upload failed';
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const payload = await response.json().catch(() => null);
+              errorMessage = String(payload?.error || errorMessage);
+            } else {
+              errorMessage = await response.text().catch(() => errorMessage);
+            }
+            throw new Error(errorMessage);
           }
-          throw new Error(errorMessage);
+          const data = await response.json();
+          const newMedia: Media = {
+            id: Math.random().toString(36).substr(2, 9),
+            bien_id: '',
+            type: String(data.mediaType || '').startsWith('video') ? 'video' : 'image',
+            url: data.url,
+            motif_upload: resolvedMotif,
+          };
+          setImages((prev) => [...prev, newMedia]);
+          uploadedCount += 1;
+        } catch {
+          failedCount += 1;
         }
-        const data = await response.json();
-        uploadedMedia.push({
-          id: Math.random().toString(36).substr(2, 9),
-          bien_id: '',
-          type: String(data.mediaType || '').startsWith('video') ? 'video' : 'image',
-          url: data.url,
-          motif_upload: resolvedMotif,
-        });
       }
-      setImages((prev) => [...prev, ...uploadedMedia]);
       if (isLocalCommercial && !motifOverride) setNewImageMotif('');
-      toast.success('Image uploadée');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erreur upload');
+      if (uploadedCount > 0) toast.success(`${uploadedCount}/${files.length} image(s) uploadee(s)`);
+      if (failedCount > 0) toast.error(`${failedCount} image(s) ont echoue`);
+    } catch {
+      toast.error('Erreur upload');
     }
     finally { setUploading(false); e.target.value = ''; }
   };
@@ -5917,4 +5924,5 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
     </div>
   );
 }
+
 
