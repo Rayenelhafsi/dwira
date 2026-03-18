@@ -34,6 +34,9 @@ const GALLERY_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e5e7eb'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1200' height='675' fill='url(%23g)'/%3E%3C/svg%3E";
 const ENABLE_EXTERNAL_NEARBY_FALLBACK = String(import.meta.env.VITE_ENABLE_EXTERNAL_NEARBY_FALLBACK || '').trim().toLowerCase() === 'true';
 const ENABLE_MEDIA_AVAILABILITY_PROBE = String(import.meta.env.VITE_ENABLE_MEDIA_AVAILABILITY_PROBE || '').trim().toLowerCase() === 'true';
+const LIGHTBOX_QUALITY_LOW = 44;
+const LIGHTBOX_QUALITY_MEDIUM = 60;
+const LIGHTBOX_QUALITY_HIGH = 72;
 
 type FeatureApiRow = {
   id: string;
@@ -621,7 +624,9 @@ export default function PropertyDetailsPage() {
   const lightboxPointerStartXRef = useRef<number | null>(null);
   const loadedLightboxPreviewSrcsRef = useRef<Set<string>>(new Set());
   const loadedLightboxOriginalSrcsRef = useRef<Set<string>>(new Set());
+  const lightboxPreloadRunIdRef = useRef(0);
   const [lightboxOriginalLoaded, setLightboxOriginalLoaded] = useState(false);
+  const [lightboxPreviewQualityByIndex, setLightboxPreviewQualityByIndex] = useState<Record<number, number>>({});
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -1467,9 +1472,87 @@ out body 40;
     return getOptimizedMediaUrl(galleryImages[safeIndex], { width: lightboxPreviewTargetWidth, quality });
   }, [galleryImages, lightboxPreviewTargetWidth]);
 
+  const ensureLightboxPreviewQuality = useCallback((index: number, quality: number) => {
+    return new Promise<boolean>((resolve) => {
+      if (galleryImages.length === 0) {
+        resolve(false);
+        return;
+      }
+      const safeIndex = ((index % galleryImages.length) + galleryImages.length) % galleryImages.length;
+      const previewSrc = getLightboxPreviewSrc(safeIndex, quality);
+      if (!previewSrc) {
+        resolve(false);
+        return;
+      }
+      if (loadedLightboxPreviewSrcsRef.current.has(previewSrc)) {
+        setLightboxPreviewQualityByIndex((prev) => {
+          const currentQuality = prev[safeIndex] || 0;
+          if (currentQuality >= quality) return prev;
+          return { ...prev, [safeIndex]: quality };
+        });
+        resolve(true);
+        return;
+      }
+      if (hasFailedImageSource(previewSrc)) {
+        resolve(false);
+        return;
+      }
+      const previewImage = new Image();
+      previewImage.decoding = "async";
+      previewImage.onload = () => {
+        loadedLightboxPreviewSrcsRef.current.add(previewSrc);
+        setLightboxPreviewQualityByIndex((prev) => {
+          const currentQuality = prev[safeIndex] || 0;
+          if (currentQuality >= quality) return prev;
+          return { ...prev, [safeIndex]: quality };
+        });
+        resolve(true);
+      };
+      previewImage.onerror = () => {
+        markFailedImageSource(previewSrc);
+        resolve(false);
+      };
+      previewImage.src = previewSrc;
+    });
+  }, [galleryImages.length, getLightboxPreviewSrc]);
+
+  const ensureLightboxOriginalLoaded = useCallback((index: number) => {
+    return new Promise<boolean>((resolve) => {
+      if (galleryImages.length === 0) {
+        resolve(false);
+        return;
+      }
+      const safeIndex = ((index % galleryImages.length) + galleryImages.length) % galleryImages.length;
+      const originalSrc = getLightboxOriginalSrc(safeIndex);
+      if (!originalSrc) {
+        resolve(false);
+        return;
+      }
+      if (loadedLightboxOriginalSrcsRef.current.has(originalSrc)) {
+        resolve(true);
+        return;
+      }
+      if (hasFailedImageSource(originalSrc)) {
+        resolve(false);
+        return;
+      }
+      const originalImage = new Image();
+      originalImage.decoding = "async";
+      originalImage.onload = () => {
+        loadedLightboxOriginalSrcsRef.current.add(originalSrc);
+        resolve(true);
+      };
+      originalImage.onerror = () => {
+        markFailedImageSource(originalSrc);
+        resolve(false);
+      };
+      originalImage.src = originalSrc;
+    });
+  }, [galleryImages.length, getLightboxOriginalSrc]);
+
   const openLightbox = (index: number) => {
     const initialOriginalSrc = getLightboxOriginalSrc(index);
-    const initialPreviewSrc = getLightboxPreviewSrc(index, 68);
+    const initialPreviewSrc = getLightboxPreviewSrc(index, LIGHTBOX_QUALITY_LOW);
     setCurrentImageIndex(index);
     setLightboxOriginalLoaded(loadedLightboxOriginalSrcsRef.current.has(initialOriginalSrc));
     setLightboxImageLoading(!loadedLightboxPreviewSrcsRef.current.has(initialPreviewSrc));
@@ -1515,46 +1598,81 @@ out body 40;
   useEffect(() => {
     if (!lightboxOpen || galleryImages.length === 0) return;
 
+    const runId = ++lightboxPreloadRunIdRef.current;
+    const isStale = () => runId !== lightboxPreloadRunIdRef.current;
     const currentOriginalSrc = getLightboxOriginalSrc(currentImageIndex);
-    const currentPreviewSrc = getLightboxPreviewSrc(currentImageIndex, 68);
+    const currentPreviewSrc = getLightboxPreviewSrc(currentImageIndex, LIGHTBOX_QUALITY_LOW);
     const hasOriginal = loadedLightboxOriginalSrcsRef.current.has(currentOriginalSrc);
     const hasPreview = loadedLightboxPreviewSrcsRef.current.has(currentPreviewSrc);
     setLightboxOriginalLoaded(hasOriginal);
     setLightboxImageLoading(!hasPreview);
-    const preloadIndexes = [
-      currentImageIndex,
-      (currentImageIndex + 1) % galleryImages.length,
-      (currentImageIndex - 1 + galleryImages.length) % galleryImages.length,
-    ];
+    const nextIndex = (currentImageIndex + 1) % galleryImages.length;
+    const prevIndex = (currentImageIndex - 1 + galleryImages.length) % galleryImages.length;
 
-    preloadIndexes.forEach((index, preloadOrder) => {
-      const previewSrc = getLightboxPreviewSrc(index, preloadOrder === 0 ? 68 : 62);
-      if (previewSrc && !hasFailedImageSource(previewSrc)) {
-        const previewImage = new Image();
-        previewImage.decoding = "async";
-        previewImage.onload = () => {
-          loadedLightboxPreviewSrcsRef.current.add(previewSrc);
-        };
-        previewImage.onerror = () => {
-          markFailedImageSource(previewSrc);
-        };
-        previewImage.src = previewSrc;
+    const preloadOrder: number[] = [];
+    const seen = new Set<number>();
+    const pushUnique = (index: number) => {
+      const safe = ((index % galleryImages.length) + galleryImages.length) % galleryImages.length;
+      if (seen.has(safe)) return;
+      seen.add(safe);
+      preloadOrder.push(safe);
+    };
+    pushUnique(currentImageIndex);
+    pushUnique(nextIndex);
+    pushUnique(prevIndex);
+    for (let offset = 2; offset < galleryImages.length; offset += 1) {
+      pushUnique(currentImageIndex + offset);
+      pushUnique(currentImageIndex - offset);
+    }
+
+    void (async () => {
+      // Phase 1: render the current image quickly at low quality.
+      await ensureLightboxPreviewQuality(currentImageIndex, LIGHTBOX_QUALITY_LOW);
+      if (isStale()) return;
+      setLightboxImageLoading(false);
+
+      // Phase 2: secure near navigation first.
+      await ensureLightboxPreviewQuality(nextIndex, LIGHTBOX_QUALITY_LOW);
+      if (isStale()) return;
+      await ensureLightboxPreviewQuality(prevIndex, LIGHTBOX_QUALITY_LOW);
+      if (isStale()) return;
+
+      // Phase 3: progressively improve current image quality.
+      await ensureLightboxPreviewQuality(currentImageIndex, LIGHTBOX_QUALITY_MEDIUM);
+      if (isStale()) return;
+      await ensureLightboxPreviewQuality(currentImageIndex, LIGHTBOX_QUALITY_HIGH);
+      if (isStale()) return;
+      await ensureLightboxOriginalLoaded(currentImageIndex);
+      if (isStale()) return;
+
+      // Phase 4: load the rest one-by-one to avoid connection spikes.
+      for (const index of preloadOrder) {
+        if (isStale()) return;
+        if (index === currentImageIndex || index === nextIndex || index === prevIndex) continue;
+        await ensureLightboxPreviewQuality(index, LIGHTBOX_QUALITY_LOW);
       }
 
-      const originalSrc = getLightboxOriginalSrc(index);
-      if (originalSrc && !hasFailedImageSource(originalSrc)) {
-        const originalImage = new Image();
-        originalImage.decoding = "async";
-        originalImage.onload = () => {
-          loadedLightboxOriginalSrcsRef.current.add(originalSrc);
-        };
-        originalImage.onerror = () => {
-          markFailedImageSource(originalSrc);
-        };
-        originalImage.src = originalSrc;
+      // Phase 5: gradual enhancement for all loaded previews.
+      for (const quality of [LIGHTBOX_QUALITY_MEDIUM, LIGHTBOX_QUALITY_HIGH]) {
+        for (const index of preloadOrder) {
+          if (isStale()) return;
+          await ensureLightboxPreviewQuality(index, quality);
+        }
       }
-    });
-  }, [currentImageIndex, galleryImages, lightboxOpen, getLightboxOriginalSrc, getLightboxPreviewSrc]);
+    })();
+
+    return () => {
+      lightboxPreloadRunIdRef.current += 1;
+    };
+  }, [
+    currentImageIndex,
+    galleryImages.length,
+    lightboxOpen,
+    getLightboxOriginalSrc,
+    getLightboxPreviewSrc,
+    ensureLightboxOriginalLoaded,
+    ensureLightboxPreviewQuality,
+  ]);
 
   useEffect(() => {
     if (!lightboxOpen || !lightboxImageLoading) return;
@@ -1565,35 +1683,9 @@ out body 40;
   }, [lightboxImageLoading, lightboxOpen, currentImageIndex]);
 
   useEffect(() => {
-    if (galleryImages.length === 0) return;
-    const scheduler = (window as any).requestIdleCallback as ((cb: () => void) => number) | undefined;
-    const cancelScheduler = (window as any).cancelIdleCallback as ((id: number) => void) | undefined;
-    const task = () => {
-      galleryImages.forEach((_, index) => {
-        const previewSrc = getLightboxPreviewSrc(index, 60);
-        if (!previewSrc || hasFailedImageSource(previewSrc) || loadedLightboxPreviewSrcsRef.current.has(previewSrc)) return;
-        const img = new Image();
-        img.decoding = "async";
-        img.onload = () => {
-          loadedLightboxPreviewSrcsRef.current.add(previewSrc);
-        };
-        img.onerror = () => {
-          markFailedImageSource(previewSrc);
-        };
-        img.src = previewSrc;
-      });
-    };
-
-    if (scheduler) {
-      const id = scheduler(task);
-      return () => {
-        if (cancelScheduler) cancelScheduler(id);
-      };
-    }
-
-    const timeoutId = window.setTimeout(task, 250);
-    return () => window.clearTimeout(timeoutId);
-  }, [galleryImages, getLightboxPreviewSrc]);
+    if (lightboxOpen) return;
+    lightboxPreloadRunIdRef.current += 1;
+  }, [lightboxOpen]);
 
   const visibleLightboxThumbIndexes = useMemo(() => {
     if (galleryImages.length <= 7) {
@@ -1607,9 +1699,13 @@ out body 40;
     return indexes;
   }, [currentImageIndex, galleryImages]);
 
+  const currentLightboxPreviewQuality = useMemo(
+    () => lightboxPreviewQualityByIndex[currentImageIndex] || LIGHTBOX_QUALITY_LOW,
+    [currentImageIndex, lightboxPreviewQualityByIndex]
+  );
   const currentLightboxPreviewSrc = useMemo(
-    () => getLightboxPreviewSrc(currentImageIndex, 68),
-    [currentImageIndex, getLightboxPreviewSrc]
+    () => getLightboxPreviewSrc(currentImageIndex, currentLightboxPreviewQuality),
+    [currentImageIndex, currentLightboxPreviewQuality, getLightboxPreviewSrc]
   );
   const currentLightboxOriginalSrc = useMemo(
     () => getLightboxOriginalSrc(currentImageIndex),
@@ -3371,7 +3467,7 @@ out body 40;
               decoding="async"
               fetchPriority="high"
               targetWidth={lightboxPreviewTargetWidth}
-              quality={68}
+              quality={currentLightboxPreviewQuality}
               onLoad={() => {
                 loadedLightboxPreviewSrcsRef.current.add(currentLightboxPreviewSrc);
                 setLightboxImageLoading(false);

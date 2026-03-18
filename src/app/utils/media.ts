@@ -47,7 +47,7 @@ export function getOriginalMediaUrl(url?: string | null): string {
 
   const uploadPath = extractUploadPath(value);
   if (uploadPath) {
-    return buildApiUrl(uploadPath);
+    return uploadPath;
   }
 
   const parsed = parseUrl(value);
@@ -56,10 +56,10 @@ export function getOriginalMediaUrl(url?: string | null): string {
   if (/\/api\/media$/i.test(parsed.pathname)) {
     const source = String(parsed.searchParams.get("src") || "").trim();
     if (source.startsWith("/uploads/")) {
-      return buildApiUrl(source);
+      return source;
     }
     if (source.startsWith("/api/uploads/")) {
-      return buildApiUrl(source.replace(/^\/api\/uploads\//, "/uploads/"));
+      return source.replace(/^\/api\/uploads\//, "/uploads/");
     }
   }
 
@@ -86,7 +86,7 @@ export function getOptimizedMediaUrl(url?: string | null, options: MediaVariantO
 
   if (uploadPath) {
     if (!USE_SERVER_MEDIA_TRANSFORM) {
-      return buildApiUrl(uploadPath);
+      return uploadPath;
     }
     const query = new URLSearchParams({
       src: uploadPath,
