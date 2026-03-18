@@ -34,9 +34,20 @@ const GALLERY_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e5e7eb'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1200' height='675' fill='url(%23g)'/%3E%3C/svg%3E";
 const ENABLE_EXTERNAL_NEARBY_FALLBACK = String(import.meta.env.VITE_ENABLE_EXTERNAL_NEARBY_FALLBACK || '').trim().toLowerCase() === 'true';
 const ENABLE_MEDIA_AVAILABILITY_PROBE = String(import.meta.env.VITE_ENABLE_MEDIA_AVAILABILITY_PROBE || '').trim().toLowerCase() === 'true';
-const LIGHTBOX_QUALITY_LOW = 44;
-const LIGHTBOX_QUALITY_MEDIUM = 60;
-const LIGHTBOX_QUALITY_HIGH = 72;
+const LIGHTBOX_QUALITY_LOW = 42;
+const LIGHTBOX_QUALITY_MEDIUM = 58;
+const LIGHTBOX_QUALITY_HIGH = 70;
+
+function canLoadFullResByConnection(): boolean {
+  if (typeof navigator === "undefined") return true;
+  const connection = (navigator as Navigator & {
+    connection?: { effectiveType?: string; saveData?: boolean };
+  }).connection;
+  if (!connection) return true;
+  if (connection.saveData) return false;
+  const type = String(connection.effectiveType || "").toLowerCase();
+  return type === "" || type === "4g";
+}
 
 type FeatureApiRow = {
   id: string;
@@ -626,6 +637,7 @@ export default function PropertyDetailsPage() {
   const loadedLightboxOriginalSrcsRef = useRef<Set<string>>(new Set());
   const lightboxPreloadRunIdRef = useRef(0);
   const [lightboxOriginalLoaded, setLightboxOriginalLoaded] = useState(false);
+  const [lightboxOriginalIndex, setLightboxOriginalIndex] = useState<number | null>(null);
   const [lightboxPreviewQualityByIndex, setLightboxPreviewQualityByIndex] = useState<Record<number, number>>({});
   const isSaleProperty = property?.priceContext === 'sale';
   const sourceBien = useMemo(
@@ -1329,12 +1341,12 @@ out body 40;
   ]);
 
   const lightboxPreviewTargetWidth = useMemo(() => {
-    if (typeof window === "undefined") return isMobileViewport ? 900 : 1440;
+    if (typeof window === "undefined") return isMobileViewport ? 760 : 1180;
     const viewportWidth = Math.max(320, window.innerWidth || 320);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const requested = Math.round(viewportWidth * dpr * 1.02);
-    const minWidth = isMobileViewport ? 860 : 1100;
-    return Math.max(minWidth, Math.min(1600, requested));
+    const requested = Math.round(viewportWidth * dpr * 0.92);
+    const minWidth = isMobileViewport ? 640 : 900;
+    return Math.max(minWidth, Math.min(1280, requested));
   }, [isMobileViewport, lightboxOpen]);
   const valuesForFeature = useCallback((feature: FeatureApiRow): string[] => {
     const directValues = parseFeatureValueJson(feature.valeur_json);
@@ -1600,11 +1612,13 @@ out body 40;
 
     const runId = ++lightboxPreloadRunIdRef.current;
     const isStale = () => runId !== lightboxPreloadRunIdRef.current;
+    const allowFullResOriginal = canLoadFullResByConnection() && !isMobileViewport;
     const currentOriginalSrc = getLightboxOriginalSrc(currentImageIndex);
     const currentPreviewSrc = getLightboxPreviewSrc(currentImageIndex, LIGHTBOX_QUALITY_LOW);
     const hasOriginal = loadedLightboxOriginalSrcsRef.current.has(currentOriginalSrc);
     const hasPreview = loadedLightboxPreviewSrcsRef.current.has(currentPreviewSrc);
-    setLightboxOriginalLoaded(hasOriginal);
+    setLightboxOriginalIndex(allowFullResOriginal && hasOriginal ? currentImageIndex : null);
+    setLightboxOriginalLoaded(allowFullResOriginal && hasOriginal);
     setLightboxImageLoading(!hasPreview);
     const nextIndex = (currentImageIndex + 1) % galleryImages.length;
     const prevIndex = (currentImageIndex - 1 + galleryImages.length) % galleryImages.length;
@@ -1620,7 +1634,7 @@ out body 40;
     pushUnique(currentImageIndex);
     pushUnique(nextIndex);
     pushUnique(prevIndex);
-    for (let offset = 2; offset < galleryImages.length; offset += 1) {
+    for (let offset = 2; offset < Math.min(galleryImages.length, 5); offset += 1) {
       pushUnique(currentImageIndex + offset);
       pushUnique(currentImageIndex - offset);
     }
@@ -1642,22 +1656,17 @@ out body 40;
       if (isStale()) return;
       await ensureLightboxPreviewQuality(currentImageIndex, LIGHTBOX_QUALITY_HIGH);
       if (isStale()) return;
-      await ensureLightboxOriginalLoaded(currentImageIndex);
-      if (isStale()) return;
+      if (allowFullResOriginal) {
+        setLightboxOriginalIndex(currentImageIndex);
+        await ensureLightboxOriginalLoaded(currentImageIndex);
+        if (isStale()) return;
+      }
 
       // Phase 4: load the rest one-by-one to avoid connection spikes.
       for (const index of preloadOrder) {
         if (isStale()) return;
         if (index === currentImageIndex || index === nextIndex || index === prevIndex) continue;
         await ensureLightboxPreviewQuality(index, LIGHTBOX_QUALITY_LOW);
-      }
-
-      // Phase 5: gradual enhancement for all loaded previews.
-      for (const quality of [LIGHTBOX_QUALITY_MEDIUM, LIGHTBOX_QUALITY_HIGH]) {
-        for (const index of preloadOrder) {
-          if (isStale()) return;
-          await ensureLightboxPreviewQuality(index, quality);
-        }
       }
     })();
 
@@ -1672,6 +1681,7 @@ out body 40;
     getLightboxPreviewSrc,
     ensureLightboxOriginalLoaded,
     ensureLightboxPreviewQuality,
+    isMobileViewport,
   ]);
 
   useEffect(() => {
@@ -3479,24 +3489,26 @@ out body 40;
                 animation: 'fadeInScale 0.5s ease-out'
               }}
             />
-            <img
-              src={currentLightboxOriginalSrc}
-              alt={`${property.title} - ${currentImageIndex + 1}`}
-              className={`absolute max-w-full max-h-full touch-pan-y object-contain rounded-lg shadow-2xl transition-opacity duration-300 ease-out select-none ${lightboxOriginalLoaded ? 'opacity-100' : 'opacity-0'}`}
-              loading="eager"
-              decoding="async"
-              {...({ fetchpriority: "high" } as Record<string, string>)}
-              onLoad={() => {
-                loadedLightboxOriginalSrcsRef.current.add(currentLightboxOriginalSrc);
-                setLightboxOriginalLoaded(true);
-                setLightboxImageLoading(false);
-              }}
-              onError={() => {
-                markFailedImageSource(currentLightboxOriginalSrc);
-                setLightboxOriginalLoaded(false);
-                setLightboxImageLoading(false);
-              }}
-            />
+            {lightboxOriginalIndex === currentImageIndex && (
+              <img
+                src={currentLightboxOriginalSrc}
+                alt={`${property.title} - ${currentImageIndex + 1}`}
+                className={`absolute max-w-full max-h-full touch-pan-y object-contain rounded-lg shadow-2xl transition-opacity duration-300 ease-out select-none ${lightboxOriginalLoaded ? 'opacity-100' : 'opacity-0'}`}
+                loading="eager"
+                decoding="async"
+                {...({ fetchpriority: "high" } as Record<string, string>)}
+                onLoad={() => {
+                  loadedLightboxOriginalSrcsRef.current.add(currentLightboxOriginalSrc);
+                  setLightboxOriginalLoaded(true);
+                  setLightboxImageLoading(false);
+                }}
+                onError={() => {
+                  markFailedImageSource(currentLightboxOriginalSrc);
+                  setLightboxOriginalLoaded(false);
+                  setLightboxImageLoading(false);
+                }}
+              />
+            )}
             {lightboxImageLoading && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="rounded-full border-2 border-white/20 border-t-white h-10 w-10 animate-spin" />

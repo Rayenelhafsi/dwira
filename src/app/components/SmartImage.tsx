@@ -1,6 +1,6 @@
 import { ImgHTMLAttributes, useEffect, useMemo, useState } from "react";
 import { getOptimizedMediaUrl } from "../utils/media";
-import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
+import { clearFailedImageSource, hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
 
 type SmartImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
   src: string;
@@ -46,6 +46,7 @@ export function SmartImage({
       {...(fetchPriority ? ({ fetchpriority: fetchPriority } as Record<string, string>) : {})}
       src={currentSrc || FALLBACK_IMAGE_DATA_URI}
       onLoad={(event) => {
+        clearFailedImageSource(currentSrc);
         onLoad?.(event);
       }}
       onError={(event) => {
