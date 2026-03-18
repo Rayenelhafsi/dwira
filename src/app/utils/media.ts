@@ -6,6 +6,18 @@ type MediaVariantOptions = {
 };
 
 const USE_SERVER_MEDIA_TRANSFORM = String(import.meta.env.VITE_USE_MEDIA_TRANSFORM || "").trim().toLowerCase() === "true";
+const CLOUDINARY_CLOUD_NAME = String(import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || "").trim();
+const CLOUDINARY_FETCH_BASE_URL = String(import.meta.env.VITE_CLOUDINARY_FETCH_BASE_URL || "").trim();
+
+function buildCloudinaryFetchUrl(uploadPath: string, options: MediaVariantOptions = {}): string | null {
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_FETCH_BASE_URL) return null;
+  const width = Math.max(120, Math.round(options.width || 1200));
+  const quality = Math.max(35, Math.min(90, Math.round(options.quality || 72)));
+  const base = CLOUDINARY_FETCH_BASE_URL.replace(/\/+$/, "");
+  const originUrl = `${base}${uploadPath}`;
+  const encodedOriginUrl = encodeURIComponent(originUrl);
+  return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/fetch/f_auto,q_${quality},w_${width}/${encodedOriginUrl}`;
+}
 
 function parseUrl(value: string): URL | null {
   try {
@@ -47,6 +59,8 @@ export function getOriginalMediaUrl(url?: string | null): string {
 
   const uploadPath = extractUploadPath(value);
   if (uploadPath) {
+    const cloudinaryUrl = buildCloudinaryFetchUrl(uploadPath, { width: 2000, quality: 82 });
+    if (cloudinaryUrl) return cloudinaryUrl;
     return uploadPath;
   }
 
@@ -85,6 +99,8 @@ export function getOptimizedMediaUrl(url?: string | null, options: MediaVariantO
   const uploadPath = extractUploadPath(value);
 
   if (uploadPath) {
+    const cloudinaryUrl = buildCloudinaryFetchUrl(uploadPath, { width, quality });
+    if (cloudinaryUrl) return cloudinaryUrl;
     if (!USE_SERVER_MEDIA_TRANSFORM) {
       return uploadPath;
     }
