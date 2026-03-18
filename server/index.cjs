@@ -600,6 +600,8 @@ app.get('/api/media', async (req, res) => {
 });
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Backward compatibility: some media URLs in DB still use /api/uploads/*
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/contracts', express.static(path.join(__dirname, 'contracts')));
 
 app.get('/api/health', (req, res) => {

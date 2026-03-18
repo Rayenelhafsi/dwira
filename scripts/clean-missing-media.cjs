@@ -66,12 +66,19 @@ function extractUploadsRelativePath(mediaUrl) {
   const value = String(mediaUrl || '').trim();
   if (!value) return null;
 
+  if (value.startsWith('/api/uploads/')) {
+    return value.replace(/^\/api\/uploads\//, '');
+  }
+
   if (value.startsWith('/uploads/')) {
     return value.replace(/^\/uploads\//, '');
   }
 
   try {
     const parsed = new URL(value);
+    if (parsed.pathname.startsWith('/api/uploads/')) {
+      return parsed.pathname.replace(/^\/api\/uploads\//, '');
+    }
     if (parsed.pathname.startsWith('/uploads/')) {
       return parsed.pathname.replace(/^\/uploads\//, '');
     }
