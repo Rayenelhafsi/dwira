@@ -33,7 +33,7 @@ import {
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const GALLERY_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e5e7eb'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1200' height='675' fill='url(%23g)'/%3E%3C/svg%3E";
-const ENABLE_EXTERNAL_NEARBY_FALLBACK = String(import.meta.env.VITE_ENABLE_EXTERNAL_NEARBY_FALLBACK || '').trim().toLowerCase() === 'true';
+const ENABLE_EXTERNAL_NEARBY_FALLBACK = String(import.meta.env.VITE_ENABLE_EXTERNAL_NEARBY_FALLBACK || 'true').trim().toLowerCase() !== 'false';
 const ENABLE_MEDIA_AVAILABILITY_PROBE = String(import.meta.env.VITE_ENABLE_MEDIA_AVAILABILITY_PROBE || '').trim().toLowerCase() === 'true';
 const LIGHTBOX_QUALITY_LOW = 42;
 const LIGHTBOX_QUALITY_MEDIUM = 58;
@@ -785,10 +785,12 @@ out body 40;
             const googlePayload = await googleResponse.json().catch(() => ({}));
             if (googlePayload?.disabled === true) {
               googlePlacesUnsupportedRef.current = true;
-              nearbyPlacesFailureRef.current[nearbyCacheKey] = true;
-              setNearbyPlaces([]);
-              return;
-            }
+              if (!ENABLE_EXTERNAL_NEARBY_FALLBACK) {
+                nearbyPlacesFailureRef.current[nearbyCacheKey] = true;
+                setNearbyPlaces([]);
+                return;
+              }
+            } else {
             const googleRows = Array.isArray(googlePayload?.places) ? googlePayload.places : [];
             const googleItems = googleRows
               .map((row: any) => {
@@ -816,6 +818,7 @@ out body 40;
               nearbyPlacesCacheRef.current[nearbyCacheKey] = googleItems;
               setNearbyPlaces(googleItems);
               return;
+            }
             }
           }
         }

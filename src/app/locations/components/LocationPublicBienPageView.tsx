@@ -44,7 +44,7 @@ const isCharacteristicsTabName = (value: string) =>
   normalizeFeatureName(cleanFeatureTabName(value)).includes('caracteristique');
 
 type LatLng = { lat: number; lng: number };
-type NearbyPlace = { id: string; lat: number; lng: number; name: string; kind: 'cafe' | 'restaurant'; distanceKm: number };
+type NearbyPlace = { id: string; lat: number; lng: number; name: string; kind: 'cafe' | 'restaurant' | 'shop'; distanceKm: number };
 
 type ToggleHandler = (type: 'section', key: string, nextValue: boolean) => void | Promise<void>;
 type FeatureToggleHandler = (feature: FeatureApiRow, nextValue: boolean) => FeatureApiRow | null | void | Promise<FeatureApiRow | null | void>;
@@ -411,6 +411,8 @@ export default function LocationPublicBienPageView({
 (
   node["amenity"="cafe"](around:1800,${effectiveMapCenter.lat},${effectiveMapCenter.lng});
   node["amenity"="restaurant"](around:1800,${effectiveMapCenter.lat},${effectiveMapCenter.lng});
+  node["shop"="supermarket"](around:1800,${effectiveMapCenter.lat},${effectiveMapCenter.lng});
+  node["shop"="convenience"](around:1800,${effectiveMapCenter.lat},${effectiveMapCenter.lng});
 );
 out body 20;
 `;
@@ -431,13 +433,19 @@ out body 20;
             const name = String(item?.tags?.name || '').trim();
             if (!name) return null;
             const amenity = String(item?.tags?.amenity || '').trim();
-            if (amenity !== 'cafe' && amenity !== 'restaurant') return null;
+            const shop = String(item?.tags?.shop || '').trim();
+            const kind: NearbyPlace['kind'] | null =
+              amenity === 'cafe' ? 'cafe' :
+              amenity === 'restaurant' ? 'restaurant' :
+              (shop === 'supermarket' || shop === 'convenience') ? 'shop' :
+              null;
+            if (!kind) return null;
             return {
               id: String(item?.id || `${lat}-${lng}`),
               lat,
               lng,
               name,
-              kind: amenity as 'cafe' | 'restaurant',
+              kind,
               distanceKm: haversineKm(effectiveMapCenter, { lat, lng }),
             } as NearbyPlace;
           })
@@ -704,12 +712,12 @@ out body 20;
                               key={`nearby-${place.id}`}
                               className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700"
                             >
-                              {place.kind === 'cafe' ? 'Cafe' : 'Restaurant'}: {place.name} (~{place.distanceKm.toFixed(1)} km)
+                              {place.kind === 'cafe' ? 'Cafe' : place.kind === 'restaurant' ? 'Restaurant' : 'Magasin'}: {place.name} (~{place.distanceKm.toFixed(1)} km)
                             </span>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-gray-500">Commodites proches: cafes et restaurants dans le quartier.</p>
+                        <p className="text-xs text-gray-500">Commodites proches: cafes, restaurants et magasins dans le quartier.</p>
                       )}
                     </div>
                   </div>
