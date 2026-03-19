@@ -152,3 +152,18 @@ body {
 .property-location-map .leaflet-control {
   z-index: 1 !important;
 }
+
+.dwira-admin-exact-pin {
+  background: transparent;
+  border: none;
+}
+
+.dwira-admin-exact-pin__dot {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #ef4444;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.45), 0 6px 14px rgba(15, 23, 42, 0.35);
+}

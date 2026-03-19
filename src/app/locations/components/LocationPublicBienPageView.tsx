@@ -4,12 +4,19 @@ import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin
 import { resolveBienCapacity } from '../../utils/bienCapacity';
 import { isYouTubeShortUrl, toYouTubeEmbedUrl } from '../../utils/videoLinks';
 import { SmartImage } from '../../components/SmartImage';
-import { MapContainer, TileLayer, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet';
+import L from 'leaflet';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const GOOGLE_HYBRID_TILE_URL = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
 const GOOGLE_TILE_ATTRIBUTION = '&copy; <a href="https://maps.google.com">Google</a>';
+const ADMIN_EXACT_PIN_ICON = L.divIcon({
+  className: 'dwira-admin-exact-pin',
+  html: '<span class="dwira-admin-exact-pin__dot"></span>',
+  iconSize: [24, 24],
+  iconAnchor: [12, 24],
+});
 
 type FeatureApiRow = {
   id: string;
@@ -682,16 +689,25 @@ out body 20;
                             attribution={GOOGLE_TILE_ATTRIBUTION}
                             url={GOOGLE_HYBRID_TILE_URL}
                           />
-                          <Circle
-                            center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
-                            radius={animatedOuterRadius}
-                            pathOptions={{ color: '#10b981', weight: 2, fillColor: '#34d399', fillOpacity: 0.15 }}
-                          />
-                          <Circle
-                            center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
-                            radius={animatedInnerRadius}
-                            pathOptions={{ color: '#34d399', weight: 2, fillColor: '#10b981', fillOpacity: 0.34 }}
-                          />
+                          {previewMode ? (
+                            <Marker
+                              position={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
+                              icon={ADMIN_EXACT_PIN_ICON}
+                            />
+                          ) : (
+                            <>
+                              <Circle
+                                center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
+                                radius={animatedOuterRadius}
+                                pathOptions={{ color: '#10b981', weight: 2, fillColor: '#34d399', fillOpacity: 0.15 }}
+                              />
+                              <Circle
+                                center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
+                                radius={animatedInnerRadius}
+                                pathOptions={{ color: '#34d399', weight: 2, fillColor: '#10b981', fillOpacity: 0.34 }}
+                              />
+                            </>
+                          )}
                         </MapContainer>
                       ) : null}
                       <a
