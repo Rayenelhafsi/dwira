@@ -815,9 +815,21 @@ export default function BiensPage() {
       if (!createResponse.ok) throw new Error('Failed to save media');
     }
   };
+  const deleteMediaIdsForBien = async (mediaIds: string[]) => {
+    const uniqueIds = Array.from(new Set((Array.isArray(mediaIds) ? mediaIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+    for (const mediaId of uniqueIds) {
+      const deleteResponse = await fetch(`${API_URL}/media/${encodeURIComponent(mediaId)}`, { method: 'DELETE' });
+      if (!deleteResponse.ok && deleteResponse.status !== 404) {
+        throw new Error(`Failed to delete media ${mediaId}`);
+      }
+    }
+  };
   const handleSave = async (bien: Bien) => {
     const isEditingNow = Boolean(editingBien);
     const editingSnapshot = editingBien;
+    const deletedMediaIds = Array.isArray((bien as any)?.deleted_media_ids)
+      ? (bien as any).deleted_media_ids.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
     const targetBienId = String(bien?.id || '').trim();
     if (targetBienId) {
       setSaveStatusByBienId((prev) => ({ ...prev, [targetBienId]: { state: 'saving', at: Date.now() } }));
@@ -834,6 +846,9 @@ export default function BiensPage() {
           : true;
         if (isEditingNow) {
           await updateBien(bien as any);
+          if (deletedMediaIds.length > 0) {
+            await deleteMediaIdsForBien(deletedMediaIds);
+          }
           if (mediaWasChanged) {
             await syncMediaForBien(bien.id, media || []);
           }
@@ -857,6 +872,9 @@ export default function BiensPage() {
               : true;
             if (isEditingNow) {
               await updateBien(draftBien);
+              if (deletedMediaIds.length > 0) {
+                await deleteMediaIdsForBien(deletedMediaIds);
+              }
               if (fallbackMediaWasChanged) {
                 await syncMediaForBien(bien.id, bien.media || []);
               }
@@ -1153,6 +1171,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(initialData?.media || []);
+  const [deletedMediaIds, setDeletedMediaIds] = useState<string[]>([]);
   const [unavailableDates, setUnavailableDates] = useState<DateStatus[]>(initialData?.unavailableDates || []);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
@@ -1226,6 +1245,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [selectedServiceCatalogId, setSelectedServiceCatalogId] = useState<string>('');
   const [serviceCatalogueOptions, setServiceCatalogueOptions] = useState<ServicePayantBien[]>(LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    setDeletedMediaIds([]);
+  }, [initialData?.id]);
   const normalizeLegacyType = (value?: BienType): BienType => {
     if (value === 'S1' || value === 'S2' || value === 'S3' || value === 'S4') return 'appartement';
     if (value === 'villa') return 'villa_maison';
@@ -2152,7 +2174,16 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     toast.success('Vidéo ajoutée');
   };
 
-  const handleRemoveImage = (id: string) => { setImages(images.filter(img => img.id !== id)); toast.success('Média supprimé'); };
+  const handleRemoveImage = (id: string) => {
+    const mediaId = String(id || '').trim();
+    if (!mediaId) return;
+    const existsInInitialMedia = (initialData?.media || []).some((item) => String(item?.id || '').trim() === mediaId);
+    setImages((prev) => prev.filter((img) => String(img.id || '').trim() !== mediaId));
+    if (existsInInitialMedia) {
+      setDeletedMediaIds((prev) => (prev.includes(mediaId) ? prev : [...prev, mediaId]));
+    }
+    toast.success('Média supprimé');
+  };
 
   const reorderClientImages = (fromId: string, toId: string) => {
     if (fromId === toId) return;
@@ -3315,6 +3346,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       updated_at: new Date().toISOString(),
       date_ajout: initialData?.date_ajout || new Date().toISOString().split('T')[0]
     } as Bien;
+    (finalData as any).deleted_media_ids = deletedMediaIds;
     markStepValidated(selectedMode === 'vente' ? 5 : 4);
     await onSubmit(finalData);
   };
