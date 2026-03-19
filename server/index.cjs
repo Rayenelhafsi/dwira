@@ -2109,6 +2109,11 @@ async function ensureBiensWorkflowSchema() {
       'ALTER TABLE biens ADD COLUMN location_saisonniere_config_json LONGTEXT NULL AFTER ui_config_json'
     );
   }
+  if (!(await columnExists('biens', 'admin_last_saved_at'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN admin_last_saved_at DATETIME NULL AFTER updated_at'
+    );
+  }
 
   if (!(await columnExists('biens', 'tarification_methode'))) {
     await pool.query(
@@ -4934,8 +4939,9 @@ app.post('/api/biens', async (req, res) => {
       : Number(nb_salle_bain || 0);
 
     const bienId = id || ('b' + Date.now());
-    const created_at = new Date().toISOString().split('T')[0];
+    const created_at = getAgencySqlDateTime();
     const updated_at = created_at;
+    const date_ajout = created_at.slice(0, 10);
     const resolvedPrixNuitee = resolvedMode === 'vente'
       ? Number(venteTarification.prixAfficheClient || 0)
       : Number(prix_nuitee || 0);
@@ -4958,8 +4964,8 @@ app.post('/api/biens', async (req, res) => {
         proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
         syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
         type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, is_featured, ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, 
-        date_ajout, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+        date_ajout, created_at, updated_at, admin_last_saved_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [bienId, resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
@@ -4977,7 +4983,7 @@ app.post('/api/biens', async (req, res) => {
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        location_saisonniere_config && typeof location_saisonniere_config === 'object' ? JSON.stringify(location_saisonniere_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
-       created_at, created_at, updated_at]
+       date_ajout, created_at, updated_at, updated_at]
     );
 
     await pool.query(
@@ -5163,7 +5169,7 @@ app.put('/api/biens/:id', async (req, res) => {
       ? 0
       : Number(nb_salle_bain || 0);
 
-    const updated_at = new Date().toISOString().split('T')[0];
+    const updated_at = getAgencySqlDateTime();
     const resolvedPrixNuitee = resolvedMode === 'vente'
       ? Number(venteTarification.prixAfficheClient || 0)
       : Number(prix_nuitee || 0);
@@ -5187,7 +5193,7 @@ app.put('/api/biens/:id', async (req, res) => {
         proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
         syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?, surface_local_m2 = ?, facade_m = ?, hauteur_plafond_m = ?, activite_recommandee = ?, toilette = ?, reserve_local = ?, vitrine = ?, coin_angle = ?, electricite_3_phases = ?, alarme = ?,
         type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
-        statut = ?, visible_sur_site = ?, is_featured = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?
+        statut = ?, visible_sur_site = ?, is_featured = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?, admin_last_saved_at = ?
        WHERE id = ?`,
       [resolvedReference, titre, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
@@ -5206,7 +5212,7 @@ app.put('/api/biens/:id', async (req, res) => {
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        location_saisonniere_config && typeof location_saisonniere_config === 'object' ? JSON.stringify(location_saisonniere_config) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
-       updated_at, req.params.id]
+       updated_at, updated_at, req.params.id]
     );
 
     await pool.query(

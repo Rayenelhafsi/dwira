@@ -308,6 +308,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     date_ajout: row.date_ajout,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    admin_last_saved_at: (row as any).admin_last_saved_at || null,
     media: (Array.isArray(media) ? media : [])
       .map(m => ({
         id: m.id,
@@ -561,8 +562,11 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   };
 
   // Fetch data from API
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [biensResponse, zonesResponse, propsResponse, modePrioritiesResponse] = await Promise.all([
@@ -602,7 +606,9 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       );
 
       applyMappedBiens(mappedBiens, zonesData, propsData, modePrioritiesData);
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
 
       // Fetch unavailable dates after the homepage and lists are already usable.
       void (async () => {
@@ -760,7 +766,9 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       setModePriorities(DEFAULT_MODE_PRIORITIES);
       setError(null);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -783,7 +791,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       }
 
       const createdBien = await response.json();
-      await fetchData(); // Refresh data
+      await fetchData({ silent: true }); // Refresh data
       return String(createdBien?.id || '');
     } catch (err: any) {
       console.error('Error creating bien:', err);
@@ -804,7 +812,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         throw new Error(message);
       }
       const data = await response.json().catch(() => null);
-      await fetchData(); // Refresh data
+      await fetchData({ silent: true }); // Refresh data
       return data;
     } catch (err: any) {
       console.error('Error updating bien:', err);
@@ -820,7 +828,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Suppression du bien impossible'));
       
-      await fetchData(); // Refresh data
+      await fetchData({ silent: true }); // Refresh data
     } catch (err: any) {
       console.error('Error deleting bien:', err);
       throw err;
@@ -853,7 +861,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshData = async () => {
-    await fetchData();
+    await fetchData({ silent: true });
   };
 
   const value: PropertiesContextType = {

@@ -709,7 +709,7 @@ export default function BiensPage() {
   const [editingBien, setEditingBien] = useState<Bien | null>(null);
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
   const [editorInitialStep, setEditorInitialStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [saveSuccessDialogOpen, setSaveSuccessDialogOpen] = useState(false);
+  const [saveStatusByBienId, setSaveStatusByBienId] = useState<Record<string, { state: 'saving' | 'saved' | 'error'; at: number }>>({});
   const [priorityDraft, setPriorityDraft] = useState<Record<BienMode, number>>(modePriorities);
   const [isSavingPriorities, setIsSavingPriorities] = useState(false);
 
@@ -738,14 +738,75 @@ export default function BiensPage() {
   ];
 
   const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
+  const buildMediaSyncKey = (item: { type?: string; url?: string; motif_upload?: string | null; position?: number | null }) =>
+    `${String(item.type || 'image')}|${String(item.url || '').trim()}|${String(item.motif_upload || '').trim()}|${Number(item.position ?? 0)}`;
+  const normalizeMediaForComparison = (media: Array<{ type?: string; url?: string; motif_upload?: string | null }> = []) =>
+    media.map((item, idx) => ({
+      type: String(item.type || 'image').trim() || 'image',
+      url: String(item.url || '').trim(),
+      motif_upload: String(item.motif_upload || '').trim(),
+      position: idx,
+    }));
+  const hasMediaChanged = (
+    previousMedia: Array<{ type?: string; url?: string; motif_upload?: string | null }> = [],
+    nextMedia: Array<{ type?: string; url?: string; motif_upload?: string | null }> = []
+  ) => {
+    const previous = normalizeMediaForComparison(previousMedia);
+    const next = normalizeMediaForComparison(nextMedia);
+    if (previous.length !== next.length) return true;
+    for (let i = 0; i < previous.length; i += 1) {
+      if (
+        previous[i].type !== next[i].type
+        || previous[i].url !== next[i].url
+        || previous[i].motif_upload !== next[i].motif_upload
+        || previous[i].position !== next[i].position
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const syncMediaForBien = async (bienId: string, media: Media[]) => {
     const existingResponse = await fetch(`${API_URL}/media/${bienId}`);
     const existingMedia = existingResponse.ok ? await existingResponse.json() : [];
-    for (const m of existingMedia) {
+    const orderedMedia = (Array.isArray(media) ? media : []).map((m, idx) => ({ ...m, position: idx }));
+
+    const existingBuckets = new Map<string, any[]>();
+    for (const item of Array.isArray(existingMedia) ? existingMedia : []) {
+      const key = buildMediaSyncKey(item);
+      const list = existingBuckets.get(key) || [];
+      list.push(item);
+      existingBuckets.set(key, list);
+    }
+
+    const toCreate: Array<{ type?: string; url?: string; motif_upload?: string | null; position?: number | null }> = [];
+    for (const item of orderedMedia) {
+      const key = buildMediaSyncKey(item);
+      const existingList = existingBuckets.get(key);
+      if (existingList && existingList.length > 0) {
+        existingList.pop();
+        continue;
+      }
+      toCreate.push(item);
+    }
+
+    const toDelete: any[] = [];
+    for (const list of existingBuckets.values()) {
+      if (list.length > 0) {
+        toDelete.push(...list);
+      }
+    }
+
+    if (toDelete.length === 0 && toCreate.length === 0) {
+      return;
+    }
+
+    for (const m of toDelete) {
       await fetch(`${API_URL}/media/${m.id}`, { method: 'DELETE' });
     }
-    const orderedMedia = (Array.isArray(media) ? media : []).map((m, idx) => ({ ...m, position: idx }));
-    for (const m of orderedMedia) {
+
+    for (const m of toCreate) {
       const createResponse = await fetch(`${API_URL}/media`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -755,52 +816,76 @@ export default function BiensPage() {
     }
   };
   const handleSave = async (bien: Bien) => {
-    try {
-      const { created_at, updated_at, media, unavailableDates, ...bienData } = bien;
-      if (editingBien) {
-        await updateBien(bien as any);
-        await syncMediaForBien(bien.id, media || []);
-      } else {
-        const createdBienId = await addBien(bienData as any);
-        await syncMediaForBien(createdBienId || String(bienData.id || bien.id), media || []);
-      }
-      await refreshData();
-      setIsAddOpen(false);
-      setEditingBien(null);
-      setSaveSuccessDialogOpen(true);
-      // Hard refresh to guarantee dashboard state reflects persisted data.
-      setTimeout(() => {
-        window.location.reload();
-      }, 300);
-    } catch (error: any) {
-      const message = String(error?.message || '').trim();
-      if (message.includes('mandat proprietaire manquant, invalide ou expire') && bien.visible_sur_site !== false) {
-        try {
-          const draftBien = { ...bien, visible_sur_site: false } as any;
-          if (editingBien) {
-            await updateBien(draftBien);
-            await syncMediaForBien(bien.id, bien.media || []);
-          } else {
-            const { created_at: _createdAt, updated_at: _updatedAt, media: _media, unavailableDates: _dates, ...draftBienData } = draftBien;
-            const createdBienId = await addBien(draftBienData);
-            await syncMediaForBien(createdBienId || String(draftBienData.id || bien.id), bien.media || []);
-          }
-          await refreshData();
-          setIsAddOpen(false);
-          setEditingBien(null);
-          toast.success('Bien sauvegardé en brouillon. Publication désactivée car le mandat propriétaire est invalide ou expiré.');
-          setTimeout(() => {
-            window.location.reload();
-          }, 300);
-          return;
-        } catch (retryError: any) {
-          const retryMessage = String(retryError?.message || '').trim();
-          toast.error(retryMessage ? `Erreur sauvegarde: ${retryMessage}` : 'Erreur sauvegarde');
-          return;
-        }
-      }
-      toast.error(message ? `Erreur sauvegarde: ${message}` : 'Erreur sauvegarde');
+    const isEditingNow = Boolean(editingBien);
+    const editingSnapshot = editingBien;
+    const targetBienId = String(bien?.id || '').trim();
+    if (targetBienId) {
+      setSaveStatusByBienId((prev) => ({ ...prev, [targetBienId]: { state: 'saving', at: Date.now() } }));
     }
+    setIsAddOpen(false);
+    setEditingBien(null);
+
+    void (async () => {
+      try {
+        const { created_at, updated_at, media, unavailableDates, ...bienData } = bien;
+        let finalBienId = targetBienId;
+        const mediaWasChanged = isEditingNow
+          ? hasMediaChanged(editingSnapshot?.media || [], media || [])
+          : true;
+        if (isEditingNow) {
+          await updateBien(bien as any);
+          if (mediaWasChanged) {
+            await syncMediaForBien(bien.id, media || []);
+          }
+        } else {
+          const createdBienId = await addBien(bienData as any);
+          finalBienId = String(createdBienId || String(bienData.id || bien.id || ''));
+          await syncMediaForBien(finalBienId, media || []);
+        }
+        await refreshData();
+        if (finalBienId) {
+          setSaveStatusByBienId((prev) => ({ ...prev, [finalBienId]: { state: 'saved', at: Date.now() } }));
+        }
+      } catch (error: any) {
+        const message = String(error?.message || '').trim();
+        if (message.includes('mandat proprietaire manquant, invalide ou expire') && bien.visible_sur_site !== false) {
+          try {
+            const draftBien = { ...bien, visible_sur_site: false } as any;
+            let finalBienId = targetBienId;
+            const fallbackMediaWasChanged = isEditingNow
+              ? hasMediaChanged(editingSnapshot?.media || [], bien.media || [])
+              : true;
+            if (isEditingNow) {
+              await updateBien(draftBien);
+              if (fallbackMediaWasChanged) {
+                await syncMediaForBien(bien.id, bien.media || []);
+              }
+            } else {
+              const { created_at: _createdAt, updated_at: _updatedAt, media: _media, unavailableDates: _dates, ...draftBienData } = draftBien;
+              const createdBienId = await addBien(draftBienData);
+              finalBienId = String(createdBienId || String(draftBienData.id || bien.id || ''));
+              await syncMediaForBien(finalBienId, bien.media || []);
+            }
+            await refreshData();
+            if (finalBienId) {
+              setSaveStatusByBienId((prev) => ({ ...prev, [finalBienId]: { state: 'saved', at: Date.now() } }));
+            }
+            return;
+          } catch (retryError: any) {
+            const retryMessage = String(retryError?.message || '').trim();
+            if (targetBienId) {
+              setSaveStatusByBienId((prev) => ({ ...prev, [targetBienId]: { state: 'error', at: Date.now() } }));
+            }
+            toast.error(retryMessage ? `Erreur sauvegarde: ${retryMessage}` : 'Erreur sauvegarde');
+            return;
+          }
+        }
+        if (targetBienId) {
+          setSaveStatusByBienId((prev) => ({ ...prev, [targetBienId]: { state: 'error', at: Date.now() } }));
+        }
+        toast.error(message ? `Erreur sauvegarde: ${message}` : 'Erreur sauvegarde');
+      }
+    })();
   };
   const handlePreviewVisibilitySave = async (bienId: string, patch: { visible_sur_site: boolean; ui_config: BienUiConfig | null }) => {
     const currentBien = biens.find((item) => item.id === bienId) || viewingBien;
@@ -918,7 +1003,7 @@ export default function BiensPage() {
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} onEdit={() => { setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
+        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
       </div>
       {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
       <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) setEditorInitialStep(1); }}>
@@ -950,23 +1035,11 @@ export default function BiensPage() {
           <div className="flex-1 overflow-y-auto">{viewingBien && <BienPreview bien={viewingBien} zones={zoneOptions} onSaveVisibility={handlePreviewVisibilitySave} />}</div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
-      <Dialog.Root open={saveSuccessDialogOpen} onOpenChange={setSaveSuccessDialogOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
-          <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
-            <Dialog.Title className="text-lg font-semibold text-gray-900">Sauvegarde</Dialog.Title>
-            <Dialog.Description className="mt-2 text-sm text-gray-600">Sauvegarde avec succès.</Dialog.Description>
-            <div className="mt-4 flex justify-end">
-              <button type="button" onClick={() => setSaveSuccessDialogOpen(false)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">OK</button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
     </div>
   );
 }
 
-function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
+function BienCard({ bien, zones, saveStatus, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; saveStatus?: { state: 'saving' | 'saved' | 'error'; at: number }; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
   const firstImageMedia = (bien.media || []).find((media) => media.type !== 'video');
   const firstVideoMedia = (bien.media || []).find((media) => media.type === 'video');
   const mainImage = resolveMediaUrl(firstImageMedia?.url) || toYouTubeThumbnailUrl(firstVideoMedia?.url) || ADMIN_IMAGE_FALLBACK;
@@ -982,6 +1055,14 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
   const priceSuffix = bien.mode === 'vente'
     ? (bien.type === 'terrain' && terrainMode === 'm2_uniquement' ? '/m2' : '')
     : '/nuit';
+  const persistedSavedAt = bien?.admin_last_saved_at ? new Date(String(bien.admin_last_saved_at)).getTime() : null;
+  const resolvedSavedAt = Number.isFinite(saveStatus?.at as number)
+    ? (saveStatus?.at as number)
+    : (Number.isFinite(persistedSavedAt as number) ? (persistedSavedAt as number) : null);
+  const effectiveSaveState: 'saving' | 'saved' | 'error' | null = saveStatus?.state || (resolvedSavedAt ? 'saved' : null);
+  const saveDateLabel = resolvedSavedAt
+    ? new Date(resolvedSavedAt).toLocaleString('fr-FR', { hour12: false })
+    : '';
   return (
     <div className={`bg-white rounded-xl shadow-sm border overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col h-full group ${bien.is_featured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-200'}`}>
       <div className="relative h-44 sm:h-48 bg-gray-100 overflow-hidden">
@@ -1013,7 +1094,14 @@ function BienCard({ bien, zones, onEdit, onDelete, onView }: { bien: Bien; zones
       <div className="p-4 flex-1 flex flex-col">
         <div className="mb-3"><h3 className="font-bold text-gray-900 text-base line-clamp-1 mb-1">{bien.titre}</h3><div className="flex items-center gap-1 text-gray-500 text-xs"><MapPin className="h-3 w-3" /><span>{zones.find(z => z.id === bien.zone_id)?.nom || 'Zone Inconnue'}</span></div></div>
         <div className="grid grid-cols-3 gap-2 text-xs text-gray-600 mb-4"><div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 rounded"><Bed className="h-3 w-3" /><span>{bien.nb_chambres}</span></div><div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 rounded"><Bath className="h-3 w-3" /><span>{bien.nb_salle_bain}</span></div><div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 rounded"><Banknote className="h-3 w-3" /><span>{bien.avance} DT</span></div></div>
-        <div className="flex items-center justify-between text-xs text-gray-500 mb-4"><span className="px-2 py-1 bg-gray-100 rounded font-medium">{typeLabels[bien.type]}</span><span>Ref: {bien.reference}</span></div>
+        <div className="flex items-center justify-between text-xs text-gray-500 mb-2"><span className="px-2 py-1 bg-gray-100 rounded font-medium">{typeLabels[bien.type]}</span><span>Ref: {bien.reference}</span></div>
+        {effectiveSaveState && (
+          <div className="mb-3 text-[11px]">
+            {effectiveSaveState === 'saving' && <span className="inline-flex items-center gap-1 text-amber-700"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />Sauvegarde en cours...</span>}
+            {effectiveSaveState === 'saved' && <span className="inline-flex items-center gap-1 text-emerald-700"><span className="h-2 w-2 rounded-full bg-emerald-500" />Sauvegarde: {saveDateLabel}</span>}
+            {effectiveSaveState === 'error' && <span className="inline-flex items-center gap-1 text-red-700"><span className="h-2 w-2 rounded-full bg-red-500" />Echec sauvegarde: {saveDateLabel}</span>}
+          </div>
+        )}
         <div className="flex items-center gap-2 mt-auto pt-3 border-t border-gray-100">
           <button onClick={onView} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-gray-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg font-medium"><Eye className="h-4 w-4" /></button>
           <button onClick={onEdit} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 rounded-lg font-medium"><Edit2 className="h-4 w-4" /></button>
@@ -5924,5 +6012,7 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
     </div>
   );
 }
+
+
 
 

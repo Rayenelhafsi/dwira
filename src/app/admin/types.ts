@@ -386,6 +386,7 @@ export interface Bien {
   date_ajout: string;
   created_at: string;
   updated_at: string;
+  admin_last_saved_at?: string | null;
   media?: Media[];
   unavailableDates?: DateStatus[];
   caracteristiques?: string[];
