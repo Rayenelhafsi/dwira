@@ -1,0 +1,305 @@
+{
+  "created_at": "2026-03-19T00:25:39.092Z",
+  "mode": "apply",
+  "cloud_name": "drxlp3pvf",
+  "updates": [
+    {
+      "id": "m1773701387309",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891101-183288743.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879665/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891101-183288743.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891101-183288743",
+      "bytes": 3467692,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387317",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891125-81199266.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879672/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891125-81199266.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891125-81199266",
+      "bytes": 3605537,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387323",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891142-810559387.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879679/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891142-810559387.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891142-810559387",
+      "bytes": 3774554,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387329",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891164-137350913.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879686/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891164-137350913.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891164-137350913",
+      "bytes": 3382092,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387336",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891184-211832625.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879694/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891184-211832625.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891184-211832625",
+      "bytes": 4646606,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387341",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891206-189485567.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879700/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891206-189485567.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891206-189485567",
+      "bytes": 2305604,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387348",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891221-145346181.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879706/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891221-145346181.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891221-145346181",
+      "bytes": 3983576,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387355",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891252-84992647.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879712/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891252-84992647.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891252-84992647",
+      "bytes": 3489471,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387361",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891268-319288061.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879719/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891268-319288061.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891268-319288061",
+      "bytes": 3923418,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387370",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891307-761148754.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879725/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891307-761148754.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891307-761148754",
+      "bytes": 3750349,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387376",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891332-892147120.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879746/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891332-892147120.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891332-892147120",
+      "bytes": 4549487,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387383",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891368-78534150.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879780/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891368-78534150.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891368-78534150",
+      "bytes": 4659245,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387388",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891399-814278141.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879832/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891399-814278141.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891399-814278141",
+      "bytes": 3967390,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387393",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891440-564321796.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879839/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891440-564321796.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891440-564321796",
+      "bytes": 3753945,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387398",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891468-908022721.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879845/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891468-908022721.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891468-908022721",
+      "bytes": 3591411,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387403",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891492-665222147.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879854/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891492-665222147.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891492-665222147",
+      "bytes": 4503168,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387409",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891513-528050872.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879863/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891513-528050872.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891513-528050872",
+      "bytes": 5408153,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387415",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891540-662730517.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879870/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891540-662730517.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891540-662730517",
+      "bytes": 4045392,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387422",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891560-132789023.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879877/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891560-132789023.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891560-132789023",
+      "bytes": 3579044,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387427",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891577-848675527.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879884/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891577-848675527.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891577-848675527",
+      "bytes": 3390194,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387433",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891597-955839282.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879888/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891597-955839282.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891597-955839282",
+      "bytes": 1875281,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387438",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891630-305285739.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879895/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891630-305285739.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891630-305285739",
+      "bytes": 4648112,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387443",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891650-876795096.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879903/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891650-876795096.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891650-876795096",
+      "bytes": 4501951,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387449",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891671-950626893.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879912/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891671-950626893.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891671-950626893",
+      "bytes": 4583325,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773701387453",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891691-755823472.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879920/dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891691-755823472.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann2-a1/image-1773700891691-755823472",
+      "bytes": 4790432,
+      "format": "jpg"
+    },
+    {
+      "id": "m1771878291572",
+      "bien_id": "b1",
+      "old_url": "/uploads/image-1771878078265-239131302.png",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879921/dwira_uploads/biens/ref-vente-ter-ann1-t1/image-1771878078265-239131302.png",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann1-t1/image-1771878078265-239131302",
+      "bytes": 80652,
+      "format": "png"
+    },
+    {
+      "id": "m1771878291579",
+      "bien_id": "b1",
+      "old_url": "/uploads/image-1771878084891-625578789.png",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879922/dwira_uploads/biens/ref-vente-ter-ann1-t1/image-1771878084891-625578789.png",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann1-t1/image-1771878084891-625578789",
+      "bytes": 122643,
+      "format": "png"
+    },
+    {
+      "id": "m1771878291585",
+      "bien_id": "b1",
+      "old_url": "/uploads/image-1771878177805-657264257.jpg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879923/dwira_uploads/biens/ref-vente-ter-ann1-t1/image-1771878177805-657264257.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann1-t1/image-1771878177805-657264257",
+      "bytes": 90340,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990548",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "/uploads/image-1771963955316-624157302.jpg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879925/dwira_uploads/biens/ref-vente-imm-ann2-i1/image-1771963955316-624157302.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/image-1771963955316-624157302",
+      "bytes": 598717,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990551",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "/uploads/image-1771963955316-624157302.jpg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879925/dwira_uploads/biens/ref-vente-imm-ann2-i1/image-1771963955316-624157302.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/image-1771963955316-624157302",
+      "bytes": 598717,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773606522454",
+      "bien_id": "oud427z6a",
+      "old_url": "/uploads/image-1773528750333-229266208.heic",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879928/dwira_uploads/biens/ref-locsaisonniere-app-ann3-a1/image-1773528750333-229266208.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann3-a1/image-1773528750333-229266208",
+      "bytes": 683877,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773606522469",
+      "bien_id": "oud427z6a",
+      "old_url": "/uploads/image-1773528806761-844199967.heif",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879931/dwira_uploads/biens/ref-locsaisonniere-app-ann3-a1/image-1773528806761-844199967.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann3-a1/image-1773528806761-844199967",
+      "bytes": 683877,
+      "format": "jpg"
+    },
+    {
+      "id": "m1773606522482",
+      "bien_id": "oud427z6a",
+      "old_url": "/uploads/image-1773603716874-726309980.jpeg",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879938/dwira_uploads/biens/ref-locsaisonniere-app-ann3-a1/image-1773603716874-726309980.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann3-a1/image-1773603716874-726309980",
+      "bytes": 3467692,
+      "format": "jpg"
+    }
+  ],
+  "failures": []
+}

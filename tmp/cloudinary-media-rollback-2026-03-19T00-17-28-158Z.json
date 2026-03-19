@@ -1,0 +1,495 @@
+{
+  "created_at": "2026-03-19T00:18:24.537Z",
+  "mode": "apply",
+  "cloud_name": "drxlp3pvf",
+  "updates": [
+    {
+      "id": "m1771878291544",
+      "bien_id": "b1",
+      "old_url": "https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876573/dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291544.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291544",
+      "bytes": 81395,
+      "format": "jpg"
+    },
+    {
+      "id": "m1771878291552",
+      "bien_id": "b1",
+      "old_url": "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876574/dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291552.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291552",
+      "bytes": 80480,
+      "format": "jpg"
+    },
+    {
+      "id": "m1771878291558",
+      "bien_id": "b1",
+      "old_url": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876574/dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291558.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291558",
+      "bytes": 90630,
+      "format": "jpg"
+    },
+    {
+      "id": "m1771878291565",
+      "bien_id": "b1",
+      "old_url": "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876575/dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291565.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann1-t1/media_m1771878291565",
+      "bytes": 80415,
+      "format": "jpg"
+    },
+    {
+      "id": "m5",
+      "bien_id": "b2",
+      "old_url": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876576/dwira_uploads/biens/ref-locannuelle-app-ann1-a1/media_m5.jpg",
+      "public_id": "dwira_uploads/biens/ref-locannuelle-app-ann1-a1/media_m5",
+      "bytes": 95274,
+      "format": "jpg"
+    },
+    {
+      "id": "m6",
+      "bien_id": "b2",
+      "old_url": "https://images.unsplash.com/photo-1502005229762-cf1b2da7c5d6?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876576/dwira_uploads/biens/ref-locannuelle-app-ann1-a1/media_m6.jpg",
+      "public_id": "dwira_uploads/biens/ref-locannuelle-app-ann1-a1/media_m6",
+      "bytes": 167047,
+      "format": "jpg"
+    },
+    {
+      "id": "m7",
+      "bien_id": "b2",
+      "old_url": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876577/dwira_uploads/biens/ref-locannuelle-app-ann1-a1/media_m7.jpg",
+      "public_id": "dwira_uploads/biens/ref-locannuelle-app-ann1-a1/media_m7",
+      "bytes": 64231,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772743119562",
+      "bien_id": "b3",
+      "old_url": "https://images.unsplash.com/photo-1554995207-c18c203602cb?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879474/dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743119562.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743119562",
+      "bytes": 85062,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772743120616",
+      "bien_id": "b3",
+      "old_url": "https://images.unsplash.com/photo-1554995207-c18c203602cb?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879475/dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743120616.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743120616",
+      "bytes": 85062,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772743120613",
+      "bien_id": "b3",
+      "old_url": "https://images.unsplash.com/photo-1536376072261-38c75010e6c9?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879476/dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743120613.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743120613",
+      "bytes": 90486,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772743121360",
+      "bien_id": "b3",
+      "old_url": "https://images.unsplash.com/photo-1536376072261-38c75010e6c9?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773879477/dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743121360.jpg",
+      "public_id": "dwira_uploads/biens/ref-locsaisonniere-app-ann1-a1/media_m1772743121360",
+      "bytes": 90486,
+      "format": "jpg"
+    },
+    {
+      "id": "m10",
+      "bien_id": "b4",
+      "old_url": "https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876578/dwira_uploads/biens/ref-vente-loc-ann1-c1/media_m10.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-loc-ann1-c1/media_m10",
+      "bytes": 57642,
+      "format": "jpg"
+    },
+    {
+      "id": "m11",
+      "bien_id": "b4",
+      "old_url": "https://images.unsplash.com/photo-1497366811353-6870744d04b2?q=80&w=800",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876578/dwira_uploads/biens/ref-vente-loc-ann1-c1/media_m11.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-loc-ann1-c1/media_m11",
+      "bytes": 77871,
+      "format": "jpg"
+    },
+    {
+      "id": "m_seed_app_1",
+      "bien_id": "bien_seed_appartement_vente",
+      "old_url": "https://images.unsplash.com/photo-1738168279272-c08d6dd22002?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876579/dwira_uploads/biens/ref-vente-app-ann1-a1/media_m_seed_app_1.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-app-ann1-a1/media_m_seed_app_1",
+      "bytes": 412280,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739989803",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1559329146-807aff9ff1fb?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876580/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989803.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989803",
+      "bytes": 742187,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739989805",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1559329146-807aff9ff1fb?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876582/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989805.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989805",
+      "bytes": 742187,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739989914",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1559329146-807aff9ff1fb?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876582/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989914.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989914",
+      "bytes": 742187,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739989916",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1559329146-807aff9ff1fb?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876583/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989916.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739989916",
+      "bytes": 742187,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990020",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1738168279272-c08d6dd22002?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876584/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990020.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990020",
+      "bytes": 412280,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990021",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1738168279272-c08d6dd22002?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876585/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990021.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990021",
+      "bytes": 412280,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990201",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1738168279272-c08d6dd22002?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876585/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990201.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990201",
+      "bytes": 412280,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990204",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1738168279272-c08d6dd22002?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876586/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990204.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990204",
+      "bytes": 412280,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990325",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1597497522150-2f50bffea452?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876587/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990325.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990325",
+      "bytes": 382200,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990328",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1597497522150-2f50bffea452?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876588/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990328.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990328",
+      "bytes": 382200,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990441",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1597497522150-2f50bffea452?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876588/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990441.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990441",
+      "bytes": 382200,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772739990446",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "https://images.unsplash.com/photo-1597497522150-2f50bffea452?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876589/dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990446.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-imm-ann2-i1/media_m1772739990446",
+      "bytes": 382200,
+      "format": "jpg"
+    },
+    {
+      "id": "m_seed_local_1",
+      "bien_id": "bien_seed_local_vente",
+      "old_url": "https://images.unsplash.com/photo-1641159930908-e9eb9ccdc002?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876590/dwira_uploads/biens/ref-vente-lcom-ann1-c1/media_m_seed_local_1.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-lcom-ann1-c1/media_m_seed_local_1",
+      "bytes": 136783,
+      "format": "jpg"
+    },
+    {
+      "id": "m_seed_lot_1",
+      "bien_id": "bien_seed_lotissement_vente",
+      "old_url": "https://images.unsplash.com/photo-1764222233275-87dc016c11dc?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876591/dwira_uploads/biens/ref-vente-lot-ann1-l1/media_m_seed_lot_1.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-lot-ann1-l1/media_m_seed_lot_1",
+      "bytes": 545618,
+      "format": "jpg"
+    },
+    {
+      "id": "m_seed_lot_ter_1",
+      "bien_id": "bien_seed_lotissement_vente",
+      "old_url": "https://images.unsplash.com/photo-1763809677783-9b126e2dde88?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876593/dwira_uploads/biens/ref-vente-lot-ann1-l1/media_m_seed_lot_ter_1.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-lot-ann1-l1/media_m_seed_lot_ter_1",
+      "bytes": 648232,
+      "format": "jpg"
+    },
+    {
+      "id": "m_seed_lot_ter_2",
+      "bien_id": "bien_seed_lotissement_vente",
+      "old_url": "https://images.unsplash.com/photo-1763809677783-9b126e2dde88?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876593/dwira_uploads/biens/ref-vente-lot-ann1-l1/media_m_seed_lot_ter_2.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-lot-ann1-l1/media_m_seed_lot_ter_2",
+      "bytes": 648232,
+      "format": "jpg"
+    },
+    {
+      "id": "m1772225926211",
+      "bien_id": "bien_seed_terrain_vente",
+      "old_url": "https://images.unsplash.com/photo-1763809677783-9b126e2dde88?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876594/dwira_uploads/biens/ref-vente-ter-ann3-t1/media_m1772225926211.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-ter-ann3-t1/media_m1772225926211",
+      "bytes": 648232,
+      "format": "jpg"
+    },
+    {
+      "id": "m_seed_villa_1",
+      "bien_id": "bien_seed_villa_vente",
+      "old_url": "https://images.unsplash.com/photo-1690549392404-de10519e6adb?auto=format&fit=crop&w=1600&q=80",
+      "new_url": "https://res.cloudinary.com/drxlp3pvf/image/upload/v1773876595/dwira_uploads/biens/ref-vente-villa-ann1-v1/media_m_seed_villa_1.jpg",
+      "public_id": "dwira_uploads/biens/ref-vente-villa-ann1-v1/media_m_seed_villa_1",
+      "bytes": 608826,
+      "format": "jpg"
+    }
+  ],
+  "failures": [
+    {
+      "id": "m1773701387309",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891101-183288743.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891101-183288743.jpeg"
+    },
+    {
+      "id": "m1773701387317",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891125-81199266.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891125-81199266.jpeg"
+    },
+    {
+      "id": "m1773701387323",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891142-810559387.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891142-810559387.jpeg"
+    },
+    {
+      "id": "m1773701387329",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891164-137350913.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891164-137350913.jpeg"
+    },
+    {
+      "id": "m1773701387336",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891184-211832625.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891184-211832625.jpeg"
+    },
+    {
+      "id": "m1773701387341",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891206-189485567.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891206-189485567.jpeg"
+    },
+    {
+      "id": "m1773701387348",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891221-145346181.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891221-145346181.jpeg"
+    },
+    {
+      "id": "m1773701387355",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891252-84992647.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891252-84992647.jpeg"
+    },
+    {
+      "id": "m1773701387361",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891268-319288061.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891268-319288061.jpeg"
+    },
+    {
+      "id": "m1773701387370",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891307-761148754.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891307-761148754.jpeg"
+    },
+    {
+      "id": "m1773701387376",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891332-892147120.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891332-892147120.jpeg"
+    },
+    {
+      "id": "m1773701387383",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891368-78534150.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891368-78534150.jpeg"
+    },
+    {
+      "id": "m1773701387388",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891399-814278141.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891399-814278141.jpeg"
+    },
+    {
+      "id": "m1773701387393",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891440-564321796.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891440-564321796.jpeg"
+    },
+    {
+      "id": "m1773701387398",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891468-908022721.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891468-908022721.jpeg"
+    },
+    {
+      "id": "m1773701387403",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891492-665222147.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891492-665222147.jpeg"
+    },
+    {
+      "id": "m1773701387409",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891513-528050872.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891513-528050872.jpeg"
+    },
+    {
+      "id": "m1773701387415",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891540-662730517.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891540-662730517.jpeg"
+    },
+    {
+      "id": "m1773701387422",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891560-132789023.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891560-132789023.jpeg"
+    },
+    {
+      "id": "m1773701387427",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891577-848675527.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891577-848675527.jpeg"
+    },
+    {
+      "id": "m1773701387433",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891597-955839282.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891597-955839282.jpeg"
+    },
+    {
+      "id": "m1773701387438",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891630-305285739.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891630-305285739.jpeg"
+    },
+    {
+      "id": "m1773701387443",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891650-876795096.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891650-876795096.jpeg"
+    },
+    {
+      "id": "m1773701387449",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891671-950626893.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891671-950626893.jpeg"
+    },
+    {
+      "id": "m1773701387453",
+      "bien_id": "b_locs_demo_20260307",
+      "old_url": "/uploads/image-1773700891691-755823472.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773700891691-755823472.jpeg"
+    },
+    {
+      "id": "m1771878291572",
+      "bien_id": "b1",
+      "old_url": "/uploads/image-1771878078265-239131302.png",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1771878078265-239131302.png"
+    },
+    {
+      "id": "m1771878291579",
+      "bien_id": "b1",
+      "old_url": "/uploads/image-1771878084891-625578789.png",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1771878084891-625578789.png"
+    },
+    {
+      "id": "m1771878291585",
+      "bien_id": "b1",
+      "old_url": "/uploads/image-1771878177805-657264257.jpg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1771878177805-657264257.jpg"
+    },
+    {
+      "id": "m1772739990548",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "/uploads/image-1771963955316-624157302.jpg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1771963955316-624157302.jpg"
+    },
+    {
+      "id": "m1772739990551",
+      "bien_id": "bien_seed_immeuble_vente",
+      "old_url": "/uploads/image-1771963955316-624157302.jpg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1771963955316-624157302.jpg"
+    },
+    {
+      "id": "m1773606522454",
+      "bien_id": "oud427z6a",
+      "old_url": "/uploads/image-1773528750333-229266208.heic",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773528750333-229266208.heic"
+    },
+    {
+      "id": "m1773606522469",
+      "bien_id": "oud427z6a",
+      "old_url": "/uploads/image-1773528806761-844199967.heif",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773528806761-844199967.heif"
+    },
+    {
+      "id": "m1773606522482",
+      "bien_id": "oud427z6a",
+      "old_url": "/uploads/image-1773603716874-726309980.jpeg",
+      "error": "Resource not found - https://www.dwiraimmobilier.com/uploads/image-1773603716874-726309980.jpeg"
+    }
+  ]
+}

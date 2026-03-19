@@ -4,9 +4,12 @@ import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin
 import { resolveBienCapacity } from '../../utils/bienCapacity';
 import { isYouTubeShortUrl, toYouTubeEmbedUrl } from '../../utils/videoLinks';
 import { SmartImage } from '../../components/SmartImage';
+import { MapContainer, TileLayer, Circle } from 'react-leaflet';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const GOOGLE_HYBRID_TILE_URL = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
+const GOOGLE_TILE_ATTRIBUTION = '&copy; <a href="https://maps.google.com">Google</a>';
 
 type FeatureApiRow = {
   id: string;
@@ -118,6 +121,37 @@ const haversineKm = (a: LatLng, b: LatLng) => {
   return 2 * R * Math.asin(Math.sqrt(aa));
 };
 
+const decodeBase64Utf8 = (value: string): string | null => {
+  try {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const binary = atob(padded);
+    const bytes = Array.from(binary).map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join('');
+    return decodeURIComponent(bytes);
+  } catch {
+    return null;
+  }
+};
+
+const parseDmsCoordinates = (value: string): LatLng | null => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  const match = text.match(/(\d{1,2})[°º]\s*(\d{1,2})['’]\s*(\d{1,2}(?:\.\d+)?)["”]?\s*([NS])\s+(\d{1,3})[°º]\s*(\d{1,2})['’]\s*(\d{1,2}(?:\.\d+)?)["”]?\s*([EW])/i);
+  if (!match) return null;
+  const latDeg = Number(match[1]);
+  const latMin = Number(match[2]);
+  const latSec = Number(match[3]);
+  const latHem = String(match[4]).toUpperCase();
+  const lngDeg = Number(match[5]);
+  const lngMin = Number(match[6]);
+  const lngSec = Number(match[7]);
+  const lngHem = String(match[8]).toUpperCase();
+  const latSign = latHem === 'S' ? -1 : 1;
+  const lngSign = lngHem === 'W' ? -1 : 1;
+  const lat = latSign * (latDeg + latMin / 60 + latSec / 3600);
+  const lng = lngSign * (lngDeg + lngMin / 60 + lngSec / 3600);
+  return isValidLatLng(lat, lng) ? { lat, lng } : null;
+};
+
 const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   const value = String(url || '').trim();
   if (!value) return null;
@@ -128,11 +162,19 @@ const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   } catch {
     decoded = value;
   }
+  const encodedPlaceToken = decoded.match(/!2z([A-Za-z0-9_-]+)/i)?.[1];
+  if (encodedPlaceToken) {
+    const decodedPlace = decodeBase64Utf8(encodedPlaceToken);
+    const placeCoords = decodedPlace ? parseDmsCoordinates(decodedPlace) : null;
+    if (placeCoords) return placeCoords;
+  }
+  const inlineDmsCoords = parseDmsCoordinates(decoded);
+  if (inlineDmsCoords) return inlineDmsCoords;
   const patterns = [
+    /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
     /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
     /!2d(-?\d+(?:\.\d+)?)!3d(-?\d+(?:\.\d+)?)/i,
     /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
-    /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
     /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i,
   ];
   for (const pattern of patterns) {
@@ -153,14 +195,8 @@ const hashString = (value: string) => {
 };
 
 const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
-  const h = hashString(seed || 'dwira');
-  const angle = (h % 360) * (Math.PI / 180);
-  // Keep privacy while staying visually close to the real point (80m -> 180m).
-  const distanceKm = 0.08 + ((h % 100) / 1000);
-  const latOffset = (distanceKm / 111) * Math.cos(angle);
-  const lngOffset = (distanceKm / (111 * Math.cos(toRad(exact.lat)))) * Math.sin(angle);
-  const candidate = { lat: exact.lat + latOffset, lng: exact.lng + lngOffset };
-  return isValidLatLng(candidate.lat, candidate.lng) ? candidate : exact;
+  void seed;
+  return exact;
 };
 
 export default function LocationPublicBienPageView({
@@ -175,6 +211,7 @@ export default function LocationPublicBienPageView({
   const [allFeatures, setAllFeatures] = useState<FeatureApiRow[]>([]);
   const [displayLocation, setDisplayLocation] = useState<LatLng | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
+  const [pulsePhase, setPulsePhase] = useState(0);
   const uiConfig: BienUiConfig = bien.ui_config || {};
   const resolvedCapacity = useMemo(() => resolveBienCapacity({
     nbChambres: bien.nb_chambres,
@@ -285,6 +322,22 @@ export default function LocationPublicBienPageView({
     }];
   });
   const showBookingCard = isVisible('show_booking_card') && isVisible('show_tarification_publique');
+  const animatedOuterRadius = useMemo(
+    () => 230 + Math.sin(pulsePhase * 2.6) * 26,
+    [pulsePhase]
+  );
+  const animatedInnerRadius = useMemo(
+    () => 95 + Math.sin((pulsePhase * 2.6) + (Math.PI / 2)) * 10,
+    [pulsePhase]
+  );
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setPulsePhase((Date.now() - startedAt) / 1000);
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -341,8 +394,8 @@ export default function LocationPublicBienPageView({
   const effectiveMapCenter = displayLocation || (selectedZone ? fallbackApproxLocation : null);
   const googleEmbedUrl = useMemo(() => {
     const raw = selectedMapsUrl;
+    if (effectiveMapCenter) return `https://www.google.com/maps?output=embed&ll=${effectiveMapCenter.lat},${effectiveMapCenter.lng}&z=14&t=k`;
     if (/google\.[^/]+\/maps\/embed/i.test(raw)) return raw;
-    if (effectiveMapCenter) return `https://www.google.com/maps?q=${effectiveMapCenter.lat},${effectiveMapCenter.lng}&z=14&t=k&output=embed`;
     return '';
   }, [selectedMapsUrl, effectiveMapCenter]);
 
@@ -609,14 +662,38 @@ out body 20;
                 {googleEmbedUrl ? (
                   <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
                     <div className="h-[320px] relative">
-                      <iframe
-                        title="Carte Google du bien"
-                        src={googleEmbedUrl}
-                        className="h-full w-full border-0"
-                        loading="lazy"
-                        referrerPolicy="no-referrer-when-downgrade"
-                        allowFullScreen
-                      />
+                      {effectiveMapCenter ? (
+                        <MapContainer
+                          key={`${effectiveMapCenter.lat.toFixed(6)}:${effectiveMapCenter.lng.toFixed(6)}`}
+                          center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
+                          zoom={16}
+                          scrollWheelZoom
+                          className="h-full w-full"
+                        >
+                          <TileLayer
+                            attribution={GOOGLE_TILE_ATTRIBUTION}
+                            url={GOOGLE_HYBRID_TILE_URL}
+                          />
+                          <Circle
+                            center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
+                            radius={animatedOuterRadius}
+                            pathOptions={{ color: '#10b981', weight: 2, fillColor: '#34d399', fillOpacity: 0.15 }}
+                          />
+                          <Circle
+                            center={[effectiveMapCenter.lat, effectiveMapCenter.lng]}
+                            radius={animatedInnerRadius}
+                            pathOptions={{ color: '#34d399', weight: 2, fillColor: '#10b981', fillOpacity: 0.34 }}
+                          />
+                        </MapContainer>
+                      ) : null}
+                      <a
+                        href={googleEmbedUrl.replace("output=embed&ll=", "q=").replace("&z=14&t=k", "")}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute left-3 top-3 z-[1000] rounded bg-white/95 px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow"
+                      >
+                        Ouvrir dans Maps
+                      </a>
                     </div>
                     <div className="border-t border-gray-100 p-4">
                       {!displayLocation ? <p className="mb-2 text-xs text-gray-500">Position approximative de la zone.</p> : null}

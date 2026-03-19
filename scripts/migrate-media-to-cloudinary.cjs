@@ -137,12 +137,42 @@ function isCloudinaryUploadUrl(value) {
   return /(^https?:\/\/)?res\.cloudinary\.com\/.+\/image\/upload\//i.test(String(value || '').trim());
 }
 
+const CLOUDINARY_UPLOAD_SOURCE_BASE_URL = String(process.env.CLOUDINARY_UPLOAD_SOURCE_BASE_URL || 'https://www.dwiraimmobilier.com')
+  .trim()
+  .replace(/\/+$/, '');
+const LOCAL_UPLOADS_DIR = String(process.env.CLOUDINARY_UPLOADS_LOCAL_DIR || path.resolve(__dirname, '../server/uploads')).trim();
+
 function buildOriginUrl(mediaUrl) {
   const value = String(mediaUrl || '').trim();
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
   const pathPart = value.startsWith('/') ? value : `/${value}`;
-  return `https://www.dwiraimmobilier.com${pathPart}`;
+  return `${CLOUDINARY_UPLOAD_SOURCE_BASE_URL}${pathPart}`;
+}
+
+function guessMimeFromPath(filePath) {
+  const ext = String(path.extname(filePath || '') || '').toLowerCase();
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.avif') return 'image/avif';
+  if (ext === '.heic') return 'image/heic';
+  if (ext === '.heif') return 'image/heif';
+  return 'application/octet-stream';
+}
+
+function buildCloudinaryFileInput(mediaUrl) {
+  const relative = extractUploadsRelativePath(mediaUrl);
+  if (relative) {
+    const localFilePath = path.join(LOCAL_UPLOADS_DIR, relative);
+    if (fs.existsSync(localFilePath)) {
+      const buffer = fs.readFileSync(localFilePath);
+      const mime = guessMimeFromPath(localFilePath);
+      return `data:${mime};base64,${buffer.toString('base64')}`;
+    }
+  }
+  return buildOriginUrl(mediaUrl);
 }
 
 function safePublicIdPart(input) {
@@ -183,7 +213,7 @@ async function uploadToCloudinary(creds, row, options) {
   const endpoint = `https://api.cloudinary.com/v1_1/${creds.cloudName}/image/upload`;
   const timestamp = Math.floor(Date.now() / 1000);
   const { targetFolder, publicId } = buildCloudinaryTarget(options, row);
-  const file = buildOriginUrl(row.url);
+  const file = buildCloudinaryFileInput(row.url);
 
   if (!file) {
     throw new Error(`Invalid media url for row ${row.id}`);

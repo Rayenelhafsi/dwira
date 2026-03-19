@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
 import { SmartImage } from "../components/SmartImage";
+import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import {
   clearAuthPendingLogin,
@@ -37,6 +38,8 @@ const ENABLE_MEDIA_AVAILABILITY_PROBE = String(import.meta.env.VITE_ENABLE_MEDIA
 const LIGHTBOX_QUALITY_LOW = 42;
 const LIGHTBOX_QUALITY_MEDIUM = 58;
 const LIGHTBOX_QUALITY_HIGH = 70;
+const GOOGLE_HYBRID_TILE_URL = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
+const GOOGLE_TILE_ATTRIBUTION = '&copy; <a href="https://maps.google.com">Google</a>';
 
 function canLoadFullResByConnection(): boolean {
   if (typeof navigator === "undefined") return true;
@@ -503,14 +506,8 @@ const fallbackApproxLocation = (seed: string): LatLng => {
 };
 
 const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
-  const h = hashString(seed || 'dwira');
-  const angle = (h % 360) * (Math.PI / 180);
-  // Keep privacy while staying visually close to the real point (80m -> 180m).
-  const distanceKm = 0.08 + ((h % 100) / 1000);
-  const latOffset = (distanceKm / 111) * Math.cos(angle);
-  const lngOffset = (distanceKm / (111 * Math.cos((exact.lat * Math.PI) / 180))) * Math.sin(angle);
-  const candidate = { lat: exact.lat + latOffset, lng: exact.lng + lngOffset };
-  return isValidLatLng(candidate.lat, candidate.lng) ? candidate : exact;
+  void seed;
+  return exact;
 };
 
 export default function PropertyDetailsPage() {
@@ -663,8 +660,12 @@ export default function PropertyDetailsPage() {
     () => (mapCenter ? mapCenter : null),
     [mapCenter]
   );
-  const animatedCircleRadius = useMemo(
-    () => 280 + Math.sin(pulsePhase * 2.4) * 35,
+  const animatedOuterRadius = useMemo(
+    () => 230 + Math.sin(pulsePhase * 2.6) * 26,
+    [pulsePhase]
+  );
+  const animatedInnerRadius = useMemo(
+    () => 95 + Math.sin((pulsePhase * 2.6) + (Math.PI / 2)) * 10,
     [pulsePhase]
   );
   const googleEmbedUrl = useMemo(() => {
@@ -709,7 +710,8 @@ export default function PropertyDetailsPage() {
         }
         return;
       }
-      setMapCenter(exact);
+      const approx = obfuscateLocation(exact, `${property?.id || ''}-${selectedZone?.id || ''}`);
+      setMapCenter(approx);
     };
 
     void load();
@@ -2789,14 +2791,36 @@ out body 40;
                <h3 className="text-xl font-bold mb-6">Où se situe le logement</h3>
                {displayMapCenter ? (
                  <div className="property-location-map rounded-xl overflow-hidden border border-gray-200 h-[300px] bg-white relative">
-                   <iframe
-                     title="Carte Google du bien"
-                     src={googleEmbedUrl}
-                     className="h-full w-full border-0"
-                     loading="lazy"
-                     referrerPolicy="no-referrer-when-downgrade"
-                     allowFullScreen
-                   />
+                   <MapContainer
+                     key={`${displayMapCenter.lat.toFixed(6)}:${displayMapCenter.lng.toFixed(6)}`}
+                     center={[displayMapCenter.lat, displayMapCenter.lng]}
+                     zoom={16}
+                     scrollWheelZoom
+                     className="h-full w-full"
+                   >
+                     <TileLayer
+                       attribution={GOOGLE_TILE_ATTRIBUTION}
+                       url={GOOGLE_HYBRID_TILE_URL}
+                     />
+                     <Circle
+                       center={[displayMapCenter.lat, displayMapCenter.lng]}
+                       radius={animatedOuterRadius}
+                       pathOptions={{ color: "#10b981", weight: 2, fillColor: "#34d399", fillOpacity: 0.15 }}
+                     />
+                     <Circle
+                       center={[displayMapCenter.lat, displayMapCenter.lng]}
+                       radius={animatedInnerRadius}
+                       pathOptions={{ color: "#34d399", weight: 2, fillColor: "#10b981", fillOpacity: 0.34 }}
+                     />
+                   </MapContainer>
+                   <a
+                     href={googleEmbedUrl.replace("output=embed&ll=", "q=").replace("&z=14&t=k", "")}
+                     target="_blank"
+                     rel="noreferrer"
+                     className="absolute left-3 top-3 z-[1000] rounded bg-white/95 px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow"
+                   >
+                     Ouvrir dans Maps
+                   </a>
                  </div>
                ) : (
                  <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">
