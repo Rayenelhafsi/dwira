@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones, mockProprietaires } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, ServicePayantBien } from '../types';
@@ -707,6 +707,7 @@ export default function BiensPage() {
   const [modeFilter, setModeFilter] = useState<BienMode | 'all'>('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBien, setEditingBien] = useState<Bien | null>(null);
+  const [duplicateSeedBien, setDuplicateSeedBien] = useState<Bien | null>(null);
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
   const [editorInitialStep, setEditorInitialStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [saveStatusByBienId, setSaveStatusByBienId] = useState<Record<string, { state: 'saving' | 'saved' | 'error'; at: number }>>({});
@@ -738,6 +739,29 @@ export default function BiensPage() {
   ];
 
   const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
+  const buildDuplicateSeed = (source: Bien): Bien => {
+    const clone = JSON.parse(JSON.stringify(source)) as Bien;
+    const nowIso = new Date().toISOString();
+    const today = nowIso.split('T')[0];
+    const next: any = {
+      ...clone,
+      id: '',
+      reference: '',
+      titre: `${String(source.titre || '').trim() || 'Bien'} (Copie)`,
+      created_at: nowIso,
+      updated_at: nowIso,
+      date_ajout: today,
+    };
+    delete next.deleted_media_ids;
+    delete next.admin_last_saved_at;
+    return next as Bien;
+  };
+  const handleDuplicate = (bien: Bien) => {
+    setEditingBien(null);
+    setDuplicateSeedBien(buildDuplicateSeed(bien));
+    setEditorInitialStep(1);
+    setIsAddOpen(true);
+  };
   const buildMediaSyncKey = (item: { type?: string; url?: string; motif_upload?: string | null; position?: number | null }) =>
     `${String(item.type || 'image')}|${String(item.url || '').trim()}|${String(item.motif_upload || '').trim()}|${Number(item.position ?? 0)}`;
   const normalizeMediaForComparison = (media: Array<{ type?: string; url?: string; motif_upload?: string | null }> = []) =>
@@ -1021,14 +1045,14 @@ export default function BiensPage() {
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
+        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
       </div>
       {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
-      <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) setEditorInitialStep(1); }}>
+      <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
         <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" /><Dialog.Content className="fixed inset-0 z-50 w-full h-full bg-white overflow-hidden flex flex-col">
           <Dialog.Description className="sr-only">Formulaire d'ajout ou de modification de bien</Dialog.Description>
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
-            <div className="flex items-center gap-3"><button onClick={() => setIsAddOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">{editingBien ? 'Modifier le bien' : 'Nouveau bien'}</Dialog.Title></div>
+            <div className="flex items-center gap-3"><button onClick={() => setIsAddOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">{editingBien ? 'Modifier le bien' : duplicateSeedBien ? 'Dupliquer le bien' : 'Nouveau bien'}</Dialog.Title></div>
             <button
               onClick={() => {
                 const form = document.getElementById('bien-editor-form') as HTMLFormElement | null;
@@ -1037,7 +1061,7 @@ export default function BiensPage() {
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
             ><Save className="h-4 w-4" /><span>Sauvegarder</span></button>
           </div>
-          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} initialGeneralStep={editorInitialStep} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
+          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} seedData={duplicateSeedBien} initialGeneralStep={editorInitialStep} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root open={!!viewingBien} onOpenChange={() => setViewingBien(null)}>
@@ -1057,7 +1081,7 @@ export default function BiensPage() {
   );
 }
 
-function BienCard({ bien, zones, saveStatus, onEdit, onDelete, onView }: { bien: Bien; zones: Zone[]; saveStatus?: { state: 'saving' | 'saved' | 'error'; at: number }; onEdit: () => void; onDelete: () => void; onView: () => void; }) {
+function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onView }: { bien: Bien; zones: Zone[]; saveStatus?: { state: 'saving' | 'saved' | 'error'; at: number }; onEdit: () => void; onDuplicate: () => void; onDelete: () => void; onView: () => void; }) {
   const firstImageMedia = (bien.media || []).find((media) => media.type !== 'video');
   const firstVideoMedia = (bien.media || []).find((media) => media.type === 'video');
   const mainImage = resolveMediaUrl(firstImageMedia?.url) || toYouTubeThumbnailUrl(firstVideoMedia?.url) || ADMIN_IMAGE_FALLBACK;
@@ -1106,6 +1130,7 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDelete, onView }: { bien:
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           <button onClick={onView} className="p-2 bg-white rounded-full hover:bg-gray-100"><Eye className="h-4 w-4 text-gray-700" /></button>
           <button onClick={onEdit} className="p-2 bg-white rounded-full hover:bg-gray-100"><Edit2 className="h-4 w-4 text-emerald-600" /></button>
+          <button onClick={onDuplicate} className="p-2 bg-white rounded-full hover:bg-gray-100"><Copy className="h-4 w-4 text-blue-600" /></button>
         </div>
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3"><p className="text-white font-bold text-lg">{displayPrice} DT{priceSuffix ? <span className="text-xs font-normal text-white/80">{priceSuffix}</span> : null}</p></div>
       </div>
@@ -1123,6 +1148,7 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDelete, onView }: { bien:
         <div className="flex items-center gap-2 mt-auto pt-3 border-t border-gray-100">
           <button onClick={onView} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-gray-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg font-medium"><Eye className="h-4 w-4" /></button>
           <button onClick={onEdit} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 rounded-lg font-medium"><Edit2 className="h-4 w-4" /></button>
+          <button onClick={onDuplicate} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg font-medium"><Copy className="h-4 w-4" /></button>
           <button onClick={onDelete} className="flex-1 flex items-center justify-center p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="h-4 w-4" /></button>
         </div>
       </div>
@@ -1130,10 +1156,10 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDelete, onView }: { bien:
   );
 }
 
-function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
+function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; seedData?: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || seedData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const saisonConfig: LocationSaisonniereConfig = {
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
@@ -1170,9 +1196,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
-  const [images, setImages] = useState<Media[]>(initialData?.media || []);
+  const [images, setImages] = useState<Media[]>(initialData?.media || seedData?.media || []);
   const [deletedMediaIds, setDeletedMediaIds] = useState<string[]>([]);
-  const [unavailableDates, setUnavailableDates] = useState<DateStatus[]>(initialData?.unavailableDates || []);
+  const [unavailableDates, setUnavailableDates] = useState<DateStatus[]>(initialData?.unavailableDates || seedData?.unavailableDates || []);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [newImageMotif, setNewImageMotif] = useState('');
@@ -1192,7 +1218,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; icon_name: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
-  const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || []);
+  const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || seedData?.caracteristique_ids || []);
   const [featureChoiceValuesById, setFeatureChoiceValuesById] = useState<Record<string, string[]>>({});
   const [featureMultiChoicePickerById, setFeatureMultiChoicePickerById] = useState<Record<string, string>>({});
   const [featureValueById, setFeatureValueById] = useState<Record<string, string>>({});
@@ -1205,6 +1231,13 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   const [newZoneRegion, setNewZoneRegion] = useState('');
   const [newZoneQuartier, setNewZoneQuartier] = useState('');
   const [newZoneGoogleMapsUrl, setNewZoneGoogleMapsUrl] = useState('');
+  const [newZoneImageFile, setNewZoneImageFile] = useState<File | null>(null);
+  const [newZoneImagePreview, setNewZoneImagePreview] = useState('');
+  const [newZoneImageUploading, setNewZoneImageUploading] = useState(false);
+  const [selectedZoneImageFile, setSelectedZoneImageFile] = useState<File | null>(null);
+  const [selectedZoneImagePreview, setSelectedZoneImagePreview] = useState('');
+  const [selectedZoneImageUploading, setSelectedZoneImageUploading] = useState(false);
+  const [selectedZoneImageTarget, setSelectedZoneImageTarget] = useState<'quartier' | 'region' | 'gouvernerat' | 'pays'>('pays');
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
@@ -1405,10 +1438,11 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
   };
 
   useEffect(() => {
-    const rawDescription = initialData?.description || '';
+    const sourceData = initialData || seedData || null;
+    const rawDescription = sourceData?.description || '';
     const markerIndex = rawDescription.indexOf(CHARACTERISTICS_MARKER);
-    const normalizedType = normalizeLegacyType((initialData?.type || formData.type) as BienType);
-    const resolvedMode = (initialData?.mode || 'location_saisonniere') as BienMode;
+    const normalizedType = normalizeLegacyType((sourceData?.type || formData.type) as BienType);
+    const resolvedMode = (sourceData?.mode || 'location_saisonniere') as BienMode;
     const allowedTypes = BIEN_TYPES_BY_MODE[resolvedMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
     if (markerIndex >= 0) {
       const cleanDescription = rawDescription.slice(0, markerIndex).trim();
@@ -1441,10 +1475,10 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setRestoredFeatureLines([]);
       setRestoredFeatureValuesApplied(false);
     }
-    setSelectedFeatureIds(initialData?.caracteristique_ids || []);
+    setSelectedFeatureIds(sourceData?.caracteristique_ids || []);
     setIsReferenceManuallyEdited(Boolean(initialData?.reference));
-    setHasSeededDefaultPaidServices(Boolean(initialData));
-  }, [initialData]);
+    setHasSeededDefaultPaidServices(Boolean(sourceData));
+  }, [initialData, seedData]);
 
   useEffect(() => { setZonesOptions(zones); }, [zones]);
   useEffect(() => { setProprietaireOptions(proprietaires); }, [proprietaires]);
@@ -1526,12 +1560,50 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (restoredFeatureValuesApplied) return;
     if (!Array.isArray(availableFeatures) || availableFeatures.length === 0) return;
 
+    const sourceCaracteristiqueIds = (initialData?.caracteristique_ids || seedData?.caracteristique_ids || []).map((id) => String(id || ''));
+    const sourceCaracteristiqueValeurs = (
+      ((initialData as any)?.caracteristique_valeurs as Record<string, unknown> | undefined)
+      || ((seedData as any)?.caracteristique_valeurs as Record<string, unknown> | undefined)
+      || {}
+    );
+    const sourceChoiceValues: Record<string, string[]> = {};
+    const sourceValueById: Record<string, string> = {};
+    for (const feature of availableFeatures) {
+      const featureId = String(feature.id || '');
+      if (!featureId) continue;
+      const rawValue = sourceCaracteristiqueValeurs?.[featureId];
+      if (rawValue === undefined || rawValue === null) continue;
+      const featureType = normalizeFeatureType(feature.type_caracteristique);
+      if (featureType === 'choix_multiple') {
+        const first = Array.isArray(rawValue)
+          ? String(rawValue[0] || '').trim()
+          : String(rawValue || '').split(',').map((item) => item.trim()).filter(Boolean)[0] || '';
+        if (first) sourceChoiceValues[featureId] = [first];
+        continue;
+      }
+      if (featureType === 'plusieurs_choix') {
+        const values = Array.isArray(rawValue)
+          ? rawValue.map((item) => String(item || '').trim()).filter(Boolean)
+          : String(rawValue || '').split(',').map((item) => item.trim()).filter(Boolean);
+        if (values.length > 0) sourceChoiceValues[featureId] = Array.from(new Set(values));
+        continue;
+      }
+      if (featureType === 'valeur' || featureType === 'texte') {
+        const normalized = Array.isArray(rawValue)
+          ? String(rawValue[0] || '').trim()
+          : String(rawValue || '').trim();
+        if (normalized) sourceValueById[featureId] = normalized;
+      }
+    }
+
     if (!Array.isArray(restoredFeatureLines) || restoredFeatureLines.length === 0) {
       const allowedIds = new Set(availableFeatures.map((feature) => String(feature.id || '')));
-      const preservedInitialIds = (initialData?.caracteristique_ids || []).filter((id) => allowedIds.has(String(id || '')));
+      const preservedInitialIds = sourceCaracteristiqueIds.filter((id) => allowedIds.has(String(id || '')));
       if (preservedInitialIds.length > 0) {
         setSelectedFeatureIds((prev) => Array.from(new Set([...preservedInitialIds, ...prev])));
       }
+      setFeatureChoiceValuesById((prev) => ({ ...prev, ...sourceChoiceValues }));
+      setFeatureValueById((prev) => ({ ...prev, ...sourceValueById }));
       setRestoredFeatureValuesApplied(true);
       return;
     }
@@ -1541,9 +1613,9 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       featureByNormalizedName.set(normalizeFeatureName(String(feature.nom || '')), feature);
     }
 
-    const nextSelectedIds = new Set<string>(initialData?.caracteristique_ids || []);
-    const nextChoiceValues: Record<string, string[]> = {};
-    const nextValueById: Record<string, string> = {};
+    const nextSelectedIds = new Set<string>(sourceCaracteristiqueIds);
+    const nextChoiceValues: Record<string, string[]> = { ...sourceChoiceValues };
+    const nextValueById: Record<string, string> = { ...sourceValueById };
 
     for (const line of restoredFeatureLines) {
       const raw = String(line || '').trim();
@@ -1577,7 +1649,7 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     setFeatureChoiceValuesById((prev) => ({ ...prev, ...nextChoiceValues }));
     setFeatureValueById((prev) => ({ ...prev, ...nextValueById }));
     setRestoredFeatureValuesApplied(true);
-  }, [availableFeatures, initialData?.caracteristique_ids, restoredFeatureLines, restoredFeatureValuesApplied]);
+  }, [availableFeatures, initialData?.caracteristique_ids, seedData?.caracteristique_ids, restoredFeatureLines, restoredFeatureValuesApplied]);
 
   useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
@@ -2875,14 +2947,34 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
     if (!hasAnyZoneField) return toast.error('Renseignez au moins un champ de zone');
     try {
       const computedNom = [newZoneQuartier.trim(), newZoneRegion.trim(), newZoneGouvernerat.trim(), newZonePays.trim()].filter(Boolean).join(', ');
+      const zoneId = `z${Date.now()}`;
+      const zoneReference = computedNom || zoneId;
+      let uploadedZoneImageUrl: string | null = null;
+      if (newZoneImageFile) {
+        setNewZoneImageUploading(true);
+        const uploadPayload = new FormData();
+        uploadPayload.append('image', newZoneImageFile);
+        uploadPayload.append('upload_scope', 'zone');
+        uploadPayload.append('zone_id', zoneId);
+        uploadPayload.append('zone_reference', zoneReference);
+        const uploadResponse = await fetch(`${API_URL}/upload`, {
+          method: 'POST',
+          body: uploadPayload,
+        });
+        if (!uploadResponse.ok) throw new Error('Echec upload image zone');
+        const uploadResult = await uploadResponse.json();
+        uploadedZoneImageUrl = String(uploadResult?.url || '').trim() || null;
+      }
       const payload = {
-        id: `z${Date.now()}`,
+        id: zoneId,
         nom: computedNom || `Zone ${Date.now()}`,
         pays: newZonePays.trim() || null,
         gouvernerat: newZoneGouvernerat.trim() || null,
         region: newZoneRegion.trim() || null,
         quartier: newZoneQuartier.trim() || null,
         google_maps_url: normalizeMapsInput(newZoneGoogleMapsUrl) || null,
+        image_url: uploadedZoneImageUrl,
+        quartier_image_url: uploadedZoneImageUrl,
       };
       const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
@@ -2894,10 +2986,121 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
       setNewZoneRegion('');
       setNewZoneQuartier('');
       setNewZoneGoogleMapsUrl('');
+      setNewZoneImageFile(null);
+      setNewZoneImagePreview('');
       setShowAddZone(false);
       toast.success('Zone ajoutée');
     } catch {
       toast.error('Erreur ajout zone');
+    } finally {
+      setNewZoneImageUploading(false);
+    }
+  };
+
+  const handleUpdateSelectedZoneImage = async () => {
+    const zoneId = String(formData.zone_id || '').trim();
+    if (!zoneId) return toast.error('Aucune zone selectionnee');
+    if (!selectedZoneImageFile) return toast.error('Choisissez une image');
+    const zone = zonesOptions.find((item) => item.id === zoneId);
+    if (!zone) return toast.error('Zone introuvable');
+    try {
+      setSelectedZoneImageUploading(true);
+      const uploadPayload = new FormData();
+      uploadPayload.append('image', selectedZoneImageFile);
+      uploadPayload.append('upload_scope', 'zone');
+      uploadPayload.append('zone_id', zoneId);
+      uploadPayload.append('zone_reference', String(zone.nom || zoneId));
+      const uploadResponse = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        body: uploadPayload,
+      });
+      if (!uploadResponse.ok) throw new Error('Echec upload image zone');
+      const uploadResult = await uploadResponse.json();
+      const imageUrl = String(uploadResult?.url || '').trim();
+      if (!imageUrl) throw new Error('URL image zone invalide');
+
+      const sameToken = (a?: string | null, b?: string | null) => normalizeZoneToken(a) === normalizeZoneToken(b);
+      const imageFieldByTarget: Record<typeof selectedZoneImageTarget, 'quartier_image_url' | 'region_image_url' | 'gouvernerat_image_url' | 'pays_image_url'> = {
+        quartier: 'quartier_image_url',
+        region: 'region_image_url',
+        gouvernerat: 'gouvernerat_image_url',
+        pays: 'pays_image_url',
+      };
+      const targetImageField = imageFieldByTarget[selectedZoneImageTarget];
+      const targetZones = zonesOptions.filter((item) => {
+        if (selectedZoneImageTarget === 'quartier') {
+          return sameToken(item.pays, zone.pays)
+            && sameToken(item.gouvernerat, zone.gouvernerat)
+            && sameToken(item.region, zone.region)
+            && sameToken(item.quartier || item.nom, zone.quartier || zone.nom);
+        }
+        if (selectedZoneImageTarget === 'region') {
+          return sameToken(item.pays, zone.pays)
+            && sameToken(item.gouvernerat, zone.gouvernerat)
+            && sameToken(item.region, zone.region);
+        }
+        if (selectedZoneImageTarget === 'gouvernerat') {
+          return sameToken(item.pays, zone.pays)
+            && sameToken(item.gouvernerat, zone.gouvernerat);
+        }
+        return sameToken(item.pays, zone.pays);
+      });
+      const uniqueTargetZones = targetZones.length > 0 ? targetZones : [zone];
+      const updateResponses = await Promise.all(
+        uniqueTargetZones.map(async (targetZone) => {
+          const updatePayload = { [targetImageField]: imageUrl };
+          const updateResponse = await fetch(`${API_URL}/zones/${encodeURIComponent(targetZone.id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatePayload),
+          });
+          if (!updateResponse.ok) {
+            let serverMessage = 'Echec mise a jour zone';
+            try {
+              const errorPayload = await updateResponse.json();
+              serverMessage = String(errorPayload?.error || errorPayload?.message || serverMessage);
+            } catch {
+              // ignore json parse errors and keep fallback message
+            }
+            if (
+              updateResponse.status === 400
+              && /aucune modification/i.test(serverMessage)
+              && targetImageField !== 'image_url'
+            ) {
+              serverMessage = `${serverMessage}. Redemarrez le serveur API pour activer les champs image par niveau (pays/gouvernorat/region/quartier).`;
+            }
+            throw new Error(serverMessage);
+          }
+          return updateResponse.json();
+        })
+      );
+      const updatedById = new Map<string, Zone>();
+      updateResponses.forEach((updatedZone) => {
+        const updatedId = String((updatedZone as Zone)?.id || '').trim();
+        if (updatedId) updatedById.set(updatedId, updatedZone as Zone);
+      });
+      setZonesOptions((prev) => prev.map((item) => updatedById.get(item.id) || item));
+      setSelectedZoneImageFile(null);
+      setSelectedZoneImagePreview('');
+      const targetLabelMap: Record<typeof selectedZoneImageTarget, string> = {
+        quartier: 'quartier',
+        region: 'region',
+        gouvernerat: 'gouvernorat',
+        pays: 'pays',
+      };
+      const targetValue = selectedZoneImageTarget === 'pays'
+        ? String(zone.pays || '').trim()
+        : selectedZoneImageTarget === 'gouvernerat'
+          ? String(zone.gouvernerat || '').trim()
+          : selectedZoneImageTarget === 'region'
+            ? String(zone.region || '').trim()
+            : String(zone.quartier || zone.nom || '').trim();
+      toast.success(`Image ${targetLabelMap[selectedZoneImageTarget]} mise a jour: ${targetValue || '-'}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur mise a jour photo zone';
+      toast.error(message);
+    } finally {
+      setSelectedZoneImageUploading(false);
     }
   };
 
@@ -4020,6 +4223,66 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Localisation (Zone)</label>
                   <select name="zone_id" value={formData.zone_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{zonesOptions.map(z => <option key={z.id} value={z.id}>{z.nom}</option>)}</select>
+                  {String(formData.zone_id || '').trim() && (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-2 space-y-2">
+                      {(() => {
+                        const selectedZone = zonesOptions.find((zone) => zone.id === formData.zone_id);
+                        const selectedZoneImageRaw =
+                          selectedZoneImageTarget === 'pays'
+                            ? selectedZone?.pays_image_url
+                            : selectedZoneImageTarget === 'gouvernerat'
+                              ? selectedZone?.gouvernerat_image_url
+                              : selectedZoneImageTarget === 'region'
+                                ? selectedZone?.region_image_url
+                                : selectedZone?.quartier_image_url;
+                        const selectedZoneImage = resolveMediaUrl(selectedZoneImageRaw || '');
+                        return (
+                          <>
+                            {selectedZoneImage && (
+                              <img src={selectedZoneImage} alt={selectedZone?.nom || 'Zone'} className="h-24 w-full rounded-lg border border-gray-200 object-cover" />
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onClick={(e) => { (e.currentTarget as HTMLInputElement).value = ''; }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0] || null;
+                                setSelectedZoneImageFile(file);
+                                if (file) {
+                                  setSelectedZoneImagePreview(URL.createObjectURL(file));
+                                } else {
+                                  setSelectedZoneImagePreview('');
+                                }
+                              }}
+                              className="block w-full rounded-lg border-gray-300 border p-2 text-xs"
+                            />
+                            {selectedZoneImageFile && (
+                              <p className="text-[11px] text-emerald-700">Fichier selectionne: {selectedZoneImageFile.name}</p>
+                            )}
+                            <div className="space-y-1">
+                              <label className="text-[11px] text-gray-600">Appliquer cette image a</label>
+                              <select
+                                value={selectedZoneImageTarget}
+                                onChange={(e) => setSelectedZoneImageTarget(e.target.value as 'quartier' | 'region' | 'gouvernerat' | 'pays')}
+                                className="block w-full rounded-lg border-gray-300 border p-2 text-xs"
+                              >
+                                <option value="pays">Pays courant (ex: Tunisie)</option>
+                                <option value="gouvernerat">Gouvernorat courant (ex: Nabeul)</option>
+                                <option value="region">Region courante</option>
+                                <option value="quartier">Quartier / Zone courante</option>
+                              </select>
+                            </div>
+                            {selectedZoneImagePreview && (
+                              <img src={selectedZoneImagePreview} alt="Apercu nouvelle zone" className="h-20 w-full rounded-lg border border-dashed border-emerald-300 object-cover" />
+                            )}
+                            <button type="button" disabled={selectedZoneImageUploading || !selectedZoneImageFile} onClick={handleUpdateSelectedZoneImage} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs disabled:opacity-60">
+                              {selectedZoneImageUploading ? 'Upload...' : 'Mettre a jour photo zone'}
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={() => setShowAddZone(!showAddZone)} className="text-xs text-emerald-700 hover:underline">+ Ajouter une zone</button>
                     <button type="button" onClick={handleDeleteSelectedZone} className="text-xs text-red-600 hover:underline">Supprimer zone sélectionnée</button>
@@ -4043,7 +4306,29 @@ function BienEditor({ initialData, zones, proprietaires, existingBiens, onSubmit
                         {quartierOptions.map((item) => <option key={`quartier-${item}`} value={item} />)}
                       </datalist>
                       <input type="url" value={newZoneGoogleMapsUrl} onChange={(e) => setNewZoneGoogleMapsUrl(e.target.value)} placeholder="Lien Google Maps (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <button type="button" onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer zone</button>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-gray-600">Image de la zone (popup client)</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            setNewZoneImageFile(file);
+                            if (file) {
+                              setNewZoneImagePreview(URL.createObjectURL(file));
+                            } else {
+                              setNewZoneImagePreview('');
+                            }
+                          }}
+                          className="block w-full rounded-lg border-gray-300 border p-2 text-xs"
+                        />
+                        {newZoneImagePreview && (
+                          <img src={newZoneImagePreview} alt="Aperçu zone" className="h-24 w-full rounded-lg border border-gray-200 object-cover" />
+                        )}
+                      </div>
+                      <button type="button" disabled={newZoneImageUploading} onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">
+                        {newZoneImageUploading ? 'Upload image...' : 'Enregistrer zone'}
+                      </button>
                     </div>
                   )}
                 </div>

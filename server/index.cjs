@@ -2668,6 +2668,99 @@ async function ensureZonesSchema() {
   if (!(await hasColumn('quartier'))) {
     await pool.query('ALTER TABLE zones ADD COLUMN quartier VARCHAR(160) NULL AFTER region');
   }
+  if (!(await hasColumn('image_url'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN image_url VARCHAR(800) NULL AFTER google_maps_url');
+  }
+  if (!(await hasColumn('pays_image_url'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN pays_image_url VARCHAR(800) NULL AFTER image_url');
+  }
+  if (!(await hasColumn('gouvernerat_image_url'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN gouvernerat_image_url VARCHAR(800) NULL AFTER pays_image_url');
+  }
+  if (!(await hasColumn('region_image_url'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN region_image_url VARCHAR(800) NULL AFTER gouvernerat_image_url');
+  }
+  if (!(await hasColumn('quartier_image_url'))) {
+    await pool.query('ALTER TABLE zones ADD COLUMN quartier_image_url VARCHAR(800) NULL AFTER region_image_url');
+  }
+}
+
+async function enrichBiensWithCaracteristiques(rows) {
+  const baseRows = Array.isArray(rows) ? rows : [];
+  if (baseRows.length === 0) return baseRows;
+
+  const bienIds = baseRows
+    .map((row) => String(row?.id || '').trim())
+    .filter(Boolean);
+  if (bienIds.length === 0) return baseRows;
+
+  const placeholders = bienIds.map(() => '?').join(',');
+  const [featureRows] = await pool.query(
+    `SELECT
+       bc.bien_id,
+       bc.caracteristique_id,
+       COALESCE(bc.override_nom, c.nom) AS nom_affiche,
+       COALESCE(bc.visibilite_client, c.visibilite_client, 1) AS visibilite_client,
+       bc.override_valeur_json
+     FROM bien_caracteristiques bc
+     LEFT JOIN caracteristiques c ON c.id = bc.caracteristique_id
+     WHERE bc.bien_id IN (${placeholders})
+     ORDER BY bc.bien_id, bc.caracteristique_id`,
+    bienIds
+  );
+
+  const byBienId = new Map();
+  for (const featureRow of Array.isArray(featureRows) ? featureRows : []) {
+    const bienId = String(featureRow?.bien_id || '').trim();
+    const caracteristiqueId = String(featureRow?.caracteristique_id || '').trim();
+    if (!bienId || !caracteristiqueId) continue;
+    const current = byBienId.get(bienId) || {
+      ids: [],
+      idsSet: new Set(),
+      noms: [],
+      valeurs: {},
+    };
+    if (!current.idsSet.has(caracteristiqueId)) {
+      current.idsSet.add(caracteristiqueId);
+      current.ids.push(caracteristiqueId);
+    }
+
+    const visibleClient = Number(featureRow?.visibilite_client ?? 1) !== 0;
+    const nomAffiche = String(featureRow?.nom_affiche || '').trim();
+    if (visibleClient && nomAffiche) {
+      current.noms.push(nomAffiche);
+    }
+
+    const rawValue = featureRow?.override_valeur_json;
+    if (rawValue !== null && rawValue !== undefined && String(rawValue).trim().length > 0) {
+      try {
+        current.valeurs[caracteristiqueId] = JSON.parse(String(rawValue));
+      } catch {
+        // ignore malformed persisted value
+      }
+    }
+
+    byBienId.set(bienId, current);
+  }
+
+  return baseRows.map((row) => {
+    const bienId = String(row?.id || '').trim();
+    const data = byBienId.get(bienId);
+    if (!data) {
+      return {
+        ...row,
+        caracteristique_ids_list: null,
+        caracteristiques_list: null,
+        caracteristique_valeurs_json: null,
+      };
+    }
+    return {
+      ...row,
+      caracteristique_ids_list: data.ids.length > 0 ? data.ids.join('||') : null,
+      caracteristiques_list: data.noms.length > 0 ? data.noms.join('||') : null,
+      caracteristique_valeurs_json: Object.keys(data.valeurs).length > 0 ? JSON.stringify(data.valeurs) : null,
+    };
+  });
 }
 
 async function ensureMessengerSchema() {
@@ -4724,26 +4817,15 @@ app.get('/api/biens', async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     const [rows] = await pool.query(`
-      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom,
-        (
-          SELECT GROUP_CONCAT(c.id SEPARATOR '||')
-          FROM bien_caracteristiques bc
-          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
-          WHERE bc.bien_id = b.id
-        ) as caracteristique_ids_list,
-        (
-          SELECT GROUP_CONCAT(COALESCE(bc.override_nom, c.nom) SEPARATOR '||')
-          FROM bien_caracteristiques bc
-          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
-          WHERE bc.bien_id = b.id AND COALESCE(bc.visibilite_client, c.visibilite_client, 1) = 1
-        ) as caracteristiques_list
+      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom
       FROM biens b 
       LEFT JOIN zones z ON b.zone_id = z.id 
       LEFT JOIN proprietaires p ON b.proprietaire_id = p.id
       ORDER BY b.created_at DESC
     `);
-    const servicesByBienId = await listPaidServicesForBienIds((rows || []).map((row) => row.id));
-    const enrichedRows = (rows || []).map((row) => {
+    const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
+    const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
       try {
         config = row.location_saisonniere_config_json
@@ -4772,26 +4854,14 @@ app.get('/api/biens/:id', async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     const [rows] = await pool.query(`
-      SELECT b.*,
-        (
-          SELECT GROUP_CONCAT(c.id SEPARATOR '||')
-          FROM bien_caracteristiques bc
-          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
-          WHERE bc.bien_id = b.id
-        ) as caracteristique_ids_list,
-        (
-          SELECT GROUP_CONCAT(COALESCE(bc.override_nom, c.nom) SEPARATOR '||')
-          FROM bien_caracteristiques bc
-          INNER JOIN caracteristiques c ON c.id = bc.caracteristique_id
-          WHERE bc.bien_id = b.id AND COALESCE(bc.visibilite_client, c.visibilite_client, 1) = 1
-        ) as caracteristiques_list
+      SELECT b.*
       FROM biens b
       WHERE b.id = ?
     `, [req.params.id]);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Bien not found' });
     }
-    const row = rows[0];
+    const row = (await enrichBiensWithCaracteristiques(rows))[0];
     const servicesByBienId = await listPaidServicesForBienIds([row.id]);
     let config = null;
     try {
@@ -5313,6 +5383,7 @@ app.delete('/api/biens/:id', async (req, res) => {
 
 app.get('/api/zones', async (req, res) => {
   try {
+    await ensureZonesSchema();
     const [rows] = await pool.query('SELECT * FROM zones ORDER BY nom');
     res.json(rows);
   } catch (error) {
@@ -5340,7 +5411,12 @@ app.post('/api/zones', async (req, res) => {
       gouvernerat,
       region,
       quartier,
-      google_maps_url
+      google_maps_url,
+      image_url,
+      pays_image_url,
+      gouvernerat_image_url,
+      region_image_url,
+      quartier_image_url,
     } = req.body;
     const normalizedPays = String(pays || '').trim();
     const normalizedGouvernerat = String(gouvernerat || '').trim();
@@ -5351,8 +5427,22 @@ app.post('/api/zones', async (req, res) => {
       return res.status(400).json({ error: 'Nom de zone requis' });
     }
     await pool.query(
-      'INSERT INTO zones (id, nom, description, pays, gouvernerat, region, quartier, google_maps_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, normalizedNom, description || '', normalizedPays || null, normalizedGouvernerat || null, normalizedRegion || null, normalizedQuartier || null, normalizeMapsInput(google_maps_url)]
+      'INSERT INTO zones (id, nom, description, pays, gouvernerat, region, quartier, google_maps_url, image_url, pays_image_url, gouvernerat_image_url, region_image_url, quartier_image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        normalizedNom,
+        description || '',
+        normalizedPays || null,
+        normalizedGouvernerat || null,
+        normalizedRegion || null,
+        normalizedQuartier || null,
+        normalizeMapsInput(google_maps_url),
+        String(image_url || '').trim() || null,
+        String(pays_image_url || '').trim() || null,
+        String(gouvernerat_image_url || '').trim() || null,
+        String(region_image_url || '').trim() || null,
+        String(quartier_image_url || '').trim() || null,
+      ]
     );
     const [newZone] = await pool.query('SELECT * FROM zones WHERE id = ?', [id]);
     res.status(201).json(newZone[0]);
@@ -5979,6 +6069,64 @@ app.get('/api/media-bulk', async (req, res) => {
   } catch (error) {
     console.error('Error fetching bulk media:', error);
     res.status(500).json({ error: 'Failed to fetch bulk media' });
+  }
+});
+
+app.put('/api/zones/:id', async (req, res) => {
+  try {
+    await ensureZonesSchema();
+    const zoneId = String(req.params.id || '').trim();
+    if (!zoneId) return res.status(400).json({ error: 'Zone id requis' });
+
+    const {
+      nom,
+      description,
+      pays,
+      gouvernerat,
+      region,
+      quartier,
+      google_maps_url,
+      image_url,
+      pays_image_url,
+      gouvernerat_image_url,
+      region_image_url,
+      quartier_image_url,
+    } = req.body || {};
+
+    const normalizeMapsInput = (raw) => {
+      const value = String(raw || '').trim();
+      if (!value) return null;
+      const match = value.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i);
+      const extracted = match?.[1] || value;
+      return String(extracted || '').replace(/&amp;/g, '&').trim() || null;
+    };
+
+    const fields = [];
+    const values = [];
+    if (nom !== undefined) { fields.push('nom = ?'); values.push(String(nom || '').trim() || null); }
+    if (description !== undefined) { fields.push('description = ?'); values.push(String(description || '').trim() || ''); }
+    if (pays !== undefined) { fields.push('pays = ?'); values.push(String(pays || '').trim() || null); }
+    if (gouvernerat !== undefined) { fields.push('gouvernerat = ?'); values.push(String(gouvernerat || '').trim() || null); }
+    if (region !== undefined) { fields.push('region = ?'); values.push(String(region || '').trim() || null); }
+    if (quartier !== undefined) { fields.push('quartier = ?'); values.push(String(quartier || '').trim() || null); }
+    if (google_maps_url !== undefined) { fields.push('google_maps_url = ?'); values.push(normalizeMapsInput(google_maps_url)); }
+    if (image_url !== undefined) { fields.push('image_url = ?'); values.push(String(image_url || '').trim() || null); }
+    if (pays_image_url !== undefined) { fields.push('pays_image_url = ?'); values.push(String(pays_image_url || '').trim() || null); }
+    if (gouvernerat_image_url !== undefined) { fields.push('gouvernerat_image_url = ?'); values.push(String(gouvernerat_image_url || '').trim() || null); }
+    if (region_image_url !== undefined) { fields.push('region_image_url = ?'); values.push(String(region_image_url || '').trim() || null); }
+    if (quartier_image_url !== undefined) { fields.push('quartier_image_url = ?'); values.push(String(quartier_image_url || '').trim() || null); }
+
+    if (fields.length === 0) return res.status(400).json({ error: 'Aucune modification' });
+
+    values.push(zoneId);
+    await pool.query(`UPDATE zones SET ${fields.join(', ')} WHERE id = ?`, values);
+    const [rows] = await pool.query('SELECT * FROM zones WHERE id = ? LIMIT 1', [zoneId]);
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    if (!row) return res.status(404).json({ error: 'Zone not found' });
+    res.json(row);
+  } catch (error) {
+    console.error('Error updating zone:', error);
+    res.status(500).json({ error: 'Failed to update zone' });
   }
 });
 
@@ -7708,9 +7856,19 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
     const localUrl = `/uploads/${req.file.filename}`;
     const bienIdRaw = Array.isArray(req.body?.bien_id) ? req.body.bien_id[0] : req.body?.bien_id;
     const bienRefRaw = Array.isArray(req.body?.bien_reference) ? req.body.bien_reference[0] : req.body?.bien_reference;
+    const uploadScopeRaw = Array.isArray(req.body?.upload_scope) ? req.body.upload_scope[0] : req.body?.upload_scope;
+    const zoneIdRaw = Array.isArray(req.body?.zone_id) ? req.body.zone_id[0] : req.body?.zone_id;
+    const zoneRefRaw = Array.isArray(req.body?.zone_reference) ? req.body.zone_reference[0] : req.body?.zone_reference;
     const bienId = String(bienIdRaw || '').trim();
     const bienReference = String(bienRefRaw || '').trim();
-    const folderKey = (bienReference || bienId || 'unassigned')
+    const uploadScope = String(uploadScopeRaw || '').trim().toLowerCase();
+    const zoneId = String(zoneIdRaw || '').trim();
+    const zoneReference = String(zoneRefRaw || '').trim();
+    const folderKey = (
+      uploadScope === 'zone'
+        ? (zoneReference || zoneId || 'unassigned-zone')
+        : (bienReference || bienId || 'unassigned')
+    )
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, '-')
       .replace(/-+/g, '-')
@@ -7718,7 +7876,8 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
 
     if (CLOUDINARY_CREDS) {
       try {
-        const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}biens/${folderKey}`;
+        const scopeFolder = uploadScope === 'zone' ? 'zones' : 'biens';
+        const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}${scopeFolder}/${folderKey}`;
         const uploaded = await uploadLocalMediaToCloudinary({
           localFilePath: req.file.path,
           filename: req.file.filename,
@@ -7740,6 +7899,7 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
             filename: req.file.filename,
             mimetype: req.file.mimetype,
             mediaType,
+            scope: uploadScope || 'bien',
           });
         }
       } catch (cloudError) {
@@ -7759,6 +7919,7 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
       filename: req.file.filename,
       mimetype: req.file.mimetype,
       mediaType,
+      scope: uploadScope || 'bien',
     });
   } catch (error) {
     console.error('Error uploading media:', error);

@@ -140,6 +140,26 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   const caracteristiqueIdsFromDb = typeof row.caracteristique_ids_list === 'string' && row.caracteristique_ids_list.trim().length > 0
     ? row.caracteristique_ids_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
+  let caracteristiqueValeursFromDb: Record<string, string | string[]> = {};
+  try {
+    const rawValues = (row as any).caracteristique_valeurs_json;
+    if (rawValues && String(rawValues).trim().length > 0) {
+      const parsed = typeof rawValues === 'string' ? JSON.parse(rawValues) : rawValues;
+      if (parsed && typeof parsed === 'object') {
+        Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
+          const featureId = String(key || '').trim();
+          if (!featureId) return;
+          if (Array.isArray(value)) {
+            const values = value.map((item) => String(item || '').trim()).filter(Boolean);
+            if (values.length > 0) caracteristiqueValeursFromDb[featureId] = values;
+          } else if (value !== null && value !== undefined) {
+            const normalized = String(value || '').trim();
+            if (normalized) caracteristiqueValeursFromDb[featureId] = normalized;
+          }
+        });
+      }
+    }
+  } catch {}
 
   const effectiveCaracteristiques = caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques;
   const resolvedCapacity = resolveBienCapacity({
@@ -156,6 +176,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     description: parsedDescription.description,
     caracteristiques: effectiveCaracteristiques,
     caracteristique_ids: caracteristiqueIdsFromDb,
+    caracteristique_valeurs: caracteristiqueValeursFromDb,
     mode: (row.mode || row.mode_bien || DEFAULT_MODE) as BienMode,
     type: normalizeBienType(row.type),
     nb_chambres: resolvedCapacity.bedrooms,

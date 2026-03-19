@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
+import { Zone } from "../admin/types";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   format, 
@@ -30,16 +31,20 @@ const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
 ];
 
 const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
-const LOCATIONS_LIST = ["Kélibia", "Plage El Mansoura", "Petit Paris", "Front de mer"];
+const ZONE_FALLBACK_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23d1fae5'/%3E%3Cstop offset='100%25' stop-color='%23a7f3d0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='360' fill='url(%23g)'/%3E%3Cpath d='M0 260h640v100H0z' fill='%23059669' fill-opacity='0.16'/%3E%3C/svg%3E";
 
 export default function HomePage() {
   // Use shared context for properties
-  const { properties, modePriorities, loading } = useProperties();
+  const { properties, zones, modePriorities, loading } = useProperties();
   
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const resultsRef = useRef<HTMLDivElement>(null);
   const filterControlsRef = useRef<HTMLDivElement>(null);
+  const locationDesktopPopupRef = useRef<HTMLDivElement>(null);
+  const locationMobilePopupRef = useRef<HTMLDivElement>(null);
+  const calendarMobilePopupRef = useRef<HTMLDivElement>(null);
   
   // Filter states
   const [location, setLocation] = useState("");
@@ -52,6 +57,10 @@ export default function HomePage() {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
+  const [locationPays, setLocationPays] = useState("Tunisie");
+  const [locationGouvernerat, setLocationGouvernerat] = useState("");
+  const [locationRegion, setLocationRegion] = useState("");
+  const [locationZone, setLocationZone] = useState("");
 
   const today = startOfDay(new Date());
   const orderedModeTabs = useMemo(
@@ -61,6 +70,147 @@ export default function HomePage() {
       ),
     [modePriorities]
   );
+  const normalizedZones = useMemo(
+    () =>
+      (Array.isArray(zones) ? zones : []).filter((zone): zone is Zone =>
+        Boolean(String(zone?.id || '').trim()) && Boolean(String(zone?.nom || '').trim())
+      ),
+    [zones]
+  );
+  const cascadePaysOptions = useMemo(
+    () => Array.from(new Set(normalizedZones.map((zone) => String(zone.pays || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'fr')),
+    [normalizedZones]
+  );
+  const cascadeGouverneratOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          normalizedZones
+            .filter((zone) => !locationPays || String(zone.pays || '').trim() === locationPays)
+            .map((zone) => String(zone.gouvernerat || '').trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, 'fr')),
+    [normalizedZones, locationPays]
+  );
+  const cascadeRegionOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          normalizedZones
+            .filter(
+              (zone) =>
+                (!locationPays || String(zone.pays || '').trim() === locationPays)
+                && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
+            )
+            .map((zone) => String(zone.region || '').trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, 'fr')),
+    [normalizedZones, locationPays, locationGouvernerat]
+  );
+  const cascadeZoneOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          normalizedZones
+            .filter(
+              (zone) =>
+                (!locationPays || String(zone.pays || '').trim() === locationPays)
+                && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
+                && (!locationRegion || String(zone.region || '').trim() === locationRegion)
+            )
+            .map((zone) => String(zone.quartier || zone.nom || '').trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, 'fr')),
+    [normalizedZones, locationPays, locationGouvernerat, locationRegion]
+  );
+  const resolveZoneImageUrl = (url?: string | null) => {
+    const value = String(url || '').trim();
+    if (!value) return ZONE_FALLBACK_IMAGE;
+    if (/^https?:\/\//i.test(value)) return value;
+    return value.startsWith('/') ? `${window.location.origin}${value}` : value;
+  };
+  const resetLocationFilters = () => {
+    setLocation("");
+    setLocationPays("");
+    setLocationGouvernerat("");
+    setLocationRegion("");
+    setLocationZone("");
+  };
+  const confirmLocationSelection = () => {
+    const selectedValue =
+      String(locationZone || '').trim()
+      || String(locationRegion || '').trim()
+      || String(locationGouvernerat || '').trim()
+      || String(locationPays || '').trim();
+    setLocation(selectedValue);
+    setShowLocationDropdown(false);
+  };
+  const selectedLocationImages = useMemo(() => {
+    const pickImage = (items: Zone[], field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
+      items.find((item) => String(item[field] || '').trim())?.[field] || null;
+
+    const paysImage = locationPays
+      ? pickImage(normalizedZones.filter((zone) => String(zone.pays || '').trim() === locationPays), 'pays_image_url')
+      : null;
+    const gouverneratImage = locationGouvernerat
+      ? pickImage(
+          normalizedZones.filter(
+            (zone) =>
+              (!locationPays || String(zone.pays || '').trim() === locationPays)
+              && String(zone.gouvernerat || '').trim() === locationGouvernerat
+          ),
+          'gouvernerat_image_url'
+        )
+      : null;
+    const regionImage = locationRegion
+      ? pickImage(
+          normalizedZones.filter(
+            (zone) =>
+              (!locationPays || String(zone.pays || '').trim() === locationPays)
+              && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
+              && String(zone.region || '').trim() === locationRegion
+          ),
+          'region_image_url'
+        )
+      : null;
+    const zoneImage = locationZone
+      ? pickImage(
+          normalizedZones.filter(
+            (zone) =>
+              (!locationPays || String(zone.pays || '').trim() === locationPays)
+              && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
+              && (!locationRegion || String(zone.region || '').trim() === locationRegion)
+              && String(zone.quartier || zone.nom || '').trim() === locationZone
+          ),
+          'quartier_image_url'
+        )
+      : null;
+
+    return {
+      pays: paysImage,
+      gouvernerat: gouverneratImage,
+      region: regionImage,
+      zone: zoneImage || pickImage(
+        normalizedZones.filter(
+          (zone) =>
+            (!locationPays || String(zone.pays || '').trim() === locationPays)
+            && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
+            && (!locationRegion || String(zone.region || '').trim() === locationRegion)
+            && (!locationZone || String(zone.quartier || zone.nom || '').trim() === locationZone)
+        ),
+        'image_url'
+      ),
+    };
+  }, [normalizedZones, locationPays, locationGouvernerat, locationRegion, locationZone]);
+
+  useEffect(() => {
+    if (!locationPays && cascadePaysOptions.some((item) => item.toLowerCase() === 'tunisie')) {
+      setLocationPays('Tunisie');
+    }
+  }, [cascadePaysOptions, locationPays]);
 
   useEffect(() => {
     if (loading) {
@@ -193,7 +343,11 @@ export default function HomePage() {
     if (!showLocationDropdown && !showCalendar && !showCategoryDropdown) return;
     const handleOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null;
-      if (filterControlsRef.current && target && !filterControlsRef.current.contains(target)) {
+      const isInsideControls = Boolean(filterControlsRef.current && target && filterControlsRef.current.contains(target));
+      const isInsideDesktopLocation = Boolean(locationDesktopPopupRef.current && target && locationDesktopPopupRef.current.contains(target));
+      const isInsideMobileLocation = Boolean(locationMobilePopupRef.current && target && locationMobilePopupRef.current.contains(target));
+      const isInsideMobileCalendar = Boolean(calendarMobilePopupRef.current && target && calendarMobilePopupRef.current.contains(target));
+      if (!isInsideControls && !isInsideDesktopLocation && !isInsideMobileLocation && !isInsideMobileCalendar) {
         closeAllFilters();
       }
     };
@@ -300,23 +454,123 @@ export default function HomePage() {
                   </button>
                   
                   {showLocationDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
-                      <div className="p-2">
-                        <button
-                          className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                          onClick={() => { setLocation(""); setShowLocationDropdown(false); }}
-                        >
-                          Tous les emplacements
-                        </button>
-                        {LOCATIONS_LIST.map((loc) => (
+                    <div ref={locationDesktopPopupRef} className="absolute top-full left-0 mt-2 z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block md:w-[760px]">
+                      <div className="p-4 space-y-4">
+                        <div className="grid grid-cols-12 gap-3">
+                          <div className="col-span-4 space-y-1.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
+                            <div className="relative overflow-hidden rounded-xl">
+                            {selectedLocationImages.pays && (
+                              <img
+                                src={resolveZoneImageUrl(selectedLocationImages.pays)}
+                                alt={locationPays || "Pays"}
+                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                              />
+                            )}
+                            {selectedLocationImages.pays && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                            <select
+                              value={locationPays}
+                              onChange={(e) => {
+                                setLocationPays(e.target.value);
+                                setLocationGouvernerat("");
+                                setLocationRegion("");
+                                setLocationZone("");
+                              }}
+                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.pays ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
+                            >
+                              <option value="">Tous pays</option>
+                              {cascadePaysOptions.map((item) => <option key={`home-pays-${item}`} value={item}>{item}</option>)}
+                            </select>
+                          </div>
+                          </div>
+                          <div className="col-span-8 grid grid-cols-3 gap-3">
+                          <div className="space-y-1.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
+                            <div className="relative overflow-hidden rounded-xl">
+                            {selectedLocationImages.gouvernerat && (
+                              <img
+                                src={resolveZoneImageUrl(selectedLocationImages.gouvernerat)}
+                                alt={locationGouvernerat || "Gouvernorat"}
+                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                              />
+                            )}
+                            {selectedLocationImages.gouvernerat && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                            <select
+                              value={locationGouvernerat}
+                              onChange={(e) => {
+                                setLocationGouvernerat(e.target.value);
+                                setLocationRegion("");
+                                setLocationZone("");
+                              }}
+                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.gouvernerat ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
+                            >
+                              <option value="">Tous gouvernorats</option>
+                              {cascadeGouverneratOptions.map((item) => <option key={`home-gouv-${item}`} value={item}>{item}</option>)}
+                            </select>
+                          </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
+                            <div className="relative overflow-hidden rounded-xl">
+                            {selectedLocationImages.region && (
+                              <img
+                                src={resolveZoneImageUrl(selectedLocationImages.region)}
+                                alt={locationRegion || "Region"}
+                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                              />
+                            )}
+                            {selectedLocationImages.region && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                            <select
+                              value={locationRegion}
+                              onChange={(e) => {
+                                setLocationRegion(e.target.value);
+                                setLocationZone("");
+                              }}
+                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.region ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
+                            >
+                              <option value="">Toutes regions</option>
+                              {cascadeRegionOptions.map((item) => <option key={`home-region-${item}`} value={item}>{item}</option>)}
+                            </select>
+                          </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
+                            <div className="relative overflow-hidden rounded-xl">
+                            {selectedLocationImages.zone && (
+                              <img
+                                src={resolveZoneImageUrl(selectedLocationImages.zone)}
+                                alt={locationZone || "Zone"}
+                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                              />
+                            )}
+                            {selectedLocationImages.zone && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                            <select
+                              value={locationZone}
+                              onChange={(e) => setLocationZone(e.target.value)}
+                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.zone ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
+                            >
+                              <option value="">Toutes zones</option>
+                              {cascadeZoneOptions.map((item) => <option key={`home-zone-${item}`} value={item}>{item}</option>)}
+                            </select>
+                          </div>
+                          </div>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
                           <button
-                            key={loc}
-                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${location === loc ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                            onClick={() => { setLocation(loc); setShowLocationDropdown(false); }}
+                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
+                            onClick={() => { resetLocationFilters(); setShowLocationDropdown(false); }}
                           >
-                            {loc}
+                            Tous les emplacements
                           </button>
-                        ))}
+                          <button
+                            type="button"
+                            onClick={confirmLocationSelection}
+                            className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                          >
+                            Confirmer la selection
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -502,22 +756,106 @@ export default function HomePage() {
         {showLocationDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowLocationDropdown(false)} />
-            <div className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
+            <div ref={locationMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-3 space-y-3">
+              <div className="grid grid-cols-1 gap-2">
+                <div className="relative overflow-hidden rounded-xl">
+                  {selectedLocationImages.pays && (
+                    <img
+                      src={resolveZoneImageUrl(selectedLocationImages.pays)}
+                      alt={locationPays || "Pays"}
+                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                    />
+                  )}
+                  {selectedLocationImages.pays && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                  <select
+                    value={locationPays}
+                    onChange={(e) => {
+                      setLocationPays(e.target.value);
+                      setLocationGouvernerat("");
+                      setLocationRegion("");
+                      setLocationZone("");
+                    }}
+                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.pays ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
+                  >
+                    <option value="">Tous pays</option>
+                    {cascadePaysOptions.map((item) => <option key={`mobile-pays-${item}`} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <div className="relative overflow-hidden rounded-xl">
+                  {selectedLocationImages.gouvernerat && (
+                    <img
+                      src={resolveZoneImageUrl(selectedLocationImages.gouvernerat)}
+                      alt={locationGouvernerat || "Gouvernorat"}
+                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                    />
+                  )}
+                  {selectedLocationImages.gouvernerat && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                  <select
+                    value={locationGouvernerat}
+                    onChange={(e) => {
+                      setLocationGouvernerat(e.target.value);
+                      setLocationRegion("");
+                      setLocationZone("");
+                    }}
+                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.gouvernerat ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
+                  >
+                    <option value="">Tous gouvernorats</option>
+                    {cascadeGouverneratOptions.map((item) => <option key={`mobile-gouv-${item}`} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <div className="relative overflow-hidden rounded-xl">
+                  {selectedLocationImages.region && (
+                    <img
+                      src={resolveZoneImageUrl(selectedLocationImages.region)}
+                      alt={locationRegion || "Region"}
+                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                    />
+                  )}
+                  {selectedLocationImages.region && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                  <select
+                    value={locationRegion}
+                    onChange={(e) => {
+                      setLocationRegion(e.target.value);
+                      setLocationZone("");
+                    }}
+                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.region ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
+                  >
+                    <option value="">Toutes regions</option>
+                    {cascadeRegionOptions.map((item) => <option key={`mobile-region-${item}`} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <div className="relative overflow-hidden rounded-xl">
+                  {selectedLocationImages.zone && (
+                    <img
+                      src={resolveZoneImageUrl(selectedLocationImages.zone)}
+                      alt={locationZone || "Zone"}
+                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                    />
+                  )}
+                  {selectedLocationImages.zone && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                  <select
+                    value={locationZone}
+                    onChange={(e) => setLocationZone(e.target.value)}
+                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.zone ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
+                  >
+                    <option value="">Toutes zones</option>
+                    {cascadeZoneOptions.map((item) => <option key={`mobile-zone-${item}`} value={item}>{item}</option>)}
+                  </select>
+                </div>
+              </div>
               <button
                 className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => { setLocation(""); setShowLocationDropdown(false); }}
+                onClick={() => { resetLocationFilters(); setShowLocationDropdown(false); }}
               >
                 Tous les emplacements
               </button>
-              {LOCATIONS_LIST.map((loc) => (
-                <button
-                  key={`mobile-loc-${loc}`}
-                  className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${location === loc ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                  onClick={() => { setLocation(loc); setShowLocationDropdown(false); }}
-                >
-                  {loc}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={confirmLocationSelection}
+                className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+              >
+                Confirmer la selection
+              </button>
             </div>
           </div>
         )}
@@ -525,7 +863,7 @@ export default function HomePage() {
         {showCalendar && (
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowCalendar(false)} />
-            <div className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-4">
+            <div ref={calendarMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-4">
                 <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                   <ChevronLeft size={20} />
@@ -725,3 +1063,6 @@ export default function HomePage() {
     </div>
   );
 }
+
+
+

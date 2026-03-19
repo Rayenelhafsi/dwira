@@ -95,6 +95,11 @@ export interface Zone {
   region?: string | null;
   quartier?: string | null;
   google_maps_url?: string;
+  image_url?: string | null;
+  pays_image_url?: string | null;
+  gouvernerat_image_url?: string | null;
+  region_image_url?: string | null;
+  quartier_image_url?: string | null;
 }
 
 export interface Proprietaire {
