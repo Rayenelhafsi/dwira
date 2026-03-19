@@ -3373,15 +3373,7 @@ async function ensurePaidServicesSchema() {
       `INSERT INTO services_payants_catalogue (
          id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         categorie = VALUES(categorie),
-         label = VALUES(label),
-         description_courte = VALUES(description_courte),
-         prix_affiche = VALUES(prix_affiche),
-         prix_base = VALUES(prix_base),
-         type_tarification = VALUES(type_tarification),
-         enabled = VALUES(enabled),
-         updated_at = VALUES(updated_at)`,
+       ON DUPLICATE KEY UPDATE id = id`,
       [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
     );
   }
@@ -4810,6 +4802,136 @@ app.get('/api/services-payants/catalogue', async (req, res) => {
   } catch (error) {
     console.error('Error fetching paid services catalogue:', error);
     res.status(500).json({ error: 'Impossible de charger le catalogue des services payants' });
+  }
+});
+
+app.post('/api/services-payants/catalogue', async (req, res) => {
+  try {
+    await ensurePaidServicesSchema();
+    const service = normalizePaidServiceRecord(req.body || {});
+    if (!String(service.label || '').trim()) {
+      return res.status(400).json({ error: 'Libelle service requis' });
+    }
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO services_payants_catalogue (
+         id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        service.id,
+        service.categorie,
+        service.label,
+        service.description_courte || null,
+        service.prix_affiche || null,
+        Number(service.prix || 0),
+        service.type_tarification,
+        service.enabled ? 1 : 0,
+        now,
+        now,
+      ]
+    );
+    const [rows] = await pool.query(
+      `SELECT id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled
+       FROM services_payants_catalogue
+       WHERE id = ?
+       LIMIT 1`,
+      [service.id]
+    );
+    const created = rows?.[0] || null;
+    if (!created) return res.status(404).json({ error: 'Service catalogue introuvable apres creation' });
+    res.status(201).json(normalizePaidServiceRecord({
+      id: created.id,
+      categorie: created.categorie,
+      label: created.label,
+      description_courte: created.description_courte,
+      prix_affiche: created.prix_affiche,
+      prix: created.prix_base,
+      type_tarification: created.type_tarification,
+      enabled: created.enabled === 1 || created.enabled === true,
+    }));
+  } catch (error) {
+    console.error('Error creating paid service catalogue item:', error);
+    res.status(500).json({ error: 'Impossible de creer le service payant du catalogue' });
+  }
+});
+
+app.put('/api/services-payants/catalogue/:id', async (req, res) => {
+  try {
+    await ensurePaidServicesSchema();
+    const serviceId = String(req.params.id || '').trim();
+    if (!serviceId) return res.status(400).json({ error: 'id service requis' });
+    const service = normalizePaidServiceRecord({ ...(req.body || {}), id: serviceId });
+    if (!String(service.label || '').trim()) {
+      return res.status(400).json({ error: 'Libelle service requis' });
+    }
+    const now = getAgencySqlDateTime();
+    const [result] = await pool.query(
+      `UPDATE services_payants_catalogue
+       SET categorie = ?, label = ?, description_courte = ?, prix_affiche = ?, prix_base = ?, type_tarification = ?, enabled = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        service.categorie,
+        service.label,
+        service.description_courte || null,
+        service.prix_affiche || null,
+        Number(service.prix || 0),
+        service.type_tarification,
+        service.enabled ? 1 : 0,
+        now,
+        serviceId,
+      ]
+    );
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Service catalogue introuvable' });
+    }
+
+    await pool.query(
+      `UPDATE bien_services_payants
+       SET enabled = ?, updated_at = ?
+       WHERE service_catalogue_id = ?`,
+      [service.enabled ? 1 : 0, now, serviceId]
+    );
+
+    const [rows] = await pool.query(
+      `SELECT id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled
+       FROM services_payants_catalogue
+       WHERE id = ?
+       LIMIT 1`,
+      [serviceId]
+    );
+    const updated = rows?.[0] || null;
+    if (!updated) return res.status(404).json({ error: 'Service catalogue introuvable apres mise a jour' });
+    res.json(normalizePaidServiceRecord({
+      id: updated.id,
+      categorie: updated.categorie,
+      label: updated.label,
+      description_courte: updated.description_courte,
+      prix_affiche: updated.prix_affiche,
+      prix: updated.prix_base,
+      type_tarification: updated.type_tarification,
+      enabled: updated.enabled === 1 || updated.enabled === true,
+    }));
+  } catch (error) {
+    console.error('Error updating paid service catalogue item:', error);
+    res.status(500).json({ error: 'Impossible de modifier le service payant du catalogue' });
+  }
+});
+
+app.delete('/api/services-payants/catalogue/:id', async (req, res) => {
+  try {
+    await ensurePaidServicesSchema();
+    const serviceId = String(req.params.id || '').trim();
+    if (!serviceId) return res.status(400).json({ error: 'id service requis' });
+
+    await pool.query('DELETE FROM bien_services_payants WHERE service_catalogue_id = ?', [serviceId]);
+    const [result] = await pool.query('DELETE FROM services_payants_catalogue WHERE id = ?', [serviceId]);
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Service catalogue introuvable' });
+    }
+    res.json({ ok: true, id: serviceId });
+  } catch (error) {
+    console.error('Error deleting paid service catalogue item:', error);
+    res.status(500).json({ error: 'Impossible de supprimer le service payant du catalogue' });
   }
 });
 

@@ -1277,6 +1277,19 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const [detailSectionTabId, setDetailSectionTabId] = useState<string>('informations_generales');
   const [selectedServiceCatalogId, setSelectedServiceCatalogId] = useState<string>('');
   const [serviceCatalogueOptions, setServiceCatalogueOptions] = useState<ServicePayantBien[]>(LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK);
+  const [serviceCatalogueDrafts, setServiceCatalogueDrafts] = useState<Record<string, ServicePayantBien>>({});
+  const [isCatalogueManagerOpen, setIsCatalogueManagerOpen] = useState(false);
+  const [catalogueActionId, setCatalogueActionId] = useState<string | null>(null);
+  const [newCatalogueService, setNewCatalogueService] = useState<ServicePayantBien>(normalizeServicePayant({
+    id: '',
+    categorie: 'Services client',
+    label: '',
+    description_courte: '',
+    prix: 0,
+    prix_affiche: '',
+    type_tarification: 'fixe',
+    enabled: true,
+  }));
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     setDeletedMediaIds([]);
@@ -1324,23 +1337,43 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     villa: 'V',
     local: 'C',
   };
+  const refreshServiceCatalogue = async (options?: { fallbackOnError?: boolean }) => {
+    const fallbackOnError = options?.fallbackOnError !== false;
+    try {
+      const response = await fetch(`${API_URL}/services-payants/catalogue`);
+      if (!response.ok) throw new Error('catalogue');
+      const data = await response.json();
+      const normalized = Array.isArray(data) ? data.map((service) => normalizeServicePayant(service)) : [];
+      const nextOptions = normalized.length > 0 ? normalized : LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK;
+      setServiceCatalogueOptions(nextOptions);
+      setServiceCatalogueDrafts(
+        nextOptions.reduce((acc, service) => {
+          acc[String(service.id || '')] = normalizeServicePayant(service);
+          return acc;
+        }, {} as Record<string, ServicePayantBien>)
+      );
+    } catch {
+      if (fallbackOnError) {
+        setServiceCatalogueOptions(LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK);
+        setServiceCatalogueDrafts(
+          LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK.reduce((acc, service) => {
+            acc[String(service.id || '')] = normalizeServicePayant(service);
+            return acc;
+          }, {} as Record<string, ServicePayantBien>)
+        );
+      }
+      throw new Error('catalogue');
+    }
+  };
   useEffect(() => {
     let cancelled = false;
-    const fetchServiceCatalogue = async () => {
+    void (async () => {
       try {
-        const response = await fetch(`${API_URL}/services-payants/catalogue`);
-        if (!response.ok) throw new Error('catalogue');
-        const data = await response.json();
-        if (!cancelled && Array.isArray(data) && data.length > 0) {
-          setServiceCatalogueOptions(data.map((service) => normalizeServicePayant(service)));
-        }
+        await refreshServiceCatalogue({ fallbackOnError: true });
       } catch {
-        if (!cancelled) {
-          setServiceCatalogueOptions(LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK);
-        }
+        if (cancelled) return;
       }
-    };
-    fetchServiceCatalogue();
+    })();
     return () => {
       cancelled = true;
     };
@@ -2081,6 +2114,101 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     if (!nextServices[index]) return;
     nextServices.splice(index, 1);
     updateSaisonConfig({ services_payants: nextServices });
+  };
+  const updateCatalogueDraft = (serviceId: string, patch: Partial<ServicePayantBien>) => {
+    const normalizedId = String(serviceId || '').trim();
+    if (!normalizedId) return;
+    setServiceCatalogueDrafts((prev) => ({
+      ...prev,
+      [normalizedId]: normalizeServicePayant({ ...(prev[normalizedId] || {}), id: normalizedId, ...patch }),
+    }));
+  };
+  const handleCreateCatalogueService = async () => {
+    const normalized = normalizeServicePayant(newCatalogueService);
+    if (!String(normalized.label || '').trim()) {
+      toast.error('Libelle service requis');
+      return;
+    }
+    const payload = {
+      ...normalized,
+      id: String(normalized.id || '').trim() || `svc_${Date.now()}`,
+    };
+    setCatalogueActionId(payload.id);
+    try {
+      const response = await fetch(`${API_URL}/services-payants/catalogue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('creation');
+      await refreshServiceCatalogue({ fallbackOnError: false });
+      setNewCatalogueService(normalizeServicePayant({
+        id: '',
+        categorie: payload.categorie || 'Services client',
+        label: '',
+        description_courte: '',
+        prix: 0,
+        prix_affiche: '',
+        type_tarification: 'fixe',
+        enabled: true,
+      }));
+      toast.success('Service catalogue ajoute');
+    } catch {
+      toast.error("Erreur creation service catalogue");
+    } finally {
+      setCatalogueActionId(null);
+    }
+  };
+  const handleSaveCatalogueService = async (serviceId: string) => {
+    const normalizedId = String(serviceId || '').trim();
+    const draft = serviceCatalogueDrafts[normalizedId];
+    if (!normalizedId || !draft) return;
+    const normalized = normalizeServicePayant({ ...draft, id: normalizedId });
+    if (!String(normalized.label || '').trim()) {
+      toast.error('Libelle service requis');
+      return;
+    }
+    setCatalogueActionId(normalizedId);
+    try {
+      const response = await fetch(`${API_URL}/services-payants/catalogue/${encodeURIComponent(normalizedId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(normalized),
+      });
+      if (!response.ok) throw new Error('update');
+      await refreshServiceCatalogue({ fallbackOnError: false });
+      toast.success('Service catalogue mis a jour');
+    } catch {
+      toast.error('Erreur mise a jour service catalogue');
+    } finally {
+      setCatalogueActionId(null);
+    }
+  };
+  const handleDeleteCatalogueService = async (serviceId: string) => {
+    const normalizedId = String(serviceId || '').trim();
+    if (!normalizedId) return;
+    if (!window.confirm('Supprimer ce service du catalogue ?')) return;
+    setCatalogueActionId(normalizedId);
+    try {
+      const response = await fetch(`${API_URL}/services-payants/catalogue/${encodeURIComponent(normalizedId)}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('delete');
+      await refreshServiceCatalogue({ fallbackOnError: false });
+      const currentServices = Array.isArray(saisonConfig.services_payants) ? saisonConfig.services_payants : [];
+      const filteredServices = currentServices.filter((item) => String(item?.id || '').trim() !== normalizedId);
+      if (filteredServices.length !== currentServices.length) {
+        updateSaisonConfig({ services_payants: filteredServices });
+      }
+      if (selectedServiceCatalogId === normalizedId) {
+        setSelectedServiceCatalogId('');
+      }
+      toast.success('Service catalogue supprime');
+    } catch {
+      toast.error('Erreur suppression service catalogue');
+    } finally {
+      setCatalogueActionId(null);
+    }
   };
   const updateUiConfig = (patch: Partial<BienUiConfig>) =>
     setFormData((prev) => ({ ...prev, ui_config: { ...(prev.ui_config || {}), ...patch } }));
@@ -5583,11 +5711,76 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                               Ajouter depuis catalogue
                             </button>
                             <button type="button" onClick={addServicePayant} className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-white">Ajouter service manuel</button>
+                            <button
+                              type="button"
+                              onClick={() => setIsCatalogueManagerOpen((prev) => !prev)}
+                              className="px-2 py-1 text-xs rounded border border-slate-300 text-slate-700 bg-white"
+                            >
+                              {isCatalogueManagerOpen ? 'Masquer catalogue DB' : 'Gerer catalogue DB'}
+                            </button>
                           </div>
                         </div>
                         {availableServiceCatalogOptions.length === 0 && (
                           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                             Tous les services du catalogue sont deja disponibles pour ce bien.
+                          </div>
+                        )}
+                        {isCatalogueManagerOpen && (
+                          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-slate-700">Catalogue global (base de donnees)</p>
+                              <span className="text-[11px] text-slate-500">Les changements ici impactent le catalogue global.</span>
+                            </div>
+                            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                              <div className="grid min-w-[1120px] grid-cols-[170px_170px_1.3fr_130px_130px_180px_90px_96px_48px] gap-0 text-xs font-semibold text-white">
+                                <div className="bg-slate-700 px-3 py-2">Categorie</div>
+                                <div className="bg-slate-700 px-3 py-2">Service</div>
+                                <div className="bg-slate-700 px-3 py-2">Description</div>
+                                <div className="bg-slate-700 px-3 py-2">Prix base</div>
+                                <div className="bg-slate-700 px-3 py-2">Prix affiche</div>
+                                <div className="bg-slate-700 px-3 py-2">Tarification</div>
+                                <div className="bg-slate-700 px-3 py-2">Actif</div>
+                                <div className="bg-slate-700 px-3 py-2 text-center">Sauver</div>
+                                <div className="bg-slate-700 px-3 py-2 text-center">x</div>
+                              </div>
+                              {serviceCatalogueOptions.map((service) => {
+                                const serviceId = String(service.id || '').trim();
+                                const draft = normalizeServicePayant(serviceCatalogueDrafts[serviceId] || service);
+                                const isBusy = catalogueActionId === serviceId;
+                                return (
+                                  <div key={serviceId} className="grid min-w-[1120px] grid-cols-[170px_170px_1.3fr_130px_130px_180px_90px_96px_48px] gap-2 border-t border-slate-100 p-2 items-center">
+                                    <input value={draft.categorie || ''} onChange={(e) => updateCatalogueDraft(serviceId, { categorie: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                    <input value={draft.label || ''} onChange={(e) => updateCatalogueDraft(serviceId, { label: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                    <input value={draft.description_courte || ''} onChange={(e) => updateCatalogueDraft(serviceId, { description_courte: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                    <input type="number" min={0} value={draft.prix ?? 0} onChange={(e) => updateCatalogueDraft(serviceId, { prix: Number(e.target.value || 0) })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                    <input value={draft.prix_affiche || ''} onChange={(e) => updateCatalogueDraft(serviceId, { prix_affiche: e.target.value })} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                    <select value={draft.type_tarification} onChange={(e) => updateCatalogueDraft(serviceId, { type_tarification: e.target.value as ServicePayantBien['type_tarification'] })} className="rounded-lg border-gray-300 border p-2 text-sm">
+                                      <option value="fixe">{getServiceTarificationLabel('fixe')}</option>
+                                      <option value="sur_demande">{getServiceTarificationLabel('sur_demande')}</option>
+                                      <option value="a_partir_de">{getServiceTarificationLabel('a_partir_de')}</option>
+                                    </select>
+                                    <label className="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" checked={draft.enabled !== false} onChange={(e) => updateCatalogueDraft(serviceId, { enabled: e.target.checked })} />Actif</label>
+                                    <button type="button" disabled={isBusy} onClick={() => void handleSaveCatalogueService(serviceId)} className="h-9 rounded border border-emerald-300 text-emerald-700 text-xs disabled:opacity-50">{isBusy ? '...' : 'Sauver'}</button>
+                                    <button type="button" disabled={isBusy} onClick={() => void handleDeleteCatalogueService(serviceId)} className="h-9 w-9 rounded border border-red-300 text-red-600 text-sm disabled:opacity-50">x</button>
+                                  </div>
+                                );
+                              })}
+                              <div className="grid min-w-[1120px] grid-cols-[170px_170px_1.3fr_130px_130px_180px_90px_96px_48px] gap-2 border-t border-slate-200 bg-slate-50 p-2 items-center">
+                                <input value={newCatalogueService.categorie || ''} onChange={(e) => setNewCatalogueService((prev) => normalizeServicePayant({ ...prev, categorie: e.target.value }))} placeholder="Categorie" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <input value={newCatalogueService.label || ''} onChange={(e) => setNewCatalogueService((prev) => normalizeServicePayant({ ...prev, label: e.target.value }))} placeholder="Nouveau service" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <input value={newCatalogueService.description_courte || ''} onChange={(e) => setNewCatalogueService((prev) => normalizeServicePayant({ ...prev, description_courte: e.target.value }))} placeholder="Description courte" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <input type="number" min={0} value={newCatalogueService.prix ?? 0} onChange={(e) => setNewCatalogueService((prev) => normalizeServicePayant({ ...prev, prix: Number(e.target.value || 0) }))} className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <input value={newCatalogueService.prix_affiche || ''} onChange={(e) => setNewCatalogueService((prev) => normalizeServicePayant({ ...prev, prix_affiche: e.target.value }))} placeholder="Ex: 50 DT" className="rounded-lg border-gray-300 border p-2 text-sm" />
+                                <select value={newCatalogueService.type_tarification || 'fixe'} onChange={(e) => setNewCatalogueService((prev) => normalizeServicePayant({ ...prev, type_tarification: e.target.value as ServicePayantBien['type_tarification'] }))} className="rounded-lg border-gray-300 border p-2 text-sm">
+                                  <option value="fixe">{getServiceTarificationLabel('fixe')}</option>
+                                  <option value="sur_demande">{getServiceTarificationLabel('sur_demande')}</option>
+                                  <option value="a_partir_de">{getServiceTarificationLabel('a_partir_de')}</option>
+                                </select>
+                                <label className="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" checked={newCatalogueService.enabled !== false} onChange={(e) => setNewCatalogueService((prev) => normalizeServicePayant({ ...prev, enabled: e.target.checked }))} />Actif</label>
+                                <button type="button" disabled={catalogueActionId === '__new__'} onClick={() => void handleCreateCatalogueService()} className="h-9 rounded border border-emerald-300 text-emerald-700 text-xs disabled:opacity-50">Ajouter</button>
+                                <span />
+                              </div>
+                            </div>
                           </div>
                         )}
                         <div className="overflow-x-auto rounded-lg border border-emerald-100 bg-white">
