@@ -228,6 +228,7 @@ export function Header() {
     { name: "Accueil", path: "/" },
     { name: "Logements", path: "/logements" },
     { name: "Ventes", path: "/ventes" },
+    { name: "Apps", path: "/deploy-mobile" },
     { name: "Contact", path: "/contact" },
   ];
 

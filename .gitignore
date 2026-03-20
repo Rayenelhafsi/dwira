@@ -21,6 +21,7 @@ Thumbs.db
 # Runtime / deployment artifacts
 server/uploads/
 server/contracts/
+secrets/
 site.tar.gz
 dwira.sql
 migrations/2026-02-26-add-terrain-details-json.sql

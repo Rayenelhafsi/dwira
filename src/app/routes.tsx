@@ -10,6 +10,7 @@ import ReservationPaymentPage from "./pages/ReservationPaymentPage";
 import ImmeubleVenteDetailsPage from "./pages/ImmeubleVenteDetailsPage";
 import LotissementVenteDetailsPage from "./pages/LotissementVenteDetailsPage";
 import ContactPage from "./pages/ContactPage";
+import DeployAppsPage from "./pages/DeployAppsPage";
 import LoginPage from "./pages/LoginPage";
 import { VentesLayout } from "./ventes/VentesLayout";
 import VentesListPage from "./ventes/pages/VentesListPage";
@@ -51,6 +52,7 @@ export const router = createBrowserRouter([
         ],
       },
       { path: "contact", Component: ContactPage },
+      { path: "deploy-mobile", Component: DeployAppsPage },
       { path: "login", Component: LoginPage },
       { path: "*", Component: () => <div className="p-20 text-center">Page non trouvée</div> },
     ],

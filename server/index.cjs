@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const multer = require('multer');
@@ -10,6 +10,12 @@ const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const Tesseract = require('tesseract.js');
 const XLSX = require('xlsx');
+let firebaseAdmin = null;
+try {
+  firebaseAdmin = require('firebase-admin');
+} catch {
+  firebaseAdmin = null;
+}
 const {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -46,6 +52,47 @@ const TURNSTILE_SECRET_KEY = String(process.env.TURNSTILE_SECRET_KEY || '').trim
 const TURNSTILE_SITE_KEY = String(process.env.TURNSTILE_SITE_KEY || '').trim();
 if (!String(process.env.SESSION_SECRET || '').trim()) {
   console.warn('[Auth] SESSION_SECRET missing. Using ephemeral in-memory secret; sessions reset on server restart.');
+}
+
+function readFirebaseServiceAccount() {
+  const inline = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim();
+  if (inline) {
+    try {
+      return JSON.parse(inline);
+    } catch (error) {
+      console.warn('[FCM] Invalid FIREBASE_SERVICE_ACCOUNT_JSON:', error?.message || error);
+    }
+  }
+  const pathValue = String(process.env.FIREBASE_SERVICE_ACCOUNT_PATH || '').trim();
+  if (pathValue) {
+    try {
+      const raw = fs.readFileSync(pathValue, 'utf8');
+      return JSON.parse(raw);
+    } catch (error) {
+      console.warn('[FCM] Unable to read FIREBASE_SERVICE_ACCOUNT_PATH:', error?.message || error);
+    }
+  }
+  return null;
+}
+
+const FIREBASE_SERVICE_ACCOUNT = readFirebaseServiceAccount();
+let firebaseMessaging = null;
+if (firebaseAdmin && FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    const appName = 'dwira-server-fcm';
+    const existing = firebaseAdmin.apps.find((a) => a?.name === appName);
+    const appInstance = existing || firebaseAdmin.initializeApp(
+      { credential: firebaseAdmin.credential.cert(FIREBASE_SERVICE_ACCOUNT) },
+      appName
+    );
+    firebaseMessaging = appInstance.messaging();
+  } catch (error) {
+    console.warn('[FCM] initialization failed:', error?.message || error);
+  }
+} else if (!firebaseAdmin) {
+  console.warn('[FCM] firebase-admin package not installed. Push disabled.');
+} else {
+  console.warn('[FCM] service account missing. Push disabled.');
 }
 
 function parseCloudinaryCredentials() {
@@ -1342,7 +1389,7 @@ app.get('/api/google-places/nearby', async (req, res) => {
           lat: Number(row?.geometry?.location?.lat),
           lng: Number(row?.geometry?.location?.lng),
           address: String(row?.vicinity || row?.formatted_address || '').trim() || 'Adresse locale',
-          opening: row?.opening_hours?.open_now === true ? 'Ouvert maintenant' : row?.opening_hours?.open_now === false ? 'Fermé maintenant' : null,
+          opening: row?.opening_hours?.open_now === true ? 'Ouvert maintenant' : row?.opening_hours?.open_now === false ? 'FermÃ© maintenant' : null,
           rating: Number.isFinite(Number(row?.rating)) ? Number(row?.rating) : null,
           userRatingsTotal: Number.isFinite(Number(row?.user_ratings_total)) ? Number(row?.user_ratings_total) : null,
           imageUrl,
@@ -1444,15 +1491,30 @@ function uploadMediaMiddleware(req, res, next) {
 
 
 // Database configuration
+const DB_SOURCE = String(process.env.DB_SOURCE || process.env.DB_TARGET || 'local')
+  .trim()
+  .toLowerCase();
+const isSiteDbSource = DB_SOURCE === 'site' || DB_SOURCE === 'production';
+const siteDbHost = String(process.env.SITE_DB_HOST || process.env.VPS_DB_HOST || '').trim();
+const siteDbPort = String(process.env.SITE_DB_PORT || process.env.VPS_DB_PORT || '').trim();
+const siteDbUser = String(process.env.SITE_DB_USER || process.env.VPS_DB_USER || '').trim();
+const siteDbPassword = String(process.env.SITE_DB_PASSWORD || process.env.VPS_DB_PASSWORD || '').trim();
+const siteDbName = String(process.env.SITE_DB_NAME || process.env.VPS_DB_NAME || '').trim();
+if (isSiteDbSource && (!siteDbHost || !siteDbUser || !siteDbName)) {
+  throw new Error('[DB] DB_SOURCE=site requires SITE_DB_HOST/SITE_DB_USER/SITE_DB_NAME (or VPS_DB_* equivalents).');
+}
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'root',
-  database: process.env.DB_NAME || 'dwira',
+  host: isSiteDbSource ? siteDbHost : (process.env.DB_HOST || 'localhost'),
+  port: Number(isSiteDbSource ? (siteDbPort || 3306) : (process.env.DB_PORT || 3306)),
+  user: isSiteDbSource ? siteDbUser : (process.env.DB_USER || 'root'),
+  password: isSiteDbSource ? siteDbPassword : (process.env.DB_PASSWORD || 'root'),
+  database: isSiteDbSource ? siteDbName : (process.env.DB_NAME || 'dwira'),
   waitForConnections: true,
   connectionLimit: 10
 };
+console.log(
+  `[DB] source=${isSiteDbSource ? 'site' : 'local'} host=${dbConfig.host} db=${dbConfig.database} user=${dbConfig.user}`
+);
 
 const pool = mysql.createPool(dbConfig);
 let mediaHasPositionColumn = true;
@@ -3037,7 +3099,7 @@ async function ensureBiensWorkflowSchema() {
       ('car32', 'Terrain industrielle'),
       ('car33', 'Terrain loisir'),
       ('car34', 'Parking sous-sol'),
-      ('car35', 'Parking extérieur')
+      ('car35', 'Parking extÃ©rieur')
     ON DUPLICATE KEY UPDATE nom = VALUES(nom)
   `);
 
@@ -5674,35 +5736,90 @@ async function syncClienteleTasks(sourceTable, sourceId) {
   return rows || [];
 }
 
-console.log('🔄 Connecting to database...');
-pool.getConnection()
-  .then(conn => {
-    console.log('✅ Database connected successfully');
-    conn.release();
-    return ensureAuthSchema();
-  })
-  .then(() => ensurePasskeySchema())
-  .then(() => ensureSecurityAuditSchema())
-  .then(() => ensureAdminNotificationsSchema())
-  .then(() => ensureClientInteractionsSchema())
-  .then(() => ensureClientelesSchema())
-  .then(() => ensureMaintenanceWorkflowSchema())
-  .then(() => ensureClientelesTasksSchema())
-  .then(() => ensureReservationDemandSchema())
-  .then(() => ensureContractsSchema())
-  .then(() => ensureZonesSchema())
-  .then(() => ensureMessengerSchema())
-  .then(() => ensureBiensWorkflowSchema())
-  .then(() => ensurePaidServicesSchema())
-  .then(() => ensureTypeFilterImagesSchema())
-  .then(() => ensureHomeFilterOptionImagesSchema())
-  .then(() => {
-    console.log('✅ Auth schema and bien workflow ready');
-  })
-  .catch(err => {
-    console.error('❌ Database connection failed:', err.message);
-  });
+function isRetryableSchemaError(error) {
+  const code = String(error?.code || '').trim().toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  if (code === 'ER_LOCK_DEADLOCK' || code === 'ER_LOCK_WAIT_TIMEOUT') return true;
+  return message.includes('deadlock found') || message.includes('lock wait timeout');
+}
 
+async function runSchemaStepWithRetry(label, fn, maxAttempts = 5) {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    try {
+      await fn();
+      return;
+    } catch (error) {
+      attempt += 1;
+      if (!isRetryableSchemaError(error) || attempt >= maxAttempts) {
+        throw error;
+      }
+      const delayMs = Math.min(2500, 200 * (2 ** attempt));
+      console.warn(
+        '[Schema Retry] ' + label + ' failed (' + error.message + '). retry ' +
+        attempt + '/' + maxAttempts + ' in ' + delayMs + 'ms'
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+async function initializeDatabaseSchema() {
+  console.log('🔄 Connecting to database...');
+  const conn = await pool.getConnection();
+  console.log('✅ Database connected successfully');
+  const lockName = 'dwira_schema_init_lock_v1';
+  let hasLock = false;
+
+  try {
+    const [lockRows] = await conn.query('SELECT GET_LOCK(?, 25) AS got_lock', [lockName]);
+    hasLock = Number(lockRows?.[0]?.got_lock || 0) === 1;
+    if (!hasLock) {
+      console.warn('[Schema Init] lock unavailable, skipping schema bootstrap in this process');
+      return;
+    }
+
+    const steps = [
+      ['ensureAuthSchema', ensureAuthSchema],
+      ['ensurePasskeySchema', ensurePasskeySchema],
+      ['ensureSecurityAuditSchema', ensureSecurityAuditSchema],
+      ['ensureAdminNotificationsSchema', ensureAdminNotificationsSchema],
+      ['ensureOwnerMobileNotificationsSchema', ensureOwnerMobileNotificationsSchema],
+      ['ensureOwnerPushTokensSchema', ensureOwnerPushTokensSchema],
+      ['ensureClientInteractionsSchema', ensureClientInteractionsSchema],
+      ['ensureClientelesSchema', ensureClientelesSchema],
+      ['ensureMaintenanceWorkflowSchema', ensureMaintenanceWorkflowSchema],
+      ['ensureClientelesTasksSchema', ensureClientelesTasksSchema],
+      ['ensureReservationDemandSchema', ensureReservationDemandSchema],
+      ['ensureContractsSchema', ensureContractsSchema],
+      ['ensureZonesSchema', ensureZonesSchema],
+      ['ensureMessengerSchema', ensureMessengerSchema],
+      ['ensureBiensWorkflowSchema', ensureBiensWorkflowSchema],
+      ['ensurePaidServicesSchema', ensurePaidServicesSchema],
+      ['ensureTypeFilterImagesSchema', ensureTypeFilterImagesSchema],
+      ['ensureHomeFilterOptionImagesSchema', ensureHomeFilterOptionImagesSchema],
+    ];
+
+    for (const [label, step] of steps) {
+      await runSchemaStepWithRetry(label, step);
+    }
+
+    console.log('✅ Auth schema and bien workflow ready');
+  } finally {
+    if (hasLock) {
+      try {
+        await conn.query('SELECT RELEASE_LOCK(?)', [lockName]);
+      } catch (releaseError) {
+        console.warn('[Schema Init] lock release failed:', releaseError.message);
+      }
+    }
+    conn.release();
+  }
+}
+
+initializeDatabaseSchema().catch((err) => {
+  console.error('❌ Database connection failed:', err.message);
+});
 // ============================================
 // BIENS (PROPERTIES) API
 // ============================================
@@ -6059,7 +6176,7 @@ app.get('/api/biens', async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     const [rows] = await pool.query(`
-      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom
+      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom, p.telephone as proprietaire_telephone
       FROM biens b 
       LEFT JOIN zones z ON b.zone_id = z.id 
       LEFT JOIN proprietaires p ON b.proprietaire_id = p.id
@@ -6096,8 +6213,10 @@ app.get('/api/biens/:id', async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     const [rows] = await pool.query(`
-      SELECT b.*
+      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom, p.telephone as proprietaire_telephone
       FROM biens b
+      LEFT JOIN zones z ON b.zone_id = z.id
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
       WHERE b.id = ?
     `, [req.params.id]);
     if (rows.length === 0) {
@@ -7317,6 +7436,640 @@ app.put('/api/notifications/:id/lu', requireAdminSession, async (req, res) => {
   }
 });
 
+app.get('/api/system/db-source', requireAdminSession, async (req, res) => {
+  try {
+    res.json({
+      source: isSiteDbSource ? 'site' : 'local',
+      host: String(dbConfig.host || ''),
+      database: String(dbConfig.database || ''),
+      user: String(dbConfig.user || ''),
+      fcmEnabled: !!firebaseMessaging,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch db source state' });
+  }
+});
+
+// ============================================
+// MOBILE OWNERS CHAT + NOTIFICATIONS API
+// ============================================
+
+app.get('/api/mobile/owners/:ownerId/chat', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const bienId = String(req.query?.bien_id || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const params = [ownerId];
+    let bienFilterSql = '';
+    if (bienId) {
+      bienFilterSql = ` AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.bienId')), '') = ?`;
+      params.push(bienId);
+    }
+
+    const [rows] = await pool.query(
+      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source, metadata_json,
+              DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at
+       FROM client_interactions
+       WHERE type = 'partage'
+         AND metadata_json IS NOT NULL
+         AND JSON_VALID(metadata_json) = 1
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.ownerId')) = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.kind')) IN ('owner_admin_chat', 'admin_owner_chat')
+         ${bienFilterSql}
+       ORDER BY event_at DESC
+       LIMIT 200`,
+      params
+    );
+
+    const mapped = (rows || []).map((row) => {
+      let metadata = null;
+      try {
+        metadata = row.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
+      } catch {
+        metadata = null;
+      }
+      return {
+        id: row.id,
+        ownerId,
+        bienId: metadata?.bienId || row.bien_id || null,
+        propertyTitle: metadata?.propertyTitle || row.property_title || null,
+        source: row.source || 'site_public',
+        type: row.type,
+        clientUserId: row.client_user_id || null,
+        text: metadata?.text || '',
+        kind: metadata?.kind || null,
+        createdAt: row.event_at,
+        metadata,
+      };
+    });
+    res.json(mapped);
+  } catch (error) {
+    console.error('Error fetching mobile owner chat messages:', error);
+    res.status(500).json({ error: 'Failed to fetch owner chat messages' });
+  }
+});
+
+app.post('/api/mobile/owners/:ownerId/chat', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const text = String(req.body?.text || '').trim();
+    const bienId = String(req.body?.bienId || '').trim();
+    const propertyTitle = String(req.body?.propertyTitle || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    if (!text) {
+      return res.status(400).json({ error: 'message requis' });
+    }
+
+    const created = await appendClientInteraction({
+      req,
+      clientUserId: ownerId,
+      clientEmail: `${ownerId}@owner.local`,
+      clientName: ownerId,
+      type: 'partage',
+      bienId: bienId || 'owner-chat',
+      propertyTitle: propertyTitle || 'Chat proprietaire',
+      source: 'site_public',
+      routePath: '/mobile/owner/chat',
+      metadata: {
+        kind: 'owner_admin_chat',
+        ownerId,
+        bienId: bienId || null,
+        propertyTitle: propertyTitle || null,
+        text,
+        createdAt: getAgencySqlDateTime(),
+      },
+    });
+
+    await createAdminNotification('info', `Nouveau message proprietaire (${ownerId})`);
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('Error creating mobile owner chat message:', error);
+    res.status(500).json({ error: 'Failed to send owner chat message' });
+  }
+});
+
+app.post('/api/mobile/admin/owners/:ownerId/chat', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const text = String(req.body?.text || '').trim();
+    const bienId = String(req.body?.bienId || '').trim();
+    const propertyTitle = String(req.body?.propertyTitle || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    if (!text) {
+      return res.status(400).json({ error: 'message requis' });
+    }
+
+    const created = await appendClientInteraction({
+      req,
+      clientUserId: req.authUser?.id || 'admin_mobile',
+      clientEmail: req.authUser?.email || 'admin@dwira.mobile',
+      clientName: req.authUser?.name || 'Admin',
+      type: 'partage',
+      bienId: bienId || 'owner-chat',
+      propertyTitle: propertyTitle || 'Chat admin',
+      source: 'admin',
+      routePath: '/mobile/admin/chat',
+      metadata: {
+        kind: 'admin_owner_chat',
+        ownerId,
+        bienId: bienId || null,
+        propertyTitle: propertyTitle || null,
+        text,
+        createdAt: getAgencySqlDateTime(),
+      },
+    });
+
+    await ensureOwnerMobileNotificationsSchema();
+    const notifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO owner_mobile_notifications
+       (id, owner_id, type, message, lu, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      [
+        notifId,
+        ownerId,
+        'info',
+        'Nouveau message de l admin',
+        JSON.stringify({
+          kind: 'admin_owner_chat',
+          ownerId,
+          bienId: bienId || null,
+          propertyTitle: propertyTitle || null,
+          interactionId: created?.id || null,
+          text,
+        }),
+        getAgencySqlDateTime(),
+      ]
+    );
+    await createAdminNotification(
+      'info',
+      `Message admin envoyÃ© au proprietaire ${ownerId}${bienId ? ` (bien ${bienId})` : ''}`
+    );
+
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('Error creating admin->owner chat message:', error);
+    res.status(500).json({ error: 'Failed to send admin chat message' });
+  }
+});
+
+app.get('/api/mobile/owners/:ownerId/notifications', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    await ensureOwnerMobileNotificationsSchema();
+    const [rows] = await pool.query(
+      `SELECT id, owner_id, type, message, lu, metadata_json, created_at
+       FROM owner_mobile_notifications
+       WHERE owner_id = ?
+       ORDER BY created_at DESC
+       LIMIT 200`,
+      [ownerId]
+    );
+
+    const mapped = (rows || []).map((row) => {
+      let metadata = null;
+      try {
+        metadata = row.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
+      } catch {
+        metadata = null;
+      }
+      return {
+        id: row.id,
+        ownerId: row.owner_id,
+        type: row.type,
+        message: row.message,
+        lu: Number(row.lu || 0) === 1,
+        createdAt: row.created_at,
+        metadata,
+      };
+    });
+    res.json(mapped);
+  } catch (error) {
+    console.error('Error fetching owner notifications:', error);
+    res.status(500).json({ error: 'Failed to fetch owner notifications' });
+  }
+});
+
+app.put('/api/mobile/owners/:ownerId/notifications/:id/read', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const id = String(req.params.id || '').trim();
+    if (!ownerId || !id) {
+      return res.status(400).json({ error: 'ownerId et id requis' });
+    }
+    await ensureOwnerMobileNotificationsSchema();
+    await pool.query(
+      'UPDATE owner_mobile_notifications SET lu = 1 WHERE id = ? AND owner_id = ?',
+      [id, ownerId]
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error marking owner notification as read:', error);
+    res.status(500).json({ error: 'Failed to mark owner notification as read' });
+  }
+});
+
+app.post('/api/mobile/owners/:ownerId/push-token', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const token = String(req.body?.token || '').trim();
+    const platform = String(req.body?.platform || '').trim();
+    const appVersion = String(req.body?.appVersion || '').trim();
+    if (!ownerId || !token) {
+      return res.status(400).json({ error: 'ownerId et token requis' });
+    }
+    await ensureOwnerPushTokensSchema();
+    const now = getAgencySqlDateTime();
+    const [existing] = await pool.query(
+      `SELECT id
+       FROM owner_push_tokens
+       WHERE owner_id = ? AND token = ?
+       LIMIT 1`,
+      [ownerId, token]
+    );
+    const existingId = String(existing?.[0]?.id || '').trim();
+    if (existingId) {
+      await pool.query(
+        `UPDATE owner_push_tokens
+         SET active = 1,
+             platform = ?,
+             app_version = ?,
+             updated_at = ?,
+             last_seen_at = ?
+         WHERE id = ?`,
+        [platform || null, appVersion || null, now, now, existingId]
+      );
+      return res.json({ ok: true, id: existingId, updated: true });
+    }
+    const id = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO owner_push_tokens
+       (id, owner_id, token, platform, app_version, active, created_at, updated_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+      [id, ownerId, token, platform || null, appVersion || null, now, now, now]
+    );
+    res.status(201).json({ ok: true, id, created: true });
+  } catch (error) {
+    console.error('Error saving owner push token:', error);
+    res.status(500).json({ error: 'Failed to save owner push token' });
+  }
+});
+
+app.get('/api/mobile/owners/:ownerId/availability-requests', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    await ensureReservationDemandSchema();
+    const [rows] = await pool.query(
+      `SELECT
+         d.id,
+         d.bien_id,
+         d.proprietaire_id,
+         d.start_date,
+         d.end_date,
+         d.guests,
+         d.status,
+         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+         b.titre AS bien_titre,
+         b.reference AS bien_reference,
+         (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       WHERE d.proprietaire_id = ?
+         AND d.owner_notified_at IS NOT NULL
+         AND d.owner_response_at IS NULL
+         AND d.status = 'en_attente_reponse_proprietaire'
+       ORDER BY d.owner_notified_at DESC, d.created_at DESC
+       LIMIT 20`,
+      [ownerId]
+    );
+    res.json(rows || []);
+  } catch (error) {
+    console.error('Error fetching owner availability requests:', error);
+    res.status(500).json({ error: 'Failed to fetch owner availability requests' });
+  }
+});
+
+app.post('/api/mobile/owners/:ownerId/availability-requests/:demandId/respond', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const demandId = String(req.params.demandId || '').trim();
+    const available = req.body?.available === true;
+    const note = String(req.body?.note || '').trim() || null;
+    if (!ownerId || !demandId) {
+      return res.status(400).json({ error: 'ownerId et demandId requis' });
+    }
+
+    await ensureReservationDemandSchema();
+    const [rows] = await pool.query(
+      `SELECT d.*, b.titre AS bien_titre, b.reference AS bien_reference
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       WHERE d.id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+    const demand = rows?.[0];
+    if (!demand) {
+      return res.status(404).json({ error: 'Demande introuvable' });
+    }
+    if (String(demand.proprietaire_id || '').trim() !== ownerId) {
+      return res.status(403).json({ error: 'Cette demande ne correspond pas a ce proprietaire' });
+    }
+    if (demand.owner_response_at) {
+      return res.status(400).json({ error: 'Demande deja traitee par proprietaire' });
+    }
+
+    const now = getAgencySqlDateTime();
+    const nextStatus = available
+      ? 'reponse_positive_attente_confirmation_client'
+      : 'reponse_negative_autre_proposition_bien_similaire';
+    const historyNote = available
+      ? `Proprietaire confirme disponibilite${note ? `: ${note}` : ''}`
+      : `Proprietaire confirme indisponibilite${note ? `: ${note}` : ''}`;
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?, owner_response_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, now, now, demandId]
+    );
+    await appendReservationDemandHistory(
+      demandId,
+      nextStatus,
+      'proprietaire',
+      ownerId,
+      historyNote,
+      now
+    );
+
+    await createAdminNotification(
+      available ? 'success' : 'warning',
+      `${available ? 'Disponibilite confirmee' : 'Indisponibilite confirmee'} par proprietaire ${ownerId} pour ${String(demand.bien_reference || demand.bien_id || 'bien')} (${String(demand.start_date || '')} -> ${String(demand.end_date || '')})`,
+      now
+    );
+
+    await createOwnerMobileNotification({
+      ownerId,
+      type: available ? 'success' : 'warning',
+      message: available
+        ? `Votre reponse a ete envoyee: bien disponible (${String(demand.start_date || '')} -> ${String(demand.end_date || '')})`
+        : `Votre reponse a ete envoyee: bien indisponible (${String(demand.start_date || '')} -> ${String(demand.end_date || '')})`,
+      metadata: {
+        kind: 'reservation_owner_response_saved',
+        demandId,
+        available,
+        status: nextStatus,
+      },
+      createdAt: now,
+    });
+
+    res.json({
+      ok: true,
+      demandId,
+      status: nextStatus,
+      owner_response_at: now,
+    });
+  } catch (error) {
+    console.error('Error saving owner availability response:', error);
+    res.status(500).json({ error: 'Failed to save owner availability response' });
+  }
+});
+
+app.post('/api/mobile/admin/calendar-requests/:id/approve', requireAdminSession, async (req, res) => {
+  try {
+    const interactionId = String(req.params.id || '').trim();
+    if (!interactionId) {
+      return res.status(400).json({ error: 'id demande requis' });
+    }
+    const [rows] = await pool.query(
+      `SELECT id, metadata_json
+       FROM client_interactions
+       WHERE id = ?
+       LIMIT 1`,
+      [interactionId]
+    );
+    const row = rows?.[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Demande introuvable' });
+    }
+    if (!row.metadata_json) {
+      return res.status(400).json({ error: 'Metadonnees demande manquantes' });
+    }
+
+    let metadata = null;
+    try {
+      metadata = JSON.parse(String(row.metadata_json));
+    } catch {
+      metadata = null;
+    }
+    if (!metadata || metadata.kind !== 'calendar_update_request') {
+      return res.status(400).json({ error: 'Interaction non compatible approval calendrier' });
+    }
+
+    const ownerId = String(metadata.ownerId || '').trim();
+    const bienId = String(metadata.bienId || '').trim();
+    const startDate = String(metadata.startDate || '').trim();
+    const endDate = String(metadata.endDate || '').trim();
+    const requestType = String(metadata.requestType || 'close').trim().toLowerCase() === 'open' ? 'open' : 'close';
+    if (!ownerId || !bienId || !startDate || !endDate) {
+      return res.status(400).json({ error: 'Demande calendrier incomplete' });
+    }
+
+    let unavailableDateId = null;
+    let removedRows = 0;
+    if (requestType === 'close') {
+      unavailableDateId = `ud_mobile_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      await pool.query(
+        `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, color, payment_deadline)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+        [unavailableDateId, bienId, startDate, endDate, 'blocked', '#ef4444']
+      );
+    } else {
+      const [deleteResult] = await pool.query(
+        `DELETE FROM unavailable_dates
+         WHERE bien_id = ?
+           AND NOT (end_date < ? OR start_date > ?)`,
+        [bienId, startDate, endDate]
+      );
+      removedRows = Number(deleteResult?.affectedRows || 0);
+    }
+
+    await ensureOwnerMobileNotificationsSchema();
+    const ownerNotifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO owner_mobile_notifications
+       (id, owner_id, type, message, lu, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      [
+        ownerNotifId,
+        ownerId,
+        'success',
+        requestType === 'close'
+          ? `Demande de fermeture approuvee (${startDate} -> ${endDate})`
+          : `Demande de reouverture approuvee (${startDate} -> ${endDate})`,
+        JSON.stringify({
+          kind: 'calendar_update_approved',
+          ownerId,
+          bienId,
+          startDate,
+          endDate,
+          requestType,
+          interactionId,
+          removedRows,
+        }),
+        getAgencySqlDateTime(),
+      ]
+    );
+
+    await createAdminNotification(
+      'success',
+      requestType === 'close'
+        ? `Fermeture calendrier approuvee pour proprietaire ${ownerId}`
+        : `Reouverture calendrier approuvee pour proprietaire ${ownerId}`
+    );
+    const nextMetadata = {
+      ...metadata,
+      status: 'approved',
+      requestType,
+      reviewedAt: getAgencySqlDateTime(),
+      reviewedBy: req.authUser?.id || 'admin',
+      decision: 'approved',
+      removedRows,
+      unavailableDateId,
+    };
+    await pool.query(
+      'UPDATE client_interactions SET metadata_json = ? WHERE id = ?',
+      [JSON.stringify(nextMetadata), interactionId]
+    );
+    await pool.query(
+      `DELETE FROM client_interactions
+       WHERE id <> ?
+         AND metadata_json IS NOT NULL
+         AND JSON_VALID(metadata_json) = 1
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.kind')) = 'calendar_update_request'
+         AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.status')), 'pending')) = 'pending'
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.ownerId')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.bienId')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.startDate')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.endDate')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.requestType')), 'close') = ?`,
+      [interactionId, ownerId, bienId, startDate, endDate, requestType]
+    );
+    res.json({ ok: true, interactionId, requestType, unavailableDateId, removedRows });
+  } catch (error) {
+    console.error('Error approving mobile calendar request:', error);
+    res.status(500).json({ error: 'Failed to approve calendar request' });
+  }
+});
+
+app.post('/api/mobile/admin/calendar-requests/:id/reject', requireAdminSession, async (req, res) => {
+  try {
+    const interactionId = String(req.params.id || '').trim();
+    if (!interactionId) {
+      return res.status(400).json({ error: 'id demande requis' });
+    }
+    const [rows] = await pool.query(
+      `SELECT id, metadata_json
+       FROM client_interactions
+       WHERE id = ?
+       LIMIT 1`,
+      [interactionId]
+    );
+    const row = rows?.[0];
+    if (!row || !row.metadata_json) {
+      return res.status(404).json({ error: 'Demande introuvable' });
+    }
+
+    let metadata = null;
+    try {
+      metadata = JSON.parse(String(row.metadata_json));
+    } catch {
+      metadata = null;
+    }
+    if (!metadata || metadata.kind !== 'calendar_update_request') {
+      return res.status(400).json({ error: 'Interaction non compatible rejection calendrier' });
+    }
+
+    const ownerId = String(metadata.ownerId || '').trim();
+    const startDate = String(metadata.startDate || '').trim();
+    const endDate = String(metadata.endDate || '').trim();
+    const requestType = String(metadata.requestType || 'close').trim().toLowerCase() === 'open' ? 'open' : 'close';
+    const rejectReason = String(req.body?.reason || '').trim() || null;
+
+    await ensureOwnerMobileNotificationsSchema();
+    const ownerNotifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO owner_mobile_notifications
+       (id, owner_id, type, message, lu, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      [
+        ownerNotifId,
+        ownerId,
+        'warning',
+        requestType === 'close'
+          ? `Demande de fermeture rejetee (${startDate} -> ${endDate})`
+          : `Demande de reouverture rejetee (${startDate} -> ${endDate})`,
+        JSON.stringify({
+          kind: 'calendar_update_rejected',
+          ownerId,
+          startDate,
+          endDate,
+          requestType,
+          interactionId,
+          reason: rejectReason,
+        }),
+        getAgencySqlDateTime(),
+      ]
+    );
+    const nextMetadata = {
+      ...metadata,
+      status: 'rejected',
+      requestType,
+      reviewedAt: getAgencySqlDateTime(),
+      reviewedBy: req.authUser?.id || 'admin',
+      decision: 'rejected',
+      reason: rejectReason,
+    };
+    await pool.query(
+      'UPDATE client_interactions SET metadata_json = ? WHERE id = ?',
+      [JSON.stringify(nextMetadata), interactionId]
+    );
+    await pool.query(
+      `DELETE FROM client_interactions
+       WHERE id <> ?
+         AND metadata_json IS NOT NULL
+         AND JSON_VALID(metadata_json) = 1
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.kind')) = 'calendar_update_request'
+         AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.status')), 'pending')) = 'pending'
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.ownerId')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.bienId')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.startDate')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.endDate')), '') = ?
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.requestType')), 'close') = ?`,
+      [interactionId, ownerId, String(metadata.bienId || '').trim(), startDate, endDate, requestType]
+    );
+
+    await createAdminNotification('warning', `Calendrier rejete pour proprietaire ${ownerId}`);
+    res.json({ ok: true, interactionId });
+  } catch (error) {
+    console.error('Error rejecting mobile calendar request:', error);
+    res.status(500).json({ error: 'Failed to reject calendar request' });
+  }
+});
+
 // ============================================
 // MEDIA API
 // ============================================
@@ -7908,6 +8661,117 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
   } catch (error) {
     console.error('Error creating reservation demand:', error);
     res.status(500).json({ error: 'Impossible de creer la demande de reservation' });
+  }
+});
+
+app.post('/api/reservation-demands/:id/request-owner-availability', requireAdminSession, reservationMutationRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    if (!demandId) {
+      return res.status(400).json({ error: 'Demande introuvable' });
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         d.*,
+         b.titre AS bien_titre,
+         b.reference AS bien_reference,
+         p.nom AS proprietaire_nom,
+         (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+       WHERE d.id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+    const current = rows?.[0];
+    if (!current) {
+      return res.status(404).json({ error: 'Demande introuvable' });
+    }
+    const ownerId = String(current.proprietaire_id || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'Aucun proprietaire lie a cette demande' });
+    }
+
+    const now = getAgencySqlDateTime();
+    const nextStatus = 'en_attente_reponse_proprietaire';
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?, owner_notified_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, now, now, demandId]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      nextStatus,
+      'admin',
+      String(req.authUser?.id || 'admin').trim(),
+      'Demande de disponibilite envoyee au proprietaire',
+      now
+    );
+
+    const notificationMessage = `Confirmez la disponibilite du bien ${String(current.bien_titre || current.bien_reference || current.bien_id || 'bien')} pour la periode ${String(current.start_date || '')} -> ${String(current.end_date || '')}`;
+    await createOwnerMobileNotification({
+      ownerId,
+      type: 'warning',
+      message: notificationMessage,
+      metadata: {
+        kind: 'reservation_availability_request',
+        demandId,
+        ownerId,
+        bienId: String(current.bien_id || '').trim(),
+        propertyTitle: String(current.bien_titre || current.bien_reference || '').trim(),
+        startDate: String(current.start_date || '').trim(),
+        endDate: String(current.end_date || '').trim(),
+        guests: Number(current.guests || 1),
+        coverMediaUrl: String(current.cover_media_url || '').trim(),
+      },
+      createdAt: now,
+    });
+
+    const pushResult = await pushToOwnerDevices(ownerId, {
+      title: 'Demande de disponibilite',
+      body: notificationMessage,
+      data: {
+        kind: 'reservation_availability_request',
+        demandId,
+        ownerId,
+        bienId: String(current.bien_id || '').trim(),
+      },
+    });
+
+    await createAdminNotification(
+      'info',
+      `Notification disponibilite envoyee au proprietaire ${ownerId}${pushResult?.sent ? ` (push envoye: ${pushResult.sent})` : ''}`,
+      now
+    );
+
+    const [updatedRows] = await pool.query(
+      `SELECT
+        d.*,
+        b.titre AS bien_titre,
+        b.reference AS bien_reference,
+        p.nom AS proprietaire_nom,
+        DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+        DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+        DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+        DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+        DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+        DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      FROM reservation_demands d
+      LEFT JOIN biens b ON b.id = d.bien_id
+      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      WHERE d.id = ? LIMIT 1`,
+      [demandId]
+    );
+    res.json(formatReservationDemandRow(updatedRows[0]));
+  } catch (error) {
+    console.error('Error requesting owner availability:', error);
+    res.status(500).json({ error: 'Impossible d envoyer la demande de disponibilite' });
   }
 });
 
@@ -8902,6 +9766,110 @@ async function ensureAdminNotificationsSchema() {
       KEY idx_admin_notifications_lu_created (lu, created_at)
     )
   `);
+}
+
+async function ensureOwnerMobileNotificationsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owner_mobile_notifications (
+      id VARCHAR(100) PRIMARY KEY,
+      owner_id VARCHAR(100) NOT NULL,
+      type VARCHAR(30) NOT NULL DEFAULT 'info',
+      message TEXT NOT NULL,
+      lu TINYINT(1) NOT NULL DEFAULT 0,
+      metadata_json LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      KEY idx_owner_mobile_notifications_owner_created (owner_id, created_at),
+      KEY idx_owner_mobile_notifications_owner_read (owner_id, lu, created_at)
+    )
+  `);
+}
+
+async function ensureOwnerPushTokensSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owner_push_tokens (
+      id VARCHAR(100) PRIMARY KEY,
+      owner_id VARCHAR(100) NOT NULL,
+      token TEXT NOT NULL,
+      platform VARCHAR(30) NULL,
+      app_version VARCHAR(40) NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      last_seen_at DATETIME NOT NULL,
+      KEY idx_owner_push_tokens_owner_active (owner_id, active, updated_at)
+    )
+  `);
+}
+
+async function createOwnerMobileNotification({
+  ownerId,
+  type = 'info',
+  message,
+  metadata = null,
+  createdAt = getAgencySqlDateTime(),
+}) {
+  if (!ownerId || !message) return null;
+  await ensureOwnerMobileNotificationsSchema();
+  const notifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO owner_mobile_notifications
+     (id, owner_id, type, message, lu, metadata_json, created_at)
+     VALUES (?, ?, ?, ?, 0, ?, ?)`,
+    [
+      notifId,
+      String(ownerId).trim(),
+      String(type || 'info').trim() || 'info',
+      String(message || '').trim(),
+      metadata && typeof metadata === 'object' ? JSON.stringify(metadata) : null,
+      createdAt,
+    ]
+  );
+  return notifId;
+}
+
+async function pushToOwnerDevices(ownerId, payload) {
+  if (!firebaseMessaging || !ownerId) return { sent: 0, disabled: true };
+  await ensureOwnerPushTokensSchema();
+  const [rows] = await pool.query(
+    `SELECT id, token
+     FROM owner_push_tokens
+     WHERE owner_id = ? AND active = 1
+     ORDER BY updated_at DESC
+     LIMIT 20`,
+    [String(ownerId).trim()]
+  );
+  const tokens = (rows || []).map((row) => String(row.token || '').trim()).filter(Boolean);
+  if (tokens.length === 0) return { sent: 0, noTokens: true };
+
+  let sent = 0;
+  for (const token of tokens) {
+    try {
+      await firebaseMessaging.send({
+        token,
+        notification: {
+          title: String(payload?.title || 'Dwira'),
+          body: String(payload?.body || ''),
+        },
+        data: Object.fromEntries(
+          Object.entries(payload?.data || {}).map(([key, value]) => [
+            key,
+            String(value == null ? '' : value),
+          ])
+        ),
+      });
+      sent += 1;
+    } catch (error) {
+      const code = String(error?.code || '');
+      if (code.includes('registration-token-not-registered') || code.includes('invalid-registration-token')) {
+        await pool.query(
+          'UPDATE owner_push_tokens SET active = 0, updated_at = ?, last_seen_at = ? WHERE owner_id = ? AND token = ?',
+          [getAgencySqlDateTime(), getAgencySqlDateTime(), String(ownerId).trim(), token]
+        ).catch(() => {});
+      }
+      console.warn('[FCM] send failed:', code || error?.message || error);
+    }
+  }
+  return { sent };
 }
 
 async function ensureSecurityAuditSchema() {
@@ -10950,7 +11918,7 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
 app.get('/api/auth/social/session/:token', (req, res) => {
   const user = consumeTemporarySocialToken(req.params.token);
   if (!user) {
-    return res.status(404).json({ error: 'Session sociale invalide ou expirée' });
+    return res.status(404).json({ error: 'Session sociale invalide ou expirÃ©e' });
   }
   setAuthSessionCookie(req, res, user);
   res.json({ user: buildAuthUser(user) });
@@ -11607,8 +12575,8 @@ app.use((error, req, res, next) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log('📋 Available endpoints:');
+  console.log(`ðŸš€ Server running on http://localhost:${PORT}`);
+  console.log('ðŸ“‹ Available endpoints:');
   console.log('   - GET    /api/biens');
   console.log('   - POST   /api/biens');
   console.log('   - PUT    /api/biens/:id');
@@ -11620,7 +12588,12 @@ app.listen(PORT, () => {
   console.log('   - GET    /api/paiements');
   console.log('   - GET    /api/maintenance');
   console.log('   - GET    /api/notifications');
+  console.log('   - POST   /api/reservation-demands/:id/request-owner-availability');
+  console.log('   - POST   /api/mobile/owners/:ownerId/push-token');
+  console.log('   - GET    /api/mobile/owners/:ownerId/availability-requests');
+  console.log('   - POST   /api/mobile/owners/:ownerId/availability-requests/:demandId/respond');
 });
+
 
 
 

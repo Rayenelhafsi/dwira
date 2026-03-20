@@ -5,6 +5,7 @@ import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
 import { motion, AnimatePresence } from "framer-motion";
+import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import { 
   format, 
   startOfMonth, 
@@ -655,6 +656,11 @@ export default function HomePage() {
             transition={{ duration: 0.8 }}
             className="mb-6"
           >
+             <div className="mb-5 flex justify-center">
+               <div className="h-24 w-24 overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-28 md:w-28">
+                 <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
+               </div>
+             </div>
              <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-4 leading-tight drop-shadow-xl">
                Dwira <span className="text-amber-400">Immobilier</span>
              </h1>
@@ -703,7 +709,7 @@ export default function HomePage() {
             </motion.div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto overflow-visible">
+          <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
               <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-6 gap-4">
@@ -1561,40 +1567,42 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {filteredProperties.map((property) => (
-              <PropertyCard 
-                key={property.id} 
-                property={property} 
-                searchParams={(() => {
-                  const params = new URLSearchParams();
-                  params.set("mode", selectedMode);
-                  if (location) params.set("location", location);
-                  if (selectedMainType) params.set("mainType", selectedMainType);
-                  if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
-                  if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
-                  if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
-                  if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
-                  if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
-                  return params.toString();
-                })()}
-              />
-            ))}
-            {loading && filteredProperties.length === 0 && Array.from({ length: 3 }).map((_, index) => (
-              <div key={`property-skeleton-${index}`} className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
-                <div className="aspect-[4/3] w-full animate-pulse bg-gray-200" />
-                <div className="p-5">
-                  <div className="mb-3 h-4 w-24 animate-pulse rounded bg-gray-200" />
-                  <div className="mb-3 h-7 w-4/5 animate-pulse rounded bg-gray-200" />
-                  <div className="mb-5 h-4 w-3/5 animate-pulse rounded bg-gray-200" />
-                  <div className="grid grid-cols-3 gap-3 border-t border-gray-100 pt-4">
-                    <div className="h-10 animate-pulse rounded bg-gray-100" />
-                    <div className="h-10 animate-pulse rounded bg-gray-100" />
-                    <div className="h-10 animate-pulse rounded bg-gray-100" />
+          <div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+              {filteredProperties.map((property) => (
+                <PropertyCard
+                  key={property.id}
+                  property={property}
+                  searchParams={(() => {
+                    const params = new URLSearchParams();
+                    params.set("mode", selectedMode);
+                    if (location) params.set("location", location);
+                    if (selectedMainType) params.set("mainType", selectedMainType);
+                    if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+                    if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
+                    if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
+                    if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
+                    if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
+                    return params.toString();
+                  })()}
+                />
+              ))}
+              {loading && filteredProperties.length === 0 && Array.from({ length: 3 }).map((_, index) => (
+                <div key={`property-skeleton-${index}`} className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+                  <div className="aspect-[4/3] w-full animate-pulse bg-gray-200" />
+                  <div className="p-5">
+                    <div className="mb-3 h-4 w-24 animate-pulse rounded bg-gray-200" />
+                    <div className="mb-3 h-7 w-4/5 animate-pulse rounded bg-gray-200" />
+                    <div className="mb-5 h-4 w-3/5 animate-pulse rounded bg-gray-200" />
+                    <div className="grid grid-cols-3 gap-3 border-t border-gray-100 pt-4">
+                      <div className="h-10 animate-pulse rounded bg-gray-100" />
+                      <div className="h-10 animate-pulse rounded bg-gray-100" />
+                      <div className="h-10 animate-pulse rounded bg-gray-100" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
           
           {filteredProperties.length === 0 && hasSearched && (

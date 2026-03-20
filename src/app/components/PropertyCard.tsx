@@ -34,54 +34,58 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   };
     
   return (
-    <div className={`group bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'}`}>
+    <div className={`group overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_20px_48px_rgba(15,23,42,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_62px_rgba(15,23,42,0.16)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'}`}>
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <SmartImage
             src={property.images?.[0] || PROPERTY_CARD_FALLBACK_IMAGE}
             alt={property.title}
-            className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
+            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
             loading="lazy"
             decoding="async"
             fetchPriority="low"
             targetWidth={720}
             quality={62}
           />
-          {property.isFeatured && (
-            <>
-              <div className="absolute inset-0 bg-gradient-to-b from-amber-300/20 via-transparent to-amber-500/20 pointer-events-none" />
-              <div className="absolute inset-0 ring-1 ring-amber-300/60 ring-inset pointer-events-none" />
-              <div className="absolute top-3 right-3 bg-amber-500 text-white px-2.5 py-1 rounded-full text-xs font-semibold shadow-md">
-                Vedette
-              </div>
-            </>
-          )}
-          <div className={`absolute top-3 ${property.isFeatured ? 'right-20' : 'right-3'} bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md text-sm font-semibold text-gray-900 shadow-sm`}>
-            {property.pricePerNight} TND
-            {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
+          <div className="absolute left-4 top-4 inline-flex rounded-full border border-white/25 bg-black/35 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 backdrop-blur-md">
+            Sejour premium
           </div>
-          <div className="absolute top-3 left-3 bg-emerald-700/90 backdrop-blur-sm px-2 py-1 rounded-md text-xs font-semibold text-white shadow-sm">
-            {property.category}
+          <div className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-white/25 bg-black/35 px-3 py-1 text-xs font-semibold text-white backdrop-blur-md">
+            <Star size={13} fill="currentColor" />
+            <span>{ratingDisplay}</span>
+            <span className="text-white/80">({property.reviews})</span>
+          </div>
+          <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3">
+            <div className="min-w-0 rounded-2xl border border-white/15 bg-white/12 px-3 py-2 backdrop-blur-md">
+              <p className="truncate text-sm font-semibold text-white">{property.location}</p>
+              <p className="truncate text-xs text-white/80">{property.category}</p>
+            </div>
+            <div className="shrink-0 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 shadow-md">
+              {property.pricePerNight} TND
+              {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
+            </div>
           </div>
         </div>
-        
-        <div className="p-5">
-          <div className="flex items-center gap-1 text-amber-500 mb-2">
-            <Star size={14} fill="currentColor" />
-            <span className="text-sm font-medium text-gray-900">{ratingDisplay}</span>
-            <span className="text-xs text-gray-500">({property.reviews} avis)</span>
+
+        <div className="space-y-4 p-5">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="line-clamp-2 text-2xl font-bold leading-tight text-slate-900 transition-colors group-hover:text-emerald-700">
+              {property.title}
+            </h3>
+            {property.isFeatured && (
+              <span className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                Bien vedette
+              </span>
+            )}
           </div>
 
-          <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-1 group-hover:text-emerald-700 transition-colors">
-            {property.title}
-          </h3>
-
-          <div className="flex items-center gap-2 text-gray-500 text-sm mb-4">
+          <div className="flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1.5 text-sm text-gray-600">
             <MapPin size={14} />
             <span className="line-clamp-1">{property.location}</span>
           </div>
 
-          <div className="flex items-center justify-between text-gray-500 text-sm border-t border-gray-100 pt-4">
+          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-emerald-100 bg-emerald-50/45 p-3 text-sm text-emerald-900">
             <div className="flex items-center gap-1">
               <Users size={16} />
               <span>{property.guests}</span>
@@ -100,7 +104,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
 
       <div className="px-5 pb-5">
         <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
-          <a href={buildTelLink(contactConfig.phone)} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
+          <a href={buildTelLink(contactConfig.phone)} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
             <Phone size={14} />
             <span>Telephone</span>
           </a>
@@ -110,7 +114,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
               contactConfig.phone,
               buildWhatsAppPropertyMessage(property.title, propertyUrl, property.reference || null)
             )}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap"
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-2 py-2 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap"
           >
             <MessageCircle size={14} />
             <span>WhatsApp</span>
@@ -118,7 +122,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
           <button
             type="button"
             onClick={handleMessengerClick}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap"
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-100 whitespace-nowrap"
           >
             <MessageCircle size={14} />
             <span>Messenger</span>

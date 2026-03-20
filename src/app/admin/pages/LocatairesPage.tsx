@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CalendarDays, Edit2, FileText, Mail, Phone, Plus, Search, Trash2, Upload, UserSquare2, Users, X } from 'lucide-react';
+import { CalendarDays, Edit2, FileText, Mail, Phone, Plus, QrCode, Search, Trash2, Upload, UserSquare2, Users, X } from 'lucide-react';
 import { Bien, ClienteleProfile, ClienteleTask, Contrat, Locataire, Maintenance, Paiement, Proprietaire, Utilisateur } from '../types';
 import { toast } from 'sonner';
 import { fetchClientInteractions } from '../../utils/clientInteractions';
@@ -111,6 +111,9 @@ const formatDate = (value?: string | null) => {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString();
 };
+
+const buildQrCodeUrl = (ownerId?: string | null, size = 120) =>
+  `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(String(ownerId || '').trim())}`;
 
 const parseMultivalueText = (value: string) =>
   Array.from(new Set(
@@ -324,6 +327,7 @@ export default function ClientelesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
   const [isCinViewerOpen, setIsCinViewerOpen] = useState(false);
+  const [qrPreviewOwner, setQrPreviewOwner] = useState<{ id: string; name: string } | null>(null);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientModalMode, setClientModalMode] = useState<'create' | 'edit'>('create');
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
@@ -1483,6 +1487,7 @@ export default function ClientelesPage() {
                 <th className="px-4 py-3">Type client</th>
                 <th className="px-4 py-3">Origine</th>
                 <th className="px-4 py-3">Telephone</th>
+                {activeCategory === 'proprietaires' && <th className="px-4 py-3">QR proprietaire</th>}
                 <th className="px-4 py-3">Carte d'identite</th>
                 <th className="px-4 py-3">Image CIN</th>
                 <th className="px-4 py-3">Historique</th>
@@ -1543,6 +1548,22 @@ export default function ClientelesPage() {
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-700">{client.telephone || '-'}</td>
+                    {activeCategory === 'proprietaires' && (
+                      <td className="px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={() => setQrPreviewOwner({ id: client.id, name: `${client.prenom} ${client.nom}`.trim() || client.id })}
+                          className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-2 py-1 text-emerald-700 hover:bg-emerald-50"
+                        >
+                          <img
+                            src={buildQrCodeUrl(client.id, 48)}
+                            alt={`QR ${client.id}`}
+                            className="h-10 w-10 rounded border border-gray-200 bg-white"
+                          />
+                          <QrCode className="h-4 w-4" />
+                        </button>
+                      </td>
+                    )}
                     <td className="px-4 py-4 text-sm text-gray-700">{client.cin || '-'}</td>
                     <td className="px-4 py-4">
                       {dossierImage ? (
@@ -1574,7 +1595,12 @@ export default function ClientelesPage() {
               })}
               {filteredClients.length === 0 && (
                 <tr>
-                  <td className="px-4 py-10 text-center text-sm text-gray-500" colSpan={12}>Aucun client trouve pour cette categorie.</td>
+                  <td
+                    className="px-4 py-10 text-center text-sm text-gray-500"
+                    colSpan={activeCategory === 'proprietaires' ? 13 : 12}
+                  >
+                    Aucun client trouve pour cette categorie.
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -2039,6 +2065,34 @@ export default function ClientelesPage() {
                 alt="Carte d'identite complete"
                 className="mx-auto h-auto max-w-full rounded-lg object-contain"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {qrPreviewOwner && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">QR proprietaire</h3>
+                <p className="text-xs text-gray-500">{qrPreviewOwner.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQrPreviewOwner(null)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <img
+                src={buildQrCodeUrl(qrPreviewOwner.id, 260)}
+                alt={`QR ${qrPreviewOwner.id}`}
+                className="h-[260px] w-[260px] rounded-lg border border-gray-200 bg-white p-2"
+              />
+              <p className="text-sm font-medium text-gray-800">ID: {qrPreviewOwner.id}</p>
             </div>
           </div>
         </div>

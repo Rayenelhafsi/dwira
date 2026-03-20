@@ -51,6 +51,12 @@ export default function NotificationsPage() {
   const [demands, setDemands] = useState<ReservationDemand[]>([]);
   const [historyRows, setHistoryRows] = useState<ReservationDemandHistory[]>([]);
   const [historyDemandId, setHistoryDemandId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'demands' | 'chat'>('demands');
+  const [selectedChatOwner, setSelectedChatOwner] = useState<{ id: string; name: string; demandId?: string } | null>(null);
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; text: string; kind?: string; createdAt?: string }>>([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatSending, setChatSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [serviceQuoteDrafts, setServiceQuoteDrafts] = useState<Record<string, Record<string, number>>>({});
@@ -83,6 +89,117 @@ export default function NotificationsPage() {
     () => demands.filter((demand) => openStatuses.has(demand.status)),
     [demands]
   );
+
+  const chatOwners = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string; demandId?: string }>();
+    demands.forEach((demand) => {
+      const ownerId = String(demand.proprietaire_id || '').trim();
+      if (!ownerId) return;
+      if (!byId.has(ownerId)) {
+        byId.set(ownerId, {
+          id: ownerId,
+          name: String(demand.proprietaire_nom || ownerId),
+          demandId: demand.id,
+        });
+      }
+    });
+    return Array.from(byId.values());
+  }, [demands]);
+
+  const loadOwnerChat = useCallback(async (ownerId: string) => {
+    setChatLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/mobile/owners/${encodeURIComponent(ownerId)}/chat`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Impossible de charger le chat proprietaire'));
+      const rows = await response.json();
+      const mapped = (Array.isArray(rows) ? rows : []).map((row: any) => ({
+        id: String(row.id || ''),
+        text: String(row.text || ''),
+        kind: String(row.kind || ''),
+        createdAt: String(row.createdAt || ''),
+      }));
+      setChatMessages(mapped);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de charger le chat proprietaire');
+      setChatMessages([]);
+    } finally {
+      setChatLoading(false);
+    }
+  }, []);
+
+  const openOwnerChat = useCallback((demand: ReservationDemand) => {
+    const ownerId = String(demand.proprietaire_id || '').trim();
+    if (!ownerId) {
+      toast.error('Cette demande ne contient pas d identifiant proprietaire');
+      return;
+    }
+    const owner = {
+      id: ownerId,
+      name: String(demand.proprietaire_nom || ownerId),
+      demandId: demand.id,
+    };
+    setSelectedChatOwner(owner);
+    setActiveView('chat');
+    void loadOwnerChat(owner.id);
+  }, [loadOwnerChat]);
+
+  const sendChatMessage = async () => {
+    if (!selectedChatOwner) return;
+    const text = chatDraft.trim();
+    if (!text) return;
+    setChatSending(true);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/owners/${encodeURIComponent(selectedChatOwner.id)}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Envoi message proprietaire impossible'));
+      setChatDraft('');
+      await loadOwnerChat(selectedChatOwner.id);
+      if (selectedChatOwner.demandId) {
+        const demand = demands.find((item) => item.id === selectedChatOwner.demandId);
+        if (demand) {
+          await handleDemandUpdate(demand, {
+            communicateToOwner: true,
+            history_note: 'Communication envoyee au proprietaire via chat',
+          });
+        }
+      }
+      toast.success('Message envoye au proprietaire');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Envoi message proprietaire impossible');
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  const requestOwnerAvailability = async (demand: ReservationDemand) => {
+    setSavingId(demand.id);
+    try {
+      const response = await fetch(
+        `${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/request-owner-availability`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Envoi demande disponibilite impossible'));
+      }
+      const updated = await response.json();
+      setDemands((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      toast.success('Demande de disponibilite envoyee au proprietaire');
+      await fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Envoi demande disponibilite impossible');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const handleDemandUpdate = async (demand: ReservationDemand, patch: Partial<ReservationDemand> & { communicateToOwner?: boolean; history_note?: string }) => {
     setSavingId(demand.id);
@@ -185,6 +302,24 @@ export default function NotificationsPage() {
         </button>
       </div>
 
+      <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+        <button
+          type="button"
+          onClick={() => setActiveView('demands')}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'demands' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+        >
+          Demandes
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView('chat')}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'chat' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+        >
+          Chat proprietaires
+        </button>
+      </div>
+
+      {activeView === 'demands' && (
       <section className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="mb-4 flex items-center gap-2">
           <Bell className="h-5 w-5 text-amber-600" />
@@ -219,12 +354,24 @@ export default function NotificationsPage() {
                   </select>
                   <button
                     type="button"
-                    onClick={() => void handleDemandUpdate(demand, { communicateToOwner: true, history_note: 'Demande communiquee au proprietaire' })}
+                    onClick={() => {
+                      void handleDemandUpdate(demand, { communicateToOwner: true, history_note: 'Demande communiquee au proprietaire' });
+                      openOwnerChat(demand);
+                    }}
                     disabled={savingId === demand.id}
                     className="inline-flex items-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
                   >
                     <MessageSquareShare className="h-4 w-4" />
                     Communiquer au proprietaire
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void requestOwnerAvailability(demand)}
+                    disabled={savingId === demand.id}
+                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                  >
+                    <Bell className="h-4 w-4" />
+                    Demander disponibilite
                   </button>
                   <button
                     type="button"
@@ -310,6 +457,102 @@ export default function NotificationsPage() {
           ))}
         </div>
       </section>
+      )}
+
+      {activeView === 'chat' && (
+        <section className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Chat proprietaires</h2>
+              <p className="text-sm text-gray-500">Communication admin {'<->'} proprietaire sans informations locataire.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => selectedChatOwner ? void loadOwnerChat(selectedChatOwner.id) : undefined}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Recharger chat
+            </button>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[320px,1fr]">
+            <div className="space-y-2 rounded-xl border border-gray-200 p-3">
+              {chatOwners.length === 0 && (
+                <p className="text-sm text-gray-500">Aucun proprietaire lie aux demandes.</p>
+              )}
+              {chatOwners.map((owner) => (
+                <button
+                  key={owner.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedChatOwner(owner);
+                    void loadOwnerChat(owner.id);
+                  }}
+                  className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                    selectedChatOwner?.id === owner.id
+                      ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                      : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="font-medium">{owner.name}</div>
+                  <div className="text-xs text-gray-500">ID: {owner.id}</div>
+                </button>
+              ))}
+            </div>
+            <div className="rounded-xl border border-gray-200 p-3">
+              {!selectedChatOwner ? (
+                <p className="text-sm text-gray-500">Selectionnez un proprietaire pour ouvrir la conversation.</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="border-b border-gray-100 pb-2">
+                    <p className="font-medium text-gray-900">{selectedChatOwner.name}</p>
+                    <p className="text-xs text-gray-500">ID: {selectedChatOwner.id}</p>
+                  </div>
+                  <div className="max-h-[360px] space-y-2 overflow-y-auto rounded-lg bg-gray-50 p-3">
+                    {chatLoading && <p className="text-sm text-gray-500">Chargement chat...</p>}
+                    {!chatLoading && chatMessages.length === 0 && (
+                      <p className="text-sm text-gray-500">Aucun message pour ce proprietaire.</p>
+                    )}
+                    {!chatLoading && chatMessages.map((message) => {
+                      const fromAdmin = message.kind === 'admin_owner_chat';
+                      return (
+                        <div
+                          key={message.id}
+                          className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                            fromAdmin
+                              ? 'ml-auto bg-emerald-100 text-emerald-900'
+                              : 'bg-white text-gray-800'
+                          }`}
+                        >
+                          <p>{message.text || '(message vide)'}</p>
+                          <p className="mt-1 text-[11px] text-gray-500">{formatDateTime(message.createdAt)}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chatDraft}
+                      onChange={(event) => setChatDraft(event.target.value)}
+                      placeholder="Ecrire un message au proprietaire..."
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void sendChatMessage()}
+                      disabled={chatSending}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {chatSending ? 'Envoi...' : 'Envoyer'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="mb-4 flex items-center gap-2">
