@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind } from "lucide-react";
+import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
@@ -594,6 +594,20 @@ export default function HomePage() {
     setShowSeasideDropdown(false);
     setShowComfortDropdown(false);
   };
+  const handleOpenAdvancedFilters = () => {
+    const params = new URLSearchParams();
+    const logementsMode = selectedMode === "location_annuelle" ? "location_annuelle" : "location_saisonniere";
+    params.set("mode", logementsMode);
+    if (location) params.set("location", location);
+    if (selectedMainType) params.set("mainType", selectedMainType);
+    if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+    if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
+    if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
+    if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
+    if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
+    params.set("advanced", "1");
+    navigate(`/logements?${params.toString()}`);
+  };
 
   useEffect(() => {
     if (!showLocationDropdown && !showCalendar && !showCategoryDropdown && !showSeasideDropdown && !showComfortDropdown) return;
@@ -1141,13 +1155,22 @@ export default function HomePage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-stretch">
+                <div className="flex items-stretch gap-2">
                   <button
                     onClick={handleSearch}
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-2xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 duration-200 flex items-center justify-center gap-2"
                   >
                     <Search size={20} />
                     <span>Rechercher</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenAdvancedFilters}
+                    aria-label="Ouvrir filtres avances"
+                    title="Filtres avances"
+                    className="shrink-0 rounded-2xl border border-emerald-200 bg-white px-4 text-emerald-700 transition-colors hover:bg-emerald-50"
+                  >
+                    <SlidersHorizontal size={18} />
                   </button>
                 </div>
               </div>
