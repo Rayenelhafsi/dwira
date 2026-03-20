@@ -635,6 +635,7 @@ export default function PropertyDetailsPage() {
   const [profilePromptForm, setProfilePromptForm] = useState({
     firstName: "",
     lastName: "",
+    clientType: "",
     telephone: "",
     cin: "",
   });
@@ -1457,6 +1458,7 @@ out body 40;
     setProfilePromptForm({
       firstName: String(currentUser?.firstName || nameParts.firstName || "").trim(),
       lastName: String(currentUser?.lastName || nameParts.lastName || "").trim(),
+      clientType: String(currentUser?.clientType || "").trim(),
       telephone: String(currentUser?.telephone || "").trim(),
       cin: String(currentUser?.cin || "").trim(),
     });
@@ -2137,7 +2139,17 @@ out body 40;
       void navigateToReservationIfDraft();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connexion Passkey echouee';
-      if (String(message).toLowerCase().includes('aucun passkey configure')) {
+      const normalizedMessage = String(message).toLowerCase();
+      const noPasskeyDetected = [
+        'aucun passkey configure',
+        'aucun passkey',
+        'no passkey',
+        'no credential',
+        'credential not found',
+        'not found for login options',
+        'introuvable',
+      ].some((token) => normalizedMessage.includes(token));
+      if (noPasskeyDetected) {
         setLoginPromptStep("passkey_setup");
         toast.info('Aucune passkey detectee. Creez-en une pour continuer.');
         return;
@@ -2202,6 +2214,10 @@ out body 40;
       toast.error("Nom, prenom et telephone sont obligatoires.");
       return;
     }
+    if (!["proprietaire", "locataire", "acheteur"].includes(profilePromptForm.clientType)) {
+      toast.error("Type client obligatoire.");
+      return;
+    }
     setIsProfilePromptSaving(true);
     try {
       const savedUser = await completeSocialProfile({
@@ -2210,6 +2226,7 @@ out body 40;
         lastName: profilePromptForm.lastName.trim(),
         name: `${profilePromptForm.firstName.trim()} ${profilePromptForm.lastName.trim()}`.trim(),
         email: user.email,
+        clientType: profilePromptForm.clientType as 'proprietaire' | 'locataire' | 'acheteur',
         telephone: profilePromptForm.telephone.trim(),
         cin: profilePromptForm.cin.trim(),
       });
@@ -2336,7 +2353,7 @@ out body 40;
     return <Navigate to={`${property.detailPath}${filterQueryString ? `?${filterQueryString}` : ""}`} replace />;
   }
 
-  const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog && !lightboxOpen
+  const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog && !lightboxOpen && !showLoginPrompt
     ? createPortal(
         <div
           style={{
@@ -3839,34 +3856,30 @@ out body 40;
             </div>
 
             <div className="mt-6 overflow-hidden">
-              <div
-                className={`flex w-[300%] transition-transform duration-300 ease-out ${
-                  loginPromptStep === "choices"
-                    ? "translate-x-0"
-                    : loginPromptStep === "passkey_setup"
-                      ? "-translate-x-1/3"
-                      : "-translate-x-2/3"
-                }`}
-              >
-                <div className="w-1/3 space-y-3 pr-2">
-                  <button
-                    type="button"
-                    disabled={!providers.google}
-                    onClick={() => handlePromptSocialLogin('google')}
-                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Globe className="h-5 w-5 text-emerald-700" />
-                    Continuer avec Google
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!providers.facebook}
-                    onClick={() => handlePromptSocialLogin('facebook')}
-                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Facebook className="h-5 w-5 text-blue-600" />
-                    Continuer avec Facebook
-                  </button>
+              {loginPromptStep === "choices" && (
+                <div className="space-y-3 animate-[fadeInScale_.2s_ease-out]">
+                  {!isPasskeyPromptLoading && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!providers.google}
+                        onClick={() => handlePromptSocialLogin('google')}
+                        className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Globe className="h-5 w-5 text-emerald-700" />
+                        Continuer avec Google
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!providers.facebook}
+                        onClick={() => handlePromptSocialLogin('facebook')}
+                        className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Facebook className="h-5 w-5 text-blue-600" />
+                        Continuer avec Facebook
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     disabled={isPasskeyPromptLoading || !providers.passkey}
@@ -3876,12 +3889,11 @@ out body 40;
                     <KeyRound className="h-5 w-5 text-emerald-700" />
                     {isPasskeyPromptLoading ? 'Verification Passkey...' : 'Continuer avec Passkey'}
                   </button>
-                  <p className="pt-1 text-center text-xs text-gray-500">
-                    La connexion WhatsApp est desactivee pour le moment. Utilisez Google, Facebook ou Passkey pour continuer.
-                  </p>
                 </div>
+              )}
 
-                <div className="w-1/3 space-y-3 px-2">
+              {loginPromptStep === "passkey_setup" && (
+                <div className="space-y-3 animate-[fadeInScale_.2s_ease-out]">
                   <button
                     type="button"
                     onClick={() => setLoginPromptStep("choices")}
@@ -3917,8 +3929,10 @@ out body 40;
                     {isPasskeyCreateLoading ? 'Creation Passkey...' : 'Creer et continuer'}
                   </button>
                 </div>
+              )}
 
-                <div className="w-1/3 space-y-3 pl-2">
+              {loginPromptStep === "profile_setup" && (
+                <div className="space-y-3 animate-[fadeInScale_.2s_ease-out]">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Profil obligatoire</p>
                   <p className="text-sm text-gray-600">
                     Completez votre identite pour continuer la reservation.
@@ -3945,6 +3959,17 @@ out body 40;
                       placeholder="Telephone *"
                       className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
                     />
+                    <select
+                      value={profilePromptForm.clientType}
+                      onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, clientType: event.target.value }))}
+                      className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                      required
+                    >
+                      <option value="">Type client *</option>
+                      <option value="locataire">Locataire</option>
+                      <option value="acheteur">Acheteur</option>
+                      <option value="proprietaire">Proprietaire</option>
+                    </select>
                     <input
                       type="text"
                       value={profilePromptForm.cin}
@@ -3962,7 +3987,7 @@ out body 40;
                     {isProfilePromptSaving ? "Validation..." : "Valider et continuer"}
                   </button>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

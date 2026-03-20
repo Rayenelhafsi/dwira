@@ -10,7 +10,7 @@ export interface Utilisateur {
   telephone?: string | null;
   cin?: string | null;
   cin_image_url?: string | null;
-  auth_provider?: 'local' | 'google' | 'facebook';
+  auth_provider?: 'local' | 'google' | 'facebook' | 'phone' | 'email' | 'passkey';
   provider_user_id?: string | null;
   last_login_at?: string | null;
   profile_completed_at?: string | null;

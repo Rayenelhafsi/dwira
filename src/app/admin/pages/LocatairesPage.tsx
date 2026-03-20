@@ -506,6 +506,7 @@ export default function ClientelesPage() {
       locataires: baseUsers.filter((utilisateur) => utilisateur.client_type === 'locataire'),
       acheteurs: baseUsers.filter((utilisateur) => utilisateur.client_type === 'acheteur'),
       proprietaires: baseUsers.filter((utilisateur) => utilisateur.client_type === 'proprietaire'),
+      passkeyUnknown: baseUsers.filter((utilisateur) => utilisateur.auth_provider === 'passkey' && !utilisateur.client_type),
     };
   }, [utilisateurs]);
 
@@ -627,7 +628,7 @@ export default function ClientelesPage() {
   }, [findLinkedUser, proprietaires, resolveClientType, utilisateursClientsByType.proprietaires]);
 
   const acheteurClients = useMemo<ClientRecord[]>(() => {
-    return utilisateursClientsByType.acheteurs
+    return [...utilisateursClientsByType.acheteurs, ...utilisateursClientsByType.passkeyUnknown]
       .map((utilisateur) => {
         const { prenom, nom } = splitFullName(utilisateur.nom);
         return {
@@ -638,7 +639,7 @@ export default function ClientelesPage() {
           origins: ['utilisateurs'],
           linkedUserId: utilisateur.id,
           linkedRecordIds: [utilisateur.id],
-          clientType: 'acheteur',
+          clientType: (utilisateur.client_type as 'acheteur' | null) || 'acheteur',
           cinImageUrl: utilisateur.cin_image_url || undefined,
           nom,
           prenom,
@@ -648,7 +649,7 @@ export default function ClientelesPage() {
           createdAt: utilisateur.created_at,
         };
       });
-  }, [utilisateursClientsByType.acheteurs]);
+  }, [utilisateursClientsByType.acheteurs, utilisateursClientsByType.passkeyUnknown]);
 
   const clients = useMemo<Record<ClientCategory, ClientRecord[]>>(() => ({
     locataires: locataireClients,

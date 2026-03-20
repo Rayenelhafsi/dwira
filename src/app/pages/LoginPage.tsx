@@ -43,6 +43,7 @@ export default function LoginPage() {
     firstName: '',
     lastName: '',
     email: '',
+    clientType: '',
     telephone: '',
     cin: '',
     cinImageUrl: '',
@@ -117,6 +118,7 @@ export default function LoginPage() {
         firstName: user.firstName || fallbackNames.firstName,
         lastName: user.lastName || fallbackNames.lastName,
         email: user.email || '',
+        clientType: user.clientType || '',
         telephone: user.telephone || '',
         cin: user.cin || '',
         cinImageUrl: user.cinImageUrl || '',
@@ -181,6 +183,7 @@ export default function LoginPage() {
             firstName: socialUser.firstName || fallbackNames.firstName,
             lastName: socialUser.lastName || fallbackNames.lastName,
             email: socialUser.email || '',
+            clientType: socialUser.clientType || '',
             telephone: socialUser.telephone || '',
             cin: socialUser.cin || '',
             cinImageUrl: socialUser.cinImageUrl || '',
@@ -255,6 +258,7 @@ export default function LoginPage() {
           firstName: passkeyUser.firstName || fallbackNames.firstName,
           lastName: passkeyUser.lastName || fallbackNames.lastName,
           email: passkeyUser.email || prev.email,
+          clientType: passkeyUser.clientType || prev.clientType || '',
           telephone: passkeyUser.telephone || prev.telephone,
           cin: passkeyUser.cin || prev.cin,
           cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
@@ -293,6 +297,7 @@ export default function LoginPage() {
           firstName: passkeyUser.firstName || fallbackNames.firstName,
           lastName: passkeyUser.lastName || fallbackNames.lastName,
           email: passkeyUser.email || prev.email,
+          clientType: passkeyUser.clientType || prev.clientType || '',
           telephone: passkeyUser.telephone || prev.telephone,
           cin: passkeyUser.cin || prev.cin,
           cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
@@ -347,6 +352,10 @@ export default function LoginPage() {
       toast.error('Nom, prenom et numero de telephone sont obligatoires');
       return;
     }
+    if (!['proprietaire', 'locataire', 'acheteur'].includes(profileForm.clientType)) {
+      toast.error('Type client obligatoire');
+      return;
+    }
 
     setIsCompletingProfile(true);
     try {
@@ -356,6 +365,7 @@ export default function LoginPage() {
         lastName: profileForm.lastName.trim(),
         name: `${profileForm.firstName.trim()} ${profileForm.lastName.trim()}`.trim(),
         email: profileForm.email.trim() || undefined,
+        clientType: profileForm.clientType as 'proprietaire' | 'locataire' | 'acheteur',
         telephone: profileForm.telephone.trim(),
         cin: profileForm.cin.trim(),
         cinImageUrl: profileForm.cinImageUrl.trim(),
@@ -440,6 +450,22 @@ export default function LoginPage() {
                     placeholder="Optionnel"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="client-type" className="block text-sm font-medium text-gray-700">Type client *</label>
+                <select
+                  id="client-type"
+                  value={profileForm.clientType}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, clientType: e.target.value }))}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                  required
+                >
+                  <option value="">Choisir...</option>
+                  <option value="locataire">Locataire</option>
+                  <option value="acheteur">Acheteur</option>
+                  <option value="proprietaire">Proprietaire</option>
+                </select>
               </div>
 
               <div className="md:col-span-2">
@@ -619,7 +645,7 @@ export default function LoginPage() {
               {isPasskeyLoading ? 'Connexion Passkey...' : 'Continuer avec Passkey'}
             </button>
             <form className="mt-4 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3" onSubmit={handlePasskeyRegister}>
-              <p className="text-xs font-medium text-gray-700">Creer un compte Passkey (gratuit)</p>
+              <p className="text-xs font-medium text-gray-700">Creer un compte Passkey</p>
               <input
                 type="email"
                 value={passkeyRegisterEmail}
@@ -647,9 +673,6 @@ export default function LoginPage() {
                 Certains fournisseurs sociaux sont indisponibles car OAuth n'est pas configure sur le serveur.
               </p>
             )}
-            <p className="mt-3 text-xs text-gray-500">
-              La connexion WhatsApp est desactivee pour le moment. Passkey fonctionne sans frais de licence.
-            </p>
           </div>
         </div>
       </div>

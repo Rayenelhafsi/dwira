@@ -3496,8 +3496,10 @@ function splitFullName(fullName) {
 function isLegalIdentityProfileCompleted(user) {
   const fullName = String(user?.nom || user?.name || '').trim();
   const phone = String(user?.telephone || '').trim();
+  const clientType = String(user?.client_type || user?.clientType || '').trim().toLowerCase();
   const profileCompletedAt = String(user?.profile_completed_at || '').trim();
-  return Boolean(fullName && phone && profileCompletedAt);
+  const hasValidClientType = ['proprietaire', 'locataire', 'acheteur'].includes(clientType);
+  return Boolean(fullName && phone && hasValidClientType && profileCompletedAt);
 }
 
 function buildPhonePlaceholderEmail(phone) {
@@ -11233,6 +11235,9 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     }
     if (!firstName || !lastName) return res.status(400).json({ error: 'Nom et prenom obligatoires' });
     if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
+    if (!['proprietaire', 'locataire', 'acheteur'].includes(clientType)) {
+      return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire ou acheteur)' });
+    }
 
     const [existingRows] = await pool.query('SELECT id FROM utilisateurs WHERE id = ? LIMIT 1', [id]);
     if (!existingRows[0]) {
