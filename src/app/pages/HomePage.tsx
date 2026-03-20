@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check } from "lucide-react";
+import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
@@ -25,6 +25,8 @@ import { fr } from "date-fns/locale";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
+type HomeSeasideOptionKey = "pied_dans_eau" | "vue_sur_mer" | "pres_plage";
+type HomeComfortOptionKey = "climatise" | "piscine_privee" | "piscine_partagee";
 const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
   { value: "location_saisonniere", label: "Location saisonniere" },
   { value: "vente", label: "Vente" },
@@ -42,6 +44,19 @@ const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
   immeuble: "Immeuble",
   autre: "Autre",
 };
+const SEASIDE_OPTION_LABELS: Record<HomeSeasideOptionKey, string> = {
+  pied_dans_eau: "Pied dans l'eau",
+  vue_sur_mer: "Vue sur mer",
+  pres_plage: "Pres de la plage",
+};
+const COMFORT_OPTION_LABELS: Record<HomeComfortOptionKey, string> = {
+  climatise: "Climatise",
+  piscine_privee: "Piscine privee",
+  piscine_partagee: "Piscine partagee",
+};
+const SEASIDE_OPTION_KEYS: HomeSeasideOptionKey[] = ["pied_dans_eau", "vue_sur_mer", "pres_plage"];
+const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = ["climatise", "piscine_privee", "piscine_partagee"];
+const POOL_OPTION_KEYS: HomeComfortOptionKey[] = ["piscine_privee", "piscine_partagee"];
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
@@ -64,6 +79,10 @@ export default function HomePage() {
   const locationMobilePopupRef = useRef<HTMLDivElement>(null);
   const calendarMobilePopupRef = useRef<HTMLDivElement>(null);
   const categoryMobilePopupRef = useRef<HTMLDivElement>(null);
+  const seasideDesktopPopupRef = useRef<HTMLDivElement>(null);
+  const comfortDesktopPopupRef = useRef<HTMLDivElement>(null);
+  const seasideMobilePopupRef = useRef<HTMLDivElement>(null);
+  const comfortMobilePopupRef = useRef<HTMLDivElement>(null);
   
   // Filter states
   const [location, setLocation] = useState("");
@@ -75,15 +94,20 @@ export default function HomePage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [showSeasideDropdown, setShowSeasideDropdown] = useState(false);
+  const [showComfortDropdown, setShowComfortDropdown] = useState(false);
   const [categoryStep, setCategoryStep] = useState<"main" | "sub">("main");
   const [categoryStepDirection, setCategoryStepDirection] = useState<1 | -1>(1);
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
+  const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
   const [locationPays, setLocationPays] = useState("Tunisie");
   const [locationGouvernerat, setLocationGouvernerat] = useState("");
   const [locationRegion, setLocationRegion] = useState("");
   const [locationZone, setLocationZone] = useState("");
+  const [selectedSeasideOptions, setSelectedSeasideOptions] = useState<HomeSeasideOptionKey[]>([]);
+  const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
 
   const today = startOfDay(new Date());
   const orderedModeTabs = useMemo(
@@ -162,6 +186,14 @@ export default function HomePage() {
     return value.startsWith('/') ? `${window.location.origin}${value}` : value;
   };
   const normalizeTypeToken = (value?: string | null) => String(value || "").trim().toLowerCase();
+  const normalizeSearchToken = (value?: string | null) =>
+    String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   const resetLocationFilters = () => {
     setLocation("");
     setLocationPays("");
@@ -180,10 +212,33 @@ export default function HomePage() {
     setShowCategoryDropdown(false);
     setShowLocationDropdown(false);
   };
+  const getHomeFilterOptionImage = (group: "seaside" | "comfort", key: string): string | null => {
+    const row = homeFilterOptionImageRows.find(
+      (item) =>
+        String(item.mode_bien || "").trim() === selectedMode
+        && String(item.filter_group || "").trim() === group
+        && normalizeTypeToken(item.option_key) === normalizeTypeToken(key)
+    );
+    return row?.image_url || null;
+  };
+  const selectedSeasideSummary = selectedSeasideOptions.length > 0
+    ? selectedSeasideOptions.map((key) => SEASIDE_OPTION_LABELS[key]).join(", ")
+    : "Bord de mer";
+  const selectedComfortSummary = selectedComfortOptions.length > 0
+    ? selectedComfortOptions.map((key) => COMFORT_OPTION_LABELS[key]).join(", ")
+    : "Confort";
+  const selectedSeasideImage = selectedSeasideOptions.length > 0
+    ? getHomeFilterOptionImage("seaside", selectedSeasideOptions[0])
+    : null;
+  const selectedComfortImage = selectedComfortOptions.length > 0
+    ? getHomeFilterOptionImage("comfort", selectedComfortOptions[0])
+    : null;
   const confirmCalendarSelection = () => {
     setShowLocationDropdown(false);
     setShowCalendar(false);
     setShowCategoryDropdown(true);
+    setShowSeasideDropdown(false);
+    setShowComfortDropdown(false);
   };
   const selectedLocationImages = useMemo(() => {
     const pickImage = (items: Zone[], field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
@@ -331,6 +386,23 @@ export default function HomePage() {
   }, [selectedMode]);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/home-filter-option-images?mode=${encodeURIComponent(selectedMode)}`);
+        if (!response.ok) throw new Error("home-filter-option-images");
+        const rows = await response.json();
+        if (!cancelled) setHomeFilterOptionImageRows(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setHomeFilterOptionImageRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMode]);
+
+  useEffect(() => {
     const allowed = new Set(availableTypeOptions.map((item) => item.label));
     setSelectedCategories((prev) => prev.filter((cat) => allowed.has(cat)));
     const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
@@ -381,6 +453,21 @@ export default function HomePage() {
 
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) => (prev.includes(cat) ? [] : [cat]));
+    setShowCategoryDropdown(false);
+    setShowSeasideDropdown(true);
+    setShowComfortDropdown(false);
+  };
+  const toggleSeasideOption = (key: HomeSeasideOptionKey) => {
+    setSelectedSeasideOptions((prev) => (prev.includes(key) ? [] : [key]));
+  };
+  const toggleComfortOption = (key: HomeComfortOptionKey) => {
+    setSelectedComfortOptions((prev) => {
+      if (key === "climatise") {
+        return prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
+      }
+      const withoutPool = prev.filter((item) => !POOL_OPTION_KEYS.includes(item));
+      return prev.includes(key) ? withoutPool : [...withoutPool, key];
+    });
   };
 
   const handleDateClick = (date: Date) => {
@@ -437,6 +524,8 @@ export default function HomePage() {
     if (location) params.set("location", location);
     if (selectedMainType) params.set("mainType", selectedMainType);
     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+    if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
+    if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
     if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
     if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
     
@@ -455,7 +544,29 @@ export default function HomePage() {
           const propertyMainType = getMainTypeFromCategory(String(property.category || ""));
           const matchMainType = !selectedMainType || propertyMainType === selectedMainType;
           const matchSubType = selectedCategories.length === 0 || selectedCategories.includes(property.category);
-          return matchLocation && matchMainType && matchSubType;
+          const textBlob = normalizeSearchToken(
+            [
+              property.title,
+              property.description,
+              property.location,
+              property.category,
+              ...(Array.isArray(property.amenities) ? property.amenities : []),
+            ].join(" ")
+          );
+          const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeSearchToken(token)));
+          const matchSeaside = selectedSeasideOptions.every((option) => {
+            if (option === "pied_dans_eau") return hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
+            if (option === "vue_sur_mer") return property.seasonalConfig?.vue === "mer" || hasAny("vue sur mer", "vue mer");
+            if (option === "pres_plage") return hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
+            return true;
+          });
+          const matchComfort = selectedComfortOptions.every((option) => {
+            if (option === "climatise") return hasAny("climatise", "climatisation");
+            if (option === "piscine_privee") return hasAny("piscine privee");
+            if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
+            return true;
+          });
+          return matchLocation && matchMainType && matchSubType && matchSeaside && matchComfort;
         })
       : modeProperties;
 
@@ -463,7 +574,7 @@ export default function HomePage() {
       if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
       return b.rating - a.rating;
     });
-  }, [hasSearched, location, selectedMainType, selectedCategories, properties, selectedMode]);
+  }, [hasSearched, location, selectedMainType, selectedCategories, selectedSeasideOptions, selectedComfortOptions, properties, selectedMode]);
 
   const dateRangeText = () => {
     if (checkIn && checkOut) {
@@ -480,10 +591,12 @@ export default function HomePage() {
     setShowLocationDropdown(false);
     setShowCalendar(false);
     setShowCategoryDropdown(false);
+    setShowSeasideDropdown(false);
+    setShowComfortDropdown(false);
   };
 
   useEffect(() => {
-    if (!showLocationDropdown && !showCalendar && !showCategoryDropdown) return;
+    if (!showLocationDropdown && !showCalendar && !showCategoryDropdown && !showSeasideDropdown && !showComfortDropdown) return;
     const handleOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null;
       const isInsideControls = Boolean(filterControlsRef.current && target && filterControlsRef.current.contains(target));
@@ -491,7 +604,11 @@ export default function HomePage() {
       const isInsideMobileLocation = Boolean(locationMobilePopupRef.current && target && locationMobilePopupRef.current.contains(target));
       const isInsideMobileCalendar = Boolean(calendarMobilePopupRef.current && target && calendarMobilePopupRef.current.contains(target));
       const isInsideMobileCategory = Boolean(categoryMobilePopupRef.current && target && categoryMobilePopupRef.current.contains(target));
-      if (!isInsideControls && !isInsideDesktopLocation && !isInsideMobileLocation && !isInsideMobileCalendar && !isInsideMobileCategory) {
+      const isInsideDesktopSeaside = Boolean(seasideDesktopPopupRef.current && target && seasideDesktopPopupRef.current.contains(target));
+      const isInsideDesktopComfort = Boolean(comfortDesktopPopupRef.current && target && comfortDesktopPopupRef.current.contains(target));
+      const isInsideMobileSeaside = Boolean(seasideMobilePopupRef.current && target && seasideMobilePopupRef.current.contains(target));
+      const isInsideMobileComfort = Boolean(comfortMobilePopupRef.current && target && comfortMobilePopupRef.current.contains(target));
+      if (!isInsideControls && !isInsideDesktopLocation && !isInsideMobileLocation && !isInsideMobileCalendar && !isInsideMobileCategory && !isInsideDesktopSeaside && !isInsideDesktopComfort && !isInsideMobileSeaside && !isInsideMobileComfort) {
         closeAllFilters();
       }
     };
@@ -501,7 +618,7 @@ export default function HomePage() {
       document.removeEventListener("mousedown", handleOutside);
       document.removeEventListener("touchstart", handleOutside);
     };
-  }, [showLocationDropdown, showCalendar, showCategoryDropdown]);
+  }, [showLocationDropdown, showCalendar, showCategoryDropdown, showSeasideDropdown, showComfortDropdown]);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -575,7 +692,7 @@ export default function HomePage() {
           <div className="bg-white rounded-3xl shadow-2xl pointer-events-auto overflow-visible">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
-              <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 
                 {/* Location Dropdown */}
                 <div className={`relative pointer-events-auto ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
@@ -923,6 +1040,107 @@ export default function HomePage() {
                 </div>
 
                 {/* Search Button */}
+                <div className={`relative pointer-events-auto ${showSeasideDropdown ? 'z-[120]' : 'z-10'}`}>
+                  <button
+                    type="button"
+                    className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showSeasideDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
+                    onClick={() => {
+                      setShowSeasideDropdown(!showSeasideDropdown);
+                      setShowLocationDropdown(false);
+                      setShowCalendar(false);
+                      setShowCategoryDropdown(false);
+                      setShowComfortDropdown(false);
+                    }}
+                  >
+                    {selectedSeasideImage && (
+                      <img src={resolveTypeImageUrl(selectedSeasideImage)} alt="Bord de mer" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                    )}
+                    {selectedSeasideImage && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                    <Waves className="text-emerald-600 shrink-0" size={20} />
+                    <div className={`relative z-10 flex-1 min-w-0 ${selectedSeasideImage ? "text-white" : ""}`}>
+                      <p className={`text-xs font-medium ${selectedSeasideImage ? "text-white/85" : "text-gray-500"}`}>Bord de mer</p>
+                      <p className={`text-sm font-semibold truncate ${selectedSeasideImage ? "text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]" : "text-gray-800"}`}>{selectedSeasideSummary}</p>
+                    </div>
+                  </button>
+                  {showSeasideDropdown && (
+                    <div ref={seasideDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
+                      {SEASIDE_OPTION_KEYS.map((key) => {
+                        const image = getHomeFilterOptionImage("seaside", key);
+                        const selected = selectedSeasideOptions.includes(key);
+                        return (
+                          <button
+                            key={`seaside-desktop-${key}`}
+                            type="button"
+                            onClick={() => toggleSeasideOption(key)}
+                            className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : "hover:bg-gray-50"}`}
+                          >
+                            <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={SEASIDE_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                            <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                            <span className="relative z-10 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{SEASIDE_OPTION_LABELS[key]}</span>
+                            {selected && <Check size={14} className="relative z-10 text-white" />}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSeasideDropdown(false);
+                          setShowComfortDropdown(true);
+                        }}
+                        className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                      >
+                        Confirmer bord de mer
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className={`relative pointer-events-auto ${showComfortDropdown ? 'z-[120]' : 'z-10'}`}>
+                  <button
+                    type="button"
+                    className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showComfortDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
+                    onClick={() => {
+                      setShowComfortDropdown(!showComfortDropdown);
+                      setShowLocationDropdown(false);
+                      setShowCalendar(false);
+                      setShowCategoryDropdown(false);
+                      setShowSeasideDropdown(false);
+                    }}
+                  >
+                    {selectedComfortImage && (
+                      <img src={resolveTypeImageUrl(selectedComfortImage)} alt="Confort" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                    )}
+                    {selectedComfortImage && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                    <Wind className="text-emerald-600 shrink-0" size={20} />
+                    <div className={`relative z-10 flex-1 min-w-0 ${selectedComfortImage ? "text-white" : ""}`}>
+                      <p className={`text-xs font-medium ${selectedComfortImage ? "text-white/85" : "text-gray-500"}`}>Confort</p>
+                      <p className={`text-sm font-semibold truncate ${selectedComfortImage ? "text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]" : "text-gray-800"}`}>{selectedComfortSummary}</p>
+                    </div>
+                  </button>
+                  {showComfortDropdown && (
+                    <div ref={comfortDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
+                      {COMFORT_OPTION_KEYS.map((key) => {
+                        const image = getHomeFilterOptionImage("comfort", key);
+                        const selected = selectedComfortOptions.includes(key);
+                        return (
+                          <button
+                            key={`comfort-desktop-${key}`}
+                            type="button"
+                            onClick={() => toggleComfortOption(key)}
+                            className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : "hover:bg-gray-50"}`}
+                          >
+                            <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={COMFORT_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                            <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                            <span className="relative z-10 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{COMFORT_OPTION_LABELS[key]}</span>
+                            {selected && <Check size={14} className="relative z-10 text-white" />}
+                          </button>
+                        );
+                      })}
+                      <button type="button" onClick={() => setShowComfortDropdown(false)} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
+                        Confirmer confort
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-stretch">
                   <button
                     onClick={handleSearch}
@@ -935,7 +1153,7 @@ export default function HomePage() {
               </div>
 
               {/* Selected Filters Display - moved under controls */}
-              {(location || selectedMainType || selectedCategories.length > 0 || (checkIn && checkOut)) && (
+              {(location || selectedMainType || selectedCategories.length > 0 || selectedSeasideOptions.length > 0 || selectedComfortOptions.length > 0 || (checkIn && checkOut)) && (
                 <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 border border-emerald-100">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold text-emerald-700 uppercase">Filtres actifs:</span>
@@ -962,6 +1180,24 @@ export default function HomePage() {
                         <Home size={12} />
                         {cat}
                         <button onClick={() => toggleCategory(cat)} className="ml-1 hover:text-emerald-200">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                    {selectedSeasideOptions.map((key) => (
+                      <span key={`chip-seaside-${key}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                        <Waves size={12} />
+                        {SEASIDE_OPTION_LABELS[key]}
+                        <button onClick={() => toggleSeasideOption(key)} className="ml-1 hover:text-emerald-200">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                    {selectedComfortOptions.map((key) => (
+                      <span key={`chip-comfort-${key}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                        <Wind size={12} />
+                        {COMFORT_OPTION_LABELS[key]}
+                        <button onClick={() => toggleComfortOption(key)} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
@@ -1219,6 +1455,67 @@ export default function HomePage() {
             </div>
           </div>
         )}
+        {showSeasideDropdown && (
+          <div className="fixed inset-0 z-[220] md:hidden">
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowSeasideDropdown(false)} />
+            <div ref={seasideMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
+              {SEASIDE_OPTION_KEYS.map((key) => {
+                const image = getHomeFilterOptionImage("seaside", key);
+                const selected = selectedSeasideOptions.includes(key);
+                return (
+                  <button
+                    key={`seaside-mobile-${key}`}
+                    type="button"
+                    onClick={() => toggleSeasideOption(key)}
+                    className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : ""}`}
+                  >
+                    <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={SEASIDE_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                    <span className="relative z-10 text-sm font-semibold text-white">{SEASIDE_OPTION_LABELS[key]}</span>
+                    {selected && <Check size={14} className="relative z-10 text-white" />}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSeasideDropdown(false);
+                  setShowComfortDropdown(true);
+                }}
+                className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+              >
+                Confirmer bord de mer
+              </button>
+            </div>
+          </div>
+        )}
+        {showComfortDropdown && (
+          <div className="fixed inset-0 z-[220] md:hidden">
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowComfortDropdown(false)} />
+            <div ref={comfortMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
+              {COMFORT_OPTION_KEYS.map((key) => {
+                const image = getHomeFilterOptionImage("comfort", key);
+                const selected = selectedComfortOptions.includes(key);
+                return (
+                  <button
+                    key={`comfort-mobile-${key}`}
+                    type="button"
+                    onClick={() => toggleComfortOption(key)}
+                    className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : ""}`}
+                  >
+                    <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={COMFORT_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                    <span className="relative z-10 text-sm font-semibold text-white">{COMFORT_OPTION_LABELS[key]}</span>
+                    {selected && <Check size={14} className="relative z-10 text-white" />}
+                  </button>
+                );
+              })}
+              <button type="button" onClick={() => setShowComfortDropdown(false)} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
+                Confirmer confort
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Search Results / Featured Properties */}
@@ -1252,6 +1549,8 @@ export default function HomePage() {
                   if (location) params.set("location", location);
                   if (selectedMainType) params.set("mainType", selectedMainType);
                   if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+                  if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
+                  if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
                   if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
                   if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
                   return params.toString();
@@ -1282,6 +1581,8 @@ export default function HomePage() {
                 onClick={() => {
                   setLocation("");
                   setSelectedCategories([]);
+                  setSelectedSeasideOptions([]);
+                  setSelectedComfortOptions([]);
                   setCheckIn(null);
                   setCheckOut(null);
                   setHasSearched(false);

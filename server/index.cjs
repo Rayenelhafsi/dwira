@@ -3441,6 +3441,21 @@ async function ensureTypeFilterImagesSchema() {
   `);
 }
 
+async function ensureHomeFilterOptionImagesSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS home_filter_option_images (
+      id VARCHAR(220) NOT NULL PRIMARY KEY,
+      mode_bien ENUM('vente', 'location_annuelle', 'location_saisonniere') NOT NULL,
+      filter_group VARCHAR(80) NOT NULL,
+      option_key VARCHAR(120) NOT NULL,
+      image_url VARCHAR(1000) NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      UNIQUE KEY uq_home_filter_option_scope (mode_bien, filter_group, option_key)
+    )
+  `);
+}
+
 async function listPaidServicesCatalogue() {
   await ensurePaidServicesSchema();
   const [rows] = await pool.query(
@@ -4765,6 +4780,7 @@ pool.getConnection()
   .then(() => ensureBiensWorkflowSchema())
   .then(() => ensurePaidServicesSchema())
   .then(() => ensureTypeFilterImagesSchema())
+  .then(() => ensureHomeFilterOptionImagesSchema())
   .then(() => {
     console.log('✅ Auth schema and bien workflow ready');
   })
@@ -4878,6 +4894,109 @@ app.put('/api/type-filter-images', async (req, res) => {
   } catch (error) {
     console.error('Error upserting type filter image:', error);
     res.status(500).json({ error: "Impossible d'enregistrer l'image du type de bien" });
+  }
+});
+
+app.delete('/api/type-filter-images/:id', async (req, res) => {
+  try {
+    await ensureTypeFilterImagesSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id image type requis' });
+    const [result] = await pool.query('DELETE FROM type_filter_images WHERE id = ?', [id]);
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Image type introuvable' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('Error deleting type filter image:', error);
+    res.status(500).json({ error: "Impossible de supprimer l'image du type de bien" });
+  }
+});
+
+app.get('/api/home-filter-option-images', async (req, res) => {
+  try {
+    await ensureHomeFilterOptionImagesSchema();
+    const mode = String(req.query?.mode || '').trim();
+    const allowedModes = new Set(['vente', 'location_annuelle', 'location_saisonniere']);
+    const params = [];
+    let whereClause = '';
+    if (mode) {
+      if (!allowedModes.has(mode)) {
+        return res.status(400).json({ error: 'mode invalide' });
+      }
+      whereClause = 'WHERE mode_bien = ?';
+      params.push(mode);
+    }
+    const [rows] = await pool.query(
+      `SELECT id, mode_bien, filter_group, option_key, image_url
+       FROM home_filter_option_images
+       ${whereClause}
+       ORDER BY mode_bien ASC, filter_group ASC, option_key ASC`,
+      params
+    );
+    res.json(rows || []);
+  } catch (error) {
+    console.error('Error fetching home filter option images:', error);
+    res.status(500).json({ error: "Impossible de charger les images des options de filtres" });
+  }
+});
+
+app.put('/api/home-filter-option-images', async (req, res) => {
+  try {
+    await ensureHomeFilterOptionImagesSchema();
+    const mode = String(req.body?.mode_bien || req.body?.mode || '').trim();
+    const filterGroup = String(req.body?.filter_group || '').trim().toLowerCase();
+    const optionKey = String(req.body?.option_key || '').trim().toLowerCase();
+    const imageUrl = String(req.body?.image_url || '').trim();
+    const allowedModes = new Set(['vente', 'location_annuelle', 'location_saisonniere']);
+    const allowedFilterGroups = new Set(['seaside', 'comfort']);
+    if (!allowedModes.has(mode)) {
+      return res.status(400).json({ error: 'mode invalide' });
+    }
+    if (!allowedFilterGroups.has(filterGroup)) {
+      return res.status(400).json({ error: 'filter_group invalide' });
+    }
+    if (!optionKey) {
+      return res.status(400).json({ error: 'option_key requis' });
+    }
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'image_url requis' });
+    }
+    const id = `${mode}__${filterGroup}__${optionKey}`;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO home_filter_option_images (id, mode_bien, filter_group, option_key, image_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE image_url = VALUES(image_url), updated_at = VALUES(updated_at)`,
+      [id, mode, filterGroup, optionKey, imageUrl, now, now]
+    );
+    const [rows] = await pool.query(
+      `SELECT id, mode_bien, filter_group, option_key, image_url
+       FROM home_filter_option_images
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    res.json(rows?.[0] || { id, mode_bien: mode, filter_group: filterGroup, option_key: optionKey, image_url: imageUrl });
+  } catch (error) {
+    console.error('Error upserting home filter option image:', error);
+    res.status(500).json({ error: "Impossible d'enregistrer l'image de cette option de filtre" });
+  }
+});
+
+app.delete('/api/home-filter-option-images/:id', async (req, res) => {
+  try {
+    await ensureHomeFilterOptionImagesSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id image option requis' });
+    const [result] = await pool.query('DELETE FROM home_filter_option_images WHERE id = ?', [id]);
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Image option introuvable' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('Error deleting home filter option image:', error);
+    res.status(500).json({ error: "Impossible de supprimer l'image de cette option de filtre" });
   }
 });
 

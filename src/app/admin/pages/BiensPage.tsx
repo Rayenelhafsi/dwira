@@ -721,6 +721,13 @@ export default function BiensPage() {
   const [typeImagePreview, setTypeImagePreview] = useState<string>('');
   const [typeImageRows, setTypeImageRows] = useState<Array<{ id: string; mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [isSavingTypeImage, setIsSavingTypeImage] = useState(false);
+  const [homeFilterImageMode, setHomeFilterImageMode] = useState<BienMode>('location_saisonniere');
+  const [homeFilterImageGroup, setHomeFilterImageGroup] = useState<'seaside' | 'comfort'>('seaside');
+  const [homeFilterImageOption, setHomeFilterImageOption] = useState<string>('pied_dans_eau');
+  const [homeFilterImageFile, setHomeFilterImageFile] = useState<File | null>(null);
+  const [homeFilterImagePreview, setHomeFilterImagePreview] = useState<string>('');
+  const [homeFilterImageRows, setHomeFilterImageRows] = useState<Array<{ id: string; mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
+  const [isSavingHomeFilterImage, setIsSavingHomeFilterImage] = useState(false);
 
   useEffect(() => {
     setPriorityDraft(modePriorities);
@@ -760,12 +767,30 @@ export default function BiensPage() {
     autre: ['Autre'],
   };
   const currentSubTypeOptions = subTypeByMain[typeImageMainType] || ['Autre'];
+  const homeFilterOptionLabels: Record<string, string> = {
+    pied_dans_eau: "Pied dans l'eau",
+    vue_sur_mer: 'Vue sur mer',
+    pres_plage: 'Pres de la plage',
+    climatise: 'Climatise',
+    piscine_privee: 'Piscine privee',
+    piscine_partagee: 'Piscine partagee',
+  };
+  const homeFilterOptionsByGroup: Record<'seaside' | 'comfort', string[]> = {
+    seaside: ['pied_dans_eau', 'vue_sur_mer', 'pres_plage'],
+    comfort: ['climatise', 'piscine_privee', 'piscine_partagee'],
+  };
+  const currentHomeFilterOptions = homeFilterOptionsByGroup[homeFilterImageGroup];
 
   useEffect(() => {
     if (!currentSubTypeOptions.includes(typeImageSubType)) {
       setTypeImageSubType(currentSubTypeOptions[0] || 'Autre');
     }
   }, [typeImageMainType]);
+  useEffect(() => {
+    if (!currentHomeFilterOptions.includes(homeFilterImageOption)) {
+      setHomeFilterImageOption(currentHomeFilterOptions[0] || 'pied_dans_eau');
+    }
+  }, [homeFilterImageGroup]);
 
   useEffect(() => {
     let cancelled = false;
@@ -783,6 +808,22 @@ export default function BiensPage() {
       cancelled = true;
     };
   }, [typeImageMode]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/home-filter-option-images?mode=${encodeURIComponent(homeFilterImageMode)}`);
+        if (!response.ok) throw new Error('home-filter-option-images');
+        const rows = await response.json();
+        if (!cancelled) setHomeFilterImageRows(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setHomeFilterImageRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [homeFilterImageMode]);
 
   const handleTypeImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
@@ -793,6 +834,16 @@ export default function BiensPage() {
     }
     const url = URL.createObjectURL(file);
     setTypeImagePreview(url);
+  };
+  const handleHomeFilterImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setHomeFilterImageFile(file);
+    if (!file) {
+      setHomeFilterImagePreview('');
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setHomeFilterImagePreview(url);
   };
 
   const handleSaveTypeFilterImage = async () => {
@@ -841,6 +892,109 @@ export default function BiensPage() {
       toast.error("Erreur enregistrement image type");
     } finally {
       setIsSavingTypeImage(false);
+    }
+  };
+  const handleDeleteTypeFilterImage = async (id: string) => {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) return;
+    if (!window.confirm("Supprimer cette image de type ?")) return;
+    setIsSavingTypeImage(true);
+    try {
+      const response = await fetch(`${API_URL}/type-filter-images/${encodeURIComponent(normalizedId)}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('delete-type-image');
+      const refreshResponse = await fetch(`${API_URL}/type-filter-images?mode=${encodeURIComponent(typeImageMode)}`);
+      if (refreshResponse.ok) {
+        const rows = await refreshResponse.json();
+        setTypeImageRows(Array.isArray(rows) ? rows : []);
+      } else {
+        setTypeImageRows((prev) => prev.filter((row) => row.id !== normalizedId));
+      }
+      toast.success('Image type supprimee');
+    } catch {
+      toast.error("Erreur suppression image type");
+    } finally {
+      setIsSavingTypeImage(false);
+    }
+  };
+  const handleSaveHomeFilterOptionImage = async () => {
+    if (!homeFilterImageFile) {
+      toast.error("Choisissez une image");
+      return;
+    }
+    setIsSavingHomeFilterImage(true);
+    try {
+      const uploadPayload = new FormData();
+      uploadPayload.append('image', homeFilterImageFile);
+      uploadPayload.append('upload_scope', 'home_filter_option');
+      uploadPayload.append('mode_bien', homeFilterImageMode);
+      uploadPayload.append('filter_group', homeFilterImageGroup);
+      uploadPayload.append('option_key', homeFilterImageOption);
+      const uploadResponse = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadPayload });
+      if (!uploadResponse.ok) throw new Error('upload-home-filter-image');
+      const uploadResult = await uploadResponse.json();
+      const imageUrl = String(uploadResult?.url || '').trim();
+      if (!imageUrl) throw new Error('home-filter-image-url');
+
+      const saveResponse = await fetch(`${API_URL}/home-filter-option-images`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode_bien: homeFilterImageMode,
+          filter_group: homeFilterImageGroup,
+          option_key: homeFilterImageOption,
+          image_url: imageUrl,
+        }),
+      });
+      if (!saveResponse.ok) {
+        let serverMessage = `HTTP ${saveResponse.status}`;
+        try {
+          const payload = await saveResponse.json();
+          serverMessage = String(payload?.error || payload?.message || serverMessage);
+        } catch {}
+        if (saveResponse.status === 404) {
+          throw new Error("Endpoint /api/home-filter-option-images introuvable (redemarrer le backend)");
+        }
+        throw new Error(serverMessage);
+      }
+      const refreshResponse = await fetch(`${API_URL}/home-filter-option-images?mode=${encodeURIComponent(homeFilterImageMode)}`);
+      if (refreshResponse.ok) {
+        const rows = await refreshResponse.json();
+        setHomeFilterImageRows(Array.isArray(rows) ? rows : []);
+      }
+      setHomeFilterImageFile(null);
+      setHomeFilterImagePreview('');
+      toast.success('Image filtre accueil enregistree');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur enregistrement image filtre accueil";
+      toast.error(message);
+    } finally {
+      setIsSavingHomeFilterImage(false);
+    }
+  };
+  const handleDeleteHomeFilterOptionImage = async (id: string) => {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) return;
+    if (!window.confirm("Supprimer cette image de filtre accueil ?")) return;
+    setIsSavingHomeFilterImage(true);
+    try {
+      const response = await fetch(`${API_URL}/home-filter-option-images/${encodeURIComponent(normalizedId)}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('delete-home-filter-image');
+      const refreshResponse = await fetch(`${API_URL}/home-filter-option-images?mode=${encodeURIComponent(homeFilterImageMode)}`);
+      if (refreshResponse.ok) {
+        const rows = await refreshResponse.json();
+        setHomeFilterImageRows(Array.isArray(rows) ? rows : []);
+      } else {
+        setHomeFilterImageRows((prev) => prev.filter((row) => row.id !== normalizedId));
+      }
+      toast.success('Image filtre accueil supprimee');
+    } catch {
+      toast.error("Erreur suppression image filtre accueil");
+    } finally {
+      setIsSavingHomeFilterImage(false);
     }
   };
 
@@ -1202,15 +1356,101 @@ export default function BiensPage() {
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Images enregistrees (mode selectionne)</p>
           {typeImageRows.length === 0 && <p className="text-sm text-gray-500">Aucune image enregistree.</p>}
-          {typeImageRows.length > 0 && (
+              {typeImageRows.length > 0 && (
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {typeImageRows.map((row) => (
+                    <div key={row.id} className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white p-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                      <img src={resolveMediaUrl(row.image_url)} alt={row.sub_type || row.main_type} className="h-14 w-20 rounded object-cover" />
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">{row.main_type}</p>
+                        <p className="text-xs text-gray-500">{row.sub_type ? `Sous-type: ${row.sub_type}` : 'Type principal'}</p>
+                      </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteTypeFilterImage(row.id)}
+                        disabled={isSavingTypeImage}
+                        className="inline-flex items-center justify-center rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+      </div>
+      <div className="bg-white p-4 sm:p-5 rounded-lg shadow-sm border border-gray-100 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">Images filtres 4 et 5 (Accueil)</h2>
+          <p className="text-sm text-gray-500">
+            Uploader ici les images des options pour les filtres "Bord de mer" et "Confort".
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Mode</span>
+            <select value={homeFilterImageMode} onChange={(e) => setHomeFilterImageMode(e.target.value as BienMode)} className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="location_saisonniere">Location saisonniere</option>
+              <option value="vente">Vente</option>
+              <option value="location_annuelle">Location annuelle</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Filtre</span>
+            <select value={homeFilterImageGroup} onChange={(e) => setHomeFilterImageGroup(e.target.value as 'seaside' | 'comfort')} className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="seaside">4. Bord de mer</option>
+              <option value="comfort">5. Confort</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Option</span>
+            <select value={homeFilterImageOption} onChange={(e) => setHomeFilterImageOption(e.target.value)} className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+              {currentHomeFilterOptions.map((key) => (
+                <option key={key} value={key}>{homeFilterOptionLabels[key] || key}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+          <input type="file" accept="image/*,.heic,.heif" onChange={handleHomeFilterImageFileChange} className="block w-full text-sm" />
+          <button
+            type="button"
+            onClick={() => void handleSaveHomeFilterOptionImage()}
+            disabled={isSavingHomeFilterImage || !homeFilterImageFile}
+            className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSavingHomeFilterImage ? 'Enregistrement...' : 'Enregistrer image filtre'}
+          </button>
+        </div>
+        {homeFilterImagePreview && (
+          <div className="rounded-lg border border-gray-200 p-2">
+            <img src={homeFilterImagePreview} alt="Apercu filtre accueil" className="h-28 w-full rounded-md object-cover md:w-72" />
+          </div>
+        )}
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Images enregistrees (mode selectionne)</p>
+          {homeFilterImageRows.length === 0 && <p className="text-sm text-gray-500">Aucune image enregistree.</p>}
+          {homeFilterImageRows.length > 0 && (
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {typeImageRows.map((row) => (
-                <div key={row.id} className="flex items-center gap-3 rounded-md border border-gray-200 bg-white p-2">
-                  <img src={resolveMediaUrl(row.image_url)} alt={row.sub_type || row.main_type} className="h-14 w-20 rounded object-cover" />
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">{row.main_type}</p>
-                    <p className="text-xs text-gray-500">{row.sub_type ? `Sous-type: ${row.sub_type}` : 'Type principal'}</p>
+              {homeFilterImageRows.map((row) => (
+                <div key={row.id} className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white p-2">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <img src={resolveMediaUrl(row.image_url)} alt={homeFilterOptionLabels[row.option_key] || row.option_key} className="h-14 w-20 rounded object-cover" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{homeFilterOptionLabels[row.option_key] || row.option_key}</p>
+                      <p className="text-xs text-gray-500">{row.filter_group === 'seaside' ? 'Filtre 4: Bord de mer' : 'Filtre 5: Confort'}</p>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteHomeFilterOptionImage(row.id)}
+                    disabled={isSavingHomeFilterImage}
+                    className="inline-flex items-center justify-center rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Supprimer
+                  </button>
                 </div>
               ))}
             </div>
