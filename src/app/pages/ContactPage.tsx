@@ -1,12 +1,31 @@
-import { Mail, Phone, MapPin, Send } from "lucide-react";
+import { Mail, Phone, MapPin, Send, ChevronLeft } from "lucide-react";
+import { useNavigate } from "react-router";
 
 export default function ContactPage() {
+  const navigate = useNavigate();
   const googleMapsLink = "https://maps.app.goo.gl/1ajusb4v6eQGp6WJ9";
   const googleEmbedUrl = "https://www.google.com/maps/embed?pb=!1m17!1m12!1m3!1d413.8206848863775!2d11.090416429020472!3d36.84740522692526!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m2!1m1!2zMzbCsDUwJzUwLjkiTiAxMcKwMDUnMjYuNSJF!5e1!3m2!1sfr!2stn!4v1773706940714!5m2!1sfr!2stn";
+  const handleGoBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/");
+  };
 
   return (
     <div className="bg-white pb-20 pt-24">
       <div className="container mx-auto px-4 md:px-6">
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={handleGoBack}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <ChevronLeft size={16} />
+            Retour
+          </button>
+        </div>
         <div className="mb-16 text-center">
           <h1 className="mb-4 text-4xl font-bold text-emerald-900">Contactez-nous</h1>
           <p className="mx-auto max-w-2xl text-gray-600">

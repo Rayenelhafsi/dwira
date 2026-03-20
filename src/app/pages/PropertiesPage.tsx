@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
@@ -128,6 +128,7 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
 
 export default function PropertiesPage() {
   const { properties, biens, zones, modePriorities, loading } = useProperties();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isFilterOpen, setIsFilterOpen] = useState(true);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
@@ -1088,6 +1089,13 @@ export default function PropertiesPage() {
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const handleGoBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/");
+  };
   const scrollToFilters = () => {
     if (filtersAnchorRef.current) {
       filtersAnchorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1146,6 +1154,16 @@ export default function PropertiesPage() {
         </div>
       </div>
       <div className="container mx-auto px-4 md:px-6">
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={handleGoBack}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <ChevronDown size={16} className="rotate-90" />
+            Retour
+          </button>
+        </div>
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="mb-2 text-3xl font-bold text-gray-900">Nos Biens Immobiliers</h1>

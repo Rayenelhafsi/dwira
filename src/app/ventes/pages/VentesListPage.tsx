@@ -1,7 +1,7 @@
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useProperties } from '../../context/PropertiesContext';
 import { Bien } from '../../admin/types';
-import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle } from 'lucide-react';
+import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle, ChevronLeft } from 'lucide-react';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from '../../utils/deepLinks';
@@ -71,7 +71,15 @@ function getPublicPrice(bien: Bien) {
 }
 
 export default function VentesListPage() {
+  const navigate = useNavigate();
   const { biens, zones, proprietaires, isLoading } = useProperties();
+  const handleGoBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate('/');
+  };
   const venteBiens = biens
     .filter((bien) => bien.mode === 'vente' && bien.visible_sur_site !== false)
     .sort((a, b) => Number(b.date_ajout || 0) - Number(a.date_ajout || 0));
@@ -88,6 +96,14 @@ export default function VentesListPage() {
     <div className="min-h-screen">
       <div className="bg-gradient-to-r from-emerald-600 to-emerald-800 text-white py-16 px-4">
         <div className="max-w-7xl mx-auto">
+          <button
+            type="button"
+            onClick={handleGoBack}
+            className="mb-6 inline-flex items-center gap-2 rounded-xl border border-white/40 bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/20"
+          >
+            <ChevronLeft size={16} />
+            Retour
+          </button>
           <h1 className="text-4xl md:text-5xl font-bold mb-4">Biens en Vente</h1>
           <p className="text-xl text-emerald-100">Decouvrez notre selection d'immeubles et de lotissements</p>
         </div>
