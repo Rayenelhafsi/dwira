@@ -713,6 +713,14 @@ export default function BiensPage() {
   const [saveStatusByBienId, setSaveStatusByBienId] = useState<Record<string, { state: 'saving' | 'saved' | 'error'; at: number }>>({});
   const [priorityDraft, setPriorityDraft] = useState<Record<BienMode, number>>(modePriorities);
   const [isSavingPriorities, setIsSavingPriorities] = useState(false);
+  const [typeImageMode, setTypeImageMode] = useState<BienMode>('location_saisonniere');
+  const [typeImageScope, setTypeImageScope] = useState<'main' | 'sub'>('main');
+  const [typeImageMainType, setTypeImageMainType] = useState<'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'autre'>('appartement');
+  const [typeImageSubType, setTypeImageSubType] = useState<string>('S+1');
+  const [typeImageFile, setTypeImageFile] = useState<File | null>(null);
+  const [typeImagePreview, setTypeImagePreview] = useState<string>('');
+  const [typeImageRows, setTypeImageRows] = useState<Array<{ id: string; mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
+  const [isSavingTypeImage, setIsSavingTypeImage] = useState(false);
 
   useEffect(() => {
     setPriorityDraft(modePriorities);
@@ -737,6 +745,104 @@ export default function BiensPage() {
     { value: 'location_annuelle', label: 'Location annuelle' },
     { value: 'location_saisonniere', label: 'Location saisonniere' },
   ];
+  const mainTypeOptions = [
+    { value: 'appartement', label: 'Appartement' },
+    { value: 'villa_maison', label: 'Villa / Maison' },
+    { value: 'studio', label: 'Studio' },
+    { value: 'immeuble', label: 'Immeuble' },
+    { value: 'autre', label: 'Autre' },
+  ] as const;
+  const subTypeByMain: Record<string, string[]> = {
+    appartement: ['S+1', 'S+2', 'S+3', 'S+4'],
+    villa_maison: ['Villa'],
+    studio: ['Studio'],
+    immeuble: ['Immeuble'],
+    autre: ['Autre'],
+  };
+  const currentSubTypeOptions = subTypeByMain[typeImageMainType] || ['Autre'];
+
+  useEffect(() => {
+    if (!currentSubTypeOptions.includes(typeImageSubType)) {
+      setTypeImageSubType(currentSubTypeOptions[0] || 'Autre');
+    }
+  }, [typeImageMainType]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/type-filter-images?mode=${encodeURIComponent(typeImageMode)}`);
+        if (!response.ok) throw new Error('type-filter-images');
+        const rows = await response.json();
+        if (!cancelled) setTypeImageRows(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setTypeImageRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [typeImageMode]);
+
+  const handleTypeImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setTypeImageFile(file);
+    if (!file) {
+      setTypeImagePreview('');
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setTypeImagePreview(url);
+  };
+
+  const handleSaveTypeFilterImage = async () => {
+    if (!typeImageFile) {
+      toast.error("Choisissez une image");
+      return;
+    }
+    setIsSavingTypeImage(true);
+    try {
+      const uploadPayload = new FormData();
+      uploadPayload.append('image', typeImageFile);
+      uploadPayload.append('upload_scope', 'type_filter');
+      uploadPayload.append('mode_bien', typeImageMode);
+      uploadPayload.append('main_type', typeImageMainType);
+      uploadPayload.append('sub_type', typeImageScope === 'sub' ? typeImageSubType : '');
+      const uploadResponse = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        body: uploadPayload,
+      });
+      if (!uploadResponse.ok) throw new Error('upload');
+      const uploadResult = await uploadResponse.json();
+      const imageUrl = String(uploadResult?.url || '').trim();
+      if (!imageUrl) throw new Error('image-url');
+
+      const saveResponse = await fetch(`${API_URL}/type-filter-images`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode_bien: typeImageMode,
+          main_type: typeImageMainType,
+          sub_type: typeImageScope === 'sub' ? typeImageSubType : null,
+          image_url: imageUrl,
+        }),
+      });
+      if (!saveResponse.ok) throw new Error('save');
+
+      const refreshResponse = await fetch(`${API_URL}/type-filter-images?mode=${encodeURIComponent(typeImageMode)}`);
+      if (refreshResponse.ok) {
+        const rows = await refreshResponse.json();
+        setTypeImageRows(Array.isArray(rows) ? rows : []);
+      }
+      toast.success("Image type enregistree");
+      setTypeImageFile(null);
+      setTypeImagePreview('');
+    } catch {
+      toast.error("Erreur enregistrement image type");
+    } finally {
+      setIsSavingTypeImage(false);
+    }
+  };
 
   const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
   const buildDuplicateSeed = (source: Bien): Bien => {
@@ -1043,6 +1149,73 @@ export default function BiensPage() {
             Les trois modes doivent avoir les priorites 1, 2 et 3, sans doublon.
           </p>
         )}
+      </div>
+      <div className="bg-white p-4 sm:p-5 rounded-lg shadow-sm border border-gray-100 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">Images filtres types (Accueil)</h2>
+          <p className="text-sm text-gray-500">Uploader ici les images des types principaux et sous-types pour le filtre Type de bien.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Mode</span>
+            <select value={typeImageMode} onChange={(e) => setTypeImageMode(e.target.value as BienMode)} className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="location_saisonniere">Location saisonniere</option>
+              <option value="vente">Vente</option>
+              <option value="location_annuelle">Location annuelle</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Niveau</span>
+            <select value={typeImageScope} onChange={(e) => setTypeImageScope(e.target.value as 'main' | 'sub')} className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <option value="main">Type principal</option>
+              <option value="sub">Sous-type</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Type principal</span>
+            <select value={typeImageMainType} onChange={(e) => setTypeImageMainType(e.target.value as any)} className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+              {mainTypeOptions.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Sous-type</span>
+            <select value={typeImageSubType} onChange={(e) => setTypeImageSubType(e.target.value)} disabled={typeImageScope !== 'sub'} className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400">
+              {currentSubTypeOptions.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+          <input type="file" accept="image/*,.heic,.heif" onChange={handleTypeImageFileChange} className="block w-full text-sm" />
+          <button type="button" onClick={() => void handleSaveTypeFilterImage()} disabled={isSavingTypeImage || !typeImageFile} className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
+            {isSavingTypeImage ? 'Enregistrement...' : 'Enregistrer image type'}
+          </button>
+        </div>
+        {typeImagePreview && (
+          <div className="rounded-lg border border-gray-200 p-2">
+            <img src={typeImagePreview} alt="Apercu type" className="h-28 w-full rounded-md object-cover md:w-72" />
+          </div>
+        )}
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Images enregistrees (mode selectionne)</p>
+          {typeImageRows.length === 0 && <p className="text-sm text-gray-500">Aucune image enregistree.</p>}
+          {typeImageRows.length > 0 && (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {typeImageRows.map((row) => (
+                <div key={row.id} className="flex items-center gap-3 rounded-md border border-gray-200 bg-white p-2">
+                  <img src={resolveMediaUrl(row.image_url)} alt={row.sub_type || row.main_type} className="h-14 w-20 rounded object-cover" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{row.main_type}</p>
+                    <p className="text-xs text-gray-500">{row.sub_type ? `Sous-type: ${row.sub_type}` : 'Type principal'}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}

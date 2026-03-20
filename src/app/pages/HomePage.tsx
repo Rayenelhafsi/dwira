@@ -24,15 +24,33 @@ import {
 import { fr } from "date-fns/locale";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
+type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
 const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
   { value: "location_saisonniere", label: "Location saisonniere" },
   { value: "vente", label: "Vente" },
   { value: "location_annuelle", label: "Location annuelle" },
 ];
 
-const CATEGORIES_LIST = ["S+1", "S+2", "S+3", "S+4", "Villa", "Studio"];
 const ZONE_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23d1fae5'/%3E%3Cstop offset='100%25' stop-color='%23a7f3d0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='360' fill='url(%23g)'/%3E%3Cpath d='M0 260h640v100H0z' fill='%23059669' fill-opacity='0.16'/%3E%3C/svg%3E";
+const TYPE_FALLBACK_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Cdefs%3E%3ClinearGradient id='tg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23ecfeff'/%3E%3Cstop offset='100%25' stop-color='%23cffafe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='360' fill='url(%23tg)'/%3E%3Cpath d='M0 270h640v90H0z' fill='%230899b2' fill-opacity='0.16'/%3E%3C/svg%3E";
+const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
+  appartement: "Appartement",
+  villa_maison: "Villa / Maison",
+  studio: "Studio",
+  immeuble: "Immeuble",
+  autre: "Autre",
+};
+
+const getMainTypeFromCategory = (category: string): PropertyMainType => {
+  const normalized = String(category || "").trim().toLowerCase();
+  if (normalized.startsWith("s+")) return "appartement";
+  if (normalized.includes("villa")) return "villa_maison";
+  if (normalized.includes("studio")) return "studio";
+  if (normalized.includes("immeuble")) return "immeuble";
+  return "autre";
+};
 
 export default function HomePage() {
   // Use shared context for properties
@@ -45,16 +63,21 @@ export default function HomePage() {
   const locationDesktopPopupRef = useRef<HTMLDivElement>(null);
   const locationMobilePopupRef = useRef<HTMLDivElement>(null);
   const calendarMobilePopupRef = useRef<HTMLDivElement>(null);
+  const categoryMobilePopupRef = useRef<HTMLDivElement>(null);
   
   // Filter states
   const [location, setLocation] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedMainType, setSelectedMainType] = useState<PropertyMainType | "">("");
   const [checkIn, setCheckIn] = useState<Date | null>(null);
   const [checkOut, setCheckOut] = useState<Date | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [categoryStep, setCategoryStep] = useState<"main" | "sub">("main");
+  const [categoryStepDirection, setCategoryStepDirection] = useState<1 | -1>(1);
+  const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
   const [locationPays, setLocationPays] = useState("Tunisie");
@@ -132,6 +155,13 @@ export default function HomePage() {
     if (/^https?:\/\//i.test(value)) return value;
     return value.startsWith('/') ? `${window.location.origin}${value}` : value;
   };
+  const resolveTypeImageUrl = (url?: string | null) => {
+    const value = String(url || '').trim();
+    if (!value) return TYPE_FALLBACK_IMAGE;
+    if (/^https?:\/\//i.test(value)) return value;
+    return value.startsWith('/') ? `${window.location.origin}${value}` : value;
+  };
+  const normalizeTypeToken = (value?: string | null) => String(value || "").trim().toLowerCase();
   const resetLocationFilters = () => {
     setLocation("");
     setLocationPays("");
@@ -146,7 +176,14 @@ export default function HomePage() {
       || String(locationGouvernerat || '').trim()
       || String(locationPays || '').trim();
     setLocation(selectedValue);
+    setShowCalendar(true);
+    setShowCategoryDropdown(false);
     setShowLocationDropdown(false);
+  };
+  const confirmCalendarSelection = () => {
+    setShowLocationDropdown(false);
+    setShowCalendar(false);
+    setShowCategoryDropdown(true);
   };
   const selectedLocationImages = useMemo(() => {
     const pickImage = (items: Zone[], field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
@@ -205,12 +242,117 @@ export default function HomePage() {
       ),
     };
   }, [normalizedZones, locationPays, locationGouvernerat, locationRegion, locationZone]);
+  const availableTypeOptions = useMemo(() => {
+    const modeProperties = properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode);
+    const byCategory = new Map<string, { label: string; imageUrl: string }>();
+    for (const property of modeProperties) {
+      const category = String(property.category || '').trim();
+      if (!category) continue;
+      if (!byCategory.has(category)) {
+        const firstImage = Array.isArray(property.images) ? String(property.images[0] || '').trim() : '';
+        const imageFromAdmin = typeFilterImageRows.find((row) =>
+          String(row.mode_bien || '').trim() === selectedMode
+          && normalizeTypeToken(row.sub_type) === normalizeTypeToken(category)
+        )?.image_url || '';
+        byCategory.set(category, {
+          label: category,
+          imageUrl: imageFromAdmin || firstImage || TYPE_FALLBACK_IMAGE,
+        });
+      }
+    }
+    return Array.from(byCategory.values()).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+  }, [properties, selectedMode, typeFilterImageRows]);
+  const groupedTypeOptions = useMemo(() => {
+    const groups = new Map<PropertyMainType, { mainType: PropertyMainType; label: string; imageUrl: string; subTypes: Array<{ label: string; imageUrl: string }> }>();
+    for (const option of availableTypeOptions) {
+      const mainType = getMainTypeFromCategory(option.label);
+      const existing = groups.get(mainType);
+      const mainImageFromAdmin = typeFilterImageRows.find((row) =>
+        String(row.mode_bien || '').trim() === selectedMode
+        && normalizeTypeToken(row.main_type) === normalizeTypeToken(mainType)
+        && !String(row.sub_type || '').trim()
+      )?.image_url || '';
+      if (!existing) {
+        groups.set(mainType, {
+          mainType,
+          label: MAIN_TYPE_LABELS[mainType],
+          imageUrl: mainImageFromAdmin || option.imageUrl,
+          subTypes: [{ label: option.label, imageUrl: option.imageUrl }],
+        });
+        continue;
+      }
+      existing.subTypes.push({ label: option.label, imageUrl: option.imageUrl });
+      if (!existing.imageUrl && (mainImageFromAdmin || option.imageUrl)) existing.imageUrl = mainImageFromAdmin || option.imageUrl;
+    }
+    return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
+  const secondaryTypeOptions = useMemo(() => {
+    if (!selectedMainType) return availableTypeOptions;
+    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === selectedMainType);
+    return selectedGroup?.subTypes || [];
+  }, [availableTypeOptions, groupedTypeOptions, selectedMainType]);
+  const selectedMainTypeLabel = selectedMainType ? MAIN_TYPE_LABELS[selectedMainType] : "";
+  const selectedTypeSummaryText = selectedMainTypeLabel
+    ? (selectedCategories.length > 0 ? `${selectedMainTypeLabel} • ${selectedCategories.join(", ")}` : selectedMainTypeLabel)
+    : (selectedCategories.length > 0 ? selectedCategories.join(", ") : "Tous les types");
+  const selectedTypeImage = useMemo(() => {
+    if (selectedMainType) {
+      const group = groupedTypeOptions.find((item) => item.mainType === selectedMainType);
+      return group?.imageUrl || null;
+    }
+    if (selectedCategories.length === 1) {
+      const selected = availableTypeOptions.find((item) => item.label === selectedCategories[0]);
+      if (selected?.imageUrl) return selected.imageUrl;
+    }
+    return null;
+  }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainType]);
 
   useEffect(() => {
     if (!locationPays && cascadePaysOptions.some((item) => item.toLowerCase() === 'tunisie')) {
       setLocationPays('Tunisie');
     }
   }, [cascadePaysOptions, locationPays]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/type-filter-images?mode=${encodeURIComponent(selectedMode)}`);
+        if (!response.ok) throw new Error('type-filter-images');
+        const rows = await response.json();
+        if (!cancelled) setTypeFilterImageRows(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setTypeFilterImageRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMode]);
+
+  useEffect(() => {
+    const allowed = new Set(availableTypeOptions.map((item) => item.label));
+    setSelectedCategories((prev) => prev.filter((cat) => allowed.has(cat)));
+    const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
+    setSelectedMainType((prev) => {
+      const next = prev && mainTypeAllowed.has(prev) ? prev : "";
+      if (!next) setCategoryStep("main");
+      return next;
+    });
+  }, [availableTypeOptions, groupedTypeOptions]);
+
+  useEffect(() => {
+    if (!selectedMainType) return;
+    const allowedSecondary = new Set(secondaryTypeOptions.map((item) => item.label));
+    setSelectedCategories((prev) => prev.filter((cat) => allowedSecondary.has(cat)));
+  }, [selectedMainType, secondaryTypeOptions]);
+
+  const selectMainType = (mainType: PropertyMainType) => {
+    setCategoryStepDirection(1);
+    setSelectedMainType(mainType);
+    setSelectedCategories([]);
+    setCategoryStep("sub");
+  };
 
   useEffect(() => {
     if (loading) {
@@ -238,9 +380,7 @@ export default function HomePage() {
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
   const toggleCategory = (cat: string) => {
-    setSelectedCategories(prev => 
-      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
-    );
+    setSelectedCategories((prev) => (prev.includes(cat) ? [] : [cat]));
   };
 
   const handleDateClick = (date: Date) => {
@@ -295,6 +435,7 @@ export default function HomePage() {
     const params = new URLSearchParams();
     params.set("mode", selectedMode);
     if (location) params.set("location", location);
+    if (selectedMainType) params.set("mainType", selectedMainType);
     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
     if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
     if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
@@ -311,8 +452,10 @@ export default function HomePage() {
     const baseProperties = hasSearched
       ? modeProperties.filter((property) => {
           const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
-          const matchCategory = selectedCategories.length === 0 || selectedCategories.includes(property.category);
-          return matchLocation && matchCategory;
+          const propertyMainType = getMainTypeFromCategory(String(property.category || ""));
+          const matchMainType = !selectedMainType || propertyMainType === selectedMainType;
+          const matchSubType = selectedCategories.length === 0 || selectedCategories.includes(property.category);
+          return matchLocation && matchMainType && matchSubType;
         })
       : modeProperties;
 
@@ -320,7 +463,7 @@ export default function HomePage() {
       if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
       return b.rating - a.rating;
     });
-  }, [hasSearched, location, selectedCategories, properties, selectedMode]);
+  }, [hasSearched, location, selectedMainType, selectedCategories, properties, selectedMode]);
 
   const dateRangeText = () => {
     if (checkIn && checkOut) {
@@ -347,7 +490,8 @@ export default function HomePage() {
       const isInsideDesktopLocation = Boolean(locationDesktopPopupRef.current && target && locationDesktopPopupRef.current.contains(target));
       const isInsideMobileLocation = Boolean(locationMobilePopupRef.current && target && locationMobilePopupRef.current.contains(target));
       const isInsideMobileCalendar = Boolean(calendarMobilePopupRef.current && target && calendarMobilePopupRef.current.contains(target));
-      if (!isInsideControls && !isInsideDesktopLocation && !isInsideMobileLocation && !isInsideMobileCalendar) {
+      const isInsideMobileCategory = Boolean(categoryMobilePopupRef.current && target && categoryMobilePopupRef.current.contains(target));
+      if (!isInsideControls && !isInsideDesktopLocation && !isInsideMobileLocation && !isInsideMobileCalendar && !isInsideMobileCategory) {
         closeAllFilters();
       }
     };
@@ -644,7 +788,7 @@ export default function HomePage() {
                           </div>
                         </div>
                         <button 
-                          onClick={() => setShowCalendar(false)}
+                          onClick={confirmCalendarSelection}
                           className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
                         >
                           Valider
@@ -658,18 +802,29 @@ export default function HomePage() {
                 <div className={`relative pointer-events-auto ${showCategoryDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
-                    className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showCategoryDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
+                    className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showCategoryDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
                       setShowCategoryDropdown(!showCategoryDropdown);
                       setShowLocationDropdown(false);
                       setShowCalendar(false);
+                      if (!showCategoryDropdown) {
+                        setCategoryStep(selectedMainType ? "sub" : "main");
+                      }
                     }}
                   >
+                    {selectedTypeImage && (
+                      <img
+                        src={resolveTypeImageUrl(selectedTypeImage)}
+                        alt={selectedCategories[0] || "Type de bien"}
+                        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                      />
+                    )}
+                    {selectedTypeImage && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
                     <Home className="text-emerald-600 shrink-0" size={20} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-500 font-medium">Type de bien</p>
-                      <p className="text-sm text-gray-800 font-semibold truncate">
-                        {selectedCategories.length > 0 ? selectedCategories.join(", ") : "Tous les types"}
+                    <div className={`relative z-10 flex-1 min-w-0 ${selectedTypeImage ? 'text-white' : ''}`}>
+                      <p className={`text-xs font-medium ${selectedTypeImage ? 'text-white/85' : 'text-gray-500'}`}>Type de bien</p>
+                      <p className={`text-sm font-semibold truncate ${selectedTypeImage ? 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'text-gray-800'}`}>
+                        {selectedTypeSummaryText}
                       </p>
                     </div>
                   </button>
@@ -678,25 +833,90 @@ export default function HomePage() {
                     <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
                       <div className="p-2">
                         <button
-                          className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                          onClick={() => { setSelectedCategories([]); setShowCategoryDropdown(false); }}
+                          className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                          onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setCategoryStep("main"); setCategoryStepDirection(-1); setShowCategoryDropdown(false); }}
                         >
                           Tous les types
                         </button>
-                        {CATEGORIES_LIST.map((cat) => (
-                          <button
-                            key={cat}
-                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors flex items-center justify-between ${selectedCategories.includes(cat) ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                            onClick={() => toggleCategory(cat)}
-                          >
-                            <span>{cat}</span>
-                            {selectedCategories.includes(cat) && (
-                              <div className="w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
-                                <Check size={12} className="text-white" />
-                              </div>
+                        <div className="relative mt-2 overflow-hidden">
+                          <AnimatePresence initial={false} mode="wait" custom={categoryStepDirection}>
+                            {(categoryStep === "main" || !selectedMainType) ? (
+                              <motion.div
+                                key="category-main-desktop"
+                                custom={categoryStepDirection}
+                                initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
+                                transition={{ duration: 0.24, ease: "easeOut" }}
+                                className="space-y-2"
+                              >
+                                {groupedTypeOptions.map((group) => (
+                                  <button
+                                    key={group.mainType}
+                                    className="relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden hover:bg-gray-50 text-gray-700"
+                                    onClick={() => selectMainType(group.mainType)}
+                                  >
+                                    <img
+                                      src={resolveTypeImageUrl(group.imageUrl)}
+                                      alt={group.label}
+                                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                                    />
+                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                    <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                                  </button>
+                                ))}
+                              </motion.div>
+                            ) : (
+                              <motion.div
+                                key={`category-sub-desktop-${selectedMainType}`}
+                                custom={categoryStepDirection}
+                                initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
+                                transition={{ duration: 0.24, ease: "easeOut" }}
+                                className="space-y-2"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => { setCategoryStepDirection(-1); setCategoryStep("main"); setSelectedCategories([]); }}
+                                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                                >
+                                  Changer le type principal
+                                </button>
+                                {secondaryTypeOptions.map((cat) => (
+                                  <button
+                                    key={cat.label}
+                                    className={`relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden ${selectedCategories.includes(cat.label) ? 'ring-2 ring-emerald-400' : 'hover:bg-gray-50 text-gray-700'}`}
+                                    onClick={() => toggleCategory(cat.label)}
+                                  >
+                                    <img
+                                      src={resolveTypeImageUrl(cat.imageUrl)}
+                                      alt={cat.label}
+                                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                                    />
+                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                    <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
+                                    {selectedCategories.includes(cat.label) && (
+                                      <div className="relative z-10 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
+                                        <Check size={12} className="text-white" />
+                                      </div>
+                                    )}
+                                  </button>
+                                ))}
+                              </motion.div>
                             )}
-                          </button>
-                        ))}
+                          </AnimatePresence>
+                        </div>
+                        {groupedTypeOptions.length === 0 && (
+                          <div className="px-4 py-3 text-sm text-gray-500">Aucun type disponible pour ce mode.</div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowCategoryDropdown(false)}
+                          className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                        >
+                          Confirmer le type de bien
+                        </button>
                       </div>
                     </div>
                   )}
@@ -715,7 +935,7 @@ export default function HomePage() {
               </div>
 
               {/* Selected Filters Display - moved under controls */}
-              {(location || selectedCategories.length > 0 || (checkIn && checkOut)) && (
+              {(location || selectedMainType || selectedCategories.length > 0 || (checkIn && checkOut)) && (
                 <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 border border-emerald-100">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold text-emerald-700 uppercase">Filtres actifs:</span>
@@ -724,6 +944,15 @@ export default function HomePage() {
                         <MapPin size={12} />
                         {location}
                         <button onClick={() => setLocation("")} className="ml-1 hover:text-emerald-200">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    )}
+                    {selectedMainType && (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                        <Home size={12} />
+                        {MAIN_TYPE_LABELS[selectedMainType]}
+                        <button onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setCategoryStep("main"); }} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
@@ -890,7 +1119,7 @@ export default function HomePage() {
                   <div className="w-3 h-3 rounded-full bg-emerald-600" />
                   <span className="text-gray-600">Selectionne</span>
                 </div>
-                <button onClick={() => setShowCalendar(false)} className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
+                <button onClick={confirmCalendarSelection} className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
                   Valider
                 </button>
               </div>
@@ -901,27 +1130,92 @@ export default function HomePage() {
         {showCategoryDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowCategoryDropdown(false)} />
-            <div className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
+            <div ref={categoryMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
               <button
-                className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => { setSelectedCategories([]); setShowCategoryDropdown(false); }}
+                className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setCategoryStep("main"); setCategoryStepDirection(-1); setShowCategoryDropdown(false); }}
               >
                 Tous les types
               </button>
-              {CATEGORIES_LIST.map((cat) => (
-                <button
-                  key={`mobile-cat-${cat}`}
-                  className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors flex items-center justify-between ${selectedCategories.includes(cat) ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                  onClick={() => toggleCategory(cat)}
-                >
-                  <span>{cat}</span>
-                  {selectedCategories.includes(cat) && (
-                    <div className="w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
-                      <Check size={12} className="text-white" />
-                    </div>
+              <div className="relative mt-2 overflow-hidden">
+                <AnimatePresence initial={false} mode="wait" custom={categoryStepDirection}>
+                  {(categoryStep === "main" || !selectedMainType) ? (
+                    <motion.div
+                      key="category-main-mobile"
+                      custom={categoryStepDirection}
+                      initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
+                      transition={{ duration: 0.24, ease: "easeOut" }}
+                      className="space-y-2"
+                    >
+                      {groupedTypeOptions.map((group) => (
+                        <button
+                          key={`mobile-main-${group.mainType}`}
+                          className="relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden hover:bg-gray-50 text-gray-700"
+                          onClick={() => selectMainType(group.mainType)}
+                        >
+                          <img
+                            src={resolveTypeImageUrl(group.imageUrl)}
+                            alt={group.label}
+                            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                          />
+                          <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                          <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                        </button>
+                      ))}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key={`category-sub-mobile-${selectedMainType}`}
+                      custom={categoryStepDirection}
+                      initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
+                      transition={{ duration: 0.24, ease: "easeOut" }}
+                      className="space-y-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setCategoryStepDirection(-1); setCategoryStep("main"); setSelectedCategories([]); }}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        Changer le type principal
+                      </button>
+                      {secondaryTypeOptions.map((cat) => (
+                        <button
+                          key={`mobile-cat-${cat.label}`}
+                          className={`relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden ${selectedCategories.includes(cat.label) ? 'ring-2 ring-emerald-400' : 'hover:bg-gray-50 text-gray-700'}`}
+                          onClick={() => toggleCategory(cat.label)}
+                        >
+                          <img
+                            src={resolveTypeImageUrl(cat.imageUrl)}
+                            alt={cat.label}
+                            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                          />
+                          <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                          <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
+                          {selectedCategories.includes(cat.label) && (
+                            <div className="relative z-10 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
+                              <Check size={12} className="text-white" />
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </motion.div>
                   )}
-                </button>
-              ))}
+                </AnimatePresence>
+              </div>
+              {groupedTypeOptions.length === 0 && (
+                <div className="px-4 py-3 text-sm text-gray-500">Aucun type disponible pour ce mode.</div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCategoryDropdown(false)}
+                className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+              >
+                Confirmer le type de bien
+              </button>
             </div>
           </div>
         )}
@@ -956,6 +1250,7 @@ export default function HomePage() {
                   const params = new URLSearchParams();
                   params.set("mode", selectedMode);
                   if (location) params.set("location", location);
+                  if (selectedMainType) params.set("mainType", selectedMainType);
                   if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
                   if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
                   if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));

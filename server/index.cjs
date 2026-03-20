@@ -3426,6 +3426,21 @@ async function ensurePaidServicesSchema() {
   }
 }
 
+async function ensureTypeFilterImagesSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS type_filter_images (
+      id VARCHAR(190) NOT NULL PRIMARY KEY,
+      mode_bien ENUM('vente', 'location_annuelle', 'location_saisonniere') NOT NULL,
+      main_type VARCHAR(80) NOT NULL,
+      sub_type VARCHAR(120) NULL,
+      image_url VARCHAR(1000) NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      UNIQUE KEY uq_type_filter_scope (mode_bien, main_type, sub_type)
+    )
+  `);
+}
+
 async function listPaidServicesCatalogue() {
   await ensurePaidServicesSchema();
   const [rows] = await pool.query(
@@ -4749,6 +4764,7 @@ pool.getConnection()
   .then(() => ensureMessengerSchema())
   .then(() => ensureBiensWorkflowSchema())
   .then(() => ensurePaidServicesSchema())
+  .then(() => ensureTypeFilterImagesSchema())
   .then(() => {
     console.log('✅ Auth schema and bien workflow ready');
   })
@@ -4792,6 +4808,76 @@ app.put('/api/site-mode-priorities', async (req, res) => {
   } catch (error) {
     console.error('Error updating site mode priorities:', error);
     res.status(500).json({ error: 'Impossible de sauvegarder les priorites des modes' });
+  }
+});
+
+app.get('/api/type-filter-images', async (req, res) => {
+  try {
+    await ensureTypeFilterImagesSchema();
+    const mode = String(req.query?.mode || '').trim();
+    const allowedModes = new Set(['vente', 'location_annuelle', 'location_saisonniere']);
+    const params = [];
+    let whereClause = '';
+    if (mode) {
+      if (!allowedModes.has(mode)) {
+        return res.status(400).json({ error: 'mode invalide' });
+      }
+      whereClause = 'WHERE mode_bien = ?';
+      params.push(mode);
+    }
+    const [rows] = await pool.query(
+      `SELECT id, mode_bien, main_type, sub_type, image_url
+       FROM type_filter_images
+       ${whereClause}
+       ORDER BY mode_bien ASC, main_type ASC, sub_type ASC`,
+      params
+    );
+    res.json(rows || []);
+  } catch (error) {
+    console.error('Error fetching type filter images:', error);
+    res.status(500).json({ error: "Impossible de charger les images des types de biens" });
+  }
+});
+
+app.put('/api/type-filter-images', async (req, res) => {
+  try {
+    await ensureTypeFilterImagesSchema();
+    const mode = String(req.body?.mode_bien || req.body?.mode || '').trim();
+    const mainType = String(req.body?.main_type || '').trim().toLowerCase();
+    const subTypeRaw = req.body?.sub_type;
+    const imageUrl = String(req.body?.image_url || '').trim();
+    const allowedModes = new Set(['vente', 'location_annuelle', 'location_saisonniere']);
+    if (!allowedModes.has(mode)) {
+      return res.status(400).json({ error: 'mode invalide' });
+    }
+    if (!mainType) {
+      return res.status(400).json({ error: 'main_type requis' });
+    }
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'image_url requis' });
+    }
+    const subType = subTypeRaw === null || subTypeRaw === undefined || String(subTypeRaw).trim().length === 0
+      ? null
+      : String(subTypeRaw).trim();
+    const id = `${mode}__${mainType}__${subType ? subType.toLowerCase() : '__main__'}`;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO type_filter_images (id, mode_bien, main_type, sub_type, image_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE image_url = VALUES(image_url), updated_at = VALUES(updated_at)`,
+      [id, mode, mainType, subType, imageUrl, now, now]
+    );
+    const [rows] = await pool.query(
+      `SELECT id, mode_bien, main_type, sub_type, image_url
+       FROM type_filter_images
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    res.json(rows?.[0] || { id, mode_bien: mode, main_type: mainType, sub_type: subType, image_url: imageUrl });
+  } catch (error) {
+    console.error('Error upserting type filter image:', error);
+    res.status(500).json({ error: "Impossible d'enregistrer l'image du type de bien" });
   }
 });
 
