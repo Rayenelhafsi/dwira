@@ -3771,6 +3771,55 @@ async function deliverEmailOtp({ email, code }) {
   throw new Error('email_otp_provider_missing');
 }
 
+async function deliverReservationClientUpdateEmail({
+  toEmail,
+  clientName,
+  demandId,
+  bienTitle,
+  startDate,
+  endDate,
+  decisionLabel,
+  note,
+}) {
+  const email = String(toEmail || '').trim().toLowerCase();
+  if (!email) return { delivered: false, reason: 'missing_email' };
+  const transporter = createSmtpTransporter();
+  const fromAddress = String(process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+  if (!transporter || !fromAddress) return { delivered: false, reason: 'smtp_missing' };
+
+  const safeClient = String(clientName || '').trim() || 'Client';
+  const safeBien = String(bienTitle || 'votre demande').trim();
+  const safeStart = String(startDate || '').trim();
+  const safeEnd = String(endDate || '').trim();
+  const safeDecision = String(decisionLabel || 'Mise a jour').trim();
+  const safeNote = String(note || '').trim();
+
+  await transporter.sendMail({
+    from: fromAddress,
+    to: email,
+    subject: `Dwira Immobilier - ${safeDecision}`,
+    text: [
+      `Bonjour ${safeClient},`,
+      '',
+      `Votre demande (${demandId}) concernant ${safeBien} a ete mise a jour: ${safeDecision}.`,
+      safeStart && safeEnd ? `Periode: ${safeStart} -> ${safeEnd}` : '',
+      safeNote ? `Message admin: ${safeNote}` : '',
+      '',
+      'Connectez-vous a votre espace Dwira pour les details.',
+    ].filter(Boolean).join('\n'),
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#1f2937">
+      <h2 style="margin:0 0 10px 0">Dwira Immobilier</h2>
+      <p>Bonjour <strong>${escapeHtml(safeClient)}</strong>,</p>
+      <p>Votre demande <strong>${escapeHtml(demandId)}</strong> concernant <strong>${escapeHtml(safeBien)}</strong> a ete mise a jour:</p>
+      <p style="font-size:16px"><strong>${escapeHtml(safeDecision)}</strong></p>
+      ${safeStart && safeEnd ? `<p>Periode: ${escapeHtml(safeStart)} -> ${escapeHtml(safeEnd)}</p>` : ''}
+      ${safeNote ? `<p>Message admin: ${escapeHtml(safeNote)}</p>` : ''}
+      <p>Connectez-vous a votre espace Dwira pour plus de details.</p>
+    </div>`,
+  });
+  return { delivered: true, reason: null };
+}
+
 async function deliverPhoneOtp({ telephone, code }) {
   const webhookUrl = String(process.env.OTP_PROVIDER_WEBHOOK_URL || '').trim();
   if (webhookUrl) {
@@ -4095,6 +4144,7 @@ const RESERVATION_DEMAND_STATUSES = new Set([
   'reponse_positive_attente_confirmation_client',
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
+  'demande_rejetee_admin',
   'attente_envoi_coordonnees_contrat',
   'contrat_realise',
   'succes_paiement',
@@ -8735,9 +8785,15 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
 
     const now = getAgencySqlDateTime();
     const nextStatus = 'en_attente_reponse_proprietaire';
+    // Admin can re-send availability request:
+    // reset previous owner response timestamp so owner can answer again
+    // and admin gets a fresh response cycle.
     await pool.query(
       `UPDATE reservation_demands
-       SET status = ?, owner_notified_at = ?, updated_at = ?
+       SET status = ?,
+           owner_notified_at = ?,
+           owner_response_at = NULL,
+           updated_at = ?
        WHERE id = ?`,
       [nextStatus, now, now, demandId]
     );
@@ -8747,7 +8803,9 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
       nextStatus,
       'admin',
       String(req.authUser?.id || 'admin').trim(),
-      'Demande de disponibilite envoyee au proprietaire',
+      (current.owner_response_at
+        ? 'Relance disponibilite envoyee au proprietaire (nouvelle reponse attendue)'
+        : 'Demande de disponibilite envoyee au proprietaire'),
       now
     );
 
@@ -8896,6 +8954,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         );
     const adminNote = body.admin_note !== undefined ? body.admin_note : current.admin_note;
     const clientNote = body.client_note !== undefined ? body.client_note : current.client_note;
+    const notifyClientOnRejection = requester?.role === 'admin' && body?.notifyClientOnRejection === true;
     const paymentMode = body.payment_mode !== undefined
       ? normalizePaymentMode(body.payment_mode, current.payment_mode || 'avance')
       : normalizePaymentMode(current.payment_mode, 'avance');
@@ -8998,6 +9057,22 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         body.actor_type || 'admin',
         body.actor_id || 'admin',
         body.history_note || `Etat mis a jour vers ${nextStatus}`,
+        updatedAt
+      );
+    }
+
+    if (notifyClientOnRejection && nextStatus === 'demande_rejetee_admin') {
+      await appendReservationDemandHistory(
+        demandId,
+        nextStatus,
+        'admin',
+        body.actor_id || 'admin',
+        'Notification popup client demandee pour rejet admin.',
+        updatedAt
+      );
+      await createAdminNotification(
+        'info',
+        `Rejet notifie au client (popup) pour la demande ${demandId}`,
         updatedAt
       );
     }

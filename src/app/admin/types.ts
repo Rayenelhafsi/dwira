@@ -509,6 +509,7 @@ export type ReservationDemandStatus =
   | 'reponse_positive_attente_confirmation_client'
   | 'reponse_negative_autre_proposition_meme_bien'
   | 'reponse_negative_autre_proposition_bien_similaire'
+  | 'demande_rejetee_admin'
   | 'attente_envoi_coordonnees_contrat'
   | 'contrat_realise'
   | 'succes_paiement';

@@ -21,6 +21,7 @@ const statusLabels: Record<ReservationDemandStatus, string> = {
   reponse_positive_attente_confirmation_client: 'Reponse positive, attente confirmation client',
   reponse_negative_autre_proposition_meme_bien: 'Reponse negative, autre proposition pour ce bien',
   reponse_negative_autre_proposition_bien_similaire: 'Reponse negative, autre proposition pour un bien similaire',
+  demande_rejetee_admin: 'Demande rejetee par admin',
   attente_envoi_coordonnees_contrat: 'Attente d envoi de coordonnees pour contrat',
   contrat_realise: 'Contrat realise',
   succes_paiement: 'Succes paiement',
@@ -201,7 +202,14 @@ export default function NotificationsPage() {
     }
   };
 
-  const handleDemandUpdate = async (demand: ReservationDemand, patch: Partial<ReservationDemand> & { communicateToOwner?: boolean; history_note?: string }) => {
+  const handleDemandUpdate = async (
+    demand: ReservationDemand,
+    patch: Partial<ReservationDemand> & {
+      communicateToOwner?: boolean;
+      history_note?: string;
+      notifyClientOnRejection?: boolean;
+    }
+  ) => {
     setSavingId(demand.id);
     try {
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
@@ -226,6 +234,18 @@ export default function NotificationsPage() {
     } finally {
       setSavingId(null);
     }
+  };
+
+  const rejectDemand = async (demand: ReservationDemand, notifyClient: boolean) => {
+    const defaultNote = "Votre demande a ete rejetee par l'administration.";
+    await handleDemandUpdate(demand, {
+      status: 'demande_rejetee_admin',
+      notifyClientOnRejection: notifyClient,
+      client_note: notifyClient ? defaultNote : null,
+      history_note: notifyClient
+        ? 'Demande rejetee par admin et popup client demandee'
+        : 'Demande rejetee par admin',
+    });
   };
 
   const openHistory = async (demandId: string) => {
@@ -380,6 +400,22 @@ export default function NotificationsPage() {
                   >
                     <History className="h-4 w-4" />
                     Trace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void rejectDemand(demand, false)}
+                    disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
+                    className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                  >
+                    Rejeter
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void rejectDemand(demand, true)}
+                    disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
+                    className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                  >
+                    Rejeter + popup client
                   </button>
                 </div>
               </div>

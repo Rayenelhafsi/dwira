@@ -23,6 +23,7 @@ const statusLabels: Record<ReservationDemand["status"], string> = {
   reponse_positive_attente_confirmation_client: "Reponse positive, attente confirmation client",
   reponse_negative_autre_proposition_meme_bien: "Reponse negative, autre proposition pour ce bien",
   reponse_negative_autre_proposition_bien_similaire: "Reponse negative, autre proposition pour un bien similaire",
+  demande_rejetee_admin: "Demande rejetee par administration",
   attente_envoi_coordonnees_contrat: "Attente d'envoi de coordonnees pour contrat",
   contrat_realise: "Contrat realise",
   succes_paiement: "Succes paiement",
@@ -98,6 +99,7 @@ export default function MyReservationsPage() {
   const [activePositiveDemandId, setActivePositiveDemandId] = useState<string | null>(null);
   const [activeContractDemandId, setActiveContractDemandId] = useState<string | null>(null);
   const [activeServiceQuoteDemandId, setActiveServiceQuoteDemandId] = useState<string | null>(null);
+  const [activeRejectedDemandId, setActiveRejectedDemandId] = useState<string | null>(null);
   const [loadingContractId, setLoadingContractId] = useState<string | null>(null);
 
   const fetchReservations = useCallback(async () => {
@@ -167,6 +169,21 @@ export default function MyReservationsPage() {
       }
     }
   }, [reservations]);
+
+  useEffect(() => {
+    if (activeRejectedDemandId) return;
+    for (const demand of reservations) {
+      if (demand.status !== "demande_rejetee_admin") continue;
+      const rejectionMessage = String(demand.client_note || "").trim();
+      if (!rejectionMessage) continue;
+      const key = `dwira_rejection_popup_${demand.id}_${demand.updated_at}`;
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, "1");
+        setActiveRejectedDemandId(demand.id);
+        break;
+      }
+    }
+  }, [reservations, activeRejectedDemandId]);
 
   const reservationCards = useMemo(
     () => reservations.map((reservation) => {
@@ -259,6 +276,7 @@ export default function MyReservationsPage() {
   const activePositiveDemand = reservations.find((item) => item.id === activePositiveDemandId) || null;
   const activeContractDemand = reservations.find((item) => item.id === activeContractDemandId) || null;
   const activeServiceQuoteDemand = reservations.find((item) => item.id === activeServiceQuoteDemandId) || null;
+  const activeRejectedDemand = reservations.find((item) => item.id === activeRejectedDemandId) || null;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
@@ -528,6 +546,32 @@ export default function MyReservationsPage() {
                 Continuer la demande
               </Link>
             ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!activeRejectedDemand} onOpenChange={(open) => !open && setActiveRejectedDemandId(null)}>
+        <DialogContent className="max-w-2xl border-2 border-rose-200 p-7">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-rose-700">Mise a jour de votre demande</DialogTitle>
+            <DialogDescription>
+              Votre demande a ete rejetee par l'administration.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+            <p className="font-semibold">Demande: {activeRejectedDemand?.id}</p>
+            <p className="mt-2">
+              {String(activeRejectedDemand?.client_note || "Votre demande n'a pas ete retenue pour le moment.")}
+            </p>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setActiveRejectedDemandId(null)}
+              className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+            >
+              J'ai compris
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
