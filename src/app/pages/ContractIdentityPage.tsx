@@ -79,7 +79,7 @@ export default function ContractIdentityPage() {
       const query = new URLSearchParams();
       if (user.id) query.set("client_user_id", user.id);
       query.set("client_email", user.email);
-      const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`);
+      const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`, { credentials: "include" });
       const rows = await response.json().catch(() => []);
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger vos demandes"));
       const found = (Array.isArray(rows) ? rows : []).find((row) => String(row.id) === String(id)) || null;
@@ -111,6 +111,7 @@ export default function ContractIdentityPage() {
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           status: "attente_envoi_coordonnees_contrat",
           actor_type: "client",
@@ -143,6 +144,7 @@ export default function ContractIdentityPage() {
 
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/extract-identity`, {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
       if (!response.ok) {
@@ -185,6 +187,7 @@ export default function ContractIdentityPage() {
 
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/submit-identity`, {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Soumission des coordonnees impossible"));
@@ -203,7 +206,7 @@ export default function ContractIdentityPage() {
     if (!demand?.contract_id) return;
     setLoadingContract(true);
     try {
-      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`);
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`, { credentials: "include" });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Impossible de charger le contrat"));
       const contract = (await response.json()) as ContractApi;
       if (!contract.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");
@@ -219,7 +222,7 @@ export default function ContractIdentityPage() {
     if (!demand?.contract_id) return;
     setLoadingContract(true);
     try {
-      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`);
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`, { credentials: "include" });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Impossible de charger le contrat"));
       const contract = (await response.json()) as ContractApi;
       if (!contract.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");

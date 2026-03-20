@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, Facebook, Globe, User, FileText, Upload, MessageCircle, Phone } from 'lucide-react';
+import { Mail, Lock, Facebook, Globe, User, FileText, Upload, Phone, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
-import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, startSocialLogin, AuthUser } from '../services/auth';
+import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, loginWithPasskey, registerWithPasskey, startSocialLogin, AuthUser } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
 import { clearAuthReturnTo, readAuthReturnTo, readPendingReservationDraft, saveAuthReturnTo } from '../utils/pendingReservation';
 
@@ -16,6 +16,17 @@ function normalizeReturnToPath(value: string | null | undefined) {
   return next;
 }
 
+function splitHumanName(fullName?: string | null) {
+  const normalized = String(fullName || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return { firstName: '', lastName: '' };
+  const parts = normalized.split(' ');
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return {
+    firstName: parts.slice(0, -1).join(' '),
+    lastName: parts.slice(-1).join(''),
+  };
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,11 +34,15 @@ export default function LoginPage() {
   const [isCompletingProfile, setIsCompletingProfile] = useState(false);
   const [isUploadingCin, setIsUploadingCin] = useState(false);
   const [isProcessingSocialToken, setIsProcessingSocialToken] = useState(false);
-  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
+  const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
+  const [isPasskeyRegisterLoading, setIsPasskeyRegisterLoading] = useState(false);
+  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true });
+  const [passkeyRegisterEmail, setPasskeyRegisterEmail] = useState('');
+  const [passkeyRegisterName, setPasskeyRegisterName] = useState('');
   const [profileForm, setProfileForm] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
-    clientType: '',
     telephone: '',
     cin: '',
     cinImageUrl: '',
@@ -40,6 +55,8 @@ export default function LoginPage() {
       id: authUser.id,
       email: authUser.email,
       name: authUser.name,
+      firstName: authUser.firstName || undefined,
+      lastName: authUser.lastName || undefined,
       avatar: authUser.avatar || undefined,
       clientType: authUser.clientType || undefined,
       telephone: authUser.telephone || undefined,
@@ -73,10 +90,12 @@ export default function LoginPage() {
     const hasOpener = typeof window !== 'undefined' && !!window.opener && !window.opener.closed;
     if (hasOpener) {
       try {
-        window.opener.postMessage({ type: 'DWIRA_AUTH_SUCCESS', returnTo: target }, window.location.origin);
-      } catch {}
-      window.close();
-      return true;
+        window.opener.postMessage({ type: 'DWIRA_AUTH_SUCCESS', returnTo: target }, '*');
+        window.close();
+        return true;
+      } catch {
+        // If opener is in an invalid browser error context, fallback to local navigation.
+      }
     }
     window.location.replace(target);
     return true;
@@ -93,10 +112,11 @@ export default function LoginPage() {
   useEffect(() => {
     if (authLoading || !user || isProcessingSocialToken) return;
     if (user.role === 'user' && !user.profileCompleted) {
+      const fallbackNames = splitHumanName(user.name);
       setProfileForm({
-        name: user.name || '',
+        firstName: user.firstName || fallbackNames.firstName,
+        lastName: user.lastName || fallbackNames.lastName,
         email: user.email || '',
-        clientType: user.clientType || '',
         telephone: user.telephone || '',
         cin: user.cin || '',
         cinImageUrl: user.cinImageUrl || '',
@@ -156,10 +176,11 @@ export default function LoginPage() {
           }
           navigate('/', { replace: true });
         } else {
+          const fallbackNames = splitHumanName(socialUser.name);
           setProfileForm({
-            name: socialUser.name || '',
+            firstName: socialUser.firstName || fallbackNames.firstName,
+            lastName: socialUser.lastName || fallbackNames.lastName,
             email: socialUser.email || '',
-            clientType: socialUser.clientType || '',
             telephone: socialUser.telephone || '',
             cin: socialUser.cin || '',
             cinImageUrl: socialUser.cinImageUrl || '',
@@ -214,6 +235,85 @@ export default function LoginPage() {
     startSocialLogin(provider, returnTo);
   };
 
+  const handlePasskeyLogin = async () => {
+    if (!providers.passkey) {
+      toast.error('Passkey indisponible sur ce serveur');
+      return;
+    }
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      toast.error('Passkey non supporte sur ce navigateur/appareil');
+      return;
+    }
+    setIsPasskeyLoading(true);
+    try {
+      const passkeyUser = await loginWithPasskey();
+      loginUser(passkeyUser);
+      if (!passkeyUser.profileCompleted) {
+        const fallbackNames = splitHumanName(passkeyUser.name);
+        setProfileForm((prev) => ({
+          ...prev,
+          firstName: passkeyUser.firstName || fallbackNames.firstName,
+          lastName: passkeyUser.lastName || fallbackNames.lastName,
+          email: passkeyUser.email || prev.email,
+          telephone: passkeyUser.telephone || prev.telephone,
+          cin: passkeyUser.cin || prev.cin,
+          cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
+        }));
+        toast.info('Completez votre identite legale pour finaliser votre compte.');
+        return;
+      }
+      toast.success('Connexion Passkey reussie');
+      if (redirectToPendingReservation()) return;
+      navigate(passkeyUser.role === 'admin' ? '/admin' : '/', { replace: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Connexion Passkey echouee');
+    } finally {
+      setIsPasskeyLoading(false);
+    }
+  };
+
+  const handlePasskeyRegister = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      toast.error('Passkey non supporte sur ce navigateur/appareil');
+      return;
+    }
+    if (!passkeyRegisterEmail.trim()) {
+      toast.error('Email requis pour creer un compte Passkey');
+      return;
+    }
+    setIsPasskeyRegisterLoading(true);
+    try {
+      const passkeyUser = await registerWithPasskey(passkeyRegisterEmail.trim(), passkeyRegisterName.trim());
+      loginUser(passkeyUser);
+      if (!passkeyUser.profileCompleted) {
+        const fallbackNames = splitHumanName(passkeyUser.name);
+        setProfileForm((prev) => ({
+          ...prev,
+          firstName: passkeyUser.firstName || fallbackNames.firstName,
+          lastName: passkeyUser.lastName || fallbackNames.lastName,
+          email: passkeyUser.email || prev.email,
+          telephone: passkeyUser.telephone || prev.telephone,
+          cin: passkeyUser.cin || prev.cin,
+          cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
+        }));
+        toast.success('Passkey creee. Completez maintenant votre identite legale.');
+        setPasskeyRegisterEmail('');
+        setPasskeyRegisterName('');
+        return;
+      }
+      toast.success('Compte Passkey cree et connecte');
+      setPasskeyRegisterEmail('');
+      setPasskeyRegisterName('');
+      if (redirectToPendingReservation()) return;
+      navigate('/', { replace: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Creation Passkey echouee');
+    } finally {
+      setIsPasskeyRegisterLoading(false);
+    }
+  };
+
   const handleCinImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -243,8 +343,8 @@ export default function LoginPage() {
       toast.error('Utilisateur introuvable');
       return;
     }
-    if (!profileForm.name.trim() || !profileForm.clientType || !profileForm.telephone.trim()) {
-      toast.error('Nom, type client et numero de telephone sont obligatoires');
+    if (!profileForm.firstName.trim() || !profileForm.lastName.trim() || !profileForm.telephone.trim()) {
+      toast.error('Nom, prenom et numero de telephone sont obligatoires');
       return;
     }
 
@@ -252,9 +352,10 @@ export default function LoginPage() {
     try {
       const savedUser = await completeSocialProfile({
         id: user.id,
-        name: profileForm.name.trim(),
+        firstName: profileForm.firstName.trim(),
+        lastName: profileForm.lastName.trim(),
+        name: `${profileForm.firstName.trim()} ${profileForm.lastName.trim()}`.trim(),
         email: profileForm.email.trim() || undefined,
-        clientType: profileForm.clientType as 'proprietaire' | 'locataire' | 'acheteur',
         telephone: profileForm.telephone.trim(),
         cin: profileForm.cin.trim(),
         cinImageUrl: profileForm.cinImageUrl.trim(),
@@ -292,18 +393,34 @@ export default function LoginPage() {
             </p>
 
             <form className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={handleCompleteProfile}>
-              <div className="md:col-span-2">
-                <label htmlFor="client-name" className="block text-sm font-medium text-gray-700">Nom et prenom *</label>
+              <div>
+                <label htmlFor="client-first-name" className="block text-sm font-medium text-gray-700">Prenom *</label>
                 <div className="mt-1 relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <User className="h-5 w-5 text-gray-400" aria-hidden="true" />
                   </div>
                   <input
-                    id="client-name"
-                    value={profileForm.name}
-                    onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
+                    id="client-first-name"
+                    value={profileForm.firstName}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, firstName: e.target.value }))}
                     className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
-                    placeholder="Nom et prenom"
+                    placeholder="Prenom"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="client-last-name" className="block text-sm font-medium text-gray-700">Nom *</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                  </div>
+                  <input
+                    id="client-last-name"
+                    value={profileForm.lastName}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, lastName: e.target.value }))}
+                    className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
+                    placeholder="Nom"
                   />
                 </div>
               </div>
@@ -325,22 +442,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="client-type" className="block text-sm font-medium text-gray-700">Type client *</label>
-                <select
-                  id="client-type"
-                  value={profileForm.clientType}
-                  onChange={(e) => setProfileForm((prev) => ({ ...prev, clientType: e.target.value }))}
-                  className="mt-1 block w-full rounded-md border-gray-300 py-2 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                >
-                  <option value="">Selectionner un type</option>
-                  <option value="proprietaire">Proprietaire</option>
-                  <option value="locataire">Locataire</option>
-                  <option value="acheteur">Acheteur</option>
-                </select>
-              </div>
-
-              <div>
+              <div className="md:col-span-2">
                 <label htmlFor="client-phone" className="block text-sm font-medium text-gray-700">Numero de telephone *</label>
                 <div className="mt-1 relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -507,13 +609,46 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => void handlePasskeyLogin()}
+              disabled={isPasskeyLoading || !providers.passkey}
+              className="mt-3 w-full inline-flex items-center justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <KeyRound className="h-5 w-5 text-emerald-700 mr-2" />
+              {isPasskeyLoading ? 'Connexion Passkey...' : 'Continuer avec Passkey'}
+            </button>
+            <form className="mt-4 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3" onSubmit={handlePasskeyRegister}>
+              <p className="text-xs font-medium text-gray-700">Creer un compte Passkey (gratuit)</p>
+              <input
+                type="email"
+                value={passkeyRegisterEmail}
+                onChange={(e) => setPasskeyRegisterEmail(e.target.value)}
+                placeholder="Email client"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                value={passkeyRegisterName}
+                onChange={(e) => setPasskeyRegisterName(e.target.value)}
+                placeholder="Nom (optionnel)"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={isPasskeyRegisterLoading}
+                className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {isPasskeyRegisterLoading ? 'Creation...' : 'Creer avec Passkey'}
+              </button>
+            </form>
             {(!providers.google || !providers.facebook) && (
               <p className="mt-3 text-xs text-amber-700">
                 Certains fournisseurs sociaux sont indisponibles car OAuth n'est pas configure sur le serveur.
               </p>
             )}
             <p className="mt-3 text-xs text-gray-500">
-              La connexion WhatsApp est desactivee pour le moment.
+              La connexion WhatsApp est desactivee pour le moment. Passkey fonctionne sans frais de licence.
             </p>
           </div>
         </div>

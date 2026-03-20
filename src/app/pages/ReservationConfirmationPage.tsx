@@ -1,14 +1,14 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Navigate, Link, useLocation, useNavigate, useParams } from "react-router";
 import { ArrowLeft, Calendar, CheckCircle2, Home, ImageIcon, ShoppingBag, Users } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
-import type { ReservationDemand } from "../admin/types";
 import { saveReservationToCache } from "../utils/reservations";
 import { getServiceDisplayPrice, splitServicesByTarification } from "../utils/servicePayants";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
+import { getAntiBotConfig } from "../services/auth";
 
 type LocationState = {
   draft?: PendingReservationDraft;
@@ -18,10 +18,16 @@ export default function ReservationConfirmationPage() {
   const { slug } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { properties, refreshData } = useProperties();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdDemand, setCreatedDemand] = useState<{ id: string } | null>(null);
+  const [antiBotConfig, setAntiBotConfig] = useState<{ enabled: boolean; siteKey: string | null }>({ enabled: false, siteKey: null });
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileError, setTurnstileError] = useState<string | null>(null);
+  const turnstileErrorCountRef = useRef(0);
+  const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
 
   const draftFromState = (location.state as LocationState | null)?.draft || null;
   const draftFromStorage = useMemo(() => readPendingReservationDraft(), []);
@@ -87,6 +93,118 @@ export default function ReservationConfirmationPage() {
     };
   }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxGuests, property, seasonalConfig]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadAntiBot = async () => {
+      const config = await getAntiBotConfig();
+      if (!cancelled) {
+        setAntiBotConfig({ enabled: config.enabled, siteKey: config.siteKey });
+      }
+    };
+    void loadAntiBot();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!antiBotConfig.enabled || !antiBotConfig.siteKey) return;
+    let disposed = false;
+    const scriptId = 'dwira-turnstile-script';
+    const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
+    const renderWidget = () => {
+      if (disposed) return;
+      const turnstile = (window as any).turnstile;
+      if (!turnstile || !turnstileContainerRef.current) return false;
+      if (turnstileWidgetIdRef.current) {
+        try {
+          turnstile.reset(turnstileWidgetIdRef.current);
+        } catch {}
+        return true;
+      }
+      const widgetId = turnstile.render(turnstileContainerRef.current, {
+        sitekey: antiBotConfig.siteKey,
+        retry: 'auto',
+        'retry-interval': 5000,
+        callback: (token: string) => setTurnstileToken(token),
+        'expired-callback': () => {
+          setTurnstileToken('');
+          setTurnstileError('Verification expiree. Veuillez revalider.');
+        },
+        'error-callback': (errorCode: string | number) => {
+          setTurnstileToken('');
+          turnstileErrorCountRef.current += 1;
+          const code = String(errorCode || '');
+          const family = Number.isFinite(Number(code)) ? Math.floor(Number(code) / 1000) : null;
+          const transient = family === 600 || family === 300 || code === '600010';
+          if (transient && turnstileErrorCountRef.current <= 3 && turnstileWidgetIdRef.current) {
+            setTurnstileError('Verification en cours... nouvelle tentative.');
+            window.setTimeout(() => {
+              try {
+                turnstile.reset(turnstileWidgetIdRef.current as any);
+              } catch {}
+            }, 1200);
+          } else {
+            setTurnstileError(`Verification Cloudflare indisponible (${code || 'unknown'}). Rechargez la page.`);
+          }
+          return true;
+        },
+      });
+      turnstileWidgetIdRef.current = widgetId;
+      turnstileErrorCountRef.current = 0;
+      setTurnstileError(null);
+      return true;
+    };
+    const renderWithRetry = () => {
+      let attempts = 0;
+      const maxAttempts = 20;
+      const tick = () => {
+        if (disposed) return;
+        attempts += 1;
+        const ok = renderWidget();
+        if (ok) return;
+        if (attempts >= maxAttempts) {
+          setTurnstileError('Widget anti-bot non charge (script bloque ou domaine non autorise).');
+          return;
+        }
+        window.setTimeout(tick, 150);
+      };
+      tick();
+    };
+    if (existing) {
+      if ((window as any).turnstile) {
+        renderWithRetry();
+      } else {
+        existing.addEventListener('load', renderWithRetry, { once: true });
+        window.setTimeout(renderWithRetry, 500);
+      }
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = scriptId;
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => renderWithRetry();
+    script.onerror = () => setTurnstileError('Impossible de charger Cloudflare Turnstile.');
+    document.head.appendChild(script);
+    return () => {
+      disposed = true;
+    };
+  }, [antiBotConfig.enabled, antiBotConfig.siteKey]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
+        <div className="container mx-auto max-w-4xl px-4 md:px-6">
+          <div className="flex items-center justify-center py-24">
+            <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-emerald-600" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!user || user.role !== "user") {
     const returnTo = slug ? `/reservation/confirmation/${slug}` : "/logements";
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
@@ -106,11 +224,24 @@ export default function ReservationConfirmationPage() {
 
   const handleConfirm = async () => {
     if (!property || !summary) return;
+    if (antiBotConfig.enabled && !turnstileToken) {
+      toast.error('Veuillez valider la verification anti-bot avant de confirmer.');
+      return;
+    }
     setIsSubmitting(true);
     try {
+      const sessionId = (() => {
+        const key = 'dwira_reservation_session_id';
+        const existing = sessionStorage.getItem(key);
+        if (existing) return existing;
+        const generated = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        sessionStorage.setItem(key, generated);
+        return generated;
+      })();
       const response = await fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
           body: JSON.stringify({
             bien_id: String(property.id),
           client_user_id: user.id,
@@ -126,6 +257,8 @@ export default function ReservationConfirmationPage() {
             selected_variable_services: summary.variablePaidServices || [],
             client_note: draft.reservationNote || null,
             request_type: requestType,
+            turnstileToken: antiBotConfig.enabled ? turnstileToken : undefined,
+            sessionId,
           }),
       });
       const data = await response.json().catch(() => null);
@@ -133,46 +266,23 @@ export default function ReservationConfirmationPage() {
       saveReservationToCache(data);
       clearPendingReservationDraft();
       setCreatedDemand({ id: data.id });
+      if (antiBotConfig.enabled && turnstileWidgetIdRef.current && (window as any).turnstile) {
+        try {
+          (window as any).turnstile.reset(turnstileWidgetIdRef.current);
+          setTurnstileToken('');
+        } catch {}
+      }
       await refreshData();
       toast.success(isVisitRequest ? "Votre demande de visite est maintenant en attente." : "Votre demande est maintenant en attente.");
     } catch (error) {
-      const fallbackId = `local_${Date.now()}`;
-      const fallbackReservation: ReservationDemand = {
-        id: fallbackId,
-        bien_id: String(property.id),
-        request_type: requestType,
-        unavailable_date_id: null,
-        client_user_id: user.id || null,
-        client_email: user.email || null,
-        client_name: user.name || null,
-        proprietaire_id: property.proprietaire_id || null,
-        owner_user_id: null,
-        start_date: draft.startDate,
-        end_date: draft.endDate,
-        guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
-        payment_mode: summary?.paymentMode || 'avance',
-        total_amount: summary?.total || null,
-        amount_due_now: summary?.dueNow || null,
-        selected_fixed_services: summary?.fixedPaidServices || [],
-        selected_variable_services: summary?.variablePaidServices || [],
-        status: "en_attente_reponse_proprietaire",
-        owner_notified_at: null,
-        owner_response_at: null,
-        admin_note: "Sauvegarde locale en attente de synchronisation API",
-        client_note: draft.reservationNote || null,
-        finalization_due_at: null,
-        contract_id: null,
-        payment_id: null,
-        bien_titre: property.title,
-        bien_reference: property.reference || property.id,
-        proprietaire_nom: null,
-        created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
-        updated_at: new Date().toISOString().slice(0, 19).replace("T", " "),
-      };
-      saveReservationToCache(fallbackReservation);
-      clearPendingReservationDraft();
-      setCreatedDemand({ id: fallbackId });
-      toast.error(error instanceof Error ? `${error.message}. Demande sauvegardee localement.` : "API indisponible. Demande sauvegardee localement.");
+      const message = error instanceof Error ? error.message : "Impossible de confirmer la demande";
+      if (/401|authentif|session/i.test(message)) {
+        toast.error("Session expiree. Reconnectez-vous puis confirmez la reservation.");
+        const returnTo = slug ? `/reservation/confirmation/${encodeURIComponent(slug)}` : "/logements";
+        navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+      } else {
+        toast.error(`${message}. Demande non enregistree.`);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -421,6 +531,15 @@ export default function ReservationConfirmationPage() {
               <div className="mt-6 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 <p className="font-semibold">Votre note</p>
                 <p className="mt-1 whitespace-pre-line">{draft.reservationNote}</p>
+              </div>
+            ) : null}
+
+            {antiBotConfig.enabled ? (
+              <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <div ref={turnstileContainerRef} className="min-h-[65px]" />
+                {turnstileError ? (
+                  <p className="mt-2 text-xs font-medium text-rose-600">{turnstileError}</p>
+                ) : null}
               </div>
             ) : null}
 

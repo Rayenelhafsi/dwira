@@ -107,7 +107,7 @@ export default function MyReservationsPage() {
       const query = new URLSearchParams();
       if (user.id) query.set("client_user_id", user.id);
       query.set("client_email", user.email);
-      const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`);
+      const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`, { credentials: "include" });
       const rows = await response.json().catch(() => []);
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger vos reservations"));
       setReservations(Array.isArray(rows) ? rows : []);
@@ -189,6 +189,7 @@ export default function MyReservationsPage() {
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           status: "attente_envoi_coordonnees_contrat",
           actor_type: "client",
@@ -214,7 +215,7 @@ export default function MyReservationsPage() {
     }
     setLoadingContractId(demand.contract_id);
     try {
-      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`);
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`, { credentials: "include" });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Impossible de charger le contrat"));
       const contract = await response.json() as ContractApi;
       if (!contract?.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");
@@ -233,7 +234,7 @@ export default function MyReservationsPage() {
     }
     setLoadingContractId(demand.contract_id);
     try {
-      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`);
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`, { credentials: "include" });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Impossible de charger le contrat"));
       const contract = await response.json() as ContractApi;
       if (!contract?.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");

@@ -86,6 +86,11 @@ export function Header() {
       return;
     }
 
+    if (isHomePage) {
+      setIsAutoHidden(false);
+      return;
+    }
+
     if (isPropertyDetailsPage) {
       lastScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
       const handleDirectionalScroll = () => {
@@ -141,7 +146,7 @@ export function Header() {
       window.removeEventListener("mousemove", revealHeader);
       window.removeEventListener("touchstart", revealHeader);
     };
-  }, [isOpen, isPropertyDetailsPage, location.pathname, location.search]);
+  }, [isOpen, isHomePage, isPropertyDetailsPage, location.pathname, location.search]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -167,7 +172,7 @@ export function Header() {
     const query = new URLSearchParams();
     if (user.id) query.set("client_user_id", user.id);
     query.set("client_email", user.email);
-    fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands?${query.toString()}`)
+    fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands?${query.toString()}`, { credentials: "include" })
       .then((response) => response.ok ? response.json() : [])
       .then((rows) => {
         const list = Array.isArray(rows) ? rows : [];
@@ -198,6 +203,7 @@ export function Header() {
         const response = await fetch(`${api}/reservation-demands/${encodeURIComponent(actionableDemand.id)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             status: "attente_envoi_coordonnees_contrat",
             actor_type: "client",

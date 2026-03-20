@@ -57,13 +57,20 @@ export function buildApiUrl(path: string, base?: string): string {
   return `${targetBase}${normalizedPath}`;
 }
 
+function withApiDefaults(init?: RequestInit): RequestInit {
+  return {
+    ...(init || {}),
+    credentials: init?.credentials || 'include',
+  };
+}
+
 export async function fetchJsonWithApiFallback<T>(path: string, init?: RequestInit): Promise<T> {
   const bases = getApiBaseCandidates();
   let lastError: Error | null = null;
 
   for (const base of bases) {
     try {
-      const response = await fetch(buildApiUrl(path, base), init);
+      const response = await fetch(buildApiUrl(path, base), withApiDefaults(init));
       const raw = await response.text();
       let data: any = null;
       try {
@@ -94,7 +101,7 @@ export async function fetchWithApiFallback(path: string, init?: RequestInit): Pr
 
   for (const base of bases) {
     try {
-      const response = await fetch(buildApiUrl(path, base), init);
+      const response = await fetch(buildApiUrl(path, base), withApiDefaults(init));
       const cloned = response.clone();
       const contentType = response.headers.get('content-type') || '';
       const raw = await cloned.text();

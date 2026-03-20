@@ -47,12 +47,19 @@ type BuyerMatch = {
   reasons: string[];
 };
 
-type ClientInteractionType = 'visite' | 'like' | 'partage';
+type ClientInteractionType =
+  | 'visite'
+  | 'like'
+  | 'partage'
+  | 'site_open'
+  | 'session_start'
+  | 'reservation_attempt'
+  | 'reservation_submitted';
 
 type ClientInteraction = {
   id: string;
   type: ClientInteractionType;
-  bienId: string;
+  bienId?: string;
   date: string;
   heure?: string;
   source?: 'admin' | 'site_public';
@@ -285,8 +292,16 @@ const isClientInteraction = (value: unknown): value is ClientInteraction => {
   const interaction = value as Record<string, unknown>;
   return (
     typeof interaction.id === 'string' &&
-    (interaction.type === 'visite' || interaction.type === 'like' || interaction.type === 'partage') &&
-    typeof interaction.bienId === 'string' &&
+    (
+      interaction.type === 'visite'
+      || interaction.type === 'like'
+      || interaction.type === 'partage'
+      || interaction.type === 'site_open'
+      || interaction.type === 'session_start'
+      || interaction.type === 'reservation_attempt'
+      || interaction.type === 'reservation_submitted'
+    ) &&
+    (interaction.bienId === undefined || typeof interaction.bienId === 'string') &&
     typeof interaction.date === 'string' &&
     (interaction.heure === undefined || typeof interaction.heure === 'string')
   );
@@ -365,7 +380,7 @@ export default function ClientelesPage() {
           return {
             id: interaction.id,
             type: interaction.type,
-            bienId: interaction.bienId,
+            bienId: interaction.bienId || undefined,
             date: formatInteractionDayKey(interaction.dateTime),
             heure: formatInteractionTime(interaction.dateTime) || undefined,
             source: interaction.source === 'admin' ? 'admin' as const : 'site_public' as const,
@@ -981,10 +996,14 @@ export default function ClientelesPage() {
   }, [selectedClient]);
 
   function getInteractionLabel(interaction: ClientInteraction) {
-    const bienTitle = getBienDisplayLabel(interaction.bienId);
+    const bienTitle = interaction.bienId ? getBienDisplayLabel(interaction.bienId) : 'site';
     if (interaction.type === 'visite') return `Visite du bien ${bienTitle}`;
     if (interaction.type === 'like') return `Like sur le bien ${bienTitle}`;
-    return `Partage du bien ${bienTitle}`;
+    if (interaction.type === 'partage') return `Partage du bien ${bienTitle}`;
+    if (interaction.type === 'reservation_attempt') return `Tentative de reservation sur ${bienTitle}`;
+    if (interaction.type === 'reservation_submitted') return `Reservation envoyee sur ${bienTitle}`;
+    if (interaction.type === 'session_start') return 'Session client demarree';
+    return 'Ouverture du site';
   }
 
   const resetClientForm = (category: ClientCategory = activeCategory) => {
@@ -1950,6 +1969,10 @@ export default function ClientelesPage() {
                         <option value="visite">Visites</option>
                         <option value="like">Like</option>
                         <option value="partage">Partages</option>
+                        <option value="site_open">Ouverture site</option>
+                        <option value="session_start">Session</option>
+                        <option value="reservation_attempt">Tentative reservation</option>
+                        <option value="reservation_submitted">Reservation envoyee</option>
                       </select>
                       <input
                         type="date"

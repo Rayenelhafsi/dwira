@@ -47,7 +47,7 @@ export default function ReservationPaymentPage() {
       const query = new URLSearchParams();
       if (user.id) query.set("client_user_id", user.id);
       query.set("client_email", user.email);
-      const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`);
+      const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`, { credentials: "include" });
       const rows = await response.json().catch(() => []);
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger la demande"));
       const found = (Array.isArray(rows) ? rows : []).find((row) => String(row.id) === String(id)) || null;
@@ -90,6 +90,7 @@ export default function ReservationPaymentPage() {
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           scope,
           methode: paymentMethod,

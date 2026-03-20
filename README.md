@@ -56,6 +56,44 @@ Minimum production checks:
 
 Do not commit production secrets.
 
+## Passkey + Cloudflare Turnstile Setup
+
+### 1) Environment variables
+
+Set these values in `.env` (local) and server `.env` (production):
+
+- `SESSION_SECRET` (long random secret, required for stable login cookies)
+- `WEBAUTHN_RP_NAME` (ex: `Dwira Immobilier`)
+- `WEBAUTHN_RP_ID`:
+  - local: `localhost`
+  - production: `www.dwiraimmobilier.com`
+- `TURNSTILE_SITE_KEY`
+- `TURNSTILE_SECRET_KEY`
+
+### 2) Cloudflare Turnstile dashboard
+
+1. Create a Turnstile widget in Cloudflare.
+2. Add allowed hostnames:
+- `localhost`
+- `www.dwiraimmobilier.com`
+3. Copy `site key` and `secret key` into `.env`.
+
+### 3) Verify backend + frontend wiring
+
+1. Restart backend after env changes.
+2. Check anti-bot config endpoint:
+```bash
+curl https://www.dwiraimmobilier.com/api/anti-bot/config
+```
+Expected: `enabled: true` and a non-empty `siteKey`.
+3. In reservation confirmation page, Turnstile must appear before submission.
+
+### 4) Passkey domain rules
+
+- Passkey requires `https` in production.
+- Local development works on `http://localhost`.
+- `WEBAUTHN_RP_ID` must exactly match the domain used by users.
+
 ## GitHub Actions Secrets
 
 Set these repo secrets:

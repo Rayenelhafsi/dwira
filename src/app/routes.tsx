@@ -26,6 +26,7 @@ import StatistiquesPage from "./admin/pages/StatistiquesPage";
 import MarketingPage from "./admin/pages/MarketingPage";
 import UtilisateursPage from "./admin/pages/UtilisateursPage";
 import ParametresPage from "./admin/pages/ParametresPage";
+import SecurityAuditPage from "./admin/pages/SecurityAuditPage";
 
 export const router = createBrowserRouter([
   {
@@ -70,6 +71,7 @@ export const router = createBrowserRouter([
       { path: "statistiques", Component: StatistiquesPage },
       { path: "marketing", Component: MarketingPage },
       { path: "utilisateurs", Component: UtilisateursPage },
+      { path: "audit-securite", Component: SecurityAuditPage },
       { path: "parametres", Component: ParametresPage },
     ],
   },

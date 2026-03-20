@@ -59,8 +59,8 @@ export default function NotificationsPage() {
     setLoading(true);
     try {
       const [notificationsResponse, demandsResponse] = await Promise.all([
-        fetch(`${API_URL}/notifications`),
-        fetch(`${API_URL}/reservation-demands`),
+        fetch(`${API_URL}/notifications`, { credentials: 'include' }),
+        fetch(`${API_URL}/reservation-demands`, { credentials: 'include' }),
       ]);
       if (!notificationsResponse.ok) throw new Error(await getApiErrorMessage(notificationsResponse, 'Impossible de charger les notifications'));
       if (!demandsResponse.ok) throw new Error(await getApiErrorMessage(demandsResponse, 'Impossible de charger les demandes'));
@@ -90,6 +90,7 @@ export default function NotificationsPage() {
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           ...patch,
           actor_type: 'admin',
@@ -112,8 +113,9 @@ export default function NotificationsPage() {
 
   const openHistory = async (demandId: string) => {
     try {
-      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demandId)}/history`);
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demandId)}/history`, { credentials: 'include' });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Impossible de charger l historique'));
+      
       const rows = await response.json();
       setHistoryRows(Array.isArray(rows) ? rows : []);
       setHistoryDemandId(demandId);
@@ -124,7 +126,7 @@ export default function NotificationsPage() {
 
   const markNotificationAsRead = async (notificationId: string) => {
     try {
-      const response = await fetch(`${API_URL}/notifications/${encodeURIComponent(notificationId)}/lu`, { method: 'PUT' });
+      const response = await fetch(`${API_URL}/notifications/${encodeURIComponent(notificationId)}/lu`, { method: 'PUT', credentials: 'include' });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Impossible de marquer la notification comme lue'));
       setNotifications((prev) => prev.map((item) => item.id === notificationId ? { ...item, lu: true } : item));
     } catch (error) {

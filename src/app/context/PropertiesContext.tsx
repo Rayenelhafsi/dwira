@@ -38,6 +38,18 @@ const DEFAULT_MODE_PRIORITIES: Record<BienMode, number> = {
   location_annuelle: 3,
 };
 
+function isAdminSessionCached(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = window.localStorage.getItem('dwira_user');
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return String(parsed?.role || '').trim().toLowerCase() === 'admin';
+  } catch {
+    return false;
+  }
+}
+
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -590,22 +602,23 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
     setError(null);
     try {
-      const [biensResponse, zonesResponse, propsResponse, modePrioritiesResponse] = await Promise.all([
-        fetch(`${API_URL}/biens`),
-        fetch(`${API_URL}/zones`),
-        fetch(`${API_URL}/proprietaires`),
-        fetch(`${API_URL}/site-mode-priorities`),
+      const canFetchAdminData = isAdminSessionCached();
+      const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
+        fetch(`${API_URL}/biens`, { credentials: 'include' }),
+        fetch(`${API_URL}/zones`, { credentials: 'include' }),
+        fetch(`${API_URL}/site-mode-priorities`, { credentials: 'include' }),
+        canFetchAdminData ? fetch(`${API_URL}/proprietaires`, { credentials: 'include' }) : Promise.resolve(null),
       ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
       const zonesData = zonesResponse.ok ? await zonesResponse.json() : [];
-      const propsData = propsResponse.ok ? await propsResponse.json() : [];
+      const propsData = propsResponse && propsResponse.ok ? await propsResponse.json() : [];
       const modePrioritiesData = modePrioritiesResponse.ok ? await modePrioritiesResponse.json() : null;
 
       const bienIds = Array.isArray(biensData) ? biensData.map((bien: any) => String(bien?.id || '').trim()).filter(Boolean) : [];
       let allMedia: any[] = [];
       try {
-        const bulkMediaResponse = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`);
+        const bulkMediaResponse = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`, { credentials: 'include' });
         if (bulkMediaResponse.ok) {
           allMedia = await bulkMediaResponse.json();
         }
@@ -637,7 +650,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         await Promise.all(
           bienIds.map(async (bienId) => {
             try {
-              const datesResponse = await fetch(`${API_URL}/unavailable-dates/${bienId}`);
+              const datesResponse = await fetch(`${API_URL}/unavailable-dates/${bienId}`, { credentials: 'include' });
               if (!datesResponse.ok) return;
               const rows = await datesResponse.json();
               datesByBienId.set(bienId, Array.isArray(rows) ? rows : []);
@@ -803,6 +816,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`${API_URL}/biens`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(newBien)
       });
       
@@ -825,6 +839,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`${API_URL}/biens/${updatedBien.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(updatedBien)
       });
       
@@ -844,7 +859,8 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   const deleteBien = async (id: string) => {
     try {
       const response = await fetch(`${API_URL}/biens/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include',
       });
       
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Suppression du bien impossible'));
@@ -860,6 +876,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     const response = await fetch(`${API_URL}/site-mode-priorities`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(next),
     });
     if (!response.ok) {

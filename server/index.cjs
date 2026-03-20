@@ -9,6 +9,13 @@ const sharp = require('sharp');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const Tesseract = require('tesseract.js');
+const XLSX = require('xlsx');
+const {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} = require('@simplewebauthn/server');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 
@@ -28,6 +35,18 @@ const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || process.en
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_OCR_MODEL = String(process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini').trim();
 const CLOUDINARY_UPLOAD_SOURCE_BASE_URL = String(process.env.CLOUDINARY_UPLOAD_SOURCE_BASE_URL || 'https://www.dwiraimmobilier.com').trim().replace(/\/+$/, '');
+const SESSION_COOKIE_NAME = 'dwira_session';
+const DEVICE_COOKIE_NAME = 'dwira_device';
+const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const DEVICE_COOKIE_DURATION_MS = 180 * 24 * 60 * 60 * 1000;
+const SESSION_SECRET = String(process.env.SESSION_SECRET || '').trim() || crypto.randomBytes(32).toString('hex');
+const WEBAUTHN_RP_NAME = String(process.env.WEBAUTHN_RP_NAME || 'Dwira Immobilier').trim() || 'Dwira Immobilier';
+const WEBAUTHN_RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim().toLowerCase();
+const TURNSTILE_SECRET_KEY = String(process.env.TURNSTILE_SECRET_KEY || '').trim();
+const TURNSTILE_SITE_KEY = String(process.env.TURNSTILE_SITE_KEY || '').trim();
+if (!String(process.env.SESSION_SECRET || '').trim()) {
+  console.warn('[Auth] SESSION_SECRET missing. Using ephemeral in-memory secret; sessions reset on server restart.');
+}
 
 function parseCloudinaryCredentials() {
   const cloudinaryUrl = String(process.env.CLOUDINARY_URL || '').trim();
@@ -304,6 +323,485 @@ function decodeOauthState(rawState) {
     return null;
   }
 }
+
+function toSqlDateBoundary(input, endOfDay = false) {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  return `${raw} ${endOfDay ? '23:59:59' : '00:00:00'}`;
+}
+
+function escapeCsvCell(value, delimiter = ';') {
+  if (value === null || value === undefined) return '';
+  const raw = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  const mustQuote = raw.includes('"') || raw.includes('\n') || raw.includes('\r') || raw.includes(delimiter);
+  if (mustQuote) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+}
+
+function buildCsvFromRows(rows, columns, options = {}) {
+  const delimiter = String(options?.delimiter || ';');
+  const includeExcelSeparatorHint = options?.includeExcelSeparatorHint !== false;
+  const header = columns.map((col) => escapeCsvCell(col.label, delimiter)).join(delimiter);
+  const lines = includeExcelSeparatorHint ? [`sep=${delimiter}`, header] : [header];
+  for (const row of rows || []) {
+    lines.push(columns.map((col) => escapeCsvCell(row[col.key], delimiter)).join(delimiter));
+  }
+  return `\uFEFF${lines.join('\r\n')}`;
+}
+
+function buildXlsxBufferFromRows(rows, sheetName = 'Export') {
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(Array.isArray(rows) ? rows : []);
+  XLSX.utils.book_append_sheet(workbook, worksheet, String(sheetName || 'Export').slice(0, 31) || 'Export');
+  return XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+}
+
+function parseCookies(cookieHeader) {
+  const raw = String(cookieHeader || '').trim();
+  if (!raw) return {};
+  return raw.split(';').reduce((acc, segment) => {
+    const [key, ...rest] = segment.split('=');
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) return acc;
+    acc[normalizedKey] = decodeURIComponent(rest.join('=').trim());
+    return acc;
+  }, {});
+}
+
+function getWebauthnRpId(req) {
+  if (WEBAUTHN_RP_ID) return WEBAUTHN_RP_ID;
+  const hostHeader = String(req?.headers?.host || '').trim().toLowerCase();
+  const hostOnly = hostHeader.split(':')[0] || '';
+  if (hostOnly) return hostOnly;
+  try {
+    const parsed = new URL(CANONICAL_FRONTEND_URL);
+    return String(parsed.hostname || '').trim().toLowerCase() || 'localhost';
+  } catch {
+    return 'localhost';
+  }
+}
+
+function getExpectedWebauthnOrigins(req) {
+  const origins = new Set();
+  const originHeader = String(req?.headers?.origin || '').trim();
+  if (originHeader) origins.add(originHeader);
+  if (CANONICAL_FRONTEND_URL) origins.add(CANONICAL_FRONTEND_URL);
+  if (FRONTEND_URL) origins.add(FRONTEND_URL);
+  origins.add(`http://localhost:5173`);
+  origins.add(`https://localhost:5173`);
+  origins.add(`http://localhost:5174`);
+  origins.add(`https://localhost:5174`);
+  return Array.from(origins).filter(Boolean);
+}
+
+function generateDeviceId() {
+  return `dev_${crypto.randomBytes(18).toString('base64url')}`;
+}
+
+function ensureDeviceIdCookie(req, res) {
+  const cookies = parseCookies(req.headers?.cookie);
+  let deviceId = String(cookies[DEVICE_COOKIE_NAME] || '').trim();
+  if (deviceId && /^[a-zA-Z0-9_-]{8,120}$/.test(deviceId)) {
+    return deviceId;
+  }
+  deviceId = generateDeviceId();
+  res.cookie(DEVICE_COOKIE_NAME, deviceId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
+    maxAge: DEVICE_COOKIE_DURATION_MS,
+  });
+  return deviceId;
+}
+
+const passkeyChallengeStore = new Map();
+
+function persistPasskeyChallenge({ flow, challenge, userId = null, deviceId = null, credentialIds = [] }) {
+  const id = `pkc_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  passkeyChallengeStore.set(id, {
+    flow: String(flow || '').trim(),
+    challenge: String(challenge || '').trim(),
+    userId: userId ? String(userId).trim() : null,
+    deviceId: deviceId ? String(deviceId).trim() : null,
+    credentialIds: Array.isArray(credentialIds) ? credentialIds.map((value) => String(value || '').trim()).filter(Boolean) : [],
+    expiresAt: Date.now() + (5 * 60 * 1000),
+  });
+  return id;
+}
+
+function consumePasskeyChallenge(id, expectedFlow, reqDeviceId) {
+  const key = String(id || '').trim();
+  if (!key) return null;
+  const record = passkeyChallengeStore.get(key);
+  if (!record) return null;
+  passkeyChallengeStore.delete(key);
+  if (Number(record.expiresAt || 0) <= Date.now()) return null;
+  if (expectedFlow && String(record.flow || '') !== String(expectedFlow)) return null;
+  if (record.deviceId && reqDeviceId && String(record.deviceId) !== String(reqDeviceId)) return null;
+  if (!record.challenge) return null;
+  return record;
+}
+
+function signSessionPayload(encodedPayload) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(String(encodedPayload || '')).digest('base64url');
+}
+
+function createSignedSessionToken(user) {
+  const now = Date.now();
+  const payload = {
+    v: 1,
+    iat: now,
+    exp: now + SESSION_DURATION_MS,
+    id: String(user?.id || ''),
+    email: String(user?.email || '').toLowerCase(),
+    name: String(user?.name || '').trim(),
+    firstName: user?.firstName ? String(user.firstName).trim() : null,
+    lastName: user?.lastName ? String(user.lastName).trim() : null,
+    role: String(user?.role || '').trim(),
+    avatar: user?.avatar ? String(user.avatar) : null,
+    clientType: user?.clientType ? String(user.clientType) : null,
+    telephone: user?.telephone ? String(user.telephone) : null,
+    cin: user?.cin ? String(user.cin) : null,
+    cinImageUrl: user?.cinImageUrl ? String(user.cinImageUrl) : null,
+    profileCompleted: Boolean(user?.profileCompleted),
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const signature = signSessionPayload(encodedPayload);
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifySignedSessionToken(token) {
+  const raw = String(token || '').trim();
+  if (!raw || !raw.includes('.')) return null;
+  const [encodedPayload, signature] = raw.split('.');
+  if (!encodedPayload || !signature) return null;
+  const expectedSignature = signSessionPayload(encodedPayload);
+  try {
+    const providedBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    if (providedBuffer.length !== expectedBuffer.length) return null;
+    if (!crypto.timingSafeEqual(providedBuffer, expectedBuffer)) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    if (!payload || typeof payload !== 'object') return null;
+    if (Number(payload.exp || 0) <= Date.now()) return null;
+    if (!payload.id || !payload.email || !payload.name || !payload.role) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function buildAuthUser(user) {
+  return {
+    id: String(user?.id || ''),
+    email: String(user?.email || '').toLowerCase(),
+    name: String(user?.name || '').trim(),
+    firstName: user?.firstName ? String(user.firstName).trim() : null,
+    lastName: user?.lastName ? String(user.lastName).trim() : null,
+    role: String(user?.role || '') === 'admin' ? 'admin' : 'user',
+    avatar: user?.avatar || null,
+    clientType: user?.clientType || null,
+    telephone: user?.telephone || null,
+    cin: user?.cin || null,
+    cinImageUrl: user?.cinImageUrl || null,
+    profileCompleted: Boolean(user?.profileCompleted),
+  };
+}
+
+function getSessionUserFromRequest(req) {
+  const cookies = parseCookies(req.headers?.cookie);
+  const token = cookies[SESSION_COOKIE_NAME];
+  const payload = verifySignedSessionToken(token);
+  if (!payload) return null;
+  return buildAuthUser(payload);
+}
+
+function isSecureRequest(req) {
+  if (req.secure) return true;
+  const forwardedProto = String(req.headers?.['x-forwarded-proto'] || '').toLowerCase();
+  return forwardedProto.includes('https');
+}
+
+function setAuthSessionCookie(req, res, user) {
+  const safeUser = buildAuthUser(user);
+  const token = createSignedSessionToken(safeUser);
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
+    maxAge: SESSION_DURATION_MS,
+  });
+  void bindDeviceToUser(req, safeUser.id, {
+    reason: 'session_set',
+    role: safeUser.role,
+  }).catch(() => {});
+  if (safeUser.role === 'user') {
+    void assignAnonymousInteractionsToUser(req, safeUser).catch(() => {});
+  }
+}
+
+function clearAuthSessionCookie(req, res) {
+  res.cookie(SESSION_COOKIE_NAME, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
+    expires: new Date(0),
+    maxAge: 0,
+  });
+}
+
+function requireAuthenticatedSession(req, res, next) {
+  const user = getSessionUserFromRequest(req);
+  if (!user) {
+    void logSecurityEvent({
+      req,
+      eventType: 'auth_required_missing_session',
+      severity: 'warning',
+      success: false,
+      statusCode: 401,
+      message: 'Access denied: missing authenticated session',
+    });
+    return res.status(401).json({ error: 'Authentification requise' });
+  }
+  req.authUser = user;
+  return next();
+}
+
+function requireAdminSession(req, res, next) {
+  const user = getSessionUserFromRequest(req);
+  if (!user) {
+    void logSecurityEvent({
+      req,
+      eventType: 'admin_access_missing_session',
+      severity: 'warning',
+      success: false,
+      statusCode: 401,
+      message: 'Admin route denied: missing authenticated session',
+    });
+    return res.status(401).json({ error: 'Authentification requise' });
+  }
+  if (user.role !== 'admin') {
+    void logSecurityEvent({
+      req,
+      eventType: 'admin_access_denied',
+      severity: 'warning',
+      success: false,
+      statusCode: 403,
+      userId: user.id || null,
+      userEmail: user.email || null,
+      message: 'Admin route denied: insufficient role',
+    });
+    return res.status(403).json({ error: 'Acces reserve aux administrateurs' });
+  }
+  req.authUser = user;
+  return next();
+}
+
+function normalizeEmailForCompare(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function canAccessReservationDemand(authUser, demand) {
+  if (!authUser || !demand) return false;
+  if (authUser.role === 'admin') return true;
+  const authId = String(authUser.id || '').trim();
+  const demandUserId = String(demand.client_user_id || '').trim();
+  if (authId && demandUserId && authId === demandUserId) return true;
+  const authEmail = normalizeEmailForCompare(authUser.email);
+  const demandEmail = normalizeEmailForCompare(demand.client_email);
+  return Boolean(authEmail && demandEmail && authEmail === demandEmail);
+}
+
+function getClientIp(req) {
+  const forwarded = String(req.headers?.['x-forwarded-for'] || '').trim();
+  if (forwarded) {
+    const [firstIp] = forwarded.split(',').map((value) => String(value || '').trim()).filter(Boolean);
+    if (firstIp) return firstIp;
+  }
+  return String(req.socket?.remoteAddress || req.ip || 'unknown').trim() || 'unknown';
+}
+
+function maskEmailForLog(value) {
+  const email = normalizeEmailForCompare(value);
+  if (!email || !email.includes('@')) return '';
+  const [local, domain] = email.split('@');
+  if (!domain) return '';
+  if (local.length <= 2) return `${local[0] || '*'}***@${domain}`;
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+async function logSecurityEvent({
+  req,
+  eventType,
+  severity = 'info',
+  success = false,
+  statusCode = null,
+  userId = null,
+  userEmail = null,
+  message = null,
+  metadata = null,
+} = {}) {
+  try {
+    if (!eventType) return;
+    const id = `sec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const safeMetadata = metadata && typeof metadata === 'object' ? metadata : null;
+    const metadataJson = safeMetadata ? JSON.stringify(safeMetadata).slice(0, 10000) : null;
+    const requester = req?.authUser || null;
+    const resolvedUserId = userId || requester?.id || null;
+    const resolvedUserEmail = normalizeEmailForCompare(userEmail || requester?.email || '');
+    await pool.query(
+      `INSERT INTO security_audit_logs
+       (id, event_type, severity, success, http_status, method, path, ip, user_agent, user_id, user_email, message, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        String(eventType).trim().slice(0, 80),
+        String(severity || 'info').trim().slice(0, 20),
+        success ? 1 : 0,
+        statusCode === null || statusCode === undefined ? null : Number(statusCode),
+        String(req?.method || '').trim().slice(0, 10) || null,
+        String(req?.originalUrl || req?.url || '').trim().slice(0, 500) || null,
+        getClientIp(req).slice(0, 80),
+        String(req?.headers?.['user-agent'] || '').trim().slice(0, 500) || null,
+        resolvedUserId ? String(resolvedUserId).trim().slice(0, 100) : null,
+        resolvedUserEmail ? String(resolvedUserEmail).trim().slice(0, 255) : null,
+        message ? String(message).trim().slice(0, 1000) : null,
+        metadataJson,
+        getAgencySqlDateTime(),
+      ]
+    );
+  } catch (error) {
+    console.warn('security_audit_log_failed:', error?.message || error);
+  }
+}
+
+async function verifyTurnstileToken(token, remoteIp) {
+  if (!TURNSTILE_SECRET_KEY) return { enabled: false, success: true };
+  const normalizedToken = String(token || '').trim();
+  if (!normalizedToken) return { enabled: true, success: false, reason: 'missing_token' };
+  try {
+    const form = new URLSearchParams();
+    form.set('secret', TURNSTILE_SECRET_KEY);
+    form.set('response', normalizedToken);
+    if (remoteIp) form.set('remoteip', String(remoteIp).trim());
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
+    const payload = await response.json().catch(() => ({}));
+    return {
+      enabled: true,
+      success: Boolean(payload?.success),
+      reason: Array.isArray(payload?.['error-codes']) && payload['error-codes'].length > 0
+        ? String(payload['error-codes'][0])
+        : null,
+    };
+  } catch (error) {
+    return { enabled: true, success: false, reason: String(error?.message || 'turnstile_unreachable') };
+  }
+}
+
+const inMemoryRateLimitStore = new Map();
+
+function createRateLimiter({ windowMs, max, keyPrefix, message }) {
+  const windowSize = Math.max(1000, Number(windowMs || 0));
+  const maxRequests = Math.max(1, Number(max || 1));
+  const prefix = String(keyPrefix || 'default').trim() || 'default';
+  const errorMessage = String(message || 'Trop de tentatives, veuillez reessayer plus tard.').trim();
+
+  return (req, res, next) => {
+    const now = Date.now();
+    const ip = getClientIp(req);
+    const key = `${prefix}:${ip}`;
+    const current = inMemoryRateLimitStore.get(key);
+
+    if (!current || Number(current.resetAt || 0) <= now) {
+      inMemoryRateLimitStore.set(key, { count: 1, resetAt: now + windowSize });
+      return next();
+    }
+
+    const nextCount = Number(current.count || 0) + 1;
+    current.count = nextCount;
+    inMemoryRateLimitStore.set(key, current);
+
+    if (nextCount > maxRequests) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((Number(current.resetAt || 0) - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      void logSecurityEvent({
+        req,
+        eventType: 'rate_limit_exceeded',
+        severity: 'warning',
+        success: false,
+        statusCode: 429,
+        message: `Rate limit exceeded for ${prefix}`,
+        metadata: {
+          keyPrefix: prefix,
+          windowMs: windowSize,
+          maxRequests,
+          retryAfterSeconds,
+        },
+      });
+      return res.status(429).json({ error: errorMessage, retryAfterSeconds });
+    }
+
+    return next();
+  };
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of inMemoryRateLimitStore.entries()) {
+    if (Number(value?.resetAt || 0) <= now) {
+      inMemoryRateLimitStore.delete(key);
+    }
+  }
+}, 60 * 1000).unref?.();
+
+const authLoginRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  keyPrefix: 'auth-login',
+  message: 'Trop de tentatives de connexion. Reessayez dans quelques minutes.',
+});
+
+const otpRequestRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 6,
+  keyPrefix: 'otp-request',
+  message: 'Trop de demandes OTP. Reessayez dans quelques minutes.',
+});
+
+const otpVerifyRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  keyPrefix: 'otp-verify',
+  message: 'Trop de verifications OTP. Reessayez dans quelques minutes.',
+});
+
+const reservationMutationRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  keyPrefix: 'reservation-mutation',
+  message: 'Trop d actions sensibles sur les reservations. Reessayez dans quelques minutes.',
+});
+
+const paymentRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  keyPrefix: 'reservation-pay',
+  message: 'Trop de tentatives de paiement. Reessayez dans quelques minutes.',
+});
 
 function buildFrontendLoginUrl({ socialToken = null, oauthError = null, returnTo = null } = {}) {
   const params = new URLSearchParams();
@@ -656,6 +1154,10 @@ app.use((req, res, next) => {
   if (String(req.headers['x-forwarded-proto'] || '').includes('https')) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
+  next();
+});
+app.use((req, res, next) => {
+  req.deviceId = ensureDeviceIdCookie(req, res);
   next();
 });
 
@@ -1906,6 +2408,15 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of passkeyChallengeStore.entries()) {
+    if (Number(entry?.expiresAt || 0) <= now) {
+      passkeyChallengeStore.delete(key);
+    }
+  }
+}, 60 * 1000).unref?.();
+
 async function ensureAuthSchema() {
   const columnExists = async (tableName, columnName) => {
     const [rows] = await pool.query(
@@ -1946,7 +2457,7 @@ async function ensureAuthSchema() {
 
   if (!(await columnExists('utilisateurs', 'auth_provider'))) {
     await pool.query(
-      "ALTER TABLE utilisateurs ADD COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email') NOT NULL DEFAULT 'local'"
+      "ALTER TABLE utilisateurs ADD COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email', 'passkey') NOT NULL DEFAULT 'local'"
     );
   }
 
@@ -1959,9 +2470,12 @@ async function ensureAuthSchema() {
      LIMIT 1`
   );
   const authProviderColumnType = String(authProviderRows?.[0]?.column_type || '');
-  if (authProviderColumnType && (!authProviderColumnType.includes("'phone'") || !authProviderColumnType.includes("'email'"))) {
+  if (
+    authProviderColumnType
+    && (!authProviderColumnType.includes("'phone'") || !authProviderColumnType.includes("'email'") || !authProviderColumnType.includes("'passkey'"))
+  ) {
     await pool.query(
-      "ALTER TABLE utilisateurs MODIFY COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email') NOT NULL DEFAULT 'local'"
+      "ALTER TABLE utilisateurs MODIFY COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email', 'passkey') NOT NULL DEFAULT 'local'"
     );
   }
 
@@ -2685,6 +3199,141 @@ async function ensureZonesSchema() {
   }
 }
 
+async function ensurePasskeySchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_devices (
+      id VARCHAR(80) PRIMARY KEY,
+      user_id VARCHAR(50) NOT NULL,
+      device_id VARCHAR(120) NOT NULL,
+      first_seen_at DATETIME NOT NULL,
+      last_seen_at DATETIME NOT NULL,
+      user_agent VARCHAR(500) NULL,
+      ip VARCHAR(80) NULL,
+      metadata_json LONGTEXT NULL,
+      UNIQUE KEY uq_user_device (user_id, device_id),
+      INDEX idx_user_devices_device (device_id),
+      INDEX idx_user_devices_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS passkey_credentials (
+      id VARCHAR(80) PRIMARY KEY,
+      user_id VARCHAR(50) NOT NULL,
+      credential_id VARCHAR(255) NOT NULL,
+      public_key_base64 LONGTEXT NOT NULL,
+      counter BIGINT NOT NULL DEFAULT 0,
+      transports_json VARCHAR(255) NULL,
+      device_type VARCHAR(30) NULL,
+      backed_up TINYINT(1) NOT NULL DEFAULT 0,
+      disabled TINYINT(1) NOT NULL DEFAULT 0,
+      friendly_name VARCHAR(120) NULL,
+      created_at DATETIME NOT NULL,
+      last_used_at DATETIME NOT NULL,
+      UNIQUE KEY uq_passkey_credential_id (credential_id),
+      INDEX idx_passkey_user (user_id),
+      INDEX idx_passkey_last_used (last_used_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+async function bindDeviceToUser(req, userId, metadata = null) {
+  const deviceId = String(req?.deviceId || '').trim();
+  const normalizedUserId = String(userId || '').trim();
+  if (!deviceId || !normalizedUserId) return;
+  const now = getAgencySqlDateTime();
+  const metadataJson = metadata && typeof metadata === 'object'
+    ? JSON.stringify(metadata).slice(0, 5000)
+    : null;
+  await pool.query(
+    `INSERT INTO user_devices (id, user_id, device_id, first_seen_at, last_seen_at, user_agent, ip, metadata_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       last_seen_at = VALUES(last_seen_at),
+       user_agent = VALUES(user_agent),
+       ip = VALUES(ip),
+       metadata_json = VALUES(metadata_json)`,
+    [
+      `ud_${normalizedUserId}_${deviceId}`.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 80),
+      normalizedUserId,
+      deviceId,
+      now,
+      now,
+      String(req?.headers?.['user-agent'] || '').trim().slice(0, 500) || null,
+      getClientIp(req).slice(0, 80),
+      metadataJson,
+    ]
+  );
+}
+
+async function assignAnonymousInteractionsToUser(req, user) {
+  const normalizedUserId = String(user?.id || '').trim();
+  if (!normalizedUserId) return 0;
+  const deviceId = String(req?.deviceId || '').trim();
+  const normalizedEmail = normalizeEmailForCompare(user?.email);
+  const normalizedName = String(user?.name || '').trim();
+  if (!deviceId && !normalizedEmail) return 0;
+
+  const [result] = await pool.query(
+    `UPDATE client_interactions
+     SET client_user_id = ?,
+         client_email = COALESCE(NULLIF(client_email, ''), ?),
+         client_name = COALESCE(NULLIF(client_name, ''), ?)
+     WHERE source = 'site_public'
+       AND (client_user_id IS NULL OR client_user_id = '')
+       AND (
+         (device_id = ? AND ? <> '')
+         OR (LOWER(TRIM(client_email)) = ? AND ? <> '')
+       )`,
+    [
+      normalizedUserId,
+      normalizedEmail || null,
+      normalizedName || null,
+      deviceId || null,
+      deviceId || '',
+      normalizedEmail || '',
+      normalizedEmail || '',
+    ]
+  );
+  return Number(result?.affectedRows || 0);
+}
+
+async function getPasskeyRowsForUser(userId) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return [];
+  const [rows] = await pool.query(
+    `SELECT id, user_id, credential_id, public_key_base64, counter, transports_json, device_type, backed_up, disabled, friendly_name
+     FROM passkey_credentials
+     WHERE user_id = ? AND disabled = 0`,
+    [normalizedUserId]
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function getPasskeyRowsForDevice(deviceId) {
+  const normalizedDeviceId = String(deviceId || '').trim();
+  if (!normalizedDeviceId) return [];
+  const [rows] = await pool.query(
+    `SELECT
+       pc.id,
+       pc.user_id,
+       pc.credential_id,
+       pc.public_key_base64,
+       pc.counter,
+       pc.transports_json,
+       pc.device_type,
+       pc.backed_up,
+       pc.disabled,
+       pc.friendly_name
+     FROM passkey_credentials pc
+     INNER JOIN user_devices ud ON ud.user_id = pc.user_id
+     WHERE ud.device_id = ?
+       AND pc.disabled = 0`,
+    [normalizedDeviceId]
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
 async function enrichBiensWithCaracteristiques(rows) {
   const baseRows = Array.isArray(rows) ? rows : [];
   if (baseRows.length === 0) return baseRows;
@@ -2820,7 +3469,7 @@ async function upsertSocialUser({ email, name, avatar, provider, providerUserId 
     providerUserId: rows[0].provider_user_id || null,
     lastLoginAt: rows[0].last_login_at || null,
     updatedAt: rows[0].updated_at || null,
-    profileCompleted: Boolean(rows[0].profile_completed_at && rows[0].telephone && rows[0].client_type),
+    profileCompleted: isLegalIdentityProfileCompleted(rows[0]),
   };
 }
 
@@ -2831,6 +3480,24 @@ function normalizePhoneNumber(value) {
   const digits = raw.replace(/\D/g, '');
   if (!digits) return '';
   return `${hasPlus ? '+' : ''}${digits}`;
+}
+
+function splitFullName(fullName) {
+  const normalized = String(fullName || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return { firstName: '', lastName: '' };
+  const parts = normalized.split(' ');
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return {
+    firstName: parts.slice(0, -1).join(' '),
+    lastName: parts.slice(-1).join(''),
+  };
+}
+
+function isLegalIdentityProfileCompleted(user) {
+  const fullName = String(user?.nom || user?.name || '').trim();
+  const phone = String(user?.telephone || '').trim();
+  const profileCompletedAt = String(user?.profile_completed_at || '').trim();
+  return Boolean(fullName && phone && profileCompletedAt);
 }
 
 function buildPhonePlaceholderEmail(phone) {
@@ -2876,7 +3543,7 @@ async function upsertPhoneUser({ telephone }) {
       telephone: existingRows[0].telephone || null,
       cin: existingRows[0].cin || null,
       cinImageUrl: existingRows[0].cin_image_url || null,
-      profileCompleted: Boolean(existingRows[0].profile_completed_at && existingRows[0].telephone && existingRows[0].client_type),
+      profileCompleted: isLegalIdentityProfileCompleted(existingRows[0]),
     };
   }
 
@@ -2935,7 +3602,7 @@ async function upsertEmailOtpUser({ email }) {
       telephone: existingRows[0].telephone || null,
       cin: existingRows[0].cin || null,
       cinImageUrl: existingRows[0].cin_image_url || null,
-      profileCompleted: Boolean(existingRows[0].profile_completed_at && existingRows[0].telephone && existingRows[0].client_type),
+      profileCompleted: isLegalIdentityProfileCompleted(existingRows[0]),
     };
   }
 
@@ -3039,18 +3706,82 @@ async function ensureClientInteractionsSchema() {
       client_user_id VARCHAR(50) NULL,
       client_email VARCHAR(100) NULL,
       client_name VARCHAR(150) NULL,
-      type ENUM('visite', 'like', 'partage') NOT NULL,
-      bien_id VARCHAR(50) NOT NULL,
+      type VARCHAR(40) NOT NULL,
+      bien_id VARCHAR(50) NULL,
       property_title VARCHAR(255) NULL,
       source ENUM('site_public', 'admin') NOT NULL DEFAULT 'site_public',
+      device_id VARCHAR(120) NULL,
+      session_id VARCHAR(120) NULL,
+      path VARCHAR(500) NULL,
+      metadata_json LONGTEXT NULL,
       event_at DATETIME NOT NULL,
       created_at DATETIME NOT NULL,
       INDEX idx_client_interactions_user (client_user_id),
       INDEX idx_client_interactions_email (client_email),
       INDEX idx_client_interactions_bien (bien_id),
+      INDEX idx_client_interactions_device (device_id),
+      INDEX idx_client_interactions_type (type),
       INDEX idx_client_interactions_event_at (event_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  const [typeColumnRows] = await pool.query(
+    `SELECT COLUMN_TYPE AS column_type
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'client_interactions'
+       AND COLUMN_NAME = 'type'
+     LIMIT 1`
+  );
+  const typeColumnType = String(typeColumnRows?.[0]?.column_type || '').toLowerCase();
+  if (typeColumnType.includes('enum(')) {
+    await pool.query('ALTER TABLE client_interactions MODIFY COLUMN type VARCHAR(40) NOT NULL');
+  }
+
+  const [bienNullableRows] = await pool.query(
+    `SELECT IS_NULLABLE AS is_nullable
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'client_interactions'
+       AND COLUMN_NAME = 'bien_id'
+     LIMIT 1`
+  );
+  if (String(bienNullableRows?.[0]?.is_nullable || '').toUpperCase() !== 'YES') {
+    await pool.query('ALTER TABLE client_interactions MODIFY COLUMN bien_id VARCHAR(50) NULL');
+  }
+
+  const ensureColumn = async (columnName, ddl) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'client_interactions'
+         AND COLUMN_NAME = ?`,
+      [columnName]
+    );
+    if (Number(rows?.[0]?.total || 0) > 0) return;
+    await pool.query(`ALTER TABLE client_interactions ADD COLUMN ${ddl}`);
+  };
+
+  await ensureColumn('device_id', 'device_id VARCHAR(120) NULL AFTER source');
+  await ensureColumn('session_id', 'session_id VARCHAR(120) NULL AFTER device_id');
+  await ensureColumn('path', 'path VARCHAR(500) NULL AFTER session_id');
+  await ensureColumn('metadata_json', 'metadata_json LONGTEXT NULL AFTER path');
+
+  const ensureIndex = async (indexName, ddl) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'client_interactions'
+         AND INDEX_NAME = ?`,
+      [indexName]
+    );
+    if (Number(rows?.[0]?.total || 0) > 0) return;
+    await pool.query(`CREATE INDEX ${indexName} ON client_interactions (${ddl})`);
+  };
+  await ensureIndex('idx_client_interactions_device', 'device_id');
+  await ensureIndex('idx_client_interactions_type', 'type');
 }
 
 async function ensureClientelesSchema() {
@@ -3275,6 +4006,186 @@ function normalizePaymentMode(value, fallback = 'avance') {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'totalite' || normalized === 'avance') return normalized;
   return fallback;
+}
+
+async function appendClientInteraction({
+  req,
+  clientUserId = null,
+  clientEmail = null,
+  clientName = null,
+  type,
+  bienId = null,
+  propertyTitle = null,
+  source = 'site_public',
+  sessionId = null,
+  routePath = null,
+  metadata = null,
+}) {
+  const normalizedType = String(type || '').trim().toLowerCase();
+  if (!normalizedType) return null;
+  const id = `ci_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const nowSql = getAgencySqlDateTime();
+  const metadataJson = metadata && typeof metadata === 'object' ? JSON.stringify(metadata).slice(0, 10000) : null;
+  const normalizedEmail = normalizeEmailForCompare(clientEmail);
+  await pool.query(
+    `INSERT INTO client_interactions
+     (id, client_user_id, client_email, client_name, type, bien_id, property_title, source, device_id, session_id, path, metadata_json, event_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      clientUserId ? String(clientUserId).trim() : null,
+      normalizedEmail || null,
+      clientName ? String(clientName).trim() : null,
+      normalizedType.slice(0, 40),
+      bienId ? String(bienId).trim() : null,
+      propertyTitle ? String(propertyTitle).trim() : null,
+      source === 'admin' ? 'admin' : 'site_public',
+      String(req?.deviceId || '').trim() || null,
+      sessionId ? String(sessionId).trim().slice(0, 120) : null,
+      routePath ? String(routePath).trim().slice(0, 500) : null,
+      metadataJson,
+      nowSql,
+      nowSql,
+    ]
+  );
+  return {
+    id,
+    clientUserId: clientUserId ? String(clientUserId).trim() : undefined,
+    clientEmail: normalizedEmail || '',
+    clientName: clientName ? String(clientName).trim() : undefined,
+    type: normalizedType.slice(0, 40),
+    bienId: bienId ? String(bienId).trim() : '',
+    propertyTitle: propertyTitle ? String(propertyTitle).trim() : '',
+    source: source === 'admin' ? 'admin' : 'site_public',
+    deviceId: String(req?.deviceId || '').trim() || undefined,
+    sessionId: sessionId ? String(sessionId).trim() : undefined,
+    path: routePath ? String(routePath).trim() : undefined,
+    metadata: metadata && typeof metadata === 'object' ? metadata : undefined,
+    dateTime: nowSql,
+  };
+}
+
+async function upsertLocataireFromReservationProfile({ userId, name, email, telephone, cin }) {
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedEmail = normalizeEmailForCompare(email);
+  const normalizedPhone = normalizePhoneNumber(telephone || '');
+  const normalizedName = String(name || '').trim();
+  const normalizedCin = String(cin || '').trim();
+  if (!normalizedUserId && !normalizedEmail && !normalizedPhone) return null;
+
+  let existingRows = [];
+  if (normalizedUserId) {
+    const [rowsById] = await pool.query(
+      `SELECT id, nom, telephone, email, cin
+       FROM locataires
+       WHERE id = ?
+       LIMIT 1`,
+      [normalizedUserId]
+    );
+    existingRows = rowsById || [];
+  }
+  if (!existingRows[0]) {
+    const [rowsByIdentity] = await pool.query(
+      `SELECT id, nom, telephone, email, cin
+       FROM locataires
+       WHERE (email = ? AND ? <> '') OR (telephone = ? AND ? <> '')
+       LIMIT 1`,
+      [normalizedEmail, normalizedEmail, normalizedPhone, normalizedPhone]
+    );
+    existingRows = rowsByIdentity || [];
+  }
+
+  if (existingRows[0]) {
+    const row = existingRows[0];
+    await pool.query(
+      `UPDATE locataires
+       SET nom = ?, telephone = ?, email = ?, cin = ?
+       WHERE id = ?`,
+      [
+        normalizedName || row.nom || 'Client',
+        normalizedPhone || row.telephone || null,
+        normalizedEmail || row.email || null,
+        normalizedCin || row.cin || null,
+        row.id,
+      ]
+    );
+    return row.id;
+  }
+
+  const id = (normalizedUserId || `l_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`).slice(0, 40);
+  await pool.query(
+    `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      normalizedName || 'Client',
+      normalizedPhone || null,
+      normalizedEmail || null,
+      normalizedCin || null,
+      5,
+      getAgencySqlDateTime(),
+    ]
+  );
+  return id;
+}
+
+async function upsertPasskeyUser({ email, name }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Client';
+  const now = getAgencySqlDateTime();
+  const [existingRows] = await pool.query(
+    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+     FROM utilisateurs
+     WHERE email = ?
+     LIMIT 1`,
+    [normalizedEmail]
+  );
+
+  if (existingRows[0]) {
+    await pool.query(
+      `UPDATE utilisateurs
+       SET auth_provider = 'passkey',
+           provider_user_id = ?,
+           nom = ?,
+           last_login_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [normalizedEmail, normalizedName, now, now, existingRows[0].id]
+    );
+    return {
+      id: existingRows[0].id,
+      email: existingRows[0].email,
+      name: normalizedName || existingRows[0].nom,
+      role: existingRows[0].role,
+      avatar: existingRows[0].avatar || null,
+      clientType: existingRows[0].client_type || null,
+      telephone: existingRows[0].telephone || null,
+      cin: existingRows[0].cin || null,
+      cinImageUrl: existingRows[0].cin_image_url || null,
+      profileCompleted: isLegalIdentityProfileCompleted(existingRows[0]),
+    };
+  }
+
+  const userId = `u${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  await pool.query(
+    `INSERT INTO utilisateurs (
+      id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at, updated_at
+    ) VALUES (?, ?, ?, 'user', NULL, CURDATE(), 'passkey', ?, ?, ?)`,
+    [userId, normalizedName, normalizedEmail, normalizedEmail, now, now]
+  );
+
+  return {
+    id: userId,
+    email: normalizedEmail,
+    name: normalizedName,
+    role: 'user',
+    avatar: null,
+    clientType: null,
+    telephone: null,
+    cin: null,
+    cinImageUrl: null,
+    profileCompleted: false,
+  };
 }
 
 function parseJsonArray(value) {
@@ -4768,6 +5679,8 @@ pool.getConnection()
     conn.release();
     return ensureAuthSchema();
   })
+  .then(() => ensurePasskeySchema())
+  .then(() => ensureSecurityAuditSchema())
   .then(() => ensureAdminNotificationsSchema())
   .then(() => ensureClientInteractionsSchema())
   .then(() => ensureClientelesSchema())
@@ -4804,7 +5717,7 @@ app.get('/api/site-mode-priorities', async (req, res) => {
   }
 });
 
-app.put('/api/site-mode-priorities', async (req, res) => {
+app.put('/api/site-mode-priorities', requireAdminSession, async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
     const normalized = normalizeSiteModePriorities(req.body || {});
@@ -4855,7 +5768,7 @@ app.get('/api/type-filter-images', async (req, res) => {
   }
 });
 
-app.put('/api/type-filter-images', async (req, res) => {
+app.put('/api/type-filter-images', requireAdminSession, async (req, res) => {
   try {
     await ensureTypeFilterImagesSchema();
     const mode = String(req.body?.mode_bien || req.body?.mode || '').trim();
@@ -4897,7 +5810,7 @@ app.put('/api/type-filter-images', async (req, res) => {
   }
 });
 
-app.delete('/api/type-filter-images/:id', async (req, res) => {
+app.delete('/api/type-filter-images/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureTypeFilterImagesSchema();
     const id = String(req.params.id || '').trim();
@@ -4941,7 +5854,7 @@ app.get('/api/home-filter-option-images', async (req, res) => {
   }
 });
 
-app.put('/api/home-filter-option-images', async (req, res) => {
+app.put('/api/home-filter-option-images', requireAdminSession, async (req, res) => {
   try {
     await ensureHomeFilterOptionImagesSchema();
     const mode = String(req.body?.mode_bien || req.body?.mode || '').trim();
@@ -4984,7 +5897,7 @@ app.put('/api/home-filter-option-images', async (req, res) => {
   }
 });
 
-app.delete('/api/home-filter-option-images/:id', async (req, res) => {
+app.delete('/api/home-filter-option-images/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureHomeFilterOptionImagesSchema();
     const id = String(req.params.id || '').trim();
@@ -5010,7 +5923,7 @@ app.get('/api/services-payants/catalogue', async (req, res) => {
   }
 });
 
-app.post('/api/services-payants/catalogue', async (req, res) => {
+app.post('/api/services-payants/catalogue', requireAdminSession, async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     const service = normalizePaidServiceRecord(req.body || {});
@@ -5060,7 +5973,7 @@ app.post('/api/services-payants/catalogue', async (req, res) => {
   }
 });
 
-app.put('/api/services-payants/catalogue/:id', async (req, res) => {
+app.put('/api/services-payants/catalogue/:id', requireAdminSession, async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     const serviceId = String(req.params.id || '').trim();
@@ -5122,7 +6035,7 @@ app.put('/api/services-payants/catalogue/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/services-payants/catalogue/:id', async (req, res) => {
+app.delete('/api/services-payants/catalogue/:id', requireAdminSession, async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     const serviceId = String(req.params.id || '').trim();
@@ -5211,7 +6124,7 @@ app.get('/api/biens/:id', async (req, res) => {
 });
 
 // POST create bien
-app.post('/api/biens', async (req, res) => {
+app.post('/api/biens', requireAdminSession, async (req, res) => {
   try {
     const {
       id,
@@ -5441,7 +6354,7 @@ app.post('/api/biens', async (req, res) => {
 
 
 // PUT update bien
-app.put('/api/biens/:id', async (req, res) => {
+app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
   try {
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
@@ -5694,7 +6607,7 @@ app.patch('/api/biens/:id/maintenance-state', async (req, res) => {
 
 
 // DELETE bien
-app.delete('/api/biens/:id', async (req, res) => {
+app.delete('/api/biens/:id', requireAdminSession, async (req, res) => {
   try {
     await pool.query('DELETE FROM biens WHERE id = ?', [req.params.id]);
     res.json({ message: 'Bien deleted successfully' });
@@ -5719,7 +6632,7 @@ app.get('/api/zones', async (req, res) => {
   }
 });
 
-app.post('/api/zones', async (req, res) => {
+app.post('/api/zones', requireAdminSession, async (req, res) => {
   try {
     await ensureZonesSchema();
     const normalizeMapsInput = (raw) => {
@@ -5783,7 +6696,7 @@ app.post('/api/zones', async (req, res) => {
 // PROPRIETAIRES API
 // ============================================
 
-app.get('/api/proprietaires', async (req, res) => {
+app.get('/api/proprietaires', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM proprietaires ORDER BY nom');
     res.json(rows);
@@ -5793,7 +6706,7 @@ app.get('/api/proprietaires', async (req, res) => {
   }
 });
 
-app.post('/api/proprietaires', async (req, res) => {
+app.post('/api/proprietaires', requireAdminSession, async (req, res) => {
   try {
     const { id, nom, telephone, email, cin } = req.body;
     const newId = id || 'p' + Date.now();
@@ -5807,7 +6720,7 @@ app.post('/api/proprietaires', async (req, res) => {
   }
 });
 
-app.put('/api/proprietaires/:id', async (req, res) => {
+app.put('/api/proprietaires/:id', requireAdminSession, async (req, res) => {
   try {
     const { nom, telephone, email, cin } = req.body;
     await pool.query('UPDATE proprietaires SET nom = ?, telephone = ?, email = ?, cin = ? WHERE id = ?',
@@ -5820,7 +6733,7 @@ app.put('/api/proprietaires/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/proprietaires/:id', async (req, res) => {
+app.delete('/api/proprietaires/:id', requireAdminSession, async (req, res) => {
   try {
     await pool.query('DELETE FROM proprietaires WHERE id = ?', [req.params.id]);
     res.json({ message: 'Proprietaire deleted' });
@@ -5834,7 +6747,7 @@ app.delete('/api/proprietaires/:id', async (req, res) => {
 // LOCATAIRES API
 // ============================================
 
-app.get('/api/locataires', async (req, res) => {
+app.get('/api/locataires', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM locataires ORDER BY nom');
     res.json(rows);
@@ -5843,7 +6756,7 @@ app.get('/api/locataires', async (req, res) => {
   }
 });
 
-app.post('/api/locataires', async (req, res) => {
+app.post('/api/locataires', requireAdminSession, async (req, res) => {
   try {
     const { nom, telephone, email, cin, score_fiabilite } = req.body;
     const id = 'l' + Date.now();
@@ -5860,7 +6773,7 @@ app.post('/api/locataires', async (req, res) => {
   }
 });
 
-app.get('/api/proprietaires/:id/linked-biens', async (req, res) => {
+app.get('/api/proprietaires/:id/linked-biens', requireAdminSession, async (req, res) => {
   try {
     const ownerId = String(req.params.id || '').trim();
     if (!ownerId) return res.status(400).json({ error: 'id proprietaire requis' });
@@ -5875,7 +6788,7 @@ app.get('/api/proprietaires/:id/linked-biens', async (req, res) => {
   }
 });
 
-app.post('/api/proprietaires/:id/reassign-and-delete', async (req, res) => {
+app.post('/api/proprietaires/:id/reassign-and-delete', requireAdminSession, async (req, res) => {
   const connection = await pool.getConnection();
   try {
     const ownerId = String(req.params.id || '').trim();
@@ -5921,7 +6834,7 @@ app.post('/api/proprietaires/:id/reassign-and-delete', async (req, res) => {
   }
 });
 
-app.delete('/api/zones/:id', async (req, res) => {
+app.delete('/api/zones/:id', requireAdminSession, async (req, res) => {
   try {
     const zoneId = String(req.params.id || '').trim();
     if (!zoneId) return res.status(400).json({ error: 'id zone requis' });
@@ -5937,7 +6850,7 @@ app.delete('/api/zones/:id', async (req, res) => {
   }
 });
 
-app.get('/api/zones/:id/linked-biens', async (req, res) => {
+app.get('/api/zones/:id/linked-biens', requireAdminSession, async (req, res) => {
   try {
     const zoneId = String(req.params.id || '').trim();
     if (!zoneId) return res.status(400).json({ error: 'id zone requis' });
@@ -5952,7 +6865,7 @@ app.get('/api/zones/:id/linked-biens', async (req, res) => {
   }
 });
 
-app.post('/api/zones/:id/reassign-and-delete', async (req, res) => {
+app.post('/api/zones/:id/reassign-and-delete', requireAdminSession, async (req, res) => {
   const connection = await pool.getConnection();
   try {
     const zoneId = String(req.params.id || '').trim();
@@ -5998,7 +6911,7 @@ app.post('/api/zones/:id/reassign-and-delete', async (req, res) => {
   }
 });
 
-app.put('/api/locataires/:id', async (req, res) => {
+app.put('/api/locataires/:id', requireAdminSession, async (req, res) => {
   try {
     const { nom, telephone, email, cin, score_fiabilite } = req.body;
     await pool.query(
@@ -6013,7 +6926,7 @@ app.put('/api/locataires/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/locataires/:id', async (req, res) => {
+app.delete('/api/locataires/:id', requireAdminSession, async (req, res) => {
   try {
     await pool.query('DELETE FROM locataires WHERE id = ?', [req.params.id]);
     res.json({ message: 'Locataire deleted' });
@@ -6027,7 +6940,7 @@ app.delete('/api/locataires/:id', async (req, res) => {
 // CONTRATS API
 // ============================================
 
-app.get('/api/contrats', async (req, res) => {
+app.get('/api/contrats', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT c.*, b.titre as bien_titre, l.nom as locataire_nom 
@@ -6042,8 +6955,9 @@ app.get('/api/contrats', async (req, res) => {
   }
 });
 
-app.get('/api/contrats/:id', async (req, res) => {
+app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
   try {
+    const requester = req.authUser || null;
     const contractId = String(req.params.id || '').trim();
     if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
     const [rows] = await pool.query(
@@ -6056,6 +6970,35 @@ app.get('/api/contrats/:id', async (req, res) => {
       [contractId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Contrat introuvable' });
+    if (requester?.role !== 'admin') {
+      const requesterId = String(requester?.id || '').trim();
+      const requesterEmail = normalizeEmailForCompare(requester?.email);
+      const [accessRows] = await pool.query(
+        `SELECT id
+         FROM reservation_demands
+         WHERE contract_id = ?
+           AND (
+             (client_user_id IS NOT NULL AND client_user_id = ?)
+             OR (client_email IS NOT NULL AND LOWER(TRIM(client_email)) = ?)
+           )
+         LIMIT 1`,
+        [contractId, requesterId, requesterEmail]
+      );
+      if (!accessRows[0]) {
+        void logSecurityEvent({
+          req,
+          eventType: 'contract_access_denied',
+          severity: 'warning',
+          success: false,
+          statusCode: 403,
+          userId: requester?.id || null,
+          userEmail: requester?.email || null,
+          message: 'Contract access denied by ownership check',
+          metadata: { contractId },
+        });
+        return res.status(403).json({ error: 'Acces refuse a ce contrat' });
+      }
+    }
     res.json(rows[0]);
   } catch (error) {
     console.error('Error fetching contrat by id:', error);
@@ -6063,7 +7006,7 @@ app.get('/api/contrats/:id', async (req, res) => {
   }
 });
 
-app.post('/api/contrats', async (req, res) => {
+app.post('/api/contrats', requireAdminSession, async (req, res) => {
   try {
     const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut } = req.body;
     const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
@@ -6125,7 +7068,7 @@ app.post('/api/contrats', async (req, res) => {
 // PAIEMENTS API
 // ============================================
 
-app.get('/api/paiements', async (req, res) => {
+app.get('/api/paiements', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT p.*, c.id as contrat_ref 
@@ -6139,7 +7082,7 @@ app.get('/api/paiements', async (req, res) => {
   }
 });
 
-app.post('/api/paiements', async (req, res) => {
+app.post('/api/paiements', requireAdminSession, async (req, res) => {
   try {
     const { contrat_id, montant, date_paiement, statut, methode } = req.body;
     const id = 'pay' + Date.now();
@@ -6186,7 +7129,7 @@ app.post('/api/paiements', async (req, res) => {
 // MAINTENANCE API
 // ============================================
 
-app.get('/api/maintenance', async (req, res) => {
+app.get('/api/maintenance', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT
@@ -6205,7 +7148,7 @@ app.get('/api/maintenance', async (req, res) => {
   }
 });
 
-app.post('/api/maintenance', async (req, res) => {
+app.post('/api/maintenance', requireAdminSession, async (req, res) => {
   try {
     const { bien_id, description, cout, statut } = req.body;
     if (!bien_id || !description) {
@@ -6257,7 +7200,7 @@ app.post('/api/maintenance', async (req, res) => {
   }
 });
 
-app.put('/api/maintenance/:id', async (req, res) => {
+app.put('/api/maintenance/:id', requireAdminSession, async (req, res) => {
   try {
     const { description, cout, statut } = req.body || {};
     const [rows] = await pool.query(
@@ -6338,7 +7281,7 @@ app.put('/api/maintenance/:id', async (req, res) => {
 // NOTIFICATIONS API
 // ============================================
 
-app.get('/api/notifications', async (req, res) => {
+app.get('/api/notifications', requireAdminSession, async (req, res) => {
   try {
     await ensureAdminNotificationsSchema();
     const [rows] = await pool.query('SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications ORDER BY created_at DESC LIMIT 50');
@@ -6348,7 +7291,7 @@ app.get('/api/notifications', async (req, res) => {
   }
 });
 
-app.post('/api/notifications', async (req, res) => {
+app.post('/api/notifications', requireAdminSession, async (req, res) => {
   try {
     const { type, message } = req.body;
     const created_at = new Date().toISOString();
@@ -6362,7 +7305,7 @@ app.post('/api/notifications', async (req, res) => {
   }
 });
 
-app.put('/api/notifications/:id/lu', async (req, res) => {
+app.put('/api/notifications/:id/lu', requireAdminSession, async (req, res) => {
   try {
     await ensureAdminNotificationsSchema();
     await pool.query('UPDATE admin_notifications SET lu = 1 WHERE id = ?', [req.params.id]);
@@ -6399,7 +7342,7 @@ app.get('/api/media-bulk', async (req, res) => {
   }
 });
 
-app.put('/api/zones/:id', async (req, res) => {
+app.put('/api/zones/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureZonesSchema();
     const zoneId = String(req.params.id || '').trim();
@@ -6466,7 +7409,7 @@ app.get('/api/media/:bien_id', async (req, res) => {
   }
 });
 
-app.delete('/api/contrats/:id', async (req, res) => {
+app.delete('/api/contrats/:id', requireAdminSession, async (req, res) => {
   try {
     await pool.query('DELETE FROM contrats WHERE id = ?', [req.params.id]);
     res.json({ message: 'Contrat deleted successfully' });
@@ -6476,7 +7419,7 @@ app.delete('/api/contrats/:id', async (req, res) => {
   }
 });
 
-app.put('/api/contrats/:id', async (req, res) => {
+app.put('/api/contrats/:id', requireAdminSession, async (req, res) => {
   try {
     const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut } = req.body;
     if (locataire_id) {
@@ -6579,7 +7522,7 @@ const reservationIdentityUpload = multer({
 // CARACTERISTIQUES API
 // ============================================
 
-app.get('/api/workflow/biens-options', async (req, res) => {
+app.get('/api/workflow/biens-options', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT cc.mode_bien, cc.type_bien, c.id, c.nom
@@ -6630,22 +7573,29 @@ app.get('/api/caracteristique-onglets', async (req, res) => {
   }
 });
 
-app.get('/api/reservation-demands', async (req, res) => {
+app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    const requester = req.authUser || null;
     const where = [];
     const params = [];
-    if (req.query.client_user_id) {
-      where.push('d.client_user_id = ?');
-      params.push(String(req.query.client_user_id));
-    }
-    if (req.query.client_email) {
-      where.push('d.client_email = ?');
-      params.push(String(req.query.client_email).trim().toLowerCase());
-    }
-    if (req.query.proprietaire_id) {
-      where.push('d.proprietaire_id = ?');
-      params.push(String(req.query.proprietaire_id));
+
+    if (requester?.role === 'admin') {
+      if (req.query.client_user_id) {
+        where.push('d.client_user_id = ?');
+        params.push(String(req.query.client_user_id));
+      }
+      if (req.query.client_email) {
+        where.push('d.client_email = ?');
+        params.push(String(req.query.client_email).trim().toLowerCase());
+      }
+      if (req.query.proprietaire_id) {
+        where.push('d.proprietaire_id = ?');
+        params.push(String(req.query.proprietaire_id));
+      }
+    } else {
+      where.push('(d.client_user_id = ? OR (d.client_email IS NOT NULL AND LOWER(TRIM(d.client_email)) = ?))');
+      params.push(String(requester?.id || '').trim(), normalizeEmailForCompare(requester?.email));
     }
 
     const [rows] = await pool.query(`
@@ -6678,9 +7628,25 @@ app.get('/api/reservation-demands', async (req, res) => {
   }
 });
 
-app.get('/api/reservation-demands/:id/history', async (req, res) => {
+app.get('/api/reservation-demands/:id/history', requireAuthenticatedSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const demand = demandRows[0];
+    if (!demand) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(req.authUser, demand)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'reservation_demand_access_denied',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        message: 'Reservation demand history access denied',
+        metadata: { demandId, context: 'history' },
+      });
+      return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
     const [rows] = await pool.query(
       `SELECT
          id,
@@ -6693,7 +7659,7 @@ app.get('/api/reservation-demands/:id/history', async (req, res) => {
        FROM reservation_demand_history
        WHERE demand_id = ?
        ORDER BY created_at ASC`,
-      [req.params.id]
+      [demandId]
     );
     res.json(rows || []);
   } catch (error) {
@@ -6702,9 +7668,10 @@ app.get('/api/reservation-demands/:id/history', async (req, res) => {
   }
 });
 
-app.post('/api/reservation-demands', async (req, res) => {
+app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMutationRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    const requester = req.authUser || null;
     const {
       bien_id,
       client_user_id,
@@ -6720,7 +7687,55 @@ app.post('/api/reservation-demands', async (req, res) => {
       selected_variable_services,
       client_note,
       request_type,
+      turnstileToken,
+      sessionId,
     } = req.body || {};
+
+    const resolvedClientUserId = requester?.role === 'admin'
+      ? (client_user_id || null)
+      : (String(requester?.id || '').trim() || null);
+    let resolvedClientEmail = requester?.role === 'admin'
+      ? (client_email || null)
+      : normalizeEmailForCompare(requester?.email);
+    let resolvedClientName = requester?.role === 'admin'
+      ? (client_name || null)
+      : (String(requester?.name || '').trim() || null);
+    let resolvedClientTelephone = requester?.role === 'admin'
+      ? normalizePhoneNumber(req.body?.client_telephone || '')
+      : normalizePhoneNumber(requester?.telephone || '');
+    let resolvedClientCin = requester?.role === 'admin'
+      ? String(req.body?.client_cin || '').trim()
+      : String(requester?.cin || '').trim();
+
+    if (resolvedClientUserId) {
+      const [clientUserRows] = await pool.query(
+        'SELECT nom, email, telephone, cin FROM utilisateurs WHERE id = ? LIMIT 1',
+        [resolvedClientUserId]
+      );
+      const clientUser = clientUserRows?.[0];
+      if (clientUser) {
+        if (!resolvedClientName) resolvedClientName = String(clientUser.nom || '').trim() || resolvedClientName;
+        if (!resolvedClientEmail) resolvedClientEmail = normalizeEmailForCompare(clientUser.email || resolvedClientEmail);
+        resolvedClientTelephone = normalizePhoneNumber(clientUser.telephone || resolvedClientTelephone);
+        resolvedClientCin = String(clientUser.cin || resolvedClientCin || '').trim();
+      }
+    }
+
+    const antiBotCheck = await verifyTurnstileToken(turnstileToken, getClientIp(req));
+    if (antiBotCheck.enabled && !antiBotCheck.success) {
+      void logSecurityEvent({
+        req,
+        eventType: 'reservation_antibot_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        userId: resolvedClientUserId,
+        userEmail: resolvedClientEmail,
+        message: 'Reservation denied by anti-bot verification',
+        metadata: { reason: antiBotCheck.reason || null },
+      });
+      return res.status(403).json({ error: 'Verification anti-bot invalide. Veuillez reessayer.' });
+    }
 
     if (!bien_id || !start_date || !end_date) {
       return res.status(400).json({ error: 'Bien, date de debut et date de fin requis' });
@@ -6732,6 +7747,22 @@ app.post('/api/reservation-demands', async (req, res) => {
     const [bienRows] = await pool.query('SELECT id, titre, reference, mode, proprietaire_id FROM biens WHERE id = ? LIMIT 1', [bien_id]);
     const bien = bienRows[0];
     if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+    await appendClientInteraction({
+      req,
+      clientUserId: resolvedClientUserId,
+      clientEmail: resolvedClientEmail,
+      clientName: resolvedClientName,
+      type: 'reservation_attempt',
+      bienId: bien.id,
+      propertyTitle: bien.titre,
+      sessionId,
+      routePath: req.originalUrl || req.url || null,
+      metadata: {
+        requestType: request_type === 'visite' ? 'visite' : 'reservation',
+        startDate: start_date,
+        endDate: end_date,
+      },
+    }).catch(() => {});
     const requestType = bien.mode === 'vente' ? 'visite' : (request_type === 'visite' ? 'visite' : 'reservation');
     const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
     const normalizedTotalAmount = Number.isFinite(Number(total_amount)) ? Number(total_amount) : null;
@@ -6773,9 +7804,9 @@ app.post('/api/reservation-demands', async (req, res) => {
         bien_id,
         requestType,
         unavailableDateId,
-        client_user_id || null,
-        client_email || null,
-        client_name || null,
+        resolvedClientUserId,
+        resolvedClientEmail,
+        resolvedClientName,
         bien.proprietaire_id || null,
         ownerUserId,
         start_date,
@@ -6812,15 +7843,43 @@ app.post('/api/reservation-demands', async (req, res) => {
       demandId,
       'en_attente_reponse_proprietaire',
       'client',
-      client_user_id || client_email || null,
+      resolvedClientUserId || resolvedClientEmail || null,
       `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
     );
 
     await createAdminNotification(
       'warning',
-      `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${client_name || client_email || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
+      `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
       now
     );
+
+    if (requestType === 'reservation') {
+      await upsertLocataireFromReservationProfile({
+        userId: resolvedClientUserId,
+        name: resolvedClientName,
+        email: resolvedClientEmail,
+        telephone: resolvedClientTelephone,
+        cin: resolvedClientCin,
+      }).catch((error) => {
+        console.warn('Failed to upsert locataire from reservation profile:', error?.message || error);
+      });
+    }
+
+    await appendClientInteraction({
+      req,
+      clientUserId: resolvedClientUserId,
+      clientEmail: resolvedClientEmail,
+      clientName: resolvedClientName,
+      type: 'reservation_submitted',
+      bienId: bien.id,
+      propertyTitle: bien.titre,
+      sessionId,
+      routePath: req.originalUrl || req.url || null,
+      metadata: {
+        demandId,
+        requestType,
+      },
+    }).catch(() => {});
 
     const [rows] = await pool.query(
       `SELECT
@@ -6850,16 +7909,66 @@ app.post('/api/reservation-demands', async (req, res) => {
   }
 });
 
-app.put('/api/reservation-demands/:id', async (req, res) => {
+app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservationMutationRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
     const demandId = String(req.params.id || '').trim();
-    const body = req.body || {};
+    const requester = req.authUser || null;
+    const rawBody = req.body || {};
     const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
     const current = rows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(requester, current)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'reservation_demand_access_denied',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        message: 'Reservation demand access denied',
+        metadata: { demandId, context: 'update_status' },
+      });
+      return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
+
+    const body = requester?.role === 'admin'
+      ? rawBody
+      : {
+          status: 'attente_envoi_coordonnees_contrat',
+          actor_type: 'client',
+          actor_id: String(requester?.id || requester?.email || 'client').trim(),
+          history_note: String(rawBody?.history_note || '').trim() || 'Client a confirme et passe a l etape des coordonnees',
+          client_note: rawBody?.client_note,
+        };
 
     const nextStatus = normalizeReservationDemandStatus(body.status || current.status);
+    if (requester?.role !== 'admin') {
+      const allowedCurrentStatuses = ['reponse_positive_attente_confirmation_client', 'attente_envoi_coordonnees_contrat'];
+      if (!allowedCurrentStatuses.includes(String(current.status || ''))) {
+        void logSecurityEvent({
+          req,
+          eventType: 'reservation_demand_transition_denied',
+          severity: 'warning',
+          success: false,
+          statusCode: 403,
+          message: 'Client transition denied due to current status',
+          metadata: { demandId, currentStatus: String(current.status || ''), requestedStatus: nextStatus },
+        });
+        return res.status(403).json({ error: 'Transition de statut non autorisee pour ce client' });
+      }
+      if (nextStatus !== 'attente_envoi_coordonnees_contrat') {
+        void logSecurityEvent({
+          req,
+          eventType: 'reservation_demand_transition_denied',
+          severity: 'warning',
+          success: false,
+          statusCode: 403,
+          message: 'Client transition denied due to forbidden target status',
+          metadata: { demandId, requestedStatus: nextStatus },
+        });
+        return res.status(403).json({ error: 'Seule la transition vers attente_envoi_coordonnees_contrat est autorisee' });
+      }
+    }
     const ownerNotifiedAt = body.communicateToOwner
       ? getAgencySqlDateTime()
       : (body.owner_notified_at !== undefined ? body.owner_notified_at : current.owner_notified_at);
@@ -7015,7 +8124,7 @@ app.put('/api/reservation-demands/:id', async (req, res) => {
   }
 });
 
-app.post('/api/reservation-demands/:id/extract-identity', reservationIdentityUpload.single('document'), async (req, res) => {
+app.post('/api/reservation-demands/:id/extract-identity', requireAuthenticatedSession, reservationMutationRateLimit, reservationIdentityUpload.single('document'), async (req, res) => {
   try {
     await ensureReservationDemandSchema();
     const demandId = String(req.params.id || '').trim();
@@ -7025,6 +8134,18 @@ app.post('/api/reservation-demands/:id/extract-identity', reservationIdentityUpl
     const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
     const current = demandRows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(req.authUser, current)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'reservation_demand_access_denied',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        message: 'Reservation demand access denied',
+        metadata: { demandId, context: 'extract_identity' },
+      });
+      return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
     if (!['attente_envoi_coordonnees_contrat', 'reponse_positive_attente_confirmation_client'].includes(String(current.status || ''))) {
       return res.status(400).json({ error: 'Cette demande n est pas dans une etape de collecte des coordonnees' });
     }
@@ -7066,7 +8187,7 @@ app.post('/api/reservation-demands/:id/extract-identity', reservationIdentityUpl
   }
 });
 
-app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUpload.single('document'), async (req, res) => {
+app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSession, reservationMutationRateLimit, reservationIdentityUpload.single('document'), async (req, res) => {
   try {
     await ensureReservationDemandSchema();
     const demandId = String(req.params.id || '').trim();
@@ -7077,6 +8198,18 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
     const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
     const current = demandRows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(req.authUser, current)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'reservation_demand_access_denied',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        message: 'Reservation demand access denied',
+        metadata: { demandId, context: 'submit_identity' },
+      });
+      return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
 
     if (!['attente_envoi_coordonnees_contrat', 'reponse_positive_attente_confirmation_client'].includes(String(current.status || ''))) {
       return res.status(400).json({ error: 'Cette demande n est pas dans une etape de collecte des coordonnees' });
@@ -7084,7 +8217,7 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
 
     const documentType = normalizeIdentityDocumentType(req.body?.document_type || req.body?.identity_document_type, 'cin_tn');
     const documentCountry = String(req.body?.document_country || '').trim() || (documentType === 'passport_foreign' ? 'etranger' : 'tunisie');
-    const actorId = String(req.body?.actor_id || current.client_user_id || current.client_email || 'client').trim();
+    const actorId = String(req.authUser?.id || req.authUser?.email || current.client_user_id || current.client_email || 'client').trim();
     const manualDocumentNumber = normalizeIdentityNumber(req.body?.manual_document_number || req.body?.identity_document_number);
     const manualFirstName = normalizePersonName(req.body?.manual_first_name || req.body?.identity_first_name || req.body?.confirmed_first_name);
     const manualLastName = normalizePersonName(req.body?.manual_last_name || req.body?.identity_last_name || req.body?.confirmed_last_name);
@@ -7321,13 +8454,13 @@ app.post('/api/reservation-demands/:id/submit-identity', reservationIdentityUplo
   }
 });
 
-app.post('/api/reservation-demands/:id/pay', async (req, res) => {
+app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
     const demandId = String(req.params.id || '').trim();
     const scope = String(req.body?.scope || '').trim().toLowerCase();
     const method = String(req.body?.methode || req.body?.method || 'virement').trim() || 'virement';
-    const actorId = String(req.body?.actor_id || req.body?.actorId || 'client').trim() || 'client';
+    const actorId = String(req.authUser?.id || req.authUser?.email || req.body?.actor_id || req.body?.actorId || 'client').trim() || 'client';
     if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
     if (!['reservation', 'services', 'combined'].includes(scope)) {
       return res.status(400).json({ error: 'Scope de paiement invalide' });
@@ -7336,6 +8469,18 @@ app.post('/api/reservation-demands/:id/pay', async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
     const current = rows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(req.authUser, current)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'reservation_demand_access_denied',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        message: 'Reservation demand access denied',
+        metadata: { demandId, context: 'pay' },
+      });
+      return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
     if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
 
     const reservationAmount = Number.isFinite(Number(current.amount_due_now))
@@ -7469,7 +8614,7 @@ app.post('/api/reservation-demands/:id/pay', async (req, res) => {
   }
 });
 
-app.post('/api/caracteristique-onglets', async (req, res) => {
+app.post('/api/caracteristique-onglets', requireAdminSession, async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
     const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
@@ -7508,7 +8653,7 @@ app.post('/api/caracteristique-onglets', async (req, res) => {
   }
 });
 
-app.delete('/api/caracteristique-onglets/:id', async (req, res) => {
+app.delete('/api/caracteristique-onglets/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
     const id = String(req.params.id || '').trim();
@@ -7525,7 +8670,7 @@ app.delete('/api/caracteristique-onglets/:id', async (req, res) => {
   }
 });
 
-app.put('/api/caracteristique-onglets/:id', async (req, res) => {
+app.put('/api/caracteristique-onglets/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
     const id = String(req.params.id || '').trim();
@@ -7608,7 +8753,7 @@ app.get('/api/caracteristiques', async (req, res) => {
   }
 });
 
-app.post('/api/caracteristiques', async (req, res) => {
+app.post('/api/caracteristiques', requireAdminSession, async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
     const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, icon_name, onglet_id, visibilite_client } = req.body;
@@ -7755,6 +8900,71 @@ async function ensureAdminNotificationsSchema() {
       KEY idx_admin_notifications_lu_created (lu, created_at)
     )
   `);
+}
+
+async function ensureSecurityAuditSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS security_audit_logs (
+      id VARCHAR(100) PRIMARY KEY,
+      event_type VARCHAR(80) NOT NULL,
+      severity VARCHAR(20) NOT NULL DEFAULT 'info',
+      success TINYINT(1) NOT NULL DEFAULT 0,
+      http_status INT NULL,
+      method VARCHAR(10) NULL,
+      path VARCHAR(500) NULL,
+      ip VARCHAR(80) NULL,
+      user_agent VARCHAR(500) NULL,
+      user_id VARCHAR(100) NULL,
+      user_email VARCHAR(255) NULL,
+      message VARCHAR(1000) NULL,
+      metadata_json LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      KEY idx_security_audit_created (created_at),
+      KEY idx_security_audit_event (event_type, created_at),
+      KEY idx_security_audit_user (user_id, user_email, created_at)
+    )
+  `);
+}
+
+async function ensureAdminDataExportsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_data_exports (
+      id VARCHAR(100) PRIMARY KEY,
+      dataset VARCHAR(60) NOT NULL,
+      format VARCHAR(20) NOT NULL DEFAULT 'csv',
+      date_from DATETIME NULL,
+      date_to DATETIME NULL,
+      row_count INT NOT NULL DEFAULT 0,
+      exported_by_user_id VARCHAR(100) NULL,
+      exported_by_email VARCHAR(255) NULL,
+      created_at DATETIME NOT NULL,
+      KEY idx_admin_data_exports_dataset_created (dataset, created_at),
+      KEY idx_admin_data_exports_created (created_at)
+    )
+  `);
+}
+
+async function recordAdminDataExport({ dataset, format = 'csv', dateFrom = null, dateTo = null, rowCount = 0, req, user = null }) {
+  await ensureAdminDataExportsSchema();
+  const id = `exp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const actor = user || req?.authUser || null;
+  const now = getAgencySqlDateTime();
+  await pool.query(
+    `INSERT INTO admin_data_exports
+     (id, dataset, format, date_from, date_to, row_count, exported_by_user_id, exported_by_email, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      String(dataset || '').trim().slice(0, 60),
+      String(format || 'csv').trim().slice(0, 20),
+      dateFrom || null,
+      dateTo || null,
+      Math.max(0, Number(rowCount || 0)),
+      actor?.id ? String(actor.id).trim() : null,
+      actor?.email ? String(actor.email).trim().toLowerCase() : null,
+      now,
+    ]
+  );
 }
 
 async function ensureClientelesTasksSchema() {
@@ -7953,7 +9163,7 @@ async function ensureContractsSchema() {
   }
 }
 
-app.delete('/api/caracteristiques/:id', async (req, res) => {
+app.delete('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
     const featureId = String(req.params.id || '').trim();
@@ -8013,7 +9223,7 @@ app.delete('/api/caracteristiques/:id', async (req, res) => {
   }
 });
 
-app.put('/api/caracteristiques/:id', async (req, res) => {
+app.put('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
     const featureId = String(req.params.id || '').trim();
@@ -8153,7 +9363,7 @@ app.put('/api/caracteristiques/:id', async (req, res) => {
   }
 });
 
-app.post('/api/biens/:id/caracteristiques', async (req, res) => {
+app.post('/api/biens/:id/caracteristiques', requireAdminSession, async (req, res) => {
   try {
     const { caracteristique_ids } = req.body;
     if (!Array.isArray(caracteristique_ids)) {
@@ -8173,7 +9383,7 @@ app.post('/api/biens/:id/caracteristiques', async (req, res) => {
 });
 
 // Upload media endpoint
-app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
+app.post('/api/upload', requireAuthenticatedSession, uploadMediaMiddleware, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -8254,7 +9464,7 @@ app.post('/api/upload', uploadMediaMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/upload-contract', contractUpload.single('contract'), async (req, res) => {
+app.post('/api/upload-contract', requireAdminSession, contractUpload.single('contract'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No contract file uploaded' });
@@ -8271,7 +9481,7 @@ app.post('/api/upload-contract', contractUpload.single('contract'), async (req, 
   }
 });
 
-app.post('/api/media', async (req, res) => {
+app.post('/api/media', requireAdminSession, async (req, res) => {
   try {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({ error: 'payload JSON invalide' });
@@ -8318,7 +9528,7 @@ app.post('/api/media', async (req, res) => {
 
 
 // Update media order
-app.put('/api/media/:id/position', async (req, res) => {
+app.put('/api/media/:id/position', requireAdminSession, async (req, res) => {
   try {
     const { position } = req.body;
     await pool.query('UPDATE media SET position = ? WHERE id = ?', [position, req.params.id]);
@@ -8330,7 +9540,7 @@ app.put('/api/media/:id/position', async (req, res) => {
 });
 
 // Bulk update media positions
-app.put('/api/media/bulk/positions', async (req, res) => {
+app.put('/api/media/bulk/positions', requireAdminSession, async (req, res) => {
   try {
     const { media } = req.body;
     if (!Array.isArray(media)) {
@@ -8348,7 +9558,7 @@ app.put('/api/media/bulk/positions', async (req, res) => {
   }
 });
 
-app.delete('/api/media/:id', async (req, res) => {
+app.delete('/api/media/:id', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT id, type, url FROM media WHERE id = ? LIMIT 1', [req.params.id]);
     const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
@@ -8396,7 +9606,7 @@ app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
   }
 });
 
-app.post('/api/unavailable-dates', async (req, res) => {
+app.post('/api/unavailable-dates', requireAdminSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
     const { bien_id, start_date, end_date, status } = req.body;
@@ -8413,7 +9623,7 @@ app.post('/api/unavailable-dates', async (req, res) => {
   }
 });
 
-app.delete('/api/unavailable-dates/:id', async (req, res) => {
+app.delete('/api/unavailable-dates/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
     await pool.query('DELETE FROM unavailable_dates WHERE id = ?', [req.params.id]);
@@ -8431,10 +9641,19 @@ app.delete('/api/unavailable-dates/:id', async (req, res) => {
 // AUTH API
 // ============================================
 
-app.post('/api/auth/admin/login', async (req, res) => {
+app.post('/api/auth/admin/login', authLoginRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
+      void logSecurityEvent({
+        req,
+        eventType: 'admin_login_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 400,
+        userEmail: email || null,
+        message: 'Admin login failed: missing email or password',
+      });
       return res.status(400).json({ error: 'Email et mot de passe obligatoires' });
     }
 
@@ -8444,24 +9663,63 @@ app.post('/api/auth/admin/login', async (req, res) => {
     );
     const admin = rows[0];
     if (!admin || !admin.actif) {
+      void logSecurityEvent({
+        req,
+        eventType: 'admin_login_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 401,
+        userEmail: email,
+        message: 'Admin login failed: invalid credentials',
+      });
       return res.status(401).json({ error: 'Identifiants administrateur invalides' });
     }
 
     const isPasswordValid = await bcrypt.compare(String(password), admin.mot_de_passe_hash);
     if (!isPasswordValid) {
+      void logSecurityEvent({
+        req,
+        eventType: 'admin_login_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 401,
+        userEmail: email,
+        message: 'Admin login failed: invalid credentials',
+      });
       return res.status(401).json({ error: 'Identifiants administrateur invalides' });
     }
 
-    res.json({
-      user: {
-        id: admin.id,
-        email: admin.email,
-        name: admin.nom,
-        role: 'admin',
-      },
+    const authUser = buildAuthUser({
+      id: admin.id,
+      email: admin.email,
+      name: admin.nom,
+      role: 'admin',
+      profileCompleted: true,
     });
+    setAuthSessionCookie(req, res, authUser);
+    void logSecurityEvent({
+      req,
+      eventType: 'admin_login_success',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      userId: authUser.id,
+      userEmail: authUser.email,
+      message: 'Admin login successful',
+    });
+    res.json({ user: authUser });
   } catch (error) {
     console.error('Error during admin login:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'admin_login_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      userEmail: req.body?.email || null,
+      message: 'Admin login failed: server error',
+      metadata: { error: String(error?.message || error || '') },
+    });
     res.status(500).json({ error: 'Erreur de connexion administrateur' });
   }
 });
@@ -8471,12 +9729,583 @@ app.get('/api/auth/providers', (req, res) => {
   const facebookConfigured = Boolean(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET);
   const phoneOtpConfigured = false;
   const emailOtpConfigured = Boolean((process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.ALLOW_EMAIL_OTP_IN_RESPONSE === '1');
+  const passkeyConfigured = true;
   res.json({
     google: googleConfigured,
     facebook: facebookConfigured,
     phoneOtp: phoneOtpConfigured,
     emailOtp: emailOtpConfigured,
+    passkey: passkeyConfigured,
   });
+});
+
+app.get('/api/anti-bot/config', (req, res) => {
+  const enabled = Boolean(TURNSTILE_SECRET_KEY && TURNSTILE_SITE_KEY);
+  res.json({
+    provider: 'turnstile',
+    enabled,
+    siteKey: enabled ? TURNSTILE_SITE_KEY : null,
+  });
+});
+
+app.get('/api/auth/session', (req, res) => {
+  const user = getSessionUserFromRequest(req);
+  if (!user) {
+    return res.json({ authenticated: false, user: null });
+  }
+  res.json({ authenticated: true, user });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  clearAuthSessionCookie(req, res);
+  res.json({ success: true });
+});
+
+app.post('/api/auth/passkey/register/options', authLoginRateLimit, async (req, res) => {
+  try {
+    await ensureAuthSchema();
+    await ensurePasskeySchema();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const name = String(req.body?.name || '').trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Email invalide' });
+    }
+    const user = await upsertPasskeyUser({ email, name });
+    const existingCredentials = await getPasskeyRowsForUser(user.id);
+    const rpID = getWebauthnRpId(req);
+    const options = await generateRegistrationOptions({
+      rpName: WEBAUTHN_RP_NAME,
+      rpID,
+      userID: Buffer.from(String(user.id), 'utf8'),
+      userName: user.email,
+      userDisplayName: user.name,
+      timeout: 60_000,
+      attestationType: 'none',
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'preferred',
+      },
+      supportedAlgorithmIDs: [-7, -257],
+      excludeCredentials: existingCredentials.map((row) => ({
+        id: String(row.credential_id),
+        type: 'public-key',
+      })),
+    });
+    const challengeId = persistPasskeyChallenge({
+      flow: 'register',
+      challenge: options.challenge,
+      userId: user.id,
+      deviceId: req.deviceId,
+    });
+    void logSecurityEvent({
+      req,
+      eventType: 'passkey_register_options_issued',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      userId: user.id,
+      userEmail: user.email,
+      message: 'Passkey registration options issued',
+    });
+    res.json({ options, challengeId, user: buildAuthUser(user) });
+  } catch (error) {
+    console.error('Passkey register options error:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'passkey_register_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      message: 'Passkey register options failed',
+      metadata: { error: String(error?.message || error || '') },
+    });
+    res.status(500).json({ error: 'Impossible de preparer la creation Passkey' });
+  }
+});
+
+app.post('/api/auth/passkey/register/verify', authLoginRateLimit, async (req, res) => {
+  try {
+    await ensureAuthSchema();
+    await ensurePasskeySchema();
+    const challengeId = String(req.body?.challengeId || '').trim();
+    const credential = req.body?.credential;
+    const friendlyName = String(req.body?.friendlyName || '').trim() || null;
+    const challengeRecord = consumePasskeyChallenge(challengeId, 'register', req.deviceId);
+    if (!challengeRecord) {
+      return res.status(400).json({ error: 'Challenge Passkey invalide ou expire' });
+    }
+    const userId = String(challengeRecord.userId || '').trim();
+    if (!userId || !credential) {
+      return res.status(400).json({ error: 'Requete Passkey invalide' });
+    }
+    const [userRows] = await pool.query(
+      `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+       FROM utilisateurs WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const user = userRows?.[0];
+    if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
+    const verification = await verifyRegistrationResponse({
+      response: credential,
+      expectedChallenge: challengeRecord.challenge,
+      expectedOrigin: getExpectedWebauthnOrigins(req),
+      expectedRPID: getWebauthnRpId(req),
+      requireUserVerification: true,
+    });
+    if (!verification.verified || !verification.registrationInfo) {
+      void logSecurityEvent({
+        req,
+        eventType: 'passkey_register_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 401,
+        userId: user.id,
+        userEmail: user.email,
+        message: 'Passkey registration verification failed',
+      });
+      return res.status(401).json({ error: 'Verification Passkey echouee' });
+    }
+    const registrationInfo = verification.registrationInfo;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO passkey_credentials (
+         id, user_id, credential_id, public_key_base64, counter, transports_json,
+         device_type, backed_up, disabled, friendly_name, created_at, last_used_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         user_id = VALUES(user_id),
+         public_key_base64 = VALUES(public_key_base64),
+         counter = VALUES(counter),
+         transports_json = VALUES(transports_json),
+         device_type = VALUES(device_type),
+         backed_up = VALUES(backed_up),
+         disabled = 0,
+         friendly_name = VALUES(friendly_name),
+         last_used_at = VALUES(last_used_at)`,
+      [
+        `pk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        String(user.id),
+        String(registrationInfo.credentialID),
+        Buffer.from(registrationInfo.credentialPublicKey).toString('base64url'),
+        Number(registrationInfo.counter || 0),
+        JSON.stringify(Array.isArray(credential?.response?.transports) ? credential.response.transports : []),
+        String(registrationInfo.credentialDeviceType || 'singleDevice'),
+        registrationInfo.credentialBackedUp ? 1 : 0,
+        friendlyName,
+        now,
+        now,
+      ]
+    );
+    await bindDeviceToUser(req, user.id, { reason: 'passkey_register' });
+    const identityName = splitFullName(user.nom || '');
+    const authUser = buildAuthUser({
+      id: user.id,
+      email: user.email,
+      name: user.nom,
+      firstName: identityName.firstName || null,
+      lastName: identityName.lastName || null,
+      role: user.role,
+      avatar: user.avatar || null,
+      clientType: user.client_type || null,
+      telephone: user.telephone || null,
+      cin: user.cin || null,
+      cinImageUrl: user.cin_image_url || null,
+      profileCompleted: isLegalIdentityProfileCompleted(user),
+    });
+    setAuthSessionCookie(req, res, authUser);
+    void logSecurityEvent({
+      req,
+      eventType: 'passkey_register_success',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      userId: authUser.id,
+      userEmail: authUser.email,
+      message: 'Passkey registered successfully',
+    });
+    res.json({ user: authUser });
+  } catch (error) {
+    console.error('Passkey register verify error:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'passkey_register_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      message: 'Passkey registration failed',
+      metadata: { error: String(error?.message || error || '') },
+    });
+    const detail = String(error?.message || error || '').trim();
+    res.status(500).json({
+      error: detail ? `Impossible d enregistrer cette Passkey (${detail})` : 'Impossible d enregistrer cette Passkey',
+    });
+  }
+});
+
+app.post('/api/auth/passkey/login/options', authLoginRateLimit, async (req, res) => {
+  try {
+    await ensurePasskeySchema();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    let credentialRows = [];
+    let linkedUserId = null;
+    if (email) {
+      const [userRows] = await pool.query('SELECT id FROM utilisateurs WHERE email = ? LIMIT 1', [email]);
+      linkedUserId = String(userRows?.[0]?.id || '').trim() || null;
+      if (linkedUserId) {
+        credentialRows = await getPasskeyRowsForUser(linkedUserId);
+      }
+    } else {
+      credentialRows = await getPasskeyRowsForDevice(req.deviceId);
+      if (credentialRows[0]?.user_id) linkedUserId = String(credentialRows[0].user_id).trim();
+    }
+    if (!credentialRows.length) {
+      void logSecurityEvent({
+        req,
+        eventType: 'passkey_login_options_missing',
+        severity: 'warning',
+        success: false,
+        statusCode: 404,
+        userEmail: email || null,
+        message: 'No passkey credential found for login options',
+      });
+      return res.status(404).json({ error: 'Aucun passkey configure pour cet appareil/compte' });
+    }
+    const options = await generateAuthenticationOptions({
+      rpID: getWebauthnRpId(req),
+      timeout: 60_000,
+      userVerification: 'preferred',
+      allowCredentials: credentialRows.map((row) => ({
+        id: String(row.credential_id),
+        type: 'public-key',
+        transports: (() => {
+          try {
+            const parsed = JSON.parse(String(row.transports_json || '[]'));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+      })),
+    });
+    const challengeId = persistPasskeyChallenge({
+      flow: 'login',
+      challenge: options.challenge,
+      userId: linkedUserId,
+      deviceId: req.deviceId,
+      credentialIds: credentialRows.map((row) => String(row.credential_id)),
+    });
+    res.json({ options, challengeId });
+  } catch (error) {
+    console.error('Passkey login options error:', error);
+    res.status(500).json({ error: 'Impossible de preparer la connexion Passkey' });
+  }
+});
+
+app.post('/api/auth/passkey/login/verify', authLoginRateLimit, async (req, res) => {
+  try {
+    await ensurePasskeySchema();
+    const challengeId = String(req.body?.challengeId || '').trim();
+    const credential = req.body?.credential;
+    const challengeRecord = consumePasskeyChallenge(challengeId, 'login', req.deviceId);
+    if (!challengeRecord) {
+      return res.status(400).json({ error: 'Challenge Passkey invalide ou expire' });
+    }
+    const credentialId = String(credential?.id || '').trim();
+    if (!credential || !credentialId) {
+      return res.status(400).json({ error: 'Credential Passkey manquant' });
+    }
+    const [credentialRows] = await pool.query(
+      `SELECT id, user_id, credential_id, public_key_base64, counter, transports_json
+       FROM passkey_credentials
+       WHERE credential_id = ? AND disabled = 0
+       LIMIT 1`,
+      [credentialId]
+    );
+    const storedCredential = credentialRows?.[0];
+    if (!storedCredential) {
+      void logSecurityEvent({
+        req,
+        eventType: 'passkey_login_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 404,
+        message: 'Passkey login failed: credential not found',
+      });
+      return res.status(404).json({ error: 'Passkey inconnue' });
+    }
+    const verification = await verifyAuthenticationResponse({
+      response: credential,
+      expectedChallenge: challengeRecord.challenge,
+      expectedOrigin: getExpectedWebauthnOrigins(req),
+      expectedRPID: getWebauthnRpId(req),
+      authenticator: {
+        credentialID: String(storedCredential.credential_id),
+        credentialPublicKey: Buffer.from(String(storedCredential.public_key_base64 || ''), 'base64url'),
+        counter: Number(storedCredential.counter || 0),
+        transports: (() => {
+          try {
+            const parsed = JSON.parse(String(storedCredential.transports_json || '[]'));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+      },
+      requireUserVerification: true,
+    });
+    if (!verification.verified) {
+      void logSecurityEvent({
+        req,
+        eventType: 'passkey_login_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 401,
+        message: 'Passkey authentication verification failed',
+      });
+      return res.status(401).json({ error: 'Verification Passkey echouee' });
+    }
+    const [userRows] = await pool.query(
+      `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+       FROM utilisateurs
+       WHERE id = ?
+       LIMIT 1`,
+      [storedCredential.user_id]
+    );
+    const user = userRows?.[0];
+    if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE passkey_credentials
+       SET counter = ?, last_used_at = ?
+       WHERE id = ?`,
+      [Number(verification.authenticationInfo.newCounter || 0), now, storedCredential.id]
+    );
+    await bindDeviceToUser(req, user.id, { reason: 'passkey_login' });
+    const identityName = splitFullName(user.nom || '');
+    const authUser = buildAuthUser({
+      id: user.id,
+      email: user.email,
+      name: user.nom,
+      firstName: identityName.firstName || null,
+      lastName: identityName.lastName || null,
+      role: user.role,
+      avatar: user.avatar || null,
+      clientType: user.client_type || null,
+      telephone: user.telephone || null,
+      cin: user.cin || null,
+      cinImageUrl: user.cin_image_url || null,
+      profileCompleted: isLegalIdentityProfileCompleted(user),
+    });
+    setAuthSessionCookie(req, res, authUser);
+    void logSecurityEvent({
+      req,
+      eventType: 'passkey_login_success',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      userId: authUser.id,
+      userEmail: authUser.email,
+      message: 'Passkey login successful',
+    });
+    res.json({ user: authUser });
+  } catch (error) {
+    console.error('Passkey login verify error:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'passkey_login_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      message: 'Passkey login failed: server error',
+      metadata: { error: String(error?.message || error || '') },
+    });
+    res.status(500).json({ error: 'Impossible de finaliser la connexion Passkey' });
+  }
+});
+
+app.get('/api/security-audit-logs', requireAdminSession, async (req, res) => {
+  try {
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+    const where = [];
+    const params = [];
+    if (req.query.event_type) {
+      where.push('event_type = ?');
+      params.push(String(req.query.event_type).trim());
+    }
+    if (req.query.user_id) {
+      where.push('user_id = ?');
+      params.push(String(req.query.user_id).trim());
+    }
+    if (req.query.success !== undefined) {
+      const normalizedSuccess = String(req.query.success).trim().toLowerCase();
+      if (normalizedSuccess === '0' || normalizedSuccess === '1') {
+        where.push('success = ?');
+        params.push(Number(normalizedSuccess));
+      }
+    }
+
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         event_type,
+         severity,
+         success,
+         http_status,
+         method,
+         path,
+         ip,
+         user_agent,
+         user_id,
+         user_email,
+         message,
+         metadata_json,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM security_audit_logs
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [...params, limit]
+    );
+
+    const parsedRows = (rows || []).map((row) => ({
+      ...row,
+      success: Boolean(Number(row.success || 0)),
+      metadata: (() => {
+        try {
+          return row.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
+        } catch {
+          return null;
+        }
+      })(),
+    }));
+    res.json(parsedRows);
+  } catch (error) {
+    console.error('Error fetching security audit logs:', error);
+    res.status(500).json({ error: 'Impossible de charger les logs de securite' });
+  }
+});
+
+app.get('/api/security-audit-logs/export', requireAdminSession, async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit || 5000);
+    const limit = Number.isFinite(limitRaw) ? Math.min(50000, Math.max(1, limitRaw)) : 5000;
+    const dateFrom = toSqlDateBoundary(req.query.date_from || req.query.dateFrom, false);
+    const dateTo = toSqlDateBoundary(req.query.date_to || req.query.dateTo, true);
+    const where = [];
+    const params = [];
+    if (req.query.event_type) {
+      where.push('event_type = ?');
+      params.push(String(req.query.event_type).trim());
+    }
+    if (req.query.user_id) {
+      where.push('user_id = ?');
+      params.push(String(req.query.user_id).trim());
+    }
+    if (req.query.success !== undefined) {
+      const normalizedSuccess = String(req.query.success).trim().toLowerCase();
+      if (normalizedSuccess === '0' || normalizedSuccess === '1') {
+        where.push('success = ?');
+        params.push(Number(normalizedSuccess));
+      }
+    }
+    if (dateFrom) {
+      where.push('created_at >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      where.push('created_at <= ?');
+      params.push(dateTo);
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         event_type,
+         severity,
+         success,
+         http_status,
+         method,
+         path,
+         ip,
+         user_agent,
+         user_id,
+         user_email,
+         message,
+         metadata_json,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM security_audit_logs
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [...params, limit]
+    );
+    const normalizedRows = (rows || []).map((row) => ({
+      id: row.id,
+      event_type: row.event_type,
+      severity: row.severity,
+      success: Boolean(Number(row.success || 0)),
+      http_status: row.http_status || null,
+      method: row.method || null,
+      path: row.path || null,
+      ip: row.ip || null,
+      user_agent: row.user_agent || null,
+      user_id: row.user_id || null,
+      user_email: row.user_email || null,
+      message: row.message || null,
+      metadata_json: row.metadata_json || null,
+      created_at: row.created_at || null,
+    }));
+    const csv = buildCsvFromRows(normalizedRows, [
+      { key: 'id', label: 'id' },
+      { key: 'event_type', label: 'event_type' },
+      { key: 'severity', label: 'severity' },
+      { key: 'success', label: 'success' },
+      { key: 'http_status', label: 'http_status' },
+      { key: 'method', label: 'method' },
+      { key: 'path', label: 'path' },
+      { key: 'ip', label: 'ip' },
+      { key: 'user_agent', label: 'user_agent' },
+      { key: 'user_id', label: 'user_id' },
+      { key: 'user_email', label: 'user_email' },
+      { key: 'message', label: 'message' },
+      { key: 'metadata_json', label: 'metadata_json' },
+      { key: 'created_at', label: 'created_at' },
+    ], { delimiter: '\t', includeExcelSeparatorHint: false });
+    const exportedAt = getAgencySqlDateTime();
+    await recordAdminDataExport({
+      dataset: 'security_audit_logs',
+      format: 'csv',
+      dateFrom,
+      dateTo,
+      rowCount: normalizedRows.length,
+      req,
+    });
+    const fileName = `security-audit-export-${String(exportedAt).replace(/[^0-9]/g, '').slice(0, 14)}.tsv`;
+    res.setHeader('Content-Type', 'text/tab-separated-values; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.status(200).send(csv);
+  } catch (error) {
+    console.error('Error exporting security audit logs:', error);
+    res.status(500).json({ error: 'Impossible d exporter les logs de securite' });
+  }
+});
+
+app.delete('/api/security-audit-logs', requireAdminSession, async (req, res) => {
+  try {
+    const olderThanDays = Math.min(3650, Math.max(1, Number(req.query.older_than_days || req.body?.older_than_days || 30)));
+    const [result] = await pool.query(
+      `DELETE FROM security_audit_logs
+       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+      [olderThanDays]
+    );
+    res.json({
+      success: true,
+      deleted: Number(result?.affectedRows || 0),
+      olderThanDays,
+    });
+  } catch (error) {
+    console.error('Error deleting security audit logs:', error);
+    res.status(500).json({ error: 'Impossible de nettoyer les logs de securite' });
+  }
 });
 
 app.get('/api/messenger/webhook', (req, res) => {
@@ -8612,10 +10441,19 @@ app.post('/api/auth/phone/direct-login', async (req, res) => {
   return res.status(403).json({ error: 'Connexion par telephone desactivee pour le moment' });
 });
 
-app.post('/api/auth/email/request-otp', async (req, res) => {
+app.post('/api/auth/email/request-otp', otpRequestRateLimit, async (req, res) => {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'email_otp_request_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 400,
+        userEmail: email || null,
+        message: 'Email OTP request failed: invalid email format',
+      });
       return res.status(400).json({ error: 'Email invalide' });
     }
     const code = String(process.env.EMAIL_OTP_STATIC_CODE || Math.floor(100000 + Math.random() * 900000));
@@ -8625,6 +10463,15 @@ app.post('/api/auth/email/request-otp', async (req, res) => {
       attempts: 0,
     });
     const delivery = await deliverEmailOtp({ email, code });
+    void logSecurityEvent({
+      req,
+      eventType: 'email_otp_requested',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      userEmail: email,
+      message: `Email OTP requested for ${maskEmailForLog(email)}`,
+    });
     res.json({
       success: true,
       expiresInSeconds: 300,
@@ -8632,29 +10479,75 @@ app.post('/api/auth/email/request-otp', async (req, res) => {
     });
   } catch (error) {
     if (String(error?.message || '') === 'email_otp_provider_missing') {
+      void logSecurityEvent({
+        req,
+        eventType: 'email_otp_request_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 503,
+        userEmail: req.body?.email || null,
+        message: 'Email OTP request failed: provider missing',
+      });
       return res.status(503).json({
         error: "OTP email indisponible pour le moment. Configurez SMTP_HOST/SMTP_USER/SMTP_PASS ou ALLOW_EMAIL_OTP_IN_RESPONSE.",
       });
     }
     console.error('Error requesting email OTP:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'email_otp_request_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      userEmail: req.body?.email || null,
+      message: 'Email OTP request failed: server error',
+      metadata: { error: String(error?.message || error || '') },
+    });
     res.status(500).json({ error: 'Impossible d envoyer le code OTP par email' });
   }
 });
 
-app.post('/api/auth/email/verify-otp', async (req, res) => {
+app.post('/api/auth/email/verify-otp', otpVerifyRateLimit, async (req, res) => {
   try {
     await ensureAuthSchema();
     const email = String(req.body?.email || '').trim().toLowerCase();
     const code = String(req.body?.code || '').trim();
     if (!email || !code) {
+      void logSecurityEvent({
+        req,
+        eventType: 'email_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 400,
+        userEmail: email || null,
+        message: 'Email OTP verify failed: missing email or code',
+      });
       return res.status(400).json({ error: 'Email et code OTP obligatoires' });
     }
     const session = emailOtpSessions.get(email);
     if (!session) {
+      void logSecurityEvent({
+        req,
+        eventType: 'email_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 404,
+        userEmail: email,
+        message: 'Email OTP verify failed: session not found or expired',
+      });
       return res.status(404).json({ error: 'Code OTP introuvable ou expire' });
     }
     if (Date.now() > Number(session.expiresAt || 0)) {
       emailOtpSessions.delete(email);
+      void logSecurityEvent({
+        req,
+        eventType: 'email_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 410,
+        userEmail: email,
+        message: 'Email OTP verify failed: code expired',
+      });
       return res.status(410).json({ error: 'Code OTP expire' });
     }
     if (String(session.code) !== code) {
@@ -8664,21 +10557,59 @@ app.post('/api/auth/email/verify-otp', async (req, res) => {
       } else {
         emailOtpSessions.set(email, session);
       }
+      void logSecurityEvent({
+        req,
+        eventType: 'email_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 401,
+        userEmail: email,
+        message: 'Email OTP verify failed: invalid code',
+      });
       return res.status(401).json({ error: 'Code OTP invalide' });
     }
     emailOtpSessions.delete(email);
     const user = await upsertEmailOtpUser({ email });
-    res.json({ user });
+    setAuthSessionCookie(req, res, user);
+    void logSecurityEvent({
+      req,
+      eventType: 'email_otp_verify_success',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      userId: user?.id || null,
+      userEmail: user?.email || email,
+      message: 'Email OTP verified successfully',
+    });
+    res.json({ user: buildAuthUser(user) });
   } catch (error) {
     console.error('Error verifying email OTP:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'email_otp_verify_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      userEmail: req.body?.email || null,
+      message: 'Email OTP verify failed: server error',
+      metadata: { error: String(error?.message || error || '') },
+    });
     res.status(500).json({ error: 'Impossible de verifier le code OTP email' });
   }
 });
 
-app.post('/api/auth/phone/request-otp', async (req, res) => {
+app.post('/api/auth/phone/request-otp', otpRequestRateLimit, async (req, res) => {
   try {
     const telephone = normalizePhoneNumber(req.body?.telephone);
     if (!telephone || telephone.replace(/\D/g, '').length < 8) {
+      void logSecurityEvent({
+        req,
+        eventType: 'phone_otp_request_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 400,
+        message: 'Phone OTP request failed: invalid phone number',
+      });
       return res.status(400).json({ error: 'Numero de telephone invalide' });
     }
 
@@ -8691,6 +10622,14 @@ app.post('/api/auth/phone/request-otp', async (req, res) => {
     });
 
     const delivery = await deliverPhoneOtp({ telephone, code });
+    void logSecurityEvent({
+      req,
+      eventType: 'phone_otp_requested',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      message: `Phone OTP requested for ${maskPhone(telephone)}`,
+    });
     res.json({
       success: true,
       expiresInSeconds: 300,
@@ -8698,30 +10637,71 @@ app.post('/api/auth/phone/request-otp', async (req, res) => {
     });
   } catch (error) {
     if (String(error?.message || '') === 'otp_provider_missing') {
+      void logSecurityEvent({
+        req,
+        eventType: 'phone_otp_request_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 503,
+        message: 'Phone OTP request failed: provider missing',
+      });
       return res.status(503).json({
         error: "OTP telephone indisponible pour le moment. Configurez OTP_PROVIDER_WEBHOOK_URL ou ALLOW_OTP_IN_RESPONSE.",
       });
     }
     console.error('Error requesting phone OTP:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'phone_otp_request_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      message: 'Phone OTP request failed: server error',
+      metadata: { error: String(error?.message || error || '') },
+    });
     res.status(500).json({ error: 'Impossible d envoyer le code OTP' });
   }
 });
 
-app.post('/api/auth/phone/verify-otp', async (req, res) => {
+app.post('/api/auth/phone/verify-otp', otpVerifyRateLimit, async (req, res) => {
   try {
     await ensureAuthSchema();
     const telephone = normalizePhoneNumber(req.body?.telephone);
     const code = String(req.body?.code || '').trim();
     if (!telephone || !code) {
+      void logSecurityEvent({
+        req,
+        eventType: 'phone_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 400,
+        message: 'Phone OTP verify failed: missing phone or code',
+      });
       return res.status(400).json({ error: 'Telephone et code OTP obligatoires' });
     }
 
     const session = phoneOtpSessions.get(telephone);
     if (!session) {
+      void logSecurityEvent({
+        req,
+        eventType: 'phone_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 404,
+        message: 'Phone OTP verify failed: session not found or expired',
+      });
       return res.status(404).json({ error: 'Code OTP introuvable ou expire' });
     }
     if (Date.now() > Number(session.expiresAt || 0)) {
       phoneOtpSessions.delete(telephone);
+      void logSecurityEvent({
+        req,
+        eventType: 'phone_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 410,
+        message: 'Phone OTP verify failed: code expired',
+      });
       return res.status(410).json({ error: 'Code OTP expire' });
     }
     if (String(session.code) !== code) {
@@ -8731,14 +10711,42 @@ app.post('/api/auth/phone/verify-otp', async (req, res) => {
       } else {
         phoneOtpSessions.set(telephone, session);
       }
+      void logSecurityEvent({
+        req,
+        eventType: 'phone_otp_verify_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 401,
+        message: 'Phone OTP verify failed: invalid code',
+      });
       return res.status(401).json({ error: 'Code OTP invalide' });
     }
 
     phoneOtpSessions.delete(telephone);
     const user = await upsertPhoneUser({ telephone });
-    res.json({ user });
+    setAuthSessionCookie(req, res, user);
+    void logSecurityEvent({
+      req,
+      eventType: 'phone_otp_verify_success',
+      severity: 'info',
+      success: true,
+      statusCode: 200,
+      userId: user?.id || null,
+      userEmail: user?.email || null,
+      message: 'Phone OTP verified successfully',
+    });
+    res.json({ user: buildAuthUser(user) });
   } catch (error) {
     console.error('Error verifying phone OTP:', error);
+    void logSecurityEvent({
+      req,
+      eventType: 'phone_otp_verify_failed',
+      severity: 'error',
+      success: false,
+      statusCode: 500,
+      message: 'Phone OTP verify failed: server error',
+      metadata: { error: String(error?.message || error || '') },
+    });
     res.status(500).json({ error: 'Impossible de verifier le code OTP' });
   }
 });
@@ -8923,13 +10931,14 @@ app.get('/api/auth/social/session/:token', (req, res) => {
   if (!user) {
     return res.status(404).json({ error: 'Session sociale invalide ou expirée' });
   }
-  res.json({ user });
+  setAuthSessionCookie(req, res, user);
+  res.json({ user: buildAuthUser(user) });
 });
 
-app.get('/api/client-interactions', async (req, res) => {
+app.get('/api/client-interactions', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source,
+      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source, device_id, session_id, path, metadata_json,
               DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at
        FROM client_interactions
        ORDER BY event_at DESC`
@@ -8940,9 +10949,19 @@ app.get('/api/client-interactions', async (req, res) => {
       clientEmail: row.client_email || '',
       clientName: row.client_name || undefined,
       type: row.type,
-      bienId: row.bien_id,
+      bienId: row.bien_id || '',
       propertyTitle: row.property_title || '',
       source: row.source,
+      deviceId: row.device_id || undefined,
+      sessionId: row.session_id || undefined,
+      path: row.path || undefined,
+      metadata: (() => {
+        try {
+          return row.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
+        } catch {
+          return null;
+        }
+      })(),
       dateTime: row.event_at,
     })));
   } catch (error) {
@@ -8953,44 +10972,47 @@ app.get('/api/client-interactions', async (req, res) => {
 
 app.post('/api/client-interactions', async (req, res) => {
   try {
-    const id = `ci_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const clientUserId = String(req.body?.clientUserId || '').trim() || null;
-    const clientEmail = String(req.body?.clientEmail || '').trim().toLowerCase();
-    const clientName = String(req.body?.clientName || '').trim() || null;
-    const type = String(req.body?.type || '').trim();
-    const bienId = String(req.body?.bienId || '').trim();
+    const sessionUser = getSessionUserFromRequest(req);
+    const clientUserId = sessionUser?.id || String(req.body?.clientUserId || '').trim() || null;
+    const clientEmail = sessionUser?.email || String(req.body?.clientEmail || '').trim().toLowerCase();
+    const clientName = sessionUser?.name || String(req.body?.clientName || '').trim() || null;
+    const type = String(req.body?.type || '').trim().toLowerCase();
+    const bienId = String(req.body?.bienId || '').trim() || null;
     const propertyTitle = String(req.body?.propertyTitle || '').trim() || null;
-    const nowSql = getAgencySqlDateTime();
+    const sessionId = String(req.body?.sessionId || '').trim() || null;
+    const routePath = String(req.body?.path || '').trim() || null;
+    const metadata = req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : null;
 
-    if (!clientEmail) return res.status(400).json({ error: 'Email client obligatoire' });
-    if (!['visite', 'like', 'partage'].includes(type)) return res.status(400).json({ error: 'Type interaction invalide' });
-    if (!bienId) return res.status(400).json({ error: 'Bien obligatoire' });
+    if (!clientEmail && !String(req?.deviceId || '').trim()) {
+      return res.status(400).json({ error: 'Identite client insuffisante (email ou device requis)' });
+    }
+    const allowedTypes = new Set(['visite', 'like', 'partage', 'site_open', 'session_start', 'reservation_attempt', 'reservation_submitted']);
+    if (!allowedTypes.has(type)) return res.status(400).json({ error: 'Type interaction invalide' });
+    if (['visite', 'like', 'partage', 'reservation_attempt', 'reservation_submitted'].includes(type) && !bienId) {
+      return res.status(400).json({ error: 'Bien obligatoire pour ce type interaction' });
+    }
 
-    await pool.query(
-      `INSERT INTO client_interactions
-       (id, client_user_id, client_email, client_name, type, bien_id, property_title, source, event_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'site_public', ?, ?)`,
-      [id, clientUserId, clientEmail, clientName, type, bienId, propertyTitle, nowSql, nowSql]
-    );
-
-    res.status(201).json({
-      id,
-      clientUserId: clientUserId || undefined,
+    const created = await appendClientInteraction({
+      req,
+      clientUserId,
       clientEmail,
-      clientName: clientName || undefined,
+      clientName,
       type,
       bienId,
-      propertyTitle: propertyTitle || '',
+      propertyTitle,
       source: 'site_public',
-      dateTime: nowSql,
+      sessionId,
+      routePath,
+      metadata,
     });
+    res.status(201).json(created);
   } catch (error) {
     console.error('Error creating client interaction:', error);
     res.status(500).json({ error: "Impossible d'enregistrer l interaction client" });
   }
 });
 
-app.get('/api/clienteles/profiles', async (req, res) => {
+app.get('/api/clienteles/profiles', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM clienteles_profiles ORDER BY updated_at DESC, created_at DESC');
     res.json((rows || []).map((row) => normalizeClienteleProfileRow(row)));
@@ -9000,7 +11022,7 @@ app.get('/api/clienteles/profiles', async (req, res) => {
   }
 });
 
-app.get('/api/clienteles/tasks/:sourceTable/:sourceId', async (req, res) => {
+app.get('/api/clienteles/tasks/:sourceTable/:sourceId', requireAdminSession, async (req, res) => {
   try {
     const sourceTable = String(req.params.sourceTable || '').trim();
     const sourceId = String(req.params.sourceId || '').trim();
@@ -9018,7 +11040,7 @@ app.get('/api/clienteles/tasks/:sourceTable/:sourceId', async (req, res) => {
   }
 });
 
-app.put('/api/clienteles/profiles/:sourceTable/:sourceId', async (req, res) => {
+app.put('/api/clienteles/profiles/:sourceTable/:sourceId', requireAdminSession, async (req, res) => {
   try {
     const sourceTable = String(req.params.sourceTable || '').trim();
     const sourceId = String(req.params.sourceId || '').trim();
@@ -9161,24 +11183,37 @@ app.put('/api/clienteles/profiles/:sourceTable/:sourceId', async (req, res) => {
   }
 });
 
-app.put('/api/auth/social/profile/:id', async (req, res) => {
+app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservationMutationRateLimit, async (req, res) => {
   try {
     const { id } = req.params;
-    const nom = String(req.body?.name || req.body?.nom || '').trim();
+    const firstName = String(req.body?.firstName || req.body?.prenom || '').trim();
+    const lastName = String(req.body?.lastName || req.body?.nomFamille || req.body?.nom || '').trim();
+    const fallbackFullName = String(req.body?.name || '').trim();
+    const nom = [firstName, lastName].filter(Boolean).join(' ').trim() || fallbackFullName;
     const email = String(req.body?.email || '').trim().toLowerCase();
-    const telephone = String(req.body?.telephone || '').trim();
+    const telephone = normalizePhoneNumber(req.body?.telephone || '');
     const clientType = String(req.body?.clientType || req.body?.client_type || '').trim().toLowerCase();
     const cin = String(req.body?.cin || '').trim();
     const cinImageUrl = String(req.body?.cinImageUrl || req.body?.cin_image_url || '').trim();
     const avatar = req.body?.avatar === undefined ? undefined : String(req.body.avatar || '').trim();
     const now = getAgencySqlDateTime();
 
+    const requester = req.authUser || null;
     if (!id) return res.status(400).json({ error: 'Utilisateur introuvable' });
-    if (!nom) return res.status(400).json({ error: 'Nom obligatoire' });
-    if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
-    if (!['proprietaire', 'locataire', 'acheteur'].includes(clientType)) {
-      return res.status(400).json({ error: 'Type client obligatoire' });
+    if (!requester || (requester.role !== 'admin' && String(requester.id || '') !== String(id))) {
+      void logSecurityEvent({
+        req,
+        eventType: 'social_profile_update_denied',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        message: 'Social profile update denied by ownership check',
+        metadata: { targetUserId: id, requesterUserId: requester?.id || null },
+      });
+      return res.status(403).json({ error: 'Action non autorisee' });
     }
+    if (!firstName || !lastName) return res.status(400).json({ error: 'Nom et prenom obligatoires' });
+    if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
 
     const [existingRows] = await pool.query('SELECT id FROM utilisateurs WHERE id = ? LIMIT 1', [id]);
     if (!existingRows[0]) {
@@ -9201,7 +11236,7 @@ app.put('/api/auth/social/profile/:id', async (req, res) => {
        SET nom = ?, email = ?, telephone = ?, client_type = ?, cin = ?, cin_image_url = ?, avatar = COALESCE(?, avatar),
            profile_completed_at = ?, updated_at = ?
        WHERE id = ?`,
-      [nom, resolvedEmail, telephone, clientType, cin || null, cinImageUrl || null, avatar || null, now, now, id]
+      [nom, resolvedEmail, telephone, clientType || null, cin || null, cinImageUrl || null, avatar || null, now, now, id]
     );
 
     const [rows] = await pool.query(
@@ -9216,31 +11251,41 @@ app.put('/api/auth/social/profile/:id', async (req, res) => {
       return res.status(404).json({ error: 'Utilisateur non trouve apres mise a jour' });
     }
 
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.nom,
-        role: user.role,
-        avatar: user.avatar || null,
-        clientType: user.client_type || null,
+    const identityName = splitFullName(user.nom || '');
+    await bindDeviceToUser(req, id, {
+      reason: 'profile_completed',
+      identity: {
+        firstName: identityName.firstName || null,
+        lastName: identityName.lastName || null,
+        fullName: user.nom || null,
         telephone: user.telephone || null,
         cin: user.cin || null,
-        cinImageUrl: user.cin_image_url || null,
-        authProvider: user.auth_provider,
-        providerUserId: user.provider_user_id || null,
-        lastLoginAt: user.last_login_at || null,
-        updatedAt: user.updated_at || null,
-        profileCompleted: Boolean(user.profile_completed_at && user.telephone && user.client_type),
+        email: user.email || null,
       },
     });
+    const authUser = buildAuthUser({
+      id: user.id,
+      email: user.email,
+      name: user.nom,
+      firstName: identityName.firstName || null,
+      lastName: identityName.lastName || null,
+      role: user.role,
+      avatar: user.avatar || null,
+      clientType: user.client_type || null,
+      telephone: user.telephone || null,
+      cin: user.cin || null,
+      cinImageUrl: user.cin_image_url || null,
+      profileCompleted: isLegalIdentityProfileCompleted(user),
+    });
+    setAuthSessionCookie(req, res, authUser);
+    res.json({ user: authUser });
   } catch (error) {
     console.error('Error completing social profile:', error);
     res.status(500).json({ error: 'Erreur lors de la sauvegarde du profil client' });
   }
 });
 
-app.get('/api/utilisateurs', async (req, res) => {
+app.get('/api/utilisateurs', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM utilisateurs ORDER BY created_at DESC');
     res.json(rows);
@@ -9249,7 +11294,7 @@ app.get('/api/utilisateurs', async (req, res) => {
   }
 });
 
-app.post('/api/utilisateurs', async (req, res) => {
+app.post('/api/utilisateurs', requireAdminSession, async (req, res) => {
   try {
     const { id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url } = req.body;
     const newId = id || 'u' + Date.now();
@@ -9267,7 +11312,7 @@ app.post('/api/utilisateurs', async (req, res) => {
   }
 });
 
-app.put('/api/utilisateurs/:id', async (req, res) => {
+app.put('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
   try {
     const { nom, email, role, avatar, telephone, client_type, cin, cin_image_url } = req.body;
     await pool.query(
@@ -9295,13 +11340,220 @@ app.put('/api/utilisateurs/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/utilisateurs/:id', async (req, res) => {
+app.delete('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
   try {
     await pool.query('DELETE FROM utilisateurs WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting utilisateur:', error);
     res.status(500).json({ error: 'Failed to delete utilisateur' });
+  }
+});
+
+app.get('/api/client-interactions/export', requireAdminSession, async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit || 10000);
+    const limit = Number.isFinite(limitRaw) ? Math.min(100000, Math.max(1, limitRaw)) : 10000;
+    const segment = String(req.query.segment || 'all').trim().toLowerCase();
+    const dateFrom = toSqlDateBoundary(req.query.date_from || req.query.dateFrom, false);
+    const dateTo = toSqlDateBoundary(req.query.date_to || req.query.dateTo, true);
+    const where = [];
+    const params = [];
+    if (segment === 'anonymous') {
+      where.push(`(client_user_id IS NULL OR client_user_id = '') AND (client_email IS NULL OR client_email = '')`);
+    } else if (segment === 'known') {
+      where.push(`(client_user_id IS NOT NULL AND client_user_id <> '') OR (client_email IS NOT NULL AND client_email <> '')`);
+    }
+    if (dateFrom) {
+      where.push('event_at >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      where.push('event_at <= ?');
+      params.push(dateTo);
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         id, client_user_id, client_email, client_name, type, bien_id, property_title,
+         source, device_id, session_id, path, metadata_json,
+         DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM client_interactions
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY event_at DESC
+       LIMIT ?`,
+      [...params, limit]
+    );
+    const normalizedRows = (rows || []).map((row) => ({
+      id: row.id,
+      client_user_id: row.client_user_id || null,
+      client_email: row.client_email || null,
+      client_name: row.client_name || null,
+      type: row.type,
+      bien_id: row.bien_id || null,
+      property_title: row.property_title || null,
+      source: row.source,
+      device_id: row.device_id || null,
+      session_id: row.session_id || null,
+      path: row.path || null,
+      metadata_json: row.metadata_json || null,
+      event_at: row.event_at || null,
+      created_at: row.created_at || null,
+    }));
+    const csv = buildCsvFromRows(normalizedRows, [
+      { key: 'id', label: 'id' },
+      { key: 'client_user_id', label: 'client_user_id' },
+      { key: 'client_email', label: 'client_email' },
+      { key: 'client_name', label: 'client_name' },
+      { key: 'type', label: 'type' },
+      { key: 'bien_id', label: 'bien_id' },
+      { key: 'property_title', label: 'property_title' },
+      { key: 'source', label: 'source' },
+      { key: 'device_id', label: 'device_id' },
+      { key: 'session_id', label: 'session_id' },
+      { key: 'path', label: 'path' },
+      { key: 'metadata_json', label: 'metadata_json' },
+      { key: 'event_at', label: 'event_at' },
+      { key: 'created_at', label: 'created_at' },
+    ], { delimiter: '\t', includeExcelSeparatorHint: false });
+    const exportedAt = getAgencySqlDateTime();
+    await recordAdminDataExport({
+      dataset: `client_interactions_${segment}`,
+      format: 'csv',
+      dateFrom,
+      dateTo,
+      rowCount: normalizedRows.length,
+      req,
+    });
+    const fileName = `client-interactions-${segment}-${String(exportedAt).replace(/[^0-9]/g, '').slice(0, 14)}.tsv`;
+    res.setHeader('Content-Type', 'text/tab-separated-values; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.status(200).send(csv);
+  } catch (error) {
+    console.error('Error exporting client interactions:', error);
+    res.status(500).json({ error: 'Impossible d exporter les interactions clients' });
+  }
+});
+
+app.delete('/api/client-interactions', requireAdminSession, async (req, res) => {
+  try {
+    const olderThanDays = Math.min(3650, Math.max(1, Number(req.query.older_than_days || req.body?.older_than_days || 30)));
+    const segment = String(req.query.segment || req.body?.segment || 'all').trim().toLowerCase();
+    const where = ['event_at < DATE_SUB(NOW(), INTERVAL ? DAY)'];
+    const params = [olderThanDays];
+    if (segment === 'anonymous') {
+      where.push(`(client_user_id IS NULL OR client_user_id = '') AND (client_email IS NULL OR client_email = '')`);
+    } else if (segment === 'known') {
+      where.push(`(client_user_id IS NOT NULL AND client_user_id <> '') OR (client_email IS NOT NULL AND client_email <> '')`);
+    }
+    const [result] = await pool.query(
+      `DELETE FROM client_interactions
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    res.json({
+      success: true,
+      deleted: Number(result?.affectedRows || 0),
+      olderThanDays,
+      segment,
+    });
+  } catch (error) {
+    console.error('Error deleting client interactions:', error);
+    res.status(500).json({ error: 'Impossible de nettoyer les interactions clients' });
+  }
+});
+
+app.get('/api/statistiques/resume', requireAdminSession, async (req, res) => {
+  try {
+    await ensureAdminDataExportsSchema();
+    const [[securityCountRow]] = await pool.query('SELECT COUNT(*) AS total FROM security_audit_logs');
+    const [[interactionCountRow]] = await pool.query('SELECT COUNT(*) AS total FROM client_interactions');
+    const [[anonymousCountRow]] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM client_interactions
+       WHERE (client_user_id IS NULL OR client_user_id = '')
+         AND (client_email IS NULL OR client_email = '')`
+    );
+    const [[knownCountRow]] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM client_interactions
+       WHERE (client_user_id IS NOT NULL AND client_user_id <> '')
+          OR (client_email IS NOT NULL AND client_email <> '')`
+    );
+    const [topVisitedRows] = await pool.query(
+      `SELECT
+         COALESCE(NULLIF(ci.bien_id, ''), 'unknown') AS bien_id,
+         COALESCE(MAX(NULLIF(ci.property_title, '')), MAX(NULLIF(b.titre, '')), 'Bien inconnu') AS property_title,
+         COUNT(*) AS visits
+       FROM client_interactions ci
+       LEFT JOIN biens b ON b.id = ci.bien_id
+       WHERE ci.type = 'visite'
+       GROUP BY COALESCE(NULLIF(ci.bien_id, ''), 'unknown')
+       ORDER BY visits DESC
+       LIMIT 10`
+    );
+    const [securityByEventRows] = await pool.query(
+      `SELECT event_type, COUNT(*) AS total, SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failures
+       FROM security_audit_logs
+       GROUP BY event_type
+       ORDER BY failures DESC, total DESC
+       LIMIT 12`
+    );
+    const [securityBlockRows] = await pool.query(
+      `SELECT
+         SUM(CASE WHEN http_status = 401 THEN 1 ELSE 0 END) AS http_401,
+         SUM(CASE WHEN http_status = 403 THEN 1 ELSE 0 END) AS http_403,
+         SUM(CASE WHEN http_status = 429 THEN 1 ELSE 0 END) AS http_429
+       FROM security_audit_logs`
+    );
+    const [[oldestSecurityRow]] = await pool.query(
+      `SELECT DATE_FORMAT(MIN(created_at), '%Y-%m-%d %H:%i:%s') AS oldest FROM security_audit_logs`
+    );
+    const [[oldestInteractionRow]] = await pool.query(
+      `SELECT DATE_FORMAT(MIN(event_at), '%Y-%m-%d %H:%i:%s') AS oldest FROM client_interactions`
+    );
+    const [lastExportsRows] = await pool.query(
+      `SELECT dataset, DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s') AS last_export_at
+       FROM admin_data_exports
+       GROUP BY dataset`
+    );
+    const lastExports = {};
+    for (const row of (lastExportsRows || [])) {
+      lastExports[String(row.dataset || '').trim()] = row.last_export_at || null;
+    }
+
+    res.json({
+      generatedAt: getAgencySqlDateTime(),
+      volume: {
+        securityLogs: Number(securityCountRow?.total || 0),
+        interactionsTotal: Number(interactionCountRow?.total || 0),
+        interactionsAnonymous: Number(anonymousCountRow?.total || 0),
+        interactionsKnown: Number(knownCountRow?.total || 0),
+        oldestSecurityLogAt: oldestSecurityRow?.oldest || null,
+        oldestInteractionAt: oldestInteractionRow?.oldest || null,
+      },
+      topVisitedProperties: (topVisitedRows || []).map((row) => ({
+        bienId: row.bien_id,
+        propertyTitle: row.property_title,
+        visits: Number(row.visits || 0),
+      })),
+      security: {
+        byEvent: (securityByEventRows || []).map((row) => ({
+          eventType: row.event_type,
+          total: Number(row.total || 0),
+          failures: Number(row.failures || 0),
+        })),
+        blocking: {
+          http401: Number(securityBlockRows?.[0]?.http_401 || 0),
+          http403: Number(securityBlockRows?.[0]?.http_403 || 0),
+          http429: Number(securityBlockRows?.[0]?.http_429 || 0),
+        },
+      },
+      lastExports,
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques resume:', error);
+    res.status(500).json({ error: 'Impossible de charger le resume statistiques' });
   }
 });
 
@@ -9337,6 +11589,7 @@ app.listen(PORT, () => {
   console.log('   - GET    /api/maintenance');
   console.log('   - GET    /api/notifications');
 });
+
 
 
 

@@ -1,6 +1,6 @@
 ﻿import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info, KeyRound } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, cloneElement } from "react";
 import { createPortal } from "react-dom";
@@ -10,12 +10,13 @@ import { fr } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
-import { getAuthProviders, startSocialLogin } from "../services/auth";
+import { getOrCreateTrackingSessionId, hasTrackingConsent } from "../utils/consent";
+import { completeSocialProfile, getAuthProviders, loginWithPasskey, registerWithPasskey, startSocialLogin } from "../services/auth";
 import { isYouTubeShortUrl, toYouTubeEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
 import { SmartImage } from "../components/SmartImage";
@@ -406,6 +407,17 @@ const parseDmsCoordinates = (value: string): LatLng | null => {
   return isValidLatLng(lat, lng) ? { lat, lng } : null;
 };
 
+function splitHumanName(fullName?: string | null) {
+  const normalized = String(fullName || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return { firstName: "", lastName: "" };
+  const parts = normalized.split(" ");
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return {
+    firstName: parts.slice(0, -1).join(" "),
+    lastName: parts.slice(-1).join(""),
+  };
+}
+
 const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   const value = String(url || '').trim();
   if (!value) return null;
@@ -513,7 +525,7 @@ const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
 export default function PropertyDetailsPage() {
   // Use shared context for properties
   const { properties, biens, zones } = useProperties();
-  const { user } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -613,11 +625,24 @@ export default function PropertyDetailsPage() {
   const [isSaved, setIsSaved] = useState(false);
   const [reservationNote, setReservationNote] = useState("");
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false });
+  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true });
+  const [isPasskeyPromptLoading, setIsPasskeyPromptLoading] = useState(false);
+  const [isPasskeyCreateLoading, setIsPasskeyCreateLoading] = useState(false);
+  const [loginPromptStep, setLoginPromptStep] = useState<"choices" | "passkey_setup" | "profile_setup">("choices");
+  const [passkeyPromptEmail, setPasskeyPromptEmail] = useState("");
+  const [passkeyPromptName, setPasskeyPromptName] = useState("");
+  const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
+  const [profilePromptForm, setProfilePromptForm] = useState({
+    firstName: "",
+    lastName: "",
+    telephone: "",
+    cin: "",
+  });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
   const [pulsePhase, setPulsePhase] = useState(0);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [consentRevision, setConsentRevision] = useState(0);
   const authPopupRef = useRef<Window | null>(null);
   const draftHydratedRef = useRef(false);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
@@ -1415,28 +1440,54 @@ out body 40;
   useEffect(() => {
     if (!showLoginPrompt) return;
     let isMounted = true;
+    if (!user || user.role !== "user" || user.profileCompleted) {
+      setLoginPromptStep("choices");
+    }
     void getAuthProviders().then((availableProviders) => {
       if (isMounted) setProviders(availableProviders);
     });
     return () => {
       isMounted = false;
     };
-  }, [showLoginPrompt]);
+  }, [showLoginPrompt, user]);
+
+  const openProfileSetupStep = useCallback((sourceUser?: any) => {
+    const currentUser = sourceUser || user;
+    const nameParts = splitHumanName(currentUser?.name || "");
+    setProfilePromptForm({
+      firstName: String(currentUser?.firstName || nameParts.firstName || "").trim(),
+      lastName: String(currentUser?.lastName || nameParts.lastName || "").trim(),
+      telephone: String(currentUser?.telephone || "").trim(),
+      cin: String(currentUser?.cin || "").trim(),
+    });
+    setLoginPromptStep("profile_setup");
+    setShowLoginPrompt(true);
+  }, [user]);
 
   useEffect(() => {
-    if (!property || !user || user.role !== 'user' || !user.email) return;
-    const visitKey = `${user.email}:${property.id}`;
+    if (!property) return;
+    if (!hasTrackingConsent()) return;
+    const identityKey = user?.email || 'anonymous';
+    const visitKey = `${identityKey}:${property.id}`;
     if (lastTrackedVisitKeyRef.current === visitKey) return;
     lastTrackedVisitKeyRef.current = visitKey;
     void trackPublicClientInteraction({
       type: 'visite',
       bienId: String(property.id),
       propertyTitle: property.title,
-      clientUserId: user.id,
-      clientEmail: user.email,
-      clientName: user.name,
+      clientUserId: user?.role === 'user' ? user.id : undefined,
+      clientEmail: user?.role === 'user' ? user.email : undefined,
+      clientName: user?.role === 'user' ? user.name : undefined,
+      sessionId: getOrCreateTrackingSessionId(),
+      path: window.location.pathname + window.location.search,
     }).catch(() => {});
-  }, [property, user]);
+  }, [property, user, consentRevision]);
+
+  useEffect(() => {
+    const onConsentUpdated = () => setConsentRevision((prev) => prev + 1);
+    window.addEventListener('dwira-consent-updated', onConsentUpdated as EventListener);
+    return () => window.removeEventListener('dwira-consent-updated', onConsentUpdated as EventListener);
+  }, []);
 
   // Carousel for other properties
   const [otherPropertiesRef, otherPropertiesApi] = useEmblaCarousel({ 
@@ -1865,14 +1916,16 @@ out body 40;
 
   // Handle share functionality
   const handleShare = async () => {
-    if (property && user && user.role === 'user' && user.email) {
+    if (property && hasTrackingConsent()) {
       void trackPublicClientInteraction({
         type: 'partage',
         bienId: String(property.id),
         propertyTitle: property.title,
-        clientUserId: user.id,
-        clientEmail: user.email,
-        clientName: user.name,
+        clientUserId: user?.role === 'user' ? user.id : undefined,
+        clientEmail: user?.role === 'user' ? user.email : undefined,
+        clientName: user?.role === 'user' ? user.name : undefined,
+        sessionId: getOrCreateTrackingSessionId(),
+        path: window.location.pathname + window.location.search,
       }).catch(() => {});
     }
     const shareUrl = window.location.href;
@@ -1917,14 +1970,16 @@ out body 40;
       savedProperties.push(property.id);
       localStorage.setItem('savedProperties', JSON.stringify(savedProperties));
       setIsSaved(true);
-      if (user && user.role === 'user' && user.email) {
+      if (hasTrackingConsent()) {
         void trackPublicClientInteraction({
           type: 'like',
           bienId: String(property.id),
           propertyTitle: property.title,
-          clientUserId: user.id,
-          clientEmail: user.email,
-          clientName: user.name,
+          clientUserId: user?.role === 'user' ? user.id : undefined,
+          clientEmail: user?.role === 'user' ? user.email : undefined,
+          clientName: user?.role === 'user' ? user.name : undefined,
+          sessionId: getOrCreateTrackingSessionId(),
+          path: window.location.pathname + window.location.search,
         }).catch(() => {});
       }
       toast.success("Ajouté aux favoris");
@@ -1974,7 +2029,16 @@ out body 40;
     if (!user || user.role !== 'user' || !user.email) {
       savePendingReservationDraft(draft);
       setPendingDraft(draft);
+      setLoginPromptStep("choices");
       setShowLoginPrompt(true);
+      return;
+    }
+
+    if (!user.profileCompleted) {
+      savePendingReservationDraft(draft);
+      setPendingDraft(draft);
+      openProfileSetupStep(user);
+      toast.info("Completez votre profil avant de continuer.");
       return;
     }
 
@@ -2020,6 +2084,164 @@ out body 40;
     popup.focus();
   };
 
+  const handlePromptPasskeyLogin = async () => {
+    if (!providers.passkey) {
+      toast.error('Passkey indisponible pour le moment');
+      return;
+    }
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      toast.error('Passkey non supporte sur ce navigateur/appareil');
+      return;
+    }
+    setIsPasskeyPromptLoading(true);
+    const navigateToReservationIfDraft = (closePrompt = true) => {
+      if (pendingDraft) savePendingReservationDraft(pendingDraft as PendingReservationDraft);
+      const draft = (pendingDraft as PendingReservationDraft | null) || readPendingReservationDraft();
+      if (property && draft && draft.propertySlug === property.slug) {
+        if (closePrompt) {
+          setShowLoginPrompt(false);
+          setLoginPromptStep("choices");
+        }
+        navigate(`/reservation/confirmation/${property.slug}`, { state: { draft } });
+        return true;
+      }
+      return false;
+    };
+    const applyLoggedUser = (loggedUser: any) => {
+      login({
+        id: loggedUser.id,
+        email: loggedUser.email,
+        name: loggedUser.name,
+        firstName: loggedUser.firstName || undefined,
+        lastName: loggedUser.lastName || undefined,
+        avatar: loggedUser.avatar || undefined,
+        clientType: loggedUser.clientType || undefined,
+        telephone: loggedUser.telephone || undefined,
+        cin: loggedUser.cin || undefined,
+        cinImageUrl: loggedUser.cinImageUrl || undefined,
+        profileCompleted: loggedUser.profileCompleted,
+        role: 'user',
+      });
+    };
+    try {
+      const loggedUser = await loginWithPasskey();
+      applyLoggedUser(loggedUser);
+      if (!loggedUser.profileCompleted) {
+        openProfileSetupStep(loggedUser);
+        toast.info('Completez votre identite legale pour continuer.');
+        return;
+      }
+      setShowLoginPrompt(false);
+      setLoginPromptStep("choices");
+      toast.success('Connexion Passkey reussie');
+      void navigateToReservationIfDraft();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Connexion Passkey echouee';
+      if (String(message).toLowerCase().includes('aucun passkey configure')) {
+        setLoginPromptStep("passkey_setup");
+        toast.info('Aucune passkey detectee. Creez-en une pour continuer.');
+        return;
+      }
+      toast.error(message);
+    } finally {
+      setIsPasskeyPromptLoading(false);
+    }
+  };
+
+  const handlePromptPasskeyCreate = async () => {
+    const email = passkeyPromptEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error('Entrez un email valide pour creer la passkey.');
+      return;
+    }
+    setIsPasskeyCreateLoading(true);
+    try {
+      const loggedUser = await registerWithPasskey(email, passkeyPromptName.trim());
+      login({
+        id: loggedUser.id,
+        email: loggedUser.email,
+        name: loggedUser.name,
+        firstName: loggedUser.firstName || undefined,
+        lastName: loggedUser.lastName || undefined,
+        avatar: loggedUser.avatar || undefined,
+        clientType: loggedUser.clientType || undefined,
+        telephone: loggedUser.telephone || undefined,
+        cin: loggedUser.cin || undefined,
+        cinImageUrl: loggedUser.cinImageUrl || undefined,
+        profileCompleted: loggedUser.profileCompleted,
+        role: 'user',
+      });
+      if (pendingDraft) savePendingReservationDraft(pendingDraft as PendingReservationDraft);
+      const draft = (pendingDraft as PendingReservationDraft | null) || readPendingReservationDraft();
+      setShowLoginPrompt(false);
+      setLoginPromptStep("choices");
+      toast.success('Passkey creee et connexion reussie');
+      if (!loggedUser.profileCompleted) {
+        openProfileSetupStep(loggedUser);
+        toast.info('Completez votre identite legale pour continuer.');
+        return;
+      }
+      setShowLoginPrompt(false);
+      setLoginPromptStep("choices");
+      if (property && draft && draft.propertySlug === property.slug) {
+        navigate(`/reservation/confirmation/${property.slug}`, { state: { draft } });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Creation Passkey echouee');
+    } finally {
+      setIsPasskeyCreateLoading(false);
+    }
+  };
+
+  const handlePromptProfileComplete = async () => {
+    if (!user?.id) {
+      toast.error("Session utilisateur invalide. Reconnectez-vous.");
+      return;
+    }
+    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim()) {
+      toast.error("Nom, prenom et telephone sont obligatoires.");
+      return;
+    }
+    setIsProfilePromptSaving(true);
+    try {
+      const savedUser = await completeSocialProfile({
+        id: user.id,
+        firstName: profilePromptForm.firstName.trim(),
+        lastName: profilePromptForm.lastName.trim(),
+        name: `${profilePromptForm.firstName.trim()} ${profilePromptForm.lastName.trim()}`.trim(),
+        email: user.email,
+        telephone: profilePromptForm.telephone.trim(),
+        cin: profilePromptForm.cin.trim(),
+      });
+      login({
+        id: savedUser.id,
+        email: savedUser.email,
+        name: savedUser.name,
+        firstName: savedUser.firstName || undefined,
+        lastName: savedUser.lastName || undefined,
+        avatar: savedUser.avatar || undefined,
+        clientType: savedUser.clientType || undefined,
+        telephone: savedUser.telephone || undefined,
+        cin: savedUser.cin || undefined,
+        cinImageUrl: savedUser.cinImageUrl || undefined,
+        profileCompleted: savedUser.profileCompleted,
+        role: 'user',
+      });
+      toast.success("Profil complete. Vous pouvez continuer.");
+      if (pendingDraft) savePendingReservationDraft(pendingDraft as PendingReservationDraft);
+      const draft = (pendingDraft as PendingReservationDraft | null) || readPendingReservationDraft();
+      setShowLoginPrompt(false);
+      setLoginPromptStep("choices");
+      if (property && draft && draft.propertySlug === property.slug) {
+        navigate(`/reservation/confirmation/${property.slug}`, { state: { draft } });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de sauvegarder le profil");
+    } finally {
+      setIsProfilePromptSaving(false);
+    }
+  };
+
   const togglePaidServiceSelection = useCallback((service: PaidServiceItem) => {
     setSelectedPaidServiceIds((prev) => {
       const alreadySelected = prev.includes(service.id);
@@ -2042,6 +2264,13 @@ out body 40;
     if (!user || user.role !== 'user' || !user.email) return;
     const draft = readPendingReservationDraft();
     if (!draft || draft.propertySlug !== property.slug) return;
+    if (!user.profileCompleted) {
+      clearAuthPendingLogin();
+      setIsAwaitingLogin(false);
+      setPendingDraft(draft);
+      openProfileSetupStep(user);
+      return;
+    }
     clearAuthPendingLogin();
     setIsAwaitingLogin(false);
     setShowLoginPrompt(false);
@@ -2051,7 +2280,7 @@ out body 40;
     navigate(`/reservation/confirmation/${property.slug}`, {
       state: { draft },
     });
-  }, [isAwaitingLogin, navigate, property, user]);
+  }, [isAwaitingLogin, navigate, openProfileSetupStep, property, user]);
 
   useEffect(() => {
     setGuests((prev) => Math.min(Math.max(prev, 1), maxGuests));
@@ -3333,6 +3562,12 @@ out body 40;
         }}
       >
         <DialogContent className="max-w-md rounded-[1.75rem] border-0 p-0 shadow-2xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Information tarifaire</DialogTitle>
+            <DialogDescription>
+              Details sur les services sur demande et a partir de qui peuvent etre factures separement.
+            </DialogDescription>
+          </DialogHeader>
           <div className="p-6">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
               <MessageCircle size={22} />
@@ -3572,7 +3807,13 @@ out body 40;
       )}
 
       {showLoginPrompt && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 px-4" onClick={() => setShowLoginPrompt(false)}>
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 px-4"
+          onClick={() => {
+            if (loginPromptStep === "profile_setup") return;
+            setShowLoginPrompt(false);
+          }}
+        >
           <div
             className="w-full max-w-md rounded-[28px] border border-white/60 bg-white p-6 shadow-[0_30px_80px_rgba(15,23,42,0.24)]"
             onClick={(event) => event.stopPropagation()}
@@ -3587,37 +3828,142 @@ out body 40;
               </div>
               <button
                 type="button"
-                onClick={() => setShowLoginPrompt(false)}
+                onClick={() => {
+                  if (loginPromptStep === "profile_setup") return;
+                  setShowLoginPrompt(false);
+                }}
                 className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="mt-6 grid gap-3">
-              <button
-                type="button"
-                disabled={!providers.google}
-                onClick={() => handlePromptSocialLogin('google')}
-                className="inline-flex items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            <div className="mt-6 overflow-hidden">
+              <div
+                className={`flex w-[300%] transition-transform duration-300 ease-out ${
+                  loginPromptStep === "choices"
+                    ? "translate-x-0"
+                    : loginPromptStep === "passkey_setup"
+                      ? "-translate-x-1/3"
+                      : "-translate-x-2/3"
+                }`}
               >
-                <Globe className="h-5 w-5 text-emerald-700" />
-                Continuer avec Google
-              </button>
-              <button
-                type="button"
-                disabled={!providers.facebook}
-                onClick={() => handlePromptSocialLogin('facebook')}
-                className="inline-flex items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Facebook className="h-5 w-5 text-blue-600" />
-                Continuer avec Facebook
-              </button>
-            </div>
+                <div className="w-1/3 space-y-3 pr-2">
+                  <button
+                    type="button"
+                    disabled={!providers.google}
+                    onClick={() => handlePromptSocialLogin('google')}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Globe className="h-5 w-5 text-emerald-700" />
+                    Continuer avec Google
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!providers.facebook}
+                    onClick={() => handlePromptSocialLogin('facebook')}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Facebook className="h-5 w-5 text-blue-600" />
+                    Continuer avec Facebook
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isPasskeyPromptLoading || !providers.passkey}
+                    onClick={() => void handlePromptPasskeyLogin()}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <KeyRound className="h-5 w-5 text-emerald-700" />
+                    {isPasskeyPromptLoading ? 'Verification Passkey...' : 'Continuer avec Passkey'}
+                  </button>
+                  <p className="pt-1 text-center text-xs text-gray-500">
+                    La connexion WhatsApp est desactivee pour le moment. Utilisez Google, Facebook ou Passkey pour continuer.
+                  </p>
+                </div>
 
-            <p className="mt-4 text-center text-xs text-gray-500">
-              La connexion WhatsApp est desactivee pour le moment. Utilisez Google ou Facebook pour continuer.
-            </p>
+                <div className="w-1/3 space-y-3 px-2">
+                  <button
+                    type="button"
+                    onClick={() => setLoginPromptStep("choices")}
+                    className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 hover:text-emerald-800"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Retour
+                  </button>
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3">
+                    <p className="text-xs font-semibold text-emerald-800">Creation Passkey</p>
+                    <input
+                      type="email"
+                      value={passkeyPromptEmail}
+                      onChange={(event) => setPasskeyPromptEmail(event.target.value)}
+                      placeholder="Email client"
+                      className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                    />
+                    <input
+                      type="text"
+                      value={passkeyPromptName}
+                      onChange={(event) => setPasskeyPromptName(event.target.value)}
+                      placeholder="Nom (optionnel)"
+                      className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isPasskeyCreateLoading}
+                    onClick={() => void handlePromptPasskeyCreate()}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <KeyRound className="h-5 w-5 text-white" />
+                    {isPasskeyCreateLoading ? 'Creation Passkey...' : 'Creer et continuer'}
+                  </button>
+                </div>
+
+                <div className="w-1/3 space-y-3 pl-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Profil obligatoire</p>
+                  <p className="text-sm text-gray-600">
+                    Completez votre identite pour continuer la reservation.
+                  </p>
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3">
+                    <input
+                      type="text"
+                      value={profilePromptForm.firstName}
+                      onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, firstName: event.target.value }))}
+                      placeholder="Prenom *"
+                      className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                    />
+                    <input
+                      type="text"
+                      value={profilePromptForm.lastName}
+                      onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, lastName: event.target.value }))}
+                      placeholder="Nom *"
+                      className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                    />
+                    <input
+                      type="text"
+                      value={profilePromptForm.telephone}
+                      onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, telephone: event.target.value }))}
+                      placeholder="Telephone *"
+                      className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                    />
+                    <input
+                      type="text"
+                      value={profilePromptForm.cin}
+                      onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, cin: event.target.value }))}
+                      placeholder="CIN (optionnelle)"
+                      className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isProfilePromptSaving}
+                    onClick={() => void handlePromptProfileComplete()}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isProfilePromptSaving ? "Validation..." : "Valider et continuer"}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

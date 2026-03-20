@@ -12,7 +12,8 @@ import {
   BarChart,
   Megaphone,
   UserCheck,
-  Bell
+  Bell,
+  ShieldCheck
 } from 'lucide-react';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
@@ -43,6 +44,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     { name: 'Statistiques', path: '/admin/statistiques', icon: BarChart },
     { name: 'Marketing', path: '/admin/marketing', icon: Megaphone },
     { name: 'Utilisateurs', path: '/admin/utilisateurs', icon: UserCheck },
+    { name: 'Audit securite', path: '/admin/audit-securite', icon: ShieldCheck },
     { name: 'Paramètres', path: '/admin/parametres', icon: Settings },
   ];
 
@@ -100,3 +102,4 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     </aside>
   );
 }
+
