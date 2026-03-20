@@ -607,6 +607,30 @@ function clearAuthSessionCookie(req, res) {
   });
 }
 
+async function authenticateAdminFromHeaders(req) {
+  const email = normalizeEmailForCompare(req.headers?.['x-admin-email']);
+  const password = String(req.headers?.['x-admin-password'] || '').trim();
+  if (!email || !password) return null;
+
+  const [rows] = await pool.query(
+    'SELECT id, nom, email, mot_de_passe_hash, actif FROM administrateurs WHERE email = ? LIMIT 1',
+    [email]
+  );
+  const admin = rows[0];
+  if (!admin || !admin.actif) return null;
+
+  const isPasswordValid = await bcrypt.compare(password, String(admin.mot_de_passe_hash || ''));
+  if (!isPasswordValid) return null;
+
+  return buildAuthUser({
+    id: admin.id,
+    email: admin.email,
+    name: admin.nom,
+    role: 'admin',
+    profileCompleted: true,
+  });
+}
+
 function requireAuthenticatedSession(req, res, next) {
   const user = getSessionUserFromRequest(req);
   if (!user) {
@@ -624,8 +648,23 @@ function requireAuthenticatedSession(req, res, next) {
   return next();
 }
 
-function requireAdminSession(req, res, next) {
+async function requireAdminSession(req, res, next) {
   const user = getSessionUserFromRequest(req);
+  if (user && user.role === 'admin') {
+    req.authUser = user;
+    return next();
+  }
+
+  try {
+    const headerAdmin = await authenticateAdminFromHeaders(req);
+    if (headerAdmin && headerAdmin.role === 'admin') {
+      req.authUser = headerAdmin;
+      return next();
+    }
+  } catch (error) {
+    console.warn('admin_header_auth_failed:', error?.message || error);
+  }
+
   if (!user) {
     void logSecurityEvent({
       req,
