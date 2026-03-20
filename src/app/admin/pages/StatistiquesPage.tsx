@@ -26,13 +26,12 @@ type ResumePayload = {
   lastExports?: Record<string, string | null>;
 };
 
-async function downloadFile(url: string, filename: string, mime = 'text/tab-separated-values;charset=utf-8') {
+async function downloadFile(url: string, filename: string) {
   const response = await fetch(url, { credentials: 'include' });
-  const text = await response.text();
   if (!response.ok) {
     throw new Error('Export impossible');
   }
-  const blob = new Blob([text], { type: mime });
+  const blob = await response.blob();
   const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = objectUrl;
@@ -101,15 +100,16 @@ export default function StatistiquesPage() {
   const exportInteractions = async (segment: 'all' | 'anonymous' | 'known') => {
     try {
       const params = new URLSearchParams();
+      params.set('format', 'xlsx');
       params.set('segment', segment);
       params.set('limit', '50000');
       if (exportDateFrom) params.set('date_from', exportDateFrom);
       if (exportDateTo) params.set('date_to', exportDateTo);
       await downloadFile(
         `${API_URL}/client-interactions/export?${params.toString()}`,
-        `interactions-${segment}-${new Date().toISOString().replace(/[:.]/g, '-')}.tsv`
+        `interactions-${segment}-${new Date().toISOString().replace(/[:.]/g, '-')}.xlsx`
       );
-      toast.success(`Export interactions ${segment} (Excel/TSV) telecharge`);
+      toast.success(`Export interactions ${segment} Excel telecharge`);
       await fetchResume();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Export interactions impossible');
@@ -119,11 +119,12 @@ export default function StatistiquesPage() {
   const exportSecurity = async () => {
     try {
       const params = new URLSearchParams();
+      params.set('format', 'xlsx');
       params.set('limit', '50000');
       if (exportDateFrom) params.set('date_from', exportDateFrom);
       if (exportDateTo) params.set('date_to', exportDateTo);
-      await downloadFile(`${API_URL}/security-audit-logs/export?${params.toString()}`, `security-audit-${new Date().toISOString().replace(/[:.]/g, '-')}.tsv`);
-      toast.success('Export securite (Excel/TSV) telecharge');
+      await downloadFile(`${API_URL}/security-audit-logs/export?${params.toString()}`, `security-audit-${new Date().toISOString().replace(/[:.]/g, '-')}.xlsx`);
+      toast.success('Export securite Excel telecharge');
       await fetchResume();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Export securite impossible');

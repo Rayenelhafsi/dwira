@@ -10187,6 +10187,7 @@ app.get('/api/security-audit-logs', requireAdminSession, async (req, res) => {
 
 app.get('/api/security-audit-logs/export', requireAdminSession, async (req, res) => {
   try {
+    const format = String(req.query.format || 'xlsx').trim().toLowerCase();
     const limitRaw = Number(req.query.limit || 5000);
     const limit = Number.isFinite(limitRaw) ? Math.min(50000, Math.max(1, limitRaw)) : 5000;
     const dateFrom = toSqlDateBoundary(req.query.date_from || req.query.dateFrom, false);
@@ -10254,6 +10255,23 @@ app.get('/api/security-audit-logs/export', requireAdminSession, async (req, res)
       metadata_json: row.metadata_json || null,
       created_at: row.created_at || null,
     }));
+    const exportedAt = getAgencySqlDateTime();
+    await recordAdminDataExport({
+      dataset: 'security_audit_logs',
+      format,
+      dateFrom,
+      dateTo,
+      rowCount: normalizedRows.length,
+      req,
+    });
+    if (format === 'xlsx') {
+      const xlsxRows = normalizedRows.map((row) => ({ ...row, success: row.success ? 1 : 0 }));
+      const buffer = buildXlsxBufferFromRows(xlsxRows, 'SecurityAudit');
+      const fileName = `security-audit-export-${String(exportedAt).replace(/[^0-9]/g, '').slice(0, 14)}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      return res.status(200).send(buffer);
+    }
     const csv = buildCsvFromRows(normalizedRows, [
       { key: 'id', label: 'id' },
       { key: 'event_type', label: 'event_type' },
@@ -10270,19 +10288,10 @@ app.get('/api/security-audit-logs/export', requireAdminSession, async (req, res)
       { key: 'metadata_json', label: 'metadata_json' },
       { key: 'created_at', label: 'created_at' },
     ], { delimiter: '\t', includeExcelSeparatorHint: false });
-    const exportedAt = getAgencySqlDateTime();
-    await recordAdminDataExport({
-      dataset: 'security_audit_logs',
-      format: 'csv',
-      dateFrom,
-      dateTo,
-      rowCount: normalizedRows.length,
-      req,
-    });
     const fileName = `security-audit-export-${String(exportedAt).replace(/[^0-9]/g, '').slice(0, 14)}.tsv`;
     res.setHeader('Content-Type', 'text/tab-separated-values; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.status(200).send(csv);
+    return res.status(200).send(csv);
   } catch (error) {
     console.error('Error exporting security audit logs:', error);
     res.status(500).json({ error: 'Impossible d exporter les logs de securite' });
@@ -10291,6 +10300,16 @@ app.get('/api/security-audit-logs/export', requireAdminSession, async (req, res)
 
 app.delete('/api/security-audit-logs', requireAdminSession, async (req, res) => {
   try {
+    const purgeAllRaw = String(req.query.purge_all || req.body?.purge_all || '').trim().toLowerCase();
+    const purgeAll = purgeAllRaw === '1' || purgeAllRaw === 'true' || purgeAllRaw === 'yes';
+    if (purgeAll) {
+      const [result] = await pool.query('DELETE FROM security_audit_logs');
+      return res.json({
+        success: true,
+        mode: 'all',
+        deleted: Number(result?.affectedRows || 0),
+      });
+    }
     const olderThanDays = Math.min(3650, Math.max(1, Number(req.query.older_than_days || req.body?.older_than_days || 30)));
     const [result] = await pool.query(
       `DELETE FROM security_audit_logs
@@ -11352,6 +11371,7 @@ app.delete('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
 
 app.get('/api/client-interactions/export', requireAdminSession, async (req, res) => {
   try {
+    const format = String(req.query.format || 'xlsx').trim().toLowerCase();
     const limitRaw = Number(req.query.limit || 10000);
     const limit = Number.isFinite(limitRaw) ? Math.min(100000, Math.max(1, limitRaw)) : 10000;
     const segment = String(req.query.segment || 'all').trim().toLowerCase();
@@ -11400,6 +11420,22 @@ app.get('/api/client-interactions/export', requireAdminSession, async (req, res)
       event_at: row.event_at || null,
       created_at: row.created_at || null,
     }));
+    const exportedAt = getAgencySqlDateTime();
+    await recordAdminDataExport({
+      dataset: `client_interactions_${segment}`,
+      format,
+      dateFrom,
+      dateTo,
+      rowCount: normalizedRows.length,
+      req,
+    });
+    if (format === 'xlsx') {
+      const buffer = buildXlsxBufferFromRows(normalizedRows, `Interactions_${segment}`);
+      const fileName = `client-interactions-${segment}-${String(exportedAt).replace(/[^0-9]/g, '').slice(0, 14)}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      return res.status(200).send(buffer);
+    }
     const csv = buildCsvFromRows(normalizedRows, [
       { key: 'id', label: 'id' },
       { key: 'client_user_id', label: 'client_user_id' },
@@ -11416,19 +11452,10 @@ app.get('/api/client-interactions/export', requireAdminSession, async (req, res)
       { key: 'event_at', label: 'event_at' },
       { key: 'created_at', label: 'created_at' },
     ], { delimiter: '\t', includeExcelSeparatorHint: false });
-    const exportedAt = getAgencySqlDateTime();
-    await recordAdminDataExport({
-      dataset: `client_interactions_${segment}`,
-      format: 'csv',
-      dateFrom,
-      dateTo,
-      rowCount: normalizedRows.length,
-      req,
-    });
     const fileName = `client-interactions-${segment}-${String(exportedAt).replace(/[^0-9]/g, '').slice(0, 14)}.tsv`;
     res.setHeader('Content-Type', 'text/tab-separated-values; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.status(200).send(csv);
+    return res.status(200).send(csv);
   } catch (error) {
     console.error('Error exporting client interactions:', error);
     res.status(500).json({ error: 'Impossible d exporter les interactions clients' });

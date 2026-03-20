@@ -83,6 +83,7 @@ export default function SecurityAuditPage() {
   const exportLogs = async () => {
     try {
       const params = new URLSearchParams();
+      params.set('format', 'xlsx');
       params.set('limit', String(Math.max(1000, limit)));
       if (eventType.trim()) params.set('event_type', eventType.trim());
       if (userId.trim()) params.set('user_id', userId.trim());
@@ -90,20 +91,19 @@ export default function SecurityAuditPage() {
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
       const response = await fetch(`${API_URL}/security-audit-logs/export?${params.toString()}`, { credentials: 'include' });
-      const text = await response.text();
       if (!response.ok) {
         throw new Error('Export securite impossible');
       }
-      const blob = new Blob([text], { type: 'text/tab-separated-values;charset=utf-8' });
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `security-audit-export-${new Date().toISOString().replace(/[:.]/g, '-')}.tsv`;
+      link.download = `security-audit-export-${new Date().toISOString().replace(/[:.]/g, '-')}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      toast.success('Export securite (Excel/TSV) telecharge');
+      toast.success('Export securite Excel telecharge');
       await fetchLastExport();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Export securite impossible');
@@ -125,6 +125,29 @@ export default function SecurityAuditPage() {
       await fetchLastExport();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Nettoyage securite impossible');
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
+  const purgeAllLogs = async () => {
+    const first = window.confirm('Supprimer TOUS les logs de securite ? Cette action est irreversible.');
+    if (!first) return;
+    const second = window.confirm('Confirmation finale: vider completement la table audit securite ?');
+    if (!second) return;
+    setIsCleaning(true);
+    try {
+      const response = await fetch(`${API_URL}/security-audit-logs?purge_all=1`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(data?.error || 'Purge securite impossible'));
+      toast.success(`${Number(data?.deleted || 0)} logs supprimes (purge totale)`);
+      await fetchLogs();
+      await fetchLastExport();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Purge securite impossible');
     } finally {
       setIsCleaning(false);
     }
@@ -166,7 +189,7 @@ export default function SecurityAuditPage() {
             onClick={exportLogs}
             className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
-            Export Excel (CSV)
+            Export Excel (.xlsx)
           </button>
           <div className="inline-flex items-center gap-2">
             <input
@@ -184,6 +207,14 @@ export default function SecurityAuditPage() {
               className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60"
             >
               {isCleaning ? 'Nettoyage...' : 'Nettoyer anciens'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void purgeAllLogs()}
+              disabled={isCleaning}
+              className="inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-60"
+            >
+              {isCleaning ? 'Purge...' : 'Tout supprimer'}
             </button>
           </div>
           <button
