@@ -365,12 +365,12 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
 
 // Convert Bien (Admin format) to Property (Site format)
 function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Property {
-  const typeToCategory: Record<string, Property['category']> = {
+  const typeToCategory: Record<string, string> = {
     'S1': 'S+1',
     'S2': 'S+2',
     'S3': 'S+3',
     'S4': 'S+4',
-    'appartement': 'S+2',
+    'appartement': 'S+1',
     'villa_maison': 'Villa',
     'studio': 'Studio',
     'local': 'S+1',
@@ -412,6 +412,13 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     ?? Number(bien.location_saisonniere_config?.frais_service ?? 0) > 0;
   const seasonalCleaningFee = Number(bien.location_saisonniere_config?.frais_menage ?? 0);
   const seasonalServiceFee = Number(bien.location_saisonniere_config?.frais_service ?? 0);
+  const normalizedConfiguration = String(bien.configuration || '').trim();
+  const categoryFromType = typeToCategory[bien.type] || 'S+1';
+  const resolvedCategory = (
+    (bien.type === 'appartement' || bien.type === 'S1' || bien.type === 'S2' || bien.type === 'S3' || bien.type === 'S4')
+      ? (normalizedConfiguration || categoryFromType)
+      : categoryFromType
+  );
 
   return {
     id: bien.id,
@@ -432,7 +439,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     videos: videoUrls,
     description: bien.description || `Superbe ${bien.type}`,
     amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),
-    category: typeToCategory[bien.type] || 'S+1',
+    category: resolvedCategory,
     isFeatured: bien.is_featured === true,
     unavailableDates: bien.unavailableDates || [],
     cleaningFee: isCleaningAvailable && seasonalCleaningFee > 0 ? seasonalCleaningFee : 0,

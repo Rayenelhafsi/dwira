@@ -24,8 +24,7 @@ export interface Property {
   videos?: string[];
   description: string;
   amenities: string[];
-  // Updated type definition to match client request
-  category: "S+1" | "S+2" | "S+3" | "S+4" | "Villa" | "Studio";
+  category: string;
   isFeatured?: boolean;
   unavailableDates?: DateStatus[];
   cleaningFee?: number;

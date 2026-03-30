@@ -1635,6 +1635,12 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const [featureChoiceValuesById, setFeatureChoiceValuesById] = useState<Record<string, string[]>>({});
   const [featureMultiChoicePickerById, setFeatureMultiChoicePickerById] = useState<Record<string, string>>({});
   const [featureValueById, setFeatureValueById] = useState<Record<string, string>>({});
+  const [newSousTypeChoice, setNewSousTypeChoice] = useState('');
+  const [isSavingSousTypeChoice, setIsSavingSousTypeChoice] = useState(false);
+  const [sousTypeImportMode, setSousTypeImportMode] = useState<BienMode>('location_saisonniere');
+  const [sousTypeImportType, setSousTypeImportType] = useState<BienType>('appartement');
+  const [isImportingSousTypes, setIsImportingSousTypes] = useState(false);
+  const [isDeletingSousTypeChoice, setIsDeletingSousTypeChoice] = useState(false);
   const [restoredFeatureLines, setRestoredFeatureLines] = useState<string[]>([]);
   const [restoredFeatureValuesApplied, setRestoredFeatureValuesApplied] = useState(false);
   const [showAddZone, setShowAddZone] = useState(false);
@@ -1974,6 +1980,22 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
 
     void loadAvailableFeatures(selectedMode, selectedType);
     void loadFeatureTabs(selectedMode, selectedType);
+  }, [formData.mode, formData.type]);
+  useEffect(() => {
+    const allowed = BIEN_TYPES_BY_MODE[sousTypeImportMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
+    if (!allowed.includes(sousTypeImportType)) {
+      setSousTypeImportType(allowed[0]);
+    }
+  }, [sousTypeImportMode, sousTypeImportType]);
+  useEffect(() => {
+    const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const currentType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    if (sousTypeImportMode !== currentMode) {
+      setSousTypeImportMode(currentMode);
+    }
+    if (sousTypeImportType !== currentType) {
+      setSousTypeImportType(currentType);
+    }
   }, [formData.mode, formData.type]);
   useEffect(() => {
     if (!Array.isArray(availableFeatures) || availableFeatures.length === 0) return;
@@ -3806,7 +3828,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
           type_papier: null,
           superficie_m2: null,
           etage: null,
-          configuration: null,
+          configuration: resolvedConfiguration,
           annee_construction: null,
           distance_plage_m: null,
           proche_plage: false,
@@ -4128,6 +4150,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
   const selectedModeForUi = (formData.mode || 'location_saisonniere') as BienMode;
+  const isLocationAppartement = selectedModeForUi !== 'vente';
   const uiSectionOptions = selectedModeForUi === 'vente' ? UI_SECTION_OPTIONS_VENTE : UI_SECTION_OPTIONS_LOCATION;
   const terrainTabsForRender = featureTabs
     .slice()
@@ -4155,6 +4178,266 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     return counts;
   }, [availableFeatures]);
   const detailTabsWithFeatures = detailTabsForRender.filter((tab) => Number(detailTabFeatureCountById[tab.id] || 0) > 0);
+  const step2SousTypeFeature = useMemo(() => {
+    if (!isLocationAppartement) return null;
+    const candidates = availableFeatures.filter((feature) => {
+      const featureType = normalizeFeatureType(feature.type_caracteristique);
+      if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix') return false;
+      const normalizedName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+      return normalizedName === 'sous type'
+        || normalizedName.includes('sous type')
+        || normalizedName.startsWith('configuration');
+    });
+    if (candidates.length === 0) return null;
+    const infoGeneralFeature = candidates.find((feature) => normalizeFeatureName(String(feature.onglet_nom || '')).includes('information'));
+    return infoGeneralFeature || candidates[0];
+  }, [availableFeatures, isLocationAppartement]);
+  const step2SousTypeOptions = useMemo(
+    () => {
+      const fromFeature = step2SousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(step2SousTypeFeature.choix_json)) : [];
+      const fromConfiguration = String(formData.configuration || '').trim();
+      return Array.from(new Set([...fromFeature, ...(fromConfiguration ? [fromConfiguration] : [])]));
+    },
+    [formData.configuration, step2SousTypeFeature]
+  );
+  const step2SousTypeSelectedValue = useMemo(() => {
+    const configurationValue = String(formData.configuration || '').trim();
+    if (configurationValue) return configurationValue;
+    if (!step2SousTypeFeature) return '';
+    return String((featureChoiceValuesById[String(step2SousTypeFeature.id || '')] || [])[0] || '').trim();
+  }, [featureChoiceValuesById, formData.configuration, step2SousTypeFeature]);
+  const handleStep2SousTypeChange = (rawValue: string) => {
+    const nextValue = String(rawValue || '').trim();
+    setFormData((prev) => ({ ...prev, configuration: nextValue || null }));
+    const featureId = String(step2SousTypeFeature?.id || '').trim();
+    if (!featureId) return;
+    setFeatureChoiceValuesById((prev) => ({ ...prev, [featureId]: nextValue ? [nextValue] : [] }));
+    setFeatureSelected(featureId, nextValue.length > 0);
+  };
+  const handleAddSousTypeChoice = async () => {
+    const nextChoice = String(newSousTypeChoice || '').trim();
+    if (!nextChoice) return toast.error('Saisissez un choix');
+    const currentOptions = Array.from(new Set(step2SousTypeOptions.map((item) => String(item || '').trim()).filter(Boolean)));
+    if (currentOptions.includes(nextChoice)) {
+      handleStep2SousTypeChange(nextChoice);
+      setNewSousTypeChoice('');
+      return toast.success('Choix deja present');
+    }
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    setIsSavingSousTypeChoice(true);
+    try {
+      if (step2SousTypeFeature?.id) {
+        const featureId = String(step2SousTypeFeature.id || '').trim();
+        const draft = featureDrafts[featureId];
+        const nextChoices = Array.from(new Set([
+          ...parseFeatureChoices(stringifyFeatureChoices(step2SousTypeFeature.choix_json)),
+          nextChoice,
+        ]));
+        const featureApiBases = getFeatureApiBases();
+        let response: Response | null = null;
+        for (const base of featureApiBases) {
+          const next = await fetch(`${base}/${encodeURIComponent(featureId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode_bien: selectedMode,
+              type_bien: selectedType,
+              apply_to_all: true,
+              nom: String(draft?.nom || step2SousTypeFeature.nom || 'Sous-type').trim(),
+              type_caracteristique: 'choix_multiple',
+              choix: nextChoices,
+              unite: null,
+              icon_name: draft?.icon_name || step2SousTypeFeature.icon_name || null,
+              onglet_id: draft?.onglet_id || step2SousTypeFeature.onglet_id || null,
+              visibilite_client: draft?.visibilite_client ?? (Number(step2SousTypeFeature.visibilite_client) === 0 ? 0 : 1),
+            }),
+          });
+          response = next;
+          if (next.ok || next.status !== 404) break;
+        }
+        if (!response || !response.ok) throw new Error('update feature sous-type');
+        await loadAvailableFeatures(selectedMode, selectedType);
+      } else {
+        const infoTabId =
+          featureTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')).includes('information'))?.id
+          || selectedFeatureTabId
+          || featureTabs[0]?.id
+          || null;
+        await createFeatureWithContext({
+          nom: 'Sous-type',
+          mode_bien: selectedMode,
+          type_bien: selectedType,
+          type_caracteristique: 'choix_multiple',
+          choix: [nextChoice],
+          unite: null,
+          icon_name: null,
+          onglet_id: infoTabId,
+          visibilite_client: 1,
+        }, { skipExistingCheck: true });
+      }
+      handleStep2SousTypeChange(nextChoice);
+      setNewSousTypeChoice('');
+      toast.success('Sous-type ajoute');
+    } catch {
+      toast.error("Impossible d'ajouter le sous-type");
+    } finally {
+      setIsSavingSousTypeChoice(false);
+    }
+  };
+  const handleDeleteSousTypeChoice = async () => {
+    const selectedValue = String(step2SousTypeSelectedValue || '').trim();
+    if (!selectedValue) return toast.error('Selectionnez un sous-type');
+    const currentOptions = Array.from(new Set(step2SousTypeOptions.map((item) => String(item || '').trim()).filter(Boolean)));
+    const nextChoices = currentOptions.filter((item) => item !== selectedValue);
+    if (nextChoices.length === 0) {
+      return toast.error('Impossible de supprimer le dernier sous-type');
+    }
+    if (!step2SousTypeFeature?.id) {
+      return toast.error('Variable sous-type introuvable');
+    }
+    setIsDeletingSousTypeChoice(true);
+    try {
+      const featureId = String(step2SousTypeFeature.id || '').trim();
+      const draft = featureDrafts[featureId];
+      const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+      const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+      const featureApiBases = getFeatureApiBases();
+      let response: Response | null = null;
+      for (const base of featureApiBases) {
+        const next = await fetch(`${base}/${encodeURIComponent(featureId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode_bien: selectedMode,
+            type_bien: selectedType,
+            apply_to_all: true,
+            nom: String(draft?.nom || step2SousTypeFeature.nom || 'Sous-type').trim(),
+            type_caracteristique: 'choix_multiple',
+            choix: nextChoices,
+            unite: null,
+            icon_name: draft?.icon_name || step2SousTypeFeature.icon_name || null,
+            onglet_id: draft?.onglet_id || step2SousTypeFeature.onglet_id || null,
+            visibilite_client: draft?.visibilite_client ?? (Number(step2SousTypeFeature.visibilite_client) === 0 ? 0 : 1),
+          }),
+        });
+        response = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!response || !response.ok) throw new Error('update feature sous-type');
+      await loadAvailableFeatures(selectedMode, selectedType);
+      handleStep2SousTypeChange('');
+      toast.success('Sous-type supprime');
+    } catch {
+      toast.error("Impossible de supprimer le sous-type");
+    } finally {
+      setIsDeletingSousTypeChoice(false);
+    }
+  };
+  const handleImportSousTypes = async () => {
+    const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
+    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const sourceMode = sousTypeImportMode;
+    const sourceType = normalizeLegacyType(sousTypeImportType);
+    if (sourceMode === selectedMode && sourceType === selectedType) {
+      return toast.error('Choisissez un mode/type source different');
+    }
+    setIsImportingSousTypes(true);
+    try {
+      const featureApiBases = getFeatureApiBases();
+      let sourceResponse: Response | null = null;
+      for (const base of featureApiBases) {
+        const next = await fetch(`${base}?mode_bien=${encodeURIComponent(sourceMode)}&type_bien=${encodeURIComponent(sourceType)}`);
+        sourceResponse = next;
+        if (next.ok || next.status !== 404) break;
+      }
+      if (!sourceResponse || !sourceResponse.ok) throw new Error('load source');
+      const sourceRows = await sourceResponse.json();
+      const sourceFeature = (Array.isArray(sourceRows) ? sourceRows : []).find((feature) => {
+        const featureType = normalizeFeatureType(feature?.type_caracteristique);
+        if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix') return false;
+        const normalizedName = normalizeFeatureName(String(feature?.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+        return normalizedName === 'sous type'
+          || normalizedName.includes('sous type')
+          || normalizedName.startsWith('configuration');
+      });
+      const sourceChoices = sourceFeature ? parseFeatureChoices(stringifyFeatureChoices(sourceFeature.choix_json)) : [];
+      if (sourceChoices.length === 0) {
+        return toast.error('Aucun sous-type a importer');
+      }
+      const mergedChoices = Array.from(new Set([
+        ...step2SousTypeOptions.map((item) => String(item || '').trim()).filter(Boolean),
+        ...sourceChoices.map((item) => String(item || '').trim()).filter(Boolean),
+      ]));
+      const targetChoice = String(step2SousTypeSelectedValue || '').trim();
+      if (!step2SousTypeFeature?.id) {
+        const infoTabId =
+          featureTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')).includes('information'))?.id
+          || selectedFeatureTabId
+          || featureTabs[0]?.id
+          || null;
+        await createFeatureWithContext({
+          nom: 'Sous-type',
+          mode_bien: selectedMode,
+          type_bien: selectedType,
+          type_caracteristique: 'choix_multiple',
+          choix: mergedChoices,
+          unite: null,
+          icon_name: null,
+          onglet_id: infoTabId,
+          visibilite_client: 1,
+        }, { skipExistingCheck: true });
+      } else {
+        const featureId = String(step2SousTypeFeature.id || '').trim();
+        const draft = featureDrafts[featureId];
+        let updateResponse: Response | null = null;
+        for (const base of featureApiBases) {
+          const next = await fetch(`${base}/${encodeURIComponent(featureId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode_bien: selectedMode,
+              type_bien: selectedType,
+              apply_to_all: true,
+              nom: String(draft?.nom || step2SousTypeFeature.nom || 'Sous-type').trim(),
+              type_caracteristique: 'choix_multiple',
+              choix: mergedChoices,
+              unite: null,
+              icon_name: draft?.icon_name || step2SousTypeFeature.icon_name || null,
+              onglet_id: draft?.onglet_id || step2SousTypeFeature.onglet_id || null,
+              visibilite_client: draft?.visibilite_client ?? (Number(step2SousTypeFeature.visibilite_client) === 0 ? 0 : 1),
+            }),
+          });
+          updateResponse = next;
+          if (next.ok || next.status !== 404) break;
+        }
+        if (!updateResponse || !updateResponse.ok) throw new Error('update target');
+      }
+      await loadAvailableFeatures(selectedMode, selectedType);
+      if (targetChoice) handleStep2SousTypeChange(targetChoice);
+      toast.success(`Sous-types importes: ${sourceChoices.length}`);
+    } catch {
+      toast.error("Impossible d'importer les sous-types");
+    } finally {
+      setIsImportingSousTypes(false);
+    }
+  };
+  useEffect(() => {
+    const featureId = String(step2SousTypeFeature?.id || '').trim();
+    if (!featureId) return;
+    const selectedFromFeature = String((featureChoiceValuesById[featureId] || [])[0] || '').trim();
+    const selectedFromForm = String(formData.configuration || '').trim();
+    if (!selectedFromForm && selectedFromFeature) {
+      setFormData((prev) => ({ ...prev, configuration: selectedFromFeature }));
+      return;
+    }
+    if (selectedFromForm && selectedFromForm !== selectedFromFeature) {
+      setFeatureChoiceValuesById((prev) => ({ ...prev, [featureId]: [selectedFromForm] }));
+    }
+    if (selectedFromForm && !selectedFeatureIds.includes(featureId)) {
+      setFeatureSelected(featureId, true);
+    }
+  }, [featureChoiceValuesById, formData.configuration, selectedFeatureIds, step2SousTypeFeature]);
   const preferredDetailTabId =
     detailTabsWithFeatures.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('information'))?.id
     || detailTabsWithFeatures.find((tab) => normalizeFeatureName(String(tab.label || '')).includes('caracteristique'))?.id
@@ -4426,6 +4709,20 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     if (step === 2) {
       if (!selectedType || !allowedTypes.includes(selectedType)) {
         issues.push(createValidationIssue(2, 'type', 'Type', 'Type invalide pour ce mode'));
+      }
+      if (selectedMode !== 'vente' && selectedType === 'appartement') {
+        const sousTypeFeature = availableFeatures.find((feature) => {
+          const featureType = normalizeFeatureType(feature.type_caracteristique);
+          if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix') return false;
+          const normalizedName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+          return normalizedName === 'sous type'
+            || normalizedName.includes('sous type')
+            || normalizedName.startsWith('configuration');
+        });
+        const sousTypeChoices = sousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(sousTypeFeature.choix_json)) : [];
+        if (sousTypeChoices.length > 0 && !String(formData.configuration || '').trim()) {
+          issues.push(createValidationIssue(2, 'configuration', 'Sous-type', 'Sous-type obligatoire'));
+        }
       }
     }
 
@@ -4900,9 +5197,81 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 2 - Type de bien</h3>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Type *</label><select name="type" value={formData.type || 'appartement'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{(BIEN_TYPES_BY_MODE[(formData.mode || 'location_saisonniere') as BienMode] || []).map((typeValue) => <option key={typeValue} value={typeValue}>{typeLabels[typeValue]}</option>)}</select></div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
+                {isLocationAppartement && (
+                  <div data-field="configuration">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Sous-type *</label>
+                    <select
+                      name="configuration"
+                      value={step2SousTypeSelectedValue}
+                      onChange={(e) => handleStep2SousTypeChange(e.target.value)}
+                      className="block w-full rounded-lg border-gray-300 border p-2"
+                    >
+                      <option value="">-- Choisir --</option>
+                      {step2SousTypeOptions.map((option) => (
+                        <option key={`step2-sous-type-${option}`} value={option}>{option}</option>
+                      ))}
+                    </select>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newSousTypeChoice}
+                        onChange={(e) => setNewSousTypeChoice(e.target.value)}
+                        placeholder="Nouveau choix (ex: S+5)"
+                        className="block w-full rounded-lg border-gray-300 border p-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleAddSousTypeChoice()}
+                        disabled={isSavingSousTypeChoice}
+                        className="shrink-0 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                      >
+                        + Ajouter un choix
+                      </button>
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-4">
+                      <select
+                        value={sousTypeImportMode}
+                        onChange={(e) => setSousTypeImportMode(e.target.value as BienMode)}
+                        className="rounded-lg border-gray-300 border p-2 text-xs"
+                      >
+                        {Object.entries(modeLabels).map(([value, label]) => (
+                          <option key={`import-mode-${value}`} value={value}>{label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={sousTypeImportType}
+                        onChange={(e) => setSousTypeImportType(normalizeLegacyType(e.target.value as BienType))}
+                        className="rounded-lg border-gray-300 border p-2 text-xs"
+                      >
+                        {(BIEN_TYPES_BY_MODE[sousTypeImportMode] || []).map((typeValue) => (
+                          <option key={`import-type-${typeValue}`} value={typeValue}>{typeLabels[typeValue]}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void handleImportSousTypes()}
+                        disabled={isImportingSousTypes}
+                        className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-60"
+                      >
+                        Importer des sous-types
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteSousTypeChoice()}
+                        disabled={isDeletingSousTypeChoice || !String(step2SousTypeSelectedValue || '').trim()}
+                        className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                      >
+                        Supprimer ce sous-type
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Valeurs de la variable Sous-type (créée dans Informations générales).
+                    </p>
+                  </div>
+                )}
               </div>
               <label htmlFor="visible_sur_site" className="flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
                 <div>
