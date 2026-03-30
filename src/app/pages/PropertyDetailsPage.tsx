@@ -12,7 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getOrCreateTrackingSessionId, hasTrackingConsent } from "../utils/consent";
 import { completeSocialProfile, getAuthProviders, loginWithPasskey, registerWithPasskey, startSocialLogin } from "../services/auth";
-import { canRenderVideoInIframe, isFacebookVideoUrl, isVerticalVideoUrl, toVideoEmbedUrl, toVideoExternalUrl } from "../utils/videoLinks";
+import { canRenderVideoInIframe, isFacebookReelUrl, isFacebookVideoUrl, isVerticalVideoUrl, toVideoEmbedUrl, toVideoExternalUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
@@ -534,6 +534,7 @@ export default function PropertyDetailsPage() {
   const property = properties.find((p) => p.slug === slug);
   const propertyVideos = property?.videos || [];
   const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
+  const [facebookEmbedUnavailableByUrl, setFacebookEmbedUnavailableByUrl] = useState<Record<string, boolean>>({});
   useEffect(() => {
     const uniqueFacebookUrls = Array.from(
       new Set(
@@ -566,6 +567,36 @@ export default function PropertyDetailsPage() {
       cancelled = true;
     };
   }, [facebookDirectVideoUrls, propertyVideos]);
+  useEffect(() => {
+    const uniqueFacebookUrls = Array.from(
+      new Set(
+        propertyVideos
+          .map((videoUrl) => String(videoUrl || '').trim())
+          .filter((url) => url && isFacebookVideoUrl(url) && facebookEmbedUnavailableByUrl[url] === undefined)
+      )
+    );
+    if (uniqueFacebookUrls.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const updates: Array<[string, boolean]> = [];
+      for (const url of uniqueFacebookUrls) {
+        try {
+          const endpoint = buildApiUrl(`/facebook/embed-status?url=${encodeURIComponent(url)}`);
+          const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+          const payload = await response.json().catch(() => null);
+          updates.push([url, payload?.embeddable === false]);
+        } catch {
+          updates.push([url, false]);
+        }
+      }
+      if (!cancelled && updates.length > 0) {
+        setFacebookEmbedUnavailableByUrl((prev) => ({ ...prev, ...Object.fromEntries(updates) }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [facebookEmbedUnavailableByUrl, propertyVideos]);
   const allGalleryImages = property?.images || [];
   const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>([GALLERY_FALLBACK_IMAGE]);
   const [galleryAvailabilityChecked, setGalleryAvailabilityChecked] = useState(false);
@@ -2649,10 +2680,13 @@ out body 40;
                 <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-5 md:py-5 xl:grid-cols-2">
                   {propertyVideos.map((videoUrl, index) => {
   const isShortVideo = isVerticalVideoUrl(videoUrl);
+  const isPortraitVideo = isShortVideo || isFacebookReelUrl(videoUrl);
   const embedUrl = toVideoEmbedUrl(videoUrl);
   const externalUrl = toVideoExternalUrl(videoUrl) || String(videoUrl || '').trim();
   const directUrl = facebookDirectVideoUrls[String(videoUrl || '').trim()] || "";
+  const isEmbedUnavailable = facebookEmbedUnavailableByUrl[String(videoUrl || '').trim()] === true;
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(videoUrl);
+  const shouldUseDirectVideo = isFacebookVideoUrl(videoUrl) && isEmbedUnavailable && Boolean(directUrl);
 
   return (
   <div
@@ -2670,9 +2704,27 @@ out body 40;
       </div>
     </div>
     <div className="bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_45%),linear-gradient(180deg,#0f172a,#111827)] p-3">
-      <div className={`mx-auto overflow-hidden rounded-[1.2rem] border border-white/10 bg-black shadow-[0_14px_30px_rgba(0,0,0,0.32)] ${isShortVideo ? "max-w-[280px]" : "w-full"}`}>
-        <div className={isShortVideo ? "aspect-[9/16]" : "aspect-video"}>
-          {canEmbed ? (
+      <div className={`mx-auto overflow-hidden rounded-[1.2rem] border border-white/10 bg-black shadow-[0_14px_30px_rgba(0,0,0,0.32)] ${isPortraitVideo ? "max-w-[430px] w-full" : "w-full"}`}>
+        <div className={isPortraitVideo ? "aspect-[9/16]" : "aspect-video"}>
+          {shouldUseDirectVideo ? (
+            <video
+              src={directUrl}
+              controls
+              playsInline
+              muted={false}
+              defaultMuted={false}
+              onLoadedMetadata={(event) => {
+                event.currentTarget.muted = false;
+                if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+              }}
+              onPlay={(event) => {
+                event.currentTarget.muted = false;
+                if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+              }}
+              className="h-full w-full bg-black"
+              preload="metadata"
+            />
+          ) : canEmbed ? (
             <iframe
               src={embedUrl || ""}
               title={`${property.title} visite video ${index + 1}`}

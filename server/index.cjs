@@ -1088,6 +1088,43 @@ function resolveAnyMessengerPageToken() {
   ).trim();
 }
 
+async function checkFacebookEmbedAvailability(rawInput) {
+  const { videoId } = await resolveFacebookVideoIdFromAnyUrl(rawInput);
+  if (!videoId) {
+    return { embeddable: false, reason: 'facebook_video_id_missing', videoId: null };
+  }
+  const href = `https://www.facebook.com/watch/?v=${encodeURIComponent(videoId)}`;
+  const embedUrl = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(href)}&show_text=false`;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(embedUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DwiraBot/1.0; +https://dwira.tn)',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    clearTimeout(timeout);
+    const html = await response.text().catch(() => '');
+    const text = String(html || '').toLowerCase();
+    const unavailable =
+      !response.ok
+      || text.includes('video unavailable')
+      || text.includes("can't be embedded")
+      || text.includes('cannot be embedded')
+      || text.includes('may contain content owned by someone else')
+      || text.includes("you don't have permission to view it");
+    return {
+      embeddable: !unavailable,
+      reason: unavailable ? 'facebook_embed_unavailable' : null,
+      videoId: String(videoId || ''),
+    };
+  } catch {
+    return { embeddable: false, reason: 'facebook_embed_check_failed', videoId: String(videoId || '') };
+  }
+}
+
 async function sendMessengerText(psid, text, pageId = null) {
   const pageAccessToken = resolveMessengerPageAccessToken(pageId);
   if (!pageAccessToken) {
@@ -10964,6 +11001,20 @@ app.get('/api/facebook/video-source', async (req, res) => {
   } catch (error) {
     console.error('Facebook video source error:', error);
     return res.status(500).json({ error: 'facebook_video_source_failed' });
+  }
+});
+
+app.get('/api/facebook/embed-status', async (req, res) => {
+  try {
+    const inputUrl = String(req.query?.url || '').trim();
+    if (!inputUrl) {
+      return res.status(400).json({ error: 'facebook_url_missing' });
+    }
+    const status = await checkFacebookEmbedAvailability(inputUrl);
+    return res.json(status);
+  } catch (error) {
+    console.error('Facebook embed status error:', error);
+    return res.status(500).json({ error: 'facebook_embed_status_failed' });
   }
 });
 

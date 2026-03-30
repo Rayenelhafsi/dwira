@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bath, BedSingle, Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, House, Info, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { resolveBienCapacity } from '../../utils/bienCapacity';
-import { canRenderVideoInIframe, isFacebookVideoUrl, isVerticalVideoUrl, toVideoEmbedUrl, toVideoExternalUrl } from '../../utils/videoLinks';
+import { canRenderVideoInIframe, isFacebookReelUrl, isFacebookVideoUrl, isVerticalVideoUrl, toVideoEmbedUrl, toVideoExternalUrl } from '../../utils/videoLinks';
 import { SmartImage } from '../../components/SmartImage';
 import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet';
 import L from 'leaflet';
@@ -268,6 +268,7 @@ export default function LocationPublicBienPageView({
   const images = (bien.media || []).filter((item) => item.type !== 'video').map((item) => resolveMediaUrl(item.url)).filter(Boolean);
   const videos = (bien.media || []).filter((item) => item.type === 'video').map((item) => String(item.url || '').trim()).filter(Boolean);
   const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
+  const [facebookEmbedUnavailableByUrl, setFacebookEmbedUnavailableByUrl] = useState<Record<string, boolean>>({});
   useEffect(() => {
     const uniqueFacebookUrls = Array.from(
       new Set(videos.filter((url) => url && isFacebookVideoUrl(url) && !facebookDirectVideoUrls[url]))
@@ -295,6 +296,31 @@ export default function LocationPublicBienPageView({
       cancelled = true;
     };
   }, [API_URL, facebookDirectVideoUrls, videos]);
+  useEffect(() => {
+    const uniqueFacebookUrls = Array.from(
+      new Set(videos.filter((url) => url && isFacebookVideoUrl(url) && facebookEmbedUnavailableByUrl[url] === undefined))
+    );
+    if (uniqueFacebookUrls.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const updates: Array<[string, boolean]> = [];
+      for (const url of uniqueFacebookUrls) {
+        try {
+          const response = await fetch(`${API_URL}/facebook/embed-status?url=${encodeURIComponent(url)}`, { headers: { Accept: 'application/json' } });
+          const payload = await response.json().catch(() => null);
+          updates.push([url, payload?.embeddable === false]);
+        } catch {
+          updates.push([url, false]);
+        }
+      }
+      if (!cancelled && updates.length > 0) {
+        setFacebookEmbedUnavailableByUrl((prev) => ({ ...prev, ...Object.fromEntries(updates) }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [API_URL, facebookEmbedUnavailableByUrl, videos]);
   const zoneName = selectedZone?.nom || 'Zone non definie';
   const selectedFeatureIds = new Set((Array.isArray(bien.caracteristique_ids) ? bien.caracteristique_ids : []).map((item) => String(item)));
   const selectedFeatureNames = new Set((Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []).map((item) => normalizeFeatureName(String(item))));
@@ -607,10 +633,13 @@ out body 20;
             <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-6 md:py-6 xl:grid-cols-2">
               {videos.map((videoUrl, index) => {
   const isShortVideo = isVerticalVideoUrl(videoUrl);
+  const isPortraitVideo = isShortVideo || isFacebookReelUrl(videoUrl);
   const embedUrl = toVideoEmbedUrl(videoUrl);
   const externalUrl = toVideoExternalUrl(videoUrl) || String(videoUrl || '').trim();
   const directUrl = facebookDirectVideoUrls[String(videoUrl || '').trim()] || '';
+  const isEmbedUnavailable = facebookEmbedUnavailableByUrl[String(videoUrl || '').trim()] === true;
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(videoUrl);
+  const shouldUseDirectVideo = isFacebookVideoUrl(videoUrl) && isEmbedUnavailable && Boolean(directUrl);
 
   return (
     <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_16px_35px_rgba(15,23,42,0.10)]">
@@ -622,9 +651,27 @@ out body 20;
         <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">{isShortVideo ? 'Shorts' : 'HD'}</div>
       </div>
       <div className="bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_45%),linear-gradient(180deg,#0f172a,#111827)] p-3 md:p-4">
-        <div className={`mx-auto overflow-hidden rounded-[1.35rem] border border-white/10 bg-black ${isShortVideo ? 'max-w-[360px]' : 'w-full'}`}>
-          <div className={isShortVideo ? 'aspect-[9/16]' : 'aspect-video'}>
-            {canEmbed ? (
+        <div className={`mx-auto overflow-hidden rounded-[1.35rem] border border-white/10 bg-black ${isPortraitVideo ? 'max-w-[430px] w-full' : 'w-full'}`}>
+          <div className={isPortraitVideo ? 'aspect-[9/16]' : 'aspect-video'}>
+            {shouldUseDirectVideo ? (
+              <video
+                src={directUrl}
+                controls
+                playsInline
+                muted={false}
+                defaultMuted={false}
+                onLoadedMetadata={(event) => {
+                  event.currentTarget.muted = false;
+                  if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+                }}
+                onPlay={(event) => {
+                  event.currentTarget.muted = false;
+                  if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+                }}
+                className="h-full w-full bg-black"
+                preload="metadata"
+              />
+            ) : canEmbed ? (
               <iframe
                 src={embedUrl || ''}
                 title={`${bien.titre} video ${index + 1}`}

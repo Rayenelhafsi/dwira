@@ -92,7 +92,14 @@ export function toFacebookEmbedUrl(input?: string | null): string | null {
   const rawValue = extractIframeSrc(input);
   if (!isFacebookVideoUrl(rawValue)) return null;
   const href = normalizeFacebookHrefForEmbed(rawValue);
-  return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(href)}&show_text=false`;
+  const isReel = isFacebookReelUrl(rawValue);
+  const params = new URLSearchParams();
+  params.set("href", href);
+  params.set("show_text", "false");
+  params.set("width", isReel ? "315" : "560");
+  params.set("height", isReel ? "560" : "315");
+  params.set("autoplay", "false");
+  return `https://www.facebook.com/plugins/video.php?${params.toString()}`;
 }
 
 function unwrapFacebookPluginHref(input?: string | null): string {
@@ -185,7 +192,9 @@ export function toVideoEmbedUrl(input?: string | null): string | null {
 }
 
 export function isVerticalVideoUrl(input?: string | null): boolean {
-  return isYouTubeShortUrl(input) || isFacebookReelUrl(input);
+  // Keep only YouTube Shorts in vertical mode.
+  // Facebook reels are rendered in standard player width to avoid tiny embeds.
+  return isYouTubeShortUrl(input);
 }
 
 export function isLikelyUnsupportedFacebookEmbed(input?: string | null): boolean {

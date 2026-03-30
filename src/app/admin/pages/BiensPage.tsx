@@ -1853,6 +1853,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const clientVisibleImages = images.filter((img) => img.type === 'image' && !isProofImage(img));
   const clientVisibleVideos = images.filter((img) => img.type === 'video');
   const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
+  const [facebookEmbedUnavailableByUrl, setFacebookEmbedUnavailableByUrl] = useState<Record<string, boolean>>({});
   useEffect(() => {
     const uniqueFacebookUrls = Array.from(
       new Set(
@@ -1884,6 +1885,35 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       cancelled = true;
     };
   }, [API_URL, clientVisibleVideos, facebookDirectVideoUrls]);
+  useEffect(() => {
+    const uniqueFacebookUrls = Array.from(
+      new Set(
+        clientVisibleVideos
+          .map((video) => String(video.url || '').trim())
+          .filter((url) => url && isFacebookVideoUrl(url) && facebookEmbedUnavailableByUrl[url] === undefined)
+      )
+    );
+    if (uniqueFacebookUrls.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const updates: Array<[string, boolean]> = [];
+      for (const url of uniqueFacebookUrls) {
+        try {
+          const response = await fetch(`${API_URL}/facebook/embed-status?url=${encodeURIComponent(url)}`);
+          const payload = await response.json().catch(() => null);
+          updates.push([url, payload?.embeddable === false]);
+        } catch {
+          updates.push([url, false]);
+        }
+      }
+      if (!cancelled && updates.length > 0) {
+        setFacebookEmbedUnavailableByUrl((prev) => ({ ...prev, ...Object.fromEntries(updates) }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [API_URL, clientVisibleVideos, facebookEmbedUnavailableByUrl]);
   const typeRueProofImages = images.filter((img) => img.motif_upload === currentProofTypeRueMotif);
   const typePapierProofImages = images.filter((img) => img.motif_upload === currentProofTypePapierMotif);
   const getLotissementTerrainProofs = (
@@ -6878,10 +6908,30 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const embedUrl = toVideoEmbedUrl(video.url);
   const externalUrl = toVideoExternalUrl(video.url) || String(video.url || '').trim();
   const directUrl = facebookDirectVideoUrls[String(video.url || '').trim()] || '';
+  const isEmbedUnavailable = facebookEmbedUnavailableByUrl[String(video.url || '').trim()] === true;
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(video.url);
+  const shouldUseDirectVideo = isFacebookVideoUrl(video.url) && isEmbedUnavailable && Boolean(directUrl);
   return (
     <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
-      {canEmbed ? (
+      {shouldUseDirectVideo ? (
+        <video
+          src={directUrl}
+          controls
+          playsInline
+          muted={false}
+          defaultMuted={false}
+          onLoadedMetadata={(event) => {
+            event.currentTarget.muted = false;
+            if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+          }}
+          onPlay={(event) => {
+            event.currentTarget.muted = false;
+            if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+          }}
+          className="w-full h-56 rounded-lg bg-black"
+          preload="metadata"
+        />
+      ) : canEmbed ? (
         <iframe
           src={embedUrl || ''}
           title={`Video ${index + 1}`}
