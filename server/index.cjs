@@ -1108,11 +1108,12 @@ async function checkFacebookEmbedAvailability(rawInput) {
     clearTimeout(timeout);
     const html = await response.text().catch(() => '');
     const text = String(html || '').toLowerCase();
-    const unavailable =
-      text.includes('video unavailable')
-      || text.includes("can't be embedded")
+    const hasVideoUnavailable = text.includes('video unavailable');
+    const hasEmbedRestriction =
+      text.includes("can't be embedded")
       || text.includes('cannot be embedded')
       || text.includes('may contain content owned by someone else');
+    const unavailable = hasVideoUnavailable && hasEmbedRestriction;
     return {
       embeddable: !unavailable,
       reason: unavailable ? 'facebook_embed_unavailable' : null,
