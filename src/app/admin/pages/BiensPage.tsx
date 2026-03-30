@@ -12,7 +12,7 @@ import LocationPublicBienPageView from '../../locations/components/LocationPubli
 import { SmartImage } from '../../components/SmartImage';
 import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/featureIcons';
 import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils/servicePayants';
-import { isSupportedVideoUrl, toVideoEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
+import { canRenderVideoInIframe, isFacebookVideoUrl, isSupportedVideoUrl, toVideoEmbedUrl, toVideoExternalUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../../utils/bienCapacity';
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
@@ -1852,6 +1852,38 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const isProofImage = (img: Media) => isProofMotif(img.motif_upload);
   const clientVisibleImages = images.filter((img) => img.type === 'image' && !isProofImage(img));
   const clientVisibleVideos = images.filter((img) => img.type === 'video');
+  const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const uniqueFacebookUrls = Array.from(
+      new Set(
+        clientVisibleVideos
+          .map((video) => String(video.url || '').trim())
+          .filter((url) => url && isFacebookVideoUrl(url) && !facebookDirectVideoUrls[url])
+      )
+    );
+    if (uniqueFacebookUrls.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const nextEntries: Array<[string, string]> = [];
+      for (const url of uniqueFacebookUrls) {
+        try {
+          const response = await fetch(`${API_URL}/facebook/video-source?url=${encodeURIComponent(url)}`);
+          if (!response.ok) continue;
+          const payload = await response.json().catch(() => null);
+          const source = String(payload?.source || '').trim();
+          if (source) nextEntries.push([url, source]);
+        } catch {
+          // Ignore fetch failures and keep iframe/link fallback.
+        }
+      }
+      if (!cancelled && nextEntries.length > 0) {
+        setFacebookDirectVideoUrls((prev) => ({ ...prev, ...Object.fromEntries(nextEntries) }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [API_URL, clientVisibleVideos, facebookDirectVideoUrls]);
   const typeRueProofImages = images.filter((img) => img.motif_upload === currentProofTypeRueMotif);
   const typePapierProofImages = images.filter((img) => img.motif_upload === currentProofTypePapierMotif);
   const getLotissementTerrainProofs = (
@@ -6842,28 +6874,67 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     </div>
                     <p className="mb-6 text-xs text-gray-500">Collez un lien YouTube (`youtube.com`, `youtu.be`, `shorts`) ou Facebook (`facebook.com/watch`, `facebook.com/reel`, `facebook.com/.../videos`, `facebook.com/share/...`, `fb.watch`). La video sera affichee directement dans la page du bien.</p>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {clientVisibleVideos.map((video, index) => (
-                        <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
-                          <iframe
-                            src={toVideoEmbedUrl(video.url) || ''}
-                            title={`Video ${index + 1}`}
-                            className="w-full h-56 rounded-lg bg-black"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            referrerPolicy="strict-origin-when-cross-origin"
-                            allowFullScreen
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveImage(video.id)}
-                            className="absolute top-4 right-4 p-2 bg-red-500 text-white rounded-full shadow"
-                            aria-label="Supprimer la vidéo"
-                            title="Supprimer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                          <span className="absolute bottom-4 right-4 bg-black/60 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{clientVisibleVideos.length}</span>
-                        </div>
-                      ))}
+                      {clientVisibleVideos.map((video, index) => {
+  const embedUrl = toVideoEmbedUrl(video.url);
+  const externalUrl = toVideoExternalUrl(video.url) || String(video.url || '').trim();
+  const directUrl = facebookDirectVideoUrls[String(video.url || '').trim()] || '';
+  const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(video.url);
+  return (
+    <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
+      {directUrl ? (
+        <video
+          src={directUrl}
+          controls
+          playsInline
+          muted={false}
+          defaultMuted={false}
+          onLoadedMetadata={(event) => {
+            event.currentTarget.muted = false;
+            if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+          }}
+          onPlay={(event) => {
+            event.currentTarget.muted = false;
+            if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+          }}
+          className="w-full h-56 rounded-lg bg-black"
+          preload="metadata"
+        />
+      ) : canEmbed ? (
+        <iframe
+          src={embedUrl || ''}
+          title={`Video ${index + 1}`}
+          className="w-full h-56 rounded-lg bg-black"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allowFullScreen
+        />
+      ) : (
+        <div className="flex h-56 flex-col items-center justify-center gap-3 rounded-lg bg-slate-900 p-4 text-center text-white">
+          <p className="text-sm font-semibold">Integration Facebook indisponible</p>
+          <p className="text-xs text-slate-200">Cette video ne peut pas etre integree en iframe. Ouvrez-la directement sur Facebook.</p>
+          <a
+            href={externalUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-slate-900"
+          >
+            Ouvrir la video
+          </a>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => handleRemoveImage(video.id)}
+        className="absolute top-4 right-4 p-2 bg-red-500 text-white rounded-full shadow"
+        aria-label="Supprimer la vidéo"
+        title="Supprimer"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+      <span className="absolute bottom-4 right-4 bg-black/60 text-white text-xs px-2 py-0.5 rounded">{index + 1}/{clientVisibleVideos.length}</span>
+    </div>
+  );
+})}
                       {clientVisibleVideos.length === 0 && <div className="col-span-full text-center py-6 text-gray-500">Aucune vidéo</div>}
                     </div>
                   </div>
@@ -7304,6 +7375,7 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
     </div>
   );
 }
+
 
 
 

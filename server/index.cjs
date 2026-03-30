@@ -992,6 +992,45 @@ function resolveMessengerPageAccessToken(pageId) {
   return MESSENGER_PAGE_ACCESS_TOKEN;
 }
 
+function extractFacebookVideoIdFromUrl(rawInput) {
+  const raw = String(rawInput || '').trim();
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (host === 'fb.watch' || host.endsWith('.fb.watch')) {
+    return segments[0] || null;
+  }
+  if (!(host === 'facebook.com' || host.endsWith('.facebook.com'))) return null;
+  if (path === '/watch' || path === '/watch/' || path === '/video.php') {
+    const videoId = String(parsed.searchParams.get('v') || '').trim();
+    return videoId || null;
+  }
+  if (path.startsWith('/reel/')) {
+    return String(segments[1] || '').trim() || null;
+  }
+  const videosIndex = segments.findIndex((segment) => segment.toLowerCase() === 'videos');
+  if (videosIndex >= 0) {
+    return String(segments[videosIndex + 1] || '').trim() || null;
+  }
+  return null;
+}
+
+function resolveAnyMessengerPageToken() {
+  return (
+    MESSENGER_PAGE_ACCESS_TOKEN_LOCATION ||
+    MESSENGER_PAGE_ACCESS_TOKEN_VENTE ||
+    MESSENGER_PAGE_ACCESS_TOKEN ||
+    ''
+  ).trim();
+}
+
 async function sendMessengerText(psid, text, pageId = null) {
   const pageAccessToken = resolveMessengerPageAccessToken(pageId);
   if (!pageAccessToken) {
@@ -10821,6 +10860,53 @@ app.get('/api/auth/providers', (req, res) => {
     emailOtp: emailOtpConfigured,
     passkey: passkeyConfigured,
   });
+});
+
+app.get('/api/facebook/video-source', async (req, res) => {
+  try {
+    const inputUrl = String(req.query?.url || '').trim();
+    const videoId = extractFacebookVideoIdFromUrl(inputUrl);
+    if (!videoId) {
+      return res.status(400).json({ error: 'facebook_video_id_missing' });
+    }
+    const accessToken = resolveAnyMessengerPageToken();
+    if (!accessToken) {
+      return res.status(503).json({ error: 'facebook_page_token_missing' });
+    }
+
+    const endpoint = new URL(`https://graph.facebook.com/${MESSENGER_API_VERSION}/${encodeURIComponent(videoId)}`);
+    endpoint.searchParams.set('fields', 'id,source,permalink_url,from{id}');
+    endpoint.searchParams.set('access_token', accessToken);
+
+    const response = await fetch(endpoint.toString());
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.error) {
+      return res.status(404).json({
+        error: 'facebook_video_source_unavailable',
+        detail: payload?.error?.message || `Graph API ${response.status}`,
+      });
+    }
+
+    const ownerId = String(payload?.from?.id || '').trim();
+    const allowedOwnerIds = [MESSENGER_PAGE_ID_LOCATION, MESSENGER_PAGE_ID_VENTE].map((v) => String(v || '').trim()).filter(Boolean);
+    if (allowedOwnerIds.length > 0 && ownerId && !allowedOwnerIds.includes(ownerId)) {
+      return res.status(403).json({ error: 'facebook_video_not_owned_by_configured_page' });
+    }
+
+    const source = String(payload?.source || '').trim();
+    if (!source) {
+      return res.status(404).json({ error: 'facebook_video_source_missing' });
+    }
+    return res.json({
+      videoId: String(payload?.id || videoId),
+      source,
+      permalink_url: String(payload?.permalink_url || '').trim() || null,
+      owner_id: ownerId || null,
+    });
+  } catch (error) {
+    console.error('Facebook video source error:', error);
+    return res.status(500).json({ error: 'facebook_video_source_failed' });
+  }
 });
 
 app.get('/api/anti-bot/config', (req, res) => {

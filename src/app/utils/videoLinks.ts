@@ -82,16 +82,62 @@ export function isFacebookReelUrl(input?: string | null): boolean {
 export function toFacebookEmbedUrl(input?: string | null): string | null {
   const rawValue = extractIframeSrc(input);
   if (!isFacebookVideoUrl(rawValue)) return null;
-  let href = rawValue;
-  const parsed = safeParseUrl(rawValue);
-  if (parsed) {
-    const host = parsed.hostname.toLowerCase();
-    if (host === "fb.watch" || host.endsWith(".fb.watch")) {
-      const watchId = parsed.pathname.split("/").filter(Boolean)[0] || "";
-      if (watchId) href = `https://www.facebook.com/watch/?v=${encodeURIComponent(watchId)}`;
-    }
-  }
+  const href = normalizeFacebookHrefForEmbed(rawValue);
   return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(href)}&show_text=false`;
+}
+
+function unwrapFacebookPluginHref(input?: string | null): string {
+  const rawValue = extractIframeSrc(input);
+  const parsed = safeParseUrl(rawValue);
+  if (!parsed) return rawValue;
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  if (!(host === "facebook.com" || host.endsWith(".facebook.com"))) return rawValue;
+  if (path !== "/plugins/video.php") return rawValue;
+  const nestedHref = String(parsed.searchParams.get("href") || "").trim();
+  return nestedHref || rawValue;
+}
+
+function isLikelyUnsupportedFacebookPath(parsed: URL): boolean {
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  if (!(host === "facebook.com" || host.endsWith(".facebook.com"))) return false;
+  if (path.startsWith("/share/")) return true;
+  return false;
+}
+
+function extractFacebookVideoId(parsed: URL): string | null {
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  if (host === "fb.watch" || host.endsWith(".fb.watch")) {
+    const watchId = segments[0] || "";
+    return watchId || null;
+  }
+  if (!(host === "facebook.com" || host.endsWith(".facebook.com"))) return null;
+  if (path === "/watch" || path === "/watch/" || path === "/video.php") {
+    const id = String(parsed.searchParams.get("v") || "").trim();
+    return id || null;
+  }
+  if (path.startsWith("/reel/")) {
+    const id = String(segments[1] || "").trim();
+    return id || null;
+  }
+  const videosIdx = segments.findIndex((segment) => segment.toLowerCase() === "videos");
+  if (videosIdx >= 0) {
+    const id = String(segments[videosIdx + 1] || "").trim();
+    return id || null;
+  }
+  return null;
+}
+
+function normalizeFacebookHrefForEmbed(input?: string | null): string {
+  const rawValue = extractIframeSrc(input);
+  const parsed = safeParseUrl(rawValue);
+  if (!parsed) return rawValue;
+  const id = extractFacebookVideoId(parsed);
+  if (id) return `https://www.facebook.com/watch/?v=${encodeURIComponent(id)}`;
+  return rawValue;
 }
 
 export function getVideoProvider(input?: string | null): VideoProvider | null {
@@ -113,4 +159,30 @@ export function toVideoEmbedUrl(input?: string | null): string | null {
 
 export function isVerticalVideoUrl(input?: string | null): boolean {
   return isYouTubeShortUrl(input) || isFacebookReelUrl(input);
+}
+
+export function isLikelyUnsupportedFacebookEmbed(input?: string | null): boolean {
+  const rawValue = unwrapFacebookPluginHref(input);
+  const normalized = normalizeFacebookHrefForEmbed(rawValue);
+  if (!isFacebookVideoUrl(normalized)) return false;
+  const parsed = safeParseUrl(normalized);
+  if (!parsed) return false;
+  return isLikelyUnsupportedFacebookPath(parsed);
+}
+
+export function canRenderVideoInIframe(input?: string | null): boolean {
+  const provider = getVideoProvider(input);
+  if (!provider) return false;
+  if (provider === "youtube") return true;
+  return !isLikelyUnsupportedFacebookEmbed(input);
+}
+
+export function toVideoExternalUrl(input?: string | null): string | null {
+  const provider = getVideoProvider(input);
+  if (!provider) return null;
+  if (provider === "youtube") {
+    const videoId = extractYouTubeVideoId(input);
+    return videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+  }
+  return normalizeFacebookHrefForEmbed(unwrapFacebookPluginHref(input));
 }

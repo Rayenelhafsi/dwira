@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bath, BedSingle, Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, House, Info, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { resolveBienCapacity } from '../../utils/bienCapacity';
-import { isVerticalVideoUrl, toVideoEmbedUrl } from '../../utils/videoLinks';
+import { canRenderVideoInIframe, isFacebookVideoUrl, isVerticalVideoUrl, toVideoEmbedUrl, toVideoExternalUrl } from '../../utils/videoLinks';
 import { SmartImage } from '../../components/SmartImage';
 import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet';
 import L from 'leaflet';
@@ -267,6 +267,34 @@ export default function LocationPublicBienPageView({
 
   const images = (bien.media || []).filter((item) => item.type !== 'video').map((item) => resolveMediaUrl(item.url)).filter(Boolean);
   const videos = (bien.media || []).filter((item) => item.type === 'video').map((item) => String(item.url || '').trim()).filter(Boolean);
+  const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const uniqueFacebookUrls = Array.from(
+      new Set(videos.filter((url) => url && isFacebookVideoUrl(url) && !facebookDirectVideoUrls[url]))
+    );
+    if (uniqueFacebookUrls.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const nextEntries: Array<[string, string]> = [];
+      for (const url of uniqueFacebookUrls) {
+        try {
+          const response = await fetch(`${API_URL}/facebook/video-source?url=${encodeURIComponent(url)}`, { headers: { Accept: 'application/json' } });
+          if (!response.ok) continue;
+          const payload = await response.json().catch(() => null);
+          const source = String(payload?.source || '').trim();
+          if (source) nextEntries.push([url, source]);
+        } catch {
+          // Ignore failures and keep iframe/link fallback.
+        }
+      }
+      if (!cancelled && nextEntries.length > 0) {
+        setFacebookDirectVideoUrls((prev) => ({ ...prev, ...Object.fromEntries(nextEntries) }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [API_URL, facebookDirectVideoUrls, videos]);
   const zoneName = selectedZone?.nom || 'Zone non definie';
   const selectedFeatureIds = new Set((Array.isArray(bien.caracteristique_ids) ? bien.caracteristique_ids : []).map((item) => String(item)));
   const selectedFeatureNames = new Set((Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []).map((item) => normalizeFeatureName(String(item))));
@@ -578,34 +606,71 @@ out body 20;
             </div>
             <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-6 md:py-6 xl:grid-cols-2">
               {videos.map((videoUrl, index) => {
-                const isShortVideo = isVerticalVideoUrl(videoUrl);
-                return (
-                  <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_16px_35px_rgba(15,23,42,0.10)]">
-                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Video {index + 1}</p>
-                        <p className="mt-1 text-sm font-medium text-slate-800">{isShortVideo ? 'Format vertical' : 'Format paysage'}</p>
-                      </div>
-                      <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">{isShortVideo ? 'Shorts' : 'HD'}</div>
-                    </div>
-                    <div className="bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_45%),linear-gradient(180deg,#0f172a,#111827)] p-3 md:p-4">
-                      <div className={`mx-auto overflow-hidden rounded-[1.35rem] border border-white/10 bg-black ${isShortVideo ? 'max-w-[360px]' : 'w-full'}`}>
-                        <div className={isShortVideo ? 'aspect-[9/16]' : 'aspect-video'}>
-                          <iframe
-                            src={toVideoEmbedUrl(videoUrl) || ''}
-                            title={`${bien.titre} video ${index + 1}`}
-                            className="h-full w-full bg-black"
-                            loading="lazy"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            referrerPolicy="strict-origin-when-cross-origin"
-                            allowFullScreen
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+  const isShortVideo = isVerticalVideoUrl(videoUrl);
+  const embedUrl = toVideoEmbedUrl(videoUrl);
+  const externalUrl = toVideoExternalUrl(videoUrl) || String(videoUrl || '').trim();
+  const directUrl = facebookDirectVideoUrls[String(videoUrl || '').trim()] || '';
+  const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(videoUrl);
+  return (
+    <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_16px_35px_rgba(15,23,42,0.10)]">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Video {index + 1}</p>
+          <p className="mt-1 text-sm font-medium text-slate-800">{isShortVideo ? 'Format vertical' : 'Format paysage'}</p>
+        </div>
+        <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">{isShortVideo ? 'Shorts' : 'HD'}</div>
+      </div>
+      <div className="bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_45%),linear-gradient(180deg,#0f172a,#111827)] p-3 md:p-4">
+        <div className={`mx-auto overflow-hidden rounded-[1.35rem] border border-white/10 bg-black ${isShortVideo ? 'max-w-[360px]' : 'w-full'}`}>
+          <div className={isShortVideo ? 'aspect-[9/16]' : 'aspect-video'}>
+            {directUrl ? (
+              <video
+                src={directUrl}
+                controls
+                playsInline
+                muted={false}
+                defaultMuted={false}
+                onLoadedMetadata={(event) => {
+                  event.currentTarget.muted = false;
+                  if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+                }}
+                onPlay={(event) => {
+                  event.currentTarget.muted = false;
+                  if (event.currentTarget.volume === 0) event.currentTarget.volume = 1;
+                }}
+                className="h-full w-full bg-black"
+                preload="metadata"
+              />
+            ) : canEmbed ? (
+              <iframe
+                src={embedUrl || ''}
+                title={`${bien.titre} video ${index + 1}`}
+                className="h-full w-full bg-black"
+                loading="lazy"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-5 text-center text-white">
+                <p className="text-sm font-semibold">Lecture integree indisponible</p>
+                <p className="text-xs text-slate-200">Cette video Facebook doit etre ouverte directement sur Facebook.</p>
+                <a
+                  href={externalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-slate-900"
+                >
+                  Ouvrir la video
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+})}
             </div>
           </div>
         )}
@@ -787,3 +852,4 @@ out body 20;
     </div>
   );
 }
+
