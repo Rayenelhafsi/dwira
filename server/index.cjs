@@ -1109,19 +1109,17 @@ async function checkFacebookEmbedAvailability(rawInput) {
     const html = await response.text().catch(() => '');
     const text = String(html || '').toLowerCase();
     const unavailable =
-      !response.ok
-      || text.includes('video unavailable')
+      text.includes('video unavailable')
       || text.includes("can't be embedded")
       || text.includes('cannot be embedded')
-      || text.includes('may contain content owned by someone else')
-      || text.includes("you don't have permission to view it");
+      || text.includes('may contain content owned by someone else');
     return {
       embeddable: !unavailable,
       reason: unavailable ? 'facebook_embed_unavailable' : null,
       videoId: String(videoId || ''),
     };
   } catch {
-    return { embeddable: false, reason: 'facebook_embed_check_failed', videoId: String(videoId || '') };
+    return { embeddable: null, reason: 'facebook_embed_check_failed', videoId: String(videoId || '') };
   }
 }
 
