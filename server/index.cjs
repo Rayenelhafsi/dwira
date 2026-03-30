@@ -1022,6 +1022,63 @@ function extractFacebookVideoIdFromUrl(rawInput) {
   return null;
 }
 
+function extractNestedFacebookUrl(rawInput) {
+  const raw = String(rawInput || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    const nested = String(parsed.searchParams.get('u') || parsed.searchParams.get('href') || '').trim();
+    return nested ? decodeURIComponent(nested) : '';
+  } catch {
+    return '';
+  }
+}
+
+async function resolveFacebookVideoIdFromAnyUrl(rawInput) {
+  const direct = extractFacebookVideoIdFromUrl(rawInput);
+  if (direct) return { videoId: direct, resolvedUrl: String(rawInput || '').trim() };
+
+  const nested = extractNestedFacebookUrl(rawInput);
+  if (nested) {
+    const nestedId = extractFacebookVideoIdFromUrl(nested);
+    if (nestedId) return { videoId: nestedId, resolvedUrl: nested };
+  }
+
+  const raw = String(rawInput || '').trim();
+  if (!raw) return { videoId: null, resolvedUrl: '' };
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    const response = await fetch(raw, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DwiraBot/1.0; +https://dwira.tn)',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    clearTimeout(timeout);
+    try {
+      if (response.body && typeof response.body.cancel === 'function') {
+        await response.body.cancel();
+      }
+    } catch {}
+    const finalUrl = String(response?.url || '').trim();
+    const finalId = extractFacebookVideoIdFromUrl(finalUrl);
+    if (finalId) return { videoId: finalId, resolvedUrl: finalUrl };
+
+    const finalNested = extractNestedFacebookUrl(finalUrl);
+    if (finalNested) {
+      const finalNestedId = extractFacebookVideoIdFromUrl(finalNested);
+      if (finalNestedId) return { videoId: finalNestedId, resolvedUrl: finalNested };
+    }
+  } catch {}
+
+  return { videoId: null, resolvedUrl: raw };
+}
+
 function resolveAnyMessengerPageToken() {
   return (
     MESSENGER_PAGE_ACCESS_TOKEN_LOCATION ||
@@ -10865,7 +10922,7 @@ app.get('/api/auth/providers', (req, res) => {
 app.get('/api/facebook/video-source', async (req, res) => {
   try {
     const inputUrl = String(req.query?.url || '').trim();
-    const videoId = extractFacebookVideoIdFromUrl(inputUrl);
+    const { videoId, resolvedUrl } = await resolveFacebookVideoIdFromAnyUrl(inputUrl);
     if (!videoId) {
       return res.status(400).json({ error: 'facebook_video_id_missing' });
     }
@@ -10900,6 +10957,7 @@ app.get('/api/facebook/video-source', async (req, res) => {
     return res.json({
       videoId: String(payload?.id || videoId),
       source,
+      resolved_url: resolvedUrl || inputUrl || null,
       permalink_url: String(payload?.permalink_url || '').trim() || null,
       owner_id: ownerId || null,
     });
