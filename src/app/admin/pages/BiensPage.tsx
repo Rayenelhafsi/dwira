@@ -6872,7 +6872,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                         Ajouter
                       </button>
                     </div>
-                    <p className="mb-6 text-xs text-gray-500">Collez un lien YouTube (`youtube.com`, `youtu.be`, `shorts`) ou Facebook (`facebook.com/watch`, `facebook.com/reel`, `facebook.com/.../videos`, `facebook.com/share/...`, `fb.watch`). La video sera affichee directement dans la page du bien.</p>
+                    <p className="mb-6 text-xs text-gray-500">Collez un lien YouTube (`youtube.com`, `youtu.be`, `shorts`) ou Facebook (`facebook.com/watch`, `facebook.com/reel`, `facebook.com/.../videos`, `fb.watch`). Evitez `facebook.com/share/...` qui peut afficher Video Unavailable.</p>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {clientVisibleVideos.map((video, index) => {
   const embedUrl = toVideoEmbedUrl(video.url);
@@ -6890,7 +6890,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
           referrerPolicy="strict-origin-when-cross-origin"
           allowFullScreen
         />
-      ) : directUrl ? (
+      ) : directUrl && !isFacebookVideoUrl(video.url) ? (
         <video
           src={directUrl}
           controls
@@ -7375,6 +7375,7 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
     </div>
   );
 }
+
 
 
 

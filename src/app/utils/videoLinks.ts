@@ -63,7 +63,16 @@ export function isFacebookVideoUrl(input?: string | null): boolean {
   const path = parsed.pathname.toLowerCase();
   if (host === "fb.watch" || host.endsWith(".fb.watch")) return true;
   if (!(host === "facebook.com" || host.endsWith(".facebook.com"))) return false;
-  if (path.startsWith("/share/")) return true;
+  if (path === "/plugins/video.php") {
+    const nestedHref = extractNestedFacebookHref(parsed);
+    if (!nestedHref) return false;
+    return isFacebookVideoUrl(nestedHref);
+  }
+  if (path.startsWith("/share/")) {
+    const nestedHref = extractNestedFacebookHref(parsed);
+    if (!nestedHref) return false;
+    return isFacebookVideoUrl(nestedHref);
+  }
   if (path.startsWith("/reel/")) return true;
   if (path.includes("/videos/")) return true;
   if (path === "/watch" || path === "/watch/") return Boolean(parsed.searchParams.get("v"));
@@ -131,10 +140,28 @@ function extractFacebookVideoId(parsed: URL): string | null {
   return null;
 }
 
+function extractNestedFacebookHref(parsed: URL): string {
+  const nested = String(parsed.searchParams.get("u") || parsed.searchParams.get("href") || "").trim();
+  if (!nested) return "";
+  try {
+    return decodeURIComponent(nested);
+  } catch {
+    return nested;
+  }
+}
+
 function normalizeFacebookHrefForEmbed(input?: string | null): string {
-  const rawValue = extractIframeSrc(input);
+  const rawValue = unwrapFacebookPluginHref(input);
   const parsed = safeParseUrl(rawValue);
   if (!parsed) return rawValue;
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  if ((host === "facebook.com" || host.endsWith(".facebook.com")) && path.startsWith("/share/")) {
+    const nestedHref = extractNestedFacebookHref(parsed);
+    if (nestedHref) {
+      return normalizeFacebookHrefForEmbed(nestedHref);
+    }
+  }
   const id = extractFacebookVideoId(parsed);
   if (id) return `https://www.facebook.com/watch/?v=${encodeURIComponent(id)}`;
   return rawValue;

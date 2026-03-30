@@ -611,6 +611,7 @@ out body 20;
   const externalUrl = toVideoExternalUrl(videoUrl) || String(videoUrl || '').trim();
   const directUrl = facebookDirectVideoUrls[String(videoUrl || '').trim()] || '';
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(videoUrl);
+
   return (
     <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_16px_35px_rgba(15,23,42,0.10)]">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
@@ -633,7 +634,7 @@ out body 20;
                 referrerPolicy="strict-origin-when-cross-origin"
                 allowFullScreen
               />
-            ) : directUrl ? (
+            ) : directUrl && !isFacebookVideoUrl(videoUrl) ? (
               <video
                 src={directUrl}
                 controls
@@ -852,4 +853,6 @@ out body 20;
     </div>
   );
 }
+
+
 

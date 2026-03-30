@@ -2653,6 +2653,7 @@ out body 40;
   const externalUrl = toVideoExternalUrl(videoUrl) || String(videoUrl || '').trim();
   const directUrl = facebookDirectVideoUrls[String(videoUrl || '').trim()] || "";
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(videoUrl);
+
   return (
   <div
     key={`${videoUrl}-${index}`}
@@ -2681,7 +2682,7 @@ out body 40;
               referrerPolicy="strict-origin-when-cross-origin"
               allowFullScreen
             />
-          ) : directUrl ? (
+          ) : directUrl && !isFacebookVideoUrl(videoUrl) ? (
             <video
               src={directUrl}
               controls
@@ -4078,6 +4079,8 @@ out body 40;
     </div>
   );
 }
+
+
 
 
 
