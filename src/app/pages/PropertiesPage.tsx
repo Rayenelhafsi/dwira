@@ -130,7 +130,7 @@ export default function PropertiesPage() {
   const { properties, biens, zones, modePriorities, loading } = useProperties();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [isFilterOpen, setIsFilterOpen] = useState(true);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
   const resultsAnchorRef = useRef<HTMLDivElement | null>(null);
   const filtersAnchorRef = useRef<HTMLDivElement | null>(null);

@@ -606,7 +606,6 @@ export default function HomePage() {
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
     if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
     if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
-    params.set("advanced", "1");
     navigate(`/logements?${params.toString()}`);
   };
 
