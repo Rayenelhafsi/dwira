@@ -6,6 +6,8 @@ import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
+import ComingSoonState from "../components/ComingSoonState";
+import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 import { 
   format, 
   startOfMonth, 
@@ -118,6 +120,9 @@ export default function HomePage() {
       ),
     [modePriorities]
   );
+  const isSelectedModeComingSoon =
+    (selectedMode === "vente" && PUBLIC_COMING_SOON.ventes)
+    || (selectedMode === "location_annuelle" && PUBLIC_COMING_SOON.locationAnnuelle);
   const normalizedZones = useMemo(
     () =>
       (Array.isArray(zones) ? zones : []).filter((zone): zone is Zone =>
@@ -1561,12 +1566,23 @@ export default function HomePage() {
                   : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
-            <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">
-              Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-            </Link>
+            {!isSelectedModeComingSoon && (
+              <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">
+                Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+              </Link>
+            )}
           </div>
 
-          <div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
+          {isSelectedModeComingSoon && (
+            <ComingSoonState
+              title={selectedMode === "vente" ? "Mode Vente" : "Mode Location annuelle"}
+              description="Ce mode est en stabilisation cote client. Il sera ouvert au public tres bientot."
+              backTo="/"
+              backLabel="Retour a l'accueil"
+            />
+          )}
+
+          {!isSelectedModeComingSoon && (<div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
               {filteredProperties.map((property) => (
                 <PropertyCard
@@ -1602,9 +1618,9 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
-          </div>
+          </div>)}
           
-          {filteredProperties.length === 0 && hasSearched && (
+          {filteredProperties.length === 0 && hasSearched && !isSelectedModeComingSoon && (
             <div className="text-center py-16">
               <p className="text-gray-500 text-lg mb-4">Aucun bien ne correspond à vos critères pour ce mode</p>
               <button 
@@ -1624,11 +1640,13 @@ export default function HomePage() {
             </div>
           )}
           
-          <div className="mt-12 text-center md:hidden">
-            <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
-              Voir tous les logements <ArrowRight size={20} />
-            </Link>
-          </div>
+          {!isSelectedModeComingSoon && (
+            <div className="mt-12 text-center md:hidden">
+              <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
+                Voir tous les logements <ArrowRight size={20} />
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 

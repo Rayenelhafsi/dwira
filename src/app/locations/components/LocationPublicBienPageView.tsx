@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bath, BedSingle, Building2, Calendar, Check, Cigarette, Clock3, Eye, EyeOff, House, Info, Lift, MapPin, Mountain, PawPrint, Route, ShieldCheck, Star, Trees, Users, Volume2, Wine } from 'lucide-react';
 import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin/types';
 import { resolveBienCapacity } from '../../utils/bienCapacity';
-import { isYouTubeShortUrl, toYouTubeEmbedUrl } from '../../utils/videoLinks';
+import { isVerticalVideoUrl, toVideoEmbedUrl } from '../../utils/videoLinks';
 import { SmartImage } from '../../components/SmartImage';
 import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet';
 import L from 'leaflet';
@@ -578,7 +578,7 @@ out body 20;
             </div>
             <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-6 md:py-6 xl:grid-cols-2">
               {videos.map((videoUrl, index) => {
-                const isShortVideo = isYouTubeShortUrl(videoUrl);
+                const isShortVideo = isVerticalVideoUrl(videoUrl);
                 return (
                   <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_16px_35px_rgba(15,23,42,0.10)]">
                     <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
@@ -592,7 +592,7 @@ out body 20;
                       <div className={`mx-auto overflow-hidden rounded-[1.35rem] border border-white/10 bg-black ${isShortVideo ? 'max-w-[360px]' : 'w-full'}`}>
                         <div className={isShortVideo ? 'aspect-[9/16]' : 'aspect-video'}>
                           <iframe
-                            src={toYouTubeEmbedUrl(videoUrl) || ''}
+                            src={toVideoEmbedUrl(videoUrl) || ''}
                             title={`${bien.titre} video ${index + 1}`}
                             className="h-full w-full bg-black"
                             loading="lazy"

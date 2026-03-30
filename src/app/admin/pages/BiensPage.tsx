@@ -12,7 +12,7 @@ import LocationPublicBienPageView from '../../locations/components/LocationPubli
 import { SmartImage } from '../../components/SmartImage';
 import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/featureIcons';
 import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils/servicePayants';
-import { isYouTubeUrl, toYouTubeEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
+import { isSupportedVideoUrl, toVideoEmbedUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../../utils/bienCapacity';
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
@@ -2793,8 +2793,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
 
   const handleAddVideo = () => {
     if (!newVideoUrl.trim()) return;
-    if (!isYouTubeUrl(newVideoUrl)) {
-      toast.error('Ajoutez un lien YouTube valide');
+    if (!isSupportedVideoUrl(newVideoUrl)) {
+      toast.error('Ajoutez un lien video YouTube ou Facebook valide');
       return;
     }
     const newMedia: Media = {
@@ -6828,7 +6828,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                         type="text"
                         value={newVideoUrl}
                         onChange={(e) => setNewVideoUrl(e.target.value)}
-                        placeholder="Lien YouTube"
+                        placeholder="Lien YouTube ou Facebook"
                         className="flex-1 rounded-lg border-gray-300 border p-2"
                       />
                       <button
@@ -6840,12 +6840,12 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                         Ajouter
                       </button>
                     </div>
-                    <p className="mb-6 text-xs text-gray-500">Collez un lien YouTube classique, `youtu.be` ou `shorts`. La vidéo sera affichée directement dans la page du bien.</p>
+                    <p className="mb-6 text-xs text-gray-500">Collez un lien YouTube (`youtube.com`, `youtu.be`, `shorts`) ou Facebook (`facebook.com/watch`, `facebook.com/reel`, `facebook.com/.../videos`, `facebook.com/share/...`, `fb.watch`). La video sera affichee directement dans la page du bien.</p>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {clientVisibleVideos.map((video, index) => (
                         <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
                           <iframe
-                            src={toYouTubeEmbedUrl(video.url) || ''}
+                            src={toVideoEmbedUrl(video.url) || ''}
                             title={`Video ${index + 1}`}
                             className="w-full h-56 rounded-lg bg-black"
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

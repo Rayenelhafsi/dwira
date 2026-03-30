@@ -12,7 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import { getOrCreateTrackingSessionId, hasTrackingConsent } from "../utils/consent";
 import { completeSocialProfile, getAuthProviders, loginWithPasskey, registerWithPasskey, startSocialLogin } from "../services/auth";
-import { isYouTubeShortUrl, toYouTubeEmbedUrl } from "../utils/videoLinks";
+import { isVerticalVideoUrl, toVideoEmbedUrl } from "../utils/videoLinks";
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
@@ -2615,7 +2615,7 @@ out body 40;
                 </div>
                 <div className="grid grid-cols-1 gap-5 px-4 py-4 md:px-5 md:py-5 xl:grid-cols-2">
                   {propertyVideos.map((videoUrl, index) => {
-                    const isShortVideo = isYouTubeShortUrl(videoUrl);
+                    const isShortVideo = isVerticalVideoUrl(videoUrl);
                     return (
                     <div
                       key={`${videoUrl}-${index}`}
@@ -2635,7 +2635,7 @@ out body 40;
                         <div className={`mx-auto overflow-hidden rounded-[1.2rem] border border-white/10 bg-black shadow-[0_14px_30px_rgba(0,0,0,0.32)] ${isShortVideo ? "max-w-[280px]" : "w-full"}`}>
                           <div className={isShortVideo ? "aspect-[9/16]" : "aspect-video"}>
                             <iframe
-                              src={toYouTubeEmbedUrl(videoUrl) || ""}
+                              src={toVideoEmbedUrl(videoUrl) || ""}
                               title={`${property.title} visite video ${index + 1}`}
                               className="h-full w-full bg-black"
                               loading="lazy"
