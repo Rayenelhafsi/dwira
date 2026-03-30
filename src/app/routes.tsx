@@ -12,6 +12,7 @@ import LotissementVenteDetailsPage from "./pages/LotissementVenteDetailsPage";
 import ContactPage from "./pages/ContactPage";
 import DeployAppsPage from "./pages/DeployAppsPage";
 import LoginPage from "./pages/LoginPage";
+import VentesComingSoonPage from "./pages/VentesComingSoonPage";
 import { VentesLayout } from "./ventes/VentesLayout";
 import VentesListPage from "./ventes/pages/VentesListPage";
 import VenteDetailsRouter from "./ventes/pages/VenteDetailsRouter";
@@ -28,6 +29,26 @@ import MarketingPage from "./admin/pages/MarketingPage";
 import UtilisateursPage from "./admin/pages/UtilisateursPage";
 import ParametresPage from "./admin/pages/ParametresPage";
 import SecurityAuditPage from "./admin/pages/SecurityAuditPage";
+import { PUBLIC_COMING_SOON } from "./config/publicAvailability";
+
+const ventesRoutes = PUBLIC_COMING_SOON.ventes
+  ? [
+      { path: "vente/immeuble/:slug", Component: VentesComingSoonPage },
+      { path: "vente/lotissement/:slug", Component: VentesComingSoonPage },
+      { path: "ventes/*", Component: VentesComingSoonPage },
+    ]
+  : [
+      { path: "vente/immeuble/:slug", Component: ImmeubleVenteDetailsPage },
+      { path: "vente/lotissement/:slug", Component: LotissementVenteDetailsPage },
+      {
+        path: "ventes",
+        Component: VentesLayout,
+        children: [
+          { index: true, Component: VentesListPage },
+          { path: ":type/:id", Component: VenteDetailsRouter },
+        ],
+      },
+    ];
 
 export const router = createBrowserRouter([
   {
@@ -41,16 +62,7 @@ export const router = createBrowserRouter([
       { path: "mes-reservations", Component: MyReservationsPage },
       { path: "mes-reservations/:id/coordonnees", Component: ContractIdentityPage },
       { path: "mes-reservations/:id/paiement", Component: ReservationPaymentPage },
-      { path: "vente/immeuble/:slug", Component: ImmeubleVenteDetailsPage },
-      { path: "vente/lotissement/:slug", Component: LotissementVenteDetailsPage },
-      {
-        path: "ventes",
-        Component: VentesLayout,
-        children: [
-          { index: true, Component: VentesListPage },
-          { path: ":type/:id", Component: VenteDetailsRouter },
-        ],
-      },
+      ...ventesRoutes,
       { path: "contact", Component: ContactPage },
       { path: "deploy-mobile", Component: DeployAppsPage },
       { path: "login", Component: LoginPage },

@@ -1,4 +1,6 @@
 import { Download, Smartphone, ShieldCheck } from "lucide-react";
+import ComingSoonState from "../components/ComingSoonState";
+import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 
 type AppEntry = {
   key: string;
@@ -53,6 +55,18 @@ function DownloadButton({ label, url }: { label: string; url: string }) {
 }
 
 export default function DeployAppsPage() {
+  if (PUBLIC_COMING_SOON.apps) {
+    return (
+      <div className="mx-auto w-full max-w-6xl px-4 py-10 pt-32 md:px-6">
+        <ComingSoonState
+          title="Applications mobiles Dwira"
+          description="La section Apps n'est pas encore stable cote client. Elle sera publiee des que les versions Android et iOS seront pretes."
+          backTo="/"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 md:px-6">
       <div className="rounded-3xl bg-gradient-to-r from-emerald-900 to-emerald-700 px-6 py-8 text-white shadow-xl">

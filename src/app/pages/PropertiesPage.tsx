@@ -5,6 +5,8 @@ import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X,
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServicePayant } from "../utils/servicePayants";
+import ComingSoonState from "../components/ComingSoonState";
+import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -205,6 +207,7 @@ export default function PropertiesPage() {
   const [sortMode, setSortMode] = useState<"matching" | "price" | "featured">(
     (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured")
   );
+  const isAnnualComingSoon = PUBLIC_COMING_SOON.locationAnnuelle && selectedMode === "location_annuelle";
 
   useEffect(() => {
     if (loading) return;
@@ -1122,37 +1125,39 @@ export default function PropertiesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 pt-32">
-      <div className="fixed right-1 top-1/2 z-[115] -translate-y-1/2 sm:right-3">
-        <div className="flex flex-col gap-2 rounded-2xl border border-gray-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur">
-          <button
-            type="button"
-            onClick={handleQuickToggleFilters}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-emerald-700 transition-colors hover:bg-emerald-50"
-            title={isFilterOpen ? "Masquer les filtres" : "Afficher les filtres"}
-            aria-label={isFilterOpen ? "Masquer les filtres" : "Afficher les filtres"}
-          >
-            <SlidersHorizontal size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={handleQuickResetFilters}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-700 transition-colors hover:bg-gray-100"
-            title="Reinitialiser les filtres"
-            aria-label="Reinitialiser les filtres"
-          >
-            <RotateCcw size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={handleQuickSearch}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white transition-colors hover:bg-emerald-700"
-            title="Rechercher"
-            aria-label="Rechercher"
-          >
-            <Search size={18} />
-          </button>
+      {!isAnnualComingSoon && (
+        <div className="fixed right-1 top-1/2 z-[115] -translate-y-1/2 sm:right-3">
+          <div className="flex flex-col gap-2 rounded-2xl border border-gray-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur">
+            <button
+              type="button"
+              onClick={handleQuickToggleFilters}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-emerald-700 transition-colors hover:bg-emerald-50"
+              title={isFilterOpen ? "Masquer les filtres" : "Afficher les filtres"}
+              aria-label={isFilterOpen ? "Masquer les filtres" : "Afficher les filtres"}
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={handleQuickResetFilters}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-700 transition-colors hover:bg-gray-100"
+              title="Reinitialiser les filtres"
+              aria-label="Reinitialiser les filtres"
+            >
+              <RotateCcw size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={handleQuickSearch}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white transition-colors hover:bg-emerald-700"
+              title="Rechercher"
+              aria-label="Rechercher"
+            >
+              <Search size={18} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
       <div className="container mx-auto px-4 md:px-6">
         <div className="mb-4">
           <button
@@ -1209,8 +1214,9 @@ export default function PropertiesPage() {
           ))}
         </div>
 
-        <AnimatePresence initial={false}>
-          {isFilterOpen && (
+        {!isAnnualComingSoon && (
+          <AnimatePresence initial={false}>
+            {isFilterOpen && (
             <motion.div
               ref={filtersAnchorRef}
               initial={{ height: 0, opacity: 0 }}
@@ -1664,68 +1670,77 @@ export default function PropertiesPage() {
                 </div>
               </div>
             </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>
+        )}
 
-        <div ref={resultsAnchorRef}>
-          <div className="mb-6 flex items-center justify-between">
-            <span className="font-medium text-gray-500">
-              {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
-            </span>
-          </div>
+        {isAnnualComingSoon ? (
+          <ComingSoonState
+            title="Mode Location annuelle"
+            description="Le mode Location annuelle est en stabilisation cote client. Merci de revenir tres bientot."
+            backTo="/"
+          />
+        ) : (
+          <div ref={resultsAnchorRef}>
+            <div className="mb-6 flex items-center justify-between">
+              <span className="font-medium text-gray-500">
+                {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
+              </span>
+            </div>
 
-          {sortedScoredResults.length > 0 ? (
-            <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-              {sortedScoredResults.map((row) => (
-                <div key={row.property.id} className="space-y-2">
-                  <PropertyCard property={row.property} searchParams={searchParams.toString()} />
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-900">
-                        <Percent size={14} />
-                        Matching {row.score}%
-                      </span>
-                      <span className="text-xs text-emerald-700">{row.score >= 80 ? "Excellent" : row.score >= 60 ? "Bon" : "Alternative"}</span>
+            {sortedScoredResults.length > 0 ? (
+              <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                {sortedScoredResults.map((row) => (
+                  <div key={row.property.id} className="space-y-2">
+                    <PropertyCard property={row.property} searchParams={searchParams.toString()} />
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                          <Percent size={14} />
+                          Matching {row.score}%
+                        </span>
+                        <span className="text-xs text-emerald-700">{row.score >= 80 ? "Excellent" : row.score >= 60 ? "Bon" : "Alternative"}</span>
+                      </div>
+                      <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-emerald-100">
+                        <div
+                          className={`h-full rounded-full transition-all ${row.score >= 80 ? "bg-emerald-600" : row.score >= 60 ? "bg-emerald-500" : "bg-amber-500"}`}
+                          style={{ width: `${row.score}%` }}
+                        />
+                      </div>
+                      <div className="mb-1 grid grid-cols-3 gap-1 text-[11px] text-gray-600">
+                        <span className="rounded-md bg-white px-2 py-1 text-center">Carac: {row.details.amenitiesMatched}</span>
+                        <span className="rounded-md bg-white px-2 py-1 text-center">Onglets: {row.details.tabsMatched}</span>
+                        <span className="rounded-md bg-white px-2 py-1 text-center">Services: {row.details.servicesMatched}</span>
+                      </div>
+                      {row.hints.length > 0 && (
+                        <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
+                      )}
+                      {row.missing.length > 0 && (
+                        <p className="mt-1 text-xs text-gray-600">Points a noter: {row.missing.join(" | ")}</p>
+                      )}
                     </div>
-                    <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-emerald-100">
-                      <div
-                        className={`h-full rounded-full transition-all ${row.score >= 80 ? "bg-emerald-600" : row.score >= 60 ? "bg-emerald-500" : "bg-amber-500"}`}
-                        style={{ width: `${row.score}%` }}
-                      />
-                    </div>
-                    <div className="mb-1 grid grid-cols-3 gap-1 text-[11px] text-gray-600">
-                      <span className="rounded-md bg-white px-2 py-1 text-center">Carac: {row.details.amenitiesMatched}</span>
-                      <span className="rounded-md bg-white px-2 py-1 text-center">Onglets: {row.details.tabsMatched}</span>
-                      <span className="rounded-md bg-white px-2 py-1 text-center">Services: {row.details.servicesMatched}</span>
-                    </div>
-                    {row.hints.length > 0 && (
-                      <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
-                    )}
-                    {row.missing.length > 0 && (
-                      <p className="mt-1 text-xs text-gray-600">Points a noter: {row.missing.join(" | ")}</p>
-                    )}
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-gray-100 bg-white py-20 text-center shadow-sm">
-              <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
-                <Search size={40} className="text-gray-400" />
+                ))}
               </div>
-              <h3 className="mb-2 text-2xl font-bold text-gray-900">Aucun bien trouve</h3>
-              <p className="mx-auto mb-8 max-w-md text-gray-500">
-                Elargissez les criteres de recherche ou reinitialisez les filtres.
-              </p>
-              <button
-                onClick={clearFilters}
-                className="inline-flex items-center rounded-lg bg-emerald-600 px-8 py-3 font-bold text-white shadow-lg transition-colors hover:bg-emerald-700"
-              >
-                Tout effacer
-              </button>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="rounded-2xl border border-gray-100 bg-white py-20 text-center shadow-sm">
+                <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
+                  <Search size={40} className="text-gray-400" />
+                </div>
+                <h3 className="mb-2 text-2xl font-bold text-gray-900">Aucun bien trouve</h3>
+                <p className="mx-auto mb-8 max-w-md text-gray-500">
+                  Elargissez les criteres de recherche ou reinitialisez les filtres.
+                </p>
+                <button
+                  onClick={clearFilters}
+                  className="inline-flex items-center rounded-lg bg-emerald-600 px-8 py-3 font-bold text-white shadow-lg transition-colors hover:bg-emerald-700"
+                >
+                  Tout effacer
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <AnimatePresence>
