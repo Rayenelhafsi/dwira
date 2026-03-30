@@ -173,8 +173,7 @@ export function isLikelyUnsupportedFacebookEmbed(input?: string | null): boolean
 export function canRenderVideoInIframe(input?: string | null): boolean {
   const provider = getVideoProvider(input);
   if (!provider) return false;
-  if (provider === "youtube") return true;
-  return !isLikelyUnsupportedFacebookEmbed(input);
+  return true;
 }
 
 export function toVideoExternalUrl(input?: string | null): string | null {

@@ -6881,7 +6881,16 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(video.url);
   return (
     <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
-      {directUrl ? (
+      {canEmbed ? (
+        <iframe
+          src={embedUrl || ''}
+          title={`Video ${index + 1}`}
+          className="w-full h-56 rounded-lg bg-black"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allowFullScreen
+        />
+      ) : directUrl ? (
         <video
           src={directUrl}
           controls
@@ -6898,15 +6907,6 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
           }}
           className="w-full h-56 rounded-lg bg-black"
           preload="metadata"
-        />
-      ) : canEmbed ? (
-        <iframe
-          src={embedUrl || ''}
-          title={`Video ${index + 1}`}
-          className="w-full h-56 rounded-lg bg-black"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          referrerPolicy="strict-origin-when-cross-origin"
-          allowFullScreen
         />
       ) : (
         <div className="flex h-56 flex-col items-center justify-center gap-3 rounded-lg bg-slate-900 p-4 text-center text-white">

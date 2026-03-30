@@ -2671,7 +2671,17 @@ out body 40;
     <div className="bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_45%),linear-gradient(180deg,#0f172a,#111827)] p-3">
       <div className={`mx-auto overflow-hidden rounded-[1.2rem] border border-white/10 bg-black shadow-[0_14px_30px_rgba(0,0,0,0.32)] ${isShortVideo ? "max-w-[280px]" : "w-full"}`}>
         <div className={isShortVideo ? "aspect-[9/16]" : "aspect-video"}>
-          {directUrl ? (
+          {canEmbed ? (
+            <iframe
+              src={embedUrl || ""}
+              title={`${property.title} visite video ${index + 1}`}
+              className="h-full w-full bg-black"
+              loading="lazy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allowFullScreen
+            />
+          ) : directUrl ? (
             <video
               src={directUrl}
               controls
@@ -2688,16 +2698,6 @@ out body 40;
               }}
               className="h-full w-full bg-black"
               preload="metadata"
-            />
-          ) : canEmbed ? (
-            <iframe
-              src={embedUrl || ""}
-              title={`${property.title} visite video ${index + 1}`}
-              className="h-full w-full bg-black"
-              loading="lazy"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              referrerPolicy="strict-origin-when-cross-origin"
-              allowFullScreen
             />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-5 text-center text-white">
