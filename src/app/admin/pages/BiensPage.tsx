@@ -2040,8 +2040,20 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       return;
     }
 
-    void loadAvailableFeatures(selectedMode, selectedType);
-    void loadFeatureTabs(selectedMode, selectedType);
+    let cancelled = false;
+    const run = async () => {
+      if (selectedMode === 'location_saisonniere' && selectedType !== 'appartement') {
+        await syncSaisonniereTemplateFromAppartement(selectedMode, selectedType);
+      }
+      if (cancelled) return;
+      await loadFeatureTabs(selectedMode, selectedType);
+      if (cancelled) return;
+      await loadAvailableFeatures(selectedMode, selectedType);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [formData.mode, formData.type]);
   useEffect(() => {
     const allowed = BIEN_TYPES_BY_MODE[sousTypeImportMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
@@ -3019,6 +3031,125 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristiques`,
     `${String(API_URL || '').replace(/\/api$/i, '').replace(/\/+$/, '')}/api/caracteristique`,
   ]));
+  const syncSaisonniereTemplateFromAppartement = async (mode: BienMode, type: BienType) => {
+    if (mode !== 'location_saisonniere' || type === 'appartement') return;
+    const sourceType: BienType = 'appartement';
+    const tabApiBases = getFeatureTabApiBases();
+    const featureApiBases = getFeatureApiBases();
+    const fetchFromBases = async (
+      bases: string[],
+      buildUrl: (base: string) => string,
+      init?: RequestInit
+    ) => {
+      let lastResponse: Response | null = null;
+      for (const base of bases) {
+        const response = await fetch(buildUrl(base), init);
+        lastResponse = response;
+        if (response.ok) return response;
+        if (response.status !== 404) return response;
+      }
+      return lastResponse;
+    };
+
+    const sourceTabsResponse = await fetchFromBases(
+      tabApiBases,
+      (base) => `${base}?mode_bien=${mode}&type_bien=${sourceType}`
+    );
+    if (!sourceTabsResponse?.ok) return;
+    const sourceTabs = (await sourceTabsResponse.json()) as CaracteristiqueOnglet[];
+    if (!Array.isArray(sourceTabs) || sourceTabs.length === 0) return;
+
+    const targetTabsResponse = await fetchFromBases(
+      tabApiBases,
+      (base) => `${base}?mode_bien=${mode}&type_bien=${type}`
+    );
+    const targetTabsInitial = targetTabsResponse?.ok ? ((await targetTabsResponse.json()) as CaracteristiqueOnglet[]) : [];
+    let targetTabs = Array.isArray(targetTabsInitial) ? [...targetTabsInitial] : [];
+
+    for (const sourceTab of sourceTabs) {
+      const sourceName = normalizeTabNameForMatch(String(sourceTab.nom || ''));
+      if (!sourceName) continue;
+      const exists = targetTabs.some((tab) => normalizeTabNameForMatch(String(tab.nom || '')) === sourceName);
+      if (exists) continue;
+
+      const createPayload = {
+        mode_bien: mode,
+        type_bien: type,
+        nom: String(sourceTab.nom || '').trim(),
+        ordre: Number(sourceTab.ordre || 999),
+        is_system: Number(sourceTab.is_system || 0) === 1 ? 1 : 0,
+      };
+      const createdResponse = await fetchFromBases(
+        tabApiBases,
+        (base) => base,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(createPayload),
+        }
+      );
+      if (createdResponse?.ok) {
+        const createdTab = await createdResponse.json();
+        if (createdTab?.id) targetTabs.push(createdTab as CaracteristiqueOnglet);
+      }
+    }
+
+    const sourceFeaturesResponse = await fetchFromBases(
+      featureApiBases,
+      (base) => `${base}?mode_bien=${mode}&type_bien=${sourceType}`
+    );
+    if (!sourceFeaturesResponse?.ok) return;
+    const sourceFeatures = (await sourceFeaturesResponse.json()) as Caracteristique[];
+    if (!Array.isArray(sourceFeatures) || sourceFeatures.length === 0) return;
+
+    const targetFeaturesResponse = await fetchFromBases(
+      featureApiBases,
+      (base) => `${base}?mode_bien=${mode}&type_bien=${type}`
+    );
+    const targetFeatures = targetFeaturesResponse?.ok ? ((await targetFeaturesResponse.json()) as Caracteristique[]) : [];
+    const existingFeatureNames = new Set(
+      (Array.isArray(targetFeatures) ? targetFeatures : []).map((feature) => normalizeFeatureName(String(feature.nom || '')))
+    );
+
+    const sourceTabsById = new Map(sourceTabs.map((tab) => [String(tab.id || ''), tab]));
+    for (const sourceFeature of sourceFeatures) {
+      const normalizedName = normalizeFeatureName(String(sourceFeature.nom || ''));
+      if (!normalizedName || existingFeatureNames.has(normalizedName)) continue;
+
+      const sourceTabName = normalizeTabNameForMatch(
+        String(
+          sourceFeature.onglet_nom
+          || sourceTabsById.get(String(sourceFeature.onglet_id || ''))?.nom
+          || ''
+        )
+      );
+      const mappedTargetTab = targetTabs.find((tab) => normalizeTabNameForMatch(String(tab.nom || '')) === sourceTabName);
+      const payload = {
+        nom: String(sourceFeature.nom || '').trim(),
+        mode_bien: mode,
+        type_bien: type,
+        type_caracteristique: normalizeFeatureType(sourceFeature.type_caracteristique),
+        choix: parseFeatureChoices(stringifyFeatureChoices(sourceFeature.choix_json)),
+        unite: String(sourceFeature.unite || '').trim() || null,
+        icon_name: String(sourceFeature.icon_name || '').trim() || null,
+        onglet_id: mappedTargetTab?.id || null,
+        visibilite_client: Number(sourceFeature.visibilite_client) === 0 ? 0 : 1,
+      };
+
+      const createdFeatureResponse = await fetchFromBases(
+        featureApiBases,
+        (base) => base,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (createdFeatureResponse?.ok) {
+        existingFeatureNames.add(normalizedName);
+      }
+    }
+  };
 
   const loadFeatureTabs = async (mode: BienMode, type: BienType) => {
     const tabApiBases = getFeatureTabApiBases();
@@ -4158,7 +4289,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       ...terrainVenteData,
       ...lotissementVenteData,
       ...immeubleVenteData,
-      location_saisonniere_config: selectedMode === 'location_saisonniere' && selectedType === 'appartement'
+      location_saisonniere_config: selectedMode === 'location_saisonniere'
         ? saisonConfig
         : null,
       description: buildDescriptionWithCharacteristics(formData.description || '', characteristicDisplayLines),
@@ -4772,7 +4903,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       if (!selectedType || !allowedTypes.includes(selectedType)) {
         issues.push(createValidationIssue(2, 'type', 'Type', 'Type invalide pour ce mode'));
       }
-      if (selectedMode !== 'vente' && selectedType === 'appartement') {
+      if (selectedMode !== 'vente') {
         const sousTypeFeature = availableFeatures.find((feature) => {
           const featureType = normalizeFeatureType(feature.type_caracteristique);
           if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix') return false;
@@ -4805,7 +4936,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       if (lotissementVente && (!formData.lotissement_nb_terrains || Number(formData.lotissement_nb_terrains) <= 0)) issues.push(createValidationIssue(3, 'lotissement_nb_terrains', 'Nombre de terrains', 'Nombre de terrains obligatoire pour le lotissement'));
       if (lotissementVente && (formData.lotissement_mode_prix_m2 || 'm2_unique') === 'm2_unique' && (!formData.lotissement_prix_m2_unique || Number(formData.lotissement_prix_m2_unique) <= 0)) issues.push(createValidationIssue(3, 'lotissement_prix_m2_unique', 'Prix m2 unique', 'Prix m2 unique obligatoire pour le lotissement'));
       if (lotissementVente && formData.lotissement_mode_prix_m2 === 'paliers' && (!Array.isArray(formData.lotissement_paliers_prix_m2) || formData.lotissement_paliers_prix_m2.length === 0)) issues.push(createValidationIssue(3, 'lotissement_mode_prix_m2', 'Paliers prix m2', 'Ajoutez au moins un palier de prix m2'));
-      if (selectedMode === 'location_saisonniere' && selectedType === 'appartement') {
+      if (selectedMode === 'location_saisonniere') {
         const minStay = Number(saisonConfig.duree_min_sejour_nuits || 0);
         const maxStay = Number(saisonConfig.duree_max_sejour_nuits || 0);
         if (!Number.isFinite(minStay) || minStay <= 0) issues.push(createValidationIssue(3, 'duree_min_sejour_nuits', 'Duree min sejour', 'La duree minimum doit etre > 0'));
@@ -6295,7 +6426,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   {renderDetailTabsNavigation()}
                   {isInfoDetailTab && (
                     <>
-                      {(formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
+                      {(formData.mode === 'location_saisonniere') && (
                         <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-4">
                           <h5 className="text-sm font-semibold text-emerald-800">Parametres location saisonniere</h5>
                           <div className="rounded-lg border border-gray-200 bg-white p-3">
@@ -6329,7 +6460,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                       {renderDetailTabFeatures()}
                     </>
                   )}
-                  {!isInfoDetailTab && (formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
+                  {!isInfoDetailTab && (formData.mode === 'location_saisonniere') && (
                     <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
                       {isLocalisationDetailTab && (
                         <div className="rounded-lg border border-gray-200 bg-white p-3">
@@ -6461,7 +6592,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                   </div>
-                  {(formData.mode === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement') && (
+                  {(formData.mode === 'location_saisonniere') && (
                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
                       <div className="flex items-center justify-between gap-3">
                         <h5 className="text-sm font-semibold text-emerald-800">Tarification saisonniere avancee</h5>
@@ -6908,9 +7039,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const embedUrl = toVideoEmbedUrl(video.url);
   const externalUrl = toVideoExternalUrl(video.url) || String(video.url || '').trim();
   const directUrl = facebookDirectVideoUrls[String(video.url || '').trim()] || '';
-  const isEmbedUnavailable = facebookEmbedUnavailableByUrl[String(video.url || '').trim()] === true;
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(video.url);
-  const shouldUseDirectVideo = isFacebookVideoUrl(video.url) && isEmbedUnavailable && Boolean(directUrl);
+  const shouldUseDirectVideo = isFacebookVideoUrl(video.url) && Boolean(directUrl);
   return (
     <div key={video.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
       {shouldUseDirectVideo ? (

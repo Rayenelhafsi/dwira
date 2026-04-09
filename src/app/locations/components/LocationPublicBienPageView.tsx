@@ -637,9 +637,8 @@ out body 20;
   const embedUrl = toVideoEmbedUrl(videoUrl);
   const externalUrl = toVideoExternalUrl(videoUrl) || String(videoUrl || '').trim();
   const directUrl = facebookDirectVideoUrls[String(videoUrl || '').trim()] || '';
-  const isEmbedUnavailable = facebookEmbedUnavailableByUrl[String(videoUrl || '').trim()] === true;
   const canEmbed = Boolean(embedUrl) && canRenderVideoInIframe(videoUrl);
-  const shouldUseDirectVideo = isFacebookVideoUrl(videoUrl) && isEmbedUnavailable && Boolean(directUrl);
+  const shouldUseDirectVideo = isFacebookVideoUrl(videoUrl) && Boolean(directUrl);
 
   return (
     <div key={`${videoUrl}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_16px_35px_rgba(15,23,42,0.10)]">
