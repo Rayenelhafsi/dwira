@@ -12865,6 +12865,63 @@ app.get('/api/statistiques/resume', requireAdminSession, async (req, res) => {
   }
 });
 
+// ClickToPay callback endpoints (bank form: notification + default return URLs)
+const clickToPayUrlencodedParser = express.urlencoded({ extended: false });
+
+app.get('/api/payments/clicktopay/notification', async (req, res) => {
+  try {
+    const payload = req.query || {};
+    console.log('[ClickToPay] notification (GET):', payload);
+    return res.status(200).send('OK');
+  } catch (error) {
+    console.error('ClickToPay notification GET failed:', error);
+    return res.status(200).send('OK');
+  }
+});
+
+app.post('/api/payments/clicktopay/notification', clickToPayUrlencodedParser, async (req, res) => {
+  try {
+    const payload = req.body && Object.keys(req.body).length ? req.body : (req.query || {});
+    console.log('[ClickToPay] notification (POST):', payload);
+    return res.status(200).send('OK');
+  } catch (error) {
+    console.error('ClickToPay notification POST failed:', error);
+    return res.status(200).send('OK');
+  }
+});
+
+app.get('/api/payments/clicktopay/return/success', (req, res) => {
+  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  redirectUrl.searchParams.set('payment', 'success');
+  const reference = String(req.query?.reference || req.query?.order_id || req.query?.payment_id || '').trim();
+  if (reference) redirectUrl.searchParams.set('reference', reference);
+  return res.redirect(302, redirectUrl.toString());
+});
+
+app.post('/api/payments/clicktopay/return/success', clickToPayUrlencodedParser, (req, res) => {
+  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  redirectUrl.searchParams.set('payment', 'success');
+  const reference = String(req.body?.reference || req.body?.order_id || req.body?.payment_id || '').trim();
+  if (reference) redirectUrl.searchParams.set('reference', reference);
+  return res.redirect(302, redirectUrl.toString());
+});
+
+app.get('/api/payments/clicktopay/return/fail', (req, res) => {
+  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  redirectUrl.searchParams.set('payment', 'failed');
+  const reason = String(req.query?.error || req.query?.message || req.query?.reason || '').trim();
+  if (reason) redirectUrl.searchParams.set('reason', reason.slice(0, 200));
+  return res.redirect(302, redirectUrl.toString());
+});
+
+app.post('/api/payments/clicktopay/return/fail', clickToPayUrlencodedParser, (req, res) => {
+  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  redirectUrl.searchParams.set('payment', 'failed');
+  const reason = String(req.body?.error || req.body?.message || req.body?.reason || '').trim();
+  if (reason) redirectUrl.searchParams.set('reason', reason.slice(0, 200));
+  return res.redirect(302, redirectUrl.toString());
+});
+
 app.use((error, req, res, next) => {
   if (res.headersSent) {
     return next(error);
