@@ -11161,7 +11161,9 @@ app.post('/api/auth/passkey/register/verify', authLoginRateLimit, async (req, re
       expectedChallenge: challengeRecord.challenge,
       expectedOrigin: getExpectedWebauthnOrigins(req),
       expectedRPID: getWebauthnRpId(req),
-      requireUserVerification: true,
+      // Keep verification compatible with authenticators that do not always
+      // provide a UV flag, since options use userVerification='preferred'.
+      requireUserVerification: false,
     });
     if (!verification.verified || !verification.registrationInfo) {
       void logSecurityEvent({
@@ -11362,7 +11364,9 @@ app.post('/api/auth/passkey/login/verify', authLoginRateLimit, async (req, res) 
           }
         })(),
       },
-      requireUserVerification: true,
+      // Keep verification compatible with authenticators that do not always
+      // provide a UV flag, since options use userVerification='preferred'.
+      requireUserVerification: false,
     });
     if (!verification.verified) {
       void logSecurityEvent({
