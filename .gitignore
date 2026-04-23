@@ -52,3 +52,4 @@ migrations/2026-03-14-create-paid-services-tables-workbench-mysql57-safe.sql
 migrations/2026-03-14-create-paid-services-tables-workbench-no-json-table.sql
 migrations/2026-03-14-create-paid-services-tables.sql
 migrations/2026-03-14-seed-location-saisonniere-services.sql
+migrations/2026-04-23-expand-utilisateurs-avatar-length.sql

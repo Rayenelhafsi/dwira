@@ -3682,6 +3682,7 @@ async function ensureMessengerSchema() {
 async function upsertSocialUser({ email, name, avatar, provider, providerUserId }) {
   const userId = `u${Date.now()}`;
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const safeAvatar = normalizeAvatarUrl(avatar);
 
   await pool.query(
     `INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at, updated_at)
@@ -3693,7 +3694,7 @@ async function upsertSocialUser({ email, name, avatar, provider, providerUserId 
        provider_user_id = new_user.provider_user_id,
        last_login_at = new_user.last_login_at,
        updated_at = new_user.updated_at`,
-    [userId, name, email.toLowerCase(), avatar || null, provider, providerUserId || null, now, now]
+    [userId, name, email.toLowerCase(), safeAvatar, provider, providerUserId || null, now, now]
   );
 
   const [rows] = await pool.query(
@@ -3740,6 +3741,31 @@ function splitFullName(fullName) {
     firstName: parts.slice(0, -1).join(' '),
     lastName: parts.slice(-1).join(''),
   };
+}
+
+function normalizeAvatarUrl(rawAvatar, maxLength = 1024) {
+  const value = String(rawAvatar || '').trim();
+  if (!value) return null;
+
+  let normalized = value;
+  try {
+    const parsed = new URL(value);
+    if (parsed.search || parsed.hash) {
+      parsed.search = '';
+      parsed.hash = '';
+      const compactUrl = parsed.toString();
+      if (compactUrl.length <= maxLength) {
+        normalized = compactUrl;
+      }
+    }
+  } catch {
+    // Keep raw value for non-URL avatars.
+  }
+
+  if (normalized.length > maxLength) {
+    normalized = normalized.slice(0, maxLength);
+  }
+  return normalized;
 }
 
 function isLegalIdentityProfileCompleted(user) {
@@ -12513,7 +12539,7 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     const clientType = String(req.body?.clientType || req.body?.client_type || '').trim().toLowerCase();
     const cin = String(req.body?.cin || '').trim();
     const cinImageUrl = String(req.body?.cinImageUrl || req.body?.cin_image_url || '').trim();
-    const avatar = req.body?.avatar === undefined ? undefined : String(req.body.avatar || '').trim();
+    const avatar = req.body?.avatar === undefined ? undefined : normalizeAvatarUrl(req.body.avatar);
     const now = getAgencySqlDateTime();
 
     const requester = req.authUser || null;
