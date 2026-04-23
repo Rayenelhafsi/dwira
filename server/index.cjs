@@ -3682,7 +3682,7 @@ async function ensureMessengerSchema() {
 async function upsertSocialUser({ email, name, avatar, provider, providerUserId }) {
   const userId = `u${Date.now()}`;
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  const safeAvatar = normalizeAvatarUrl(avatar);
+  const safeAvatar = resolveSocialAvatarUrl({ provider, providerUserId, avatar });
 
   await pool.query(
     `INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at, updated_at)
@@ -3746,26 +3746,17 @@ function splitFullName(fullName) {
 function normalizeAvatarUrl(rawAvatar, maxLength = 1024) {
   const value = String(rawAvatar || '').trim();
   if (!value) return null;
+  return value.length > maxLength ? value.slice(0, maxLength) : value;
+}
 
-  let normalized = value;
-  try {
-    const parsed = new URL(value);
-    if (parsed.search || parsed.hash) {
-      parsed.search = '';
-      parsed.hash = '';
-      const compactUrl = parsed.toString();
-      if (compactUrl.length <= maxLength) {
-        normalized = compactUrl;
-      }
-    }
-  } catch {
-    // Keep raw value for non-URL avatars.
+function resolveSocialAvatarUrl({ provider, providerUserId, avatar }) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  const socialId = String(providerUserId || '').trim();
+  if (normalizedProvider === 'facebook' && socialId) {
+    // Stable URL that avoids signed CDN links expiring or returning 403.
+    return `https://graph.facebook.com/${encodeURIComponent(socialId)}/picture?type=large`;
   }
-
-  if (normalized.length > maxLength) {
-    normalized = normalized.slice(0, maxLength);
-  }
-  return normalized;
+  return normalizeAvatarUrl(avatar);
 }
 
 function isLegalIdentityProfileCompleted(user) {
