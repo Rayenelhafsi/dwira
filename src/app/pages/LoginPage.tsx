@@ -145,6 +145,9 @@ export default function LoginPage() {
         facebook_code_missing: 'Code Facebook manquant.',
         facebook_token_exchange_failed: "Echec d'echange du token Facebook.",
         facebook_profile_fetch_failed: 'Impossible de recuperer le profil Facebook.',
+        facebook_access_token_missing: "Token d'acces Facebook manquant.",
+        facebook_email_missing: "Facebook n'a pas fourni d'email exploitable.",
+        facebook_callback_failed: 'Erreur interne pendant le callback Facebook.',
       };
       toast.error(messages[oauthError] || 'Echec de la connexion sociale. Verifiez la configuration OAuth.');
       navigate('/login', { replace: true });

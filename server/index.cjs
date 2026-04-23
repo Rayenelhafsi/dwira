@@ -899,9 +899,25 @@ function buildFrontendLoginUrl({ socialToken = null, oauthError = null, returnTo
   return `${CANONICAL_FRONTEND_URL}/login${query ? `?${query}` : ''}`;
 }
 
-function buildFacebookOauthUrl({ mobilePreferred = false, returnTo = null } = {}) {
+function resolveFacebookRedirectUri(req = null) {
+  const configured = String(process.env.FACEBOOK_REDIRECT_URI || '').trim();
+  if (configured) return configured;
+  try {
+    return new URL('/api/auth/facebook/callback', CANONICAL_FRONTEND_URL).toString();
+  } catch {
+    // fall through
+  }
+  const host = String(req?.headers?.host || '').trim();
+  if (host) {
+    const protocol = isSecureRequest(req) ? 'https' : 'http';
+    return `${protocol}://${host}/api/auth/facebook/callback`;
+  }
+  return `http://localhost:${PORT}/api/auth/facebook/callback`;
+}
+
+function buildFacebookOauthUrl({ mobilePreferred = false, returnTo = null, req = null } = {}) {
   const clientId = process.env.FACEBOOK_CLIENT_ID;
-  const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
+  const redirectUri = resolveFacebookRedirectUri(req);
   if (!clientId) return null;
   const safeReturnTo = sanitizeReturnToPath(returnTo);
   const params = new URLSearchParams({
@@ -12144,7 +12160,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 app.get('/api/auth/facebook/start', async (req, res) => {
   const mobilePreferred = isMobileUserAgent(req.headers['user-agent']);
   const returnTo = sanitizeReturnToPath(req.query.return_to || req.query.returnTo);
-  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred, returnTo });
+  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred, returnTo, req });
   if (!oauthUrl) {
     return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_config_missing', returnTo }));
   }
@@ -12153,7 +12169,7 @@ app.get('/api/auth/facebook/start', async (req, res) => {
 
 app.get('/api/auth/facebook/authorize-url', (req, res) => {
   const mobilePreferred = isMobileUserAgent(req.headers['user-agent']);
-  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred });
+  const oauthUrl = buildFacebookOauthUrl({ mobilePreferred, req });
   if (!oauthUrl) {
     return res.status(503).json({ error: 'facebook_config_missing' });
   }
@@ -12171,7 +12187,7 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
 
     const clientId = process.env.FACEBOOK_CLIENT_ID;
     const clientSecret = process.env.FACEBOOK_CLIENT_SECRET;
-    const redirectUri = process.env.FACEBOOK_REDIRECT_URI || `http://localhost:${PORT}/api/auth/facebook/callback`;
+    const redirectUri = resolveFacebookRedirectUri(req);
 
     if (!clientId || !clientSecret) {
       return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_config_missing', returnTo }));
@@ -12184,12 +12200,13 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
     tokenUrl.searchParams.set('code', String(code));
 
     const tokenResponse = await fetch(tokenUrl);
+    const tokenData = await tokenResponse.json().catch(() => ({}));
     if (!tokenResponse.ok) {
+      console.error('Facebook token exchange failed:', tokenData);
       return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_token_exchange_failed', returnTo }));
     }
-
-    const tokenData = await tokenResponse.json();
     if (!tokenData.access_token) {
+      console.error('Facebook access token missing:', tokenData);
       return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_access_token_missing', returnTo }));
     }
 
@@ -12203,13 +12220,17 @@ app.get('/api/auth/facebook/callback', async (req, res) => {
     }
 
     const profile = await profileResponse.json();
-    if (!profile.email) {
+    const fallbackEmail = profile.id
+      ? `facebook_${String(profile.id).replace(/[^a-zA-Z0-9._-]/g, '')}@facebook.dwira.local`
+      : '';
+    const resolvedEmail = String(profile.email || fallbackEmail || '').trim().toLowerCase();
+    if (!resolvedEmail) {
       return res.redirect(buildFrontendLoginUrl({ oauthError: 'facebook_email_missing', returnTo }));
     }
 
     const user = await upsertSocialUser({
-      email: profile.email,
-      name: profile.name || profile.email.split('@')[0],
+      email: resolvedEmail,
+      name: profile.name || resolvedEmail.split('@')[0],
       avatar: profile.picture?.data?.url || null,
       provider: 'facebook',
       providerUserId: profile.id || null,
