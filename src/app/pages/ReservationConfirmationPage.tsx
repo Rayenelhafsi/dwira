@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Navigate, Link, useLocation, useNavigate, useParams } from "react-router";
 import { ArrowLeft, Calendar, CheckCircle2, Home, ImageIcon, ShoppingBag, Users } from "lucide-react";
-import { format, differenceInDays } from "date-fns";
+import { format } from "date-fns";
 import { toast } from "sonner";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { saveReservationToCache } from "../utils/reservations";
 import { getServiceDisplayPrice, splitServicesByTarification } from "../utils/servicePayants";
+import { calculateAccommodationPricing } from "../utils/seasonalPricing";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 import { getAntiBotConfig } from "../services/auth";
 
@@ -78,10 +79,15 @@ export default function ReservationConfirmationPage() {
 
   const summary = useMemo(() => {
     if (!property || !draft) return null;
-    const start = new Date(draft.startDate);
-    const end = new Date(draft.endDate);
-    const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
-    const accommodationTotal = property.pricePerNight * nights;
+    const accommodationPricing = calculateAccommodationPricing({
+      startDate: draft.startDate,
+      endDate: draft.endDate,
+      defaultNightlyPrice: property.pricePerNight,
+      defaultWeeklyPrice: property.pricePerWeek,
+      pricingPeriods: property.pricingPeriods,
+    });
+    const nights = accommodationPricing.nights;
+    const accommodationTotal = accommodationPricing.accommodationTotal;
     const cleaningFee = hasCleaningFee && draft.includeCleaningFee ? (property.cleaningFee || 0) : 0;
     const serviceFee = hasServiceFee && draft.includeServiceFee ? (property.serviceFee || 0) : 0;
     const extraMattresses = Math.min(extraMattressMax, Math.max(0, Number(draft.extraMattresses || 0)));
@@ -108,6 +114,8 @@ export default function ReservationConfirmationPage() {
       childGuests,
       nights,
       accommodationTotal,
+      averageNightlyPrice: accommodationPricing.averageNightlyPrice,
+      hasPeriodOverride: accommodationPricing.hasPeriodOverride,
       cleaningFee,
       serviceFee,
       extraMattresses,
@@ -557,7 +565,7 @@ export default function ReservationConfirmationPage() {
               </div>
             ) : (
               <div className="mt-6 space-y-4 text-sm text-gray-700">
-                <Line label={`${property.pricePerNight} TND x ${summary?.nights || 0} nuits`} value={`${summary?.accommodationTotal || 0} TND`} />
+                <Line label={summary?.hasPeriodOverride ? `${summary?.averageNightlyPrice || 0} TND (moyenne) x ${summary?.nights || 0} nuits` : `${property.pricePerNight} TND x ${summary?.nights || 0} nuits`} value={`${summary?.accommodationTotal || 0} TND`} />
                 {summary?.cleaningFee ? <Line label="Frais de menage" value={`${summary.cleaningFee} TND`} /> : null}
                 {summary?.serviceFee ? <Line label="Frais de service" value={`${summary.serviceFee} TND`} /> : null}
                 {summary?.extraMattressTotal ? <Line label="Matelas supplementaires" value={`${summary.extraMattressTotal} TND`} /> : null}

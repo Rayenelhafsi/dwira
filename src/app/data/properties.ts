@@ -5,6 +5,14 @@ export interface DateStatus {
   paymentDeadline?: string; // Date when the first person must confirm payment (for pending status)
 }
 
+export interface SeasonalPricingPeriod {
+  id?: string;
+  start: string;
+  end: string;
+  prix_nuitee: number;
+  prix_semaine?: number | null;
+}
+
 export interface Property {
   id: string;
   reference?: string;
@@ -14,6 +22,7 @@ export interface Property {
   mode?: 'vente' | 'location_annuelle' | 'location_saisonniere';
   location: string;
   pricePerNight: number;
+  pricePerWeek?: number | null;
   priceContext?: 'night' | 'sale';
   rating: number;
   reviews: number;
@@ -27,6 +36,7 @@ export interface Property {
   category: string;
   isFeatured?: boolean;
   unavailableDates?: DateStatus[];
+  pricingPeriods?: SeasonalPricingPeriod[];
   cleaningFee?: number;
   serviceFee?: number;
   seasonalConfig?: {

@@ -4828,6 +4828,97 @@ function injectPaidServicesIntoConfig(rawConfig, services) {
   return baseConfig;
 }
 
+function normalizeSeasonalPricingPeriod(period, index = 0) {
+  const start = String(period?.start || period?.start_date || '').slice(0, 10);
+  const end = String(period?.end || period?.end_date || '').slice(0, 10);
+  const nightlyRaw = Number(period?.prix_nuitee);
+  const weeklyRaw = period?.prix_semaine === null || period?.prix_semaine === undefined ? null : Number(period?.prix_semaine);
+  const nightly = Number.isFinite(nightlyRaw) && nightlyRaw > 0 ? nightlyRaw : 0;
+  const weekly = weeklyRaw === null ? null : (Number.isFinite(weeklyRaw) && weeklyRaw > 0 ? weeklyRaw : null);
+  if (!start || !end || end < start || nightly <= 0) return null;
+  return {
+    id: String(period?.id || `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`),
+    start,
+    end,
+    prix_nuitee: nightly,
+    prix_semaine: weekly,
+  };
+}
+
+async function ensureSeasonalPricingSchema() {
+  await ensureBiensWorkflowSchema();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bien_pricing_periods (
+      id VARCHAR(120) NOT NULL PRIMARY KEY,
+      bien_id VARCHAR(120) NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      prix_nuitee DECIMAL(12,2) NOT NULL,
+      prix_semaine DECIMAL(12,2) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_bien_pricing_periods_bien (bien_id),
+      KEY idx_bien_pricing_periods_dates (start_date, end_date)
+    )
+  `);
+  const [columnRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'biens'
+       AND COLUMN_NAME = 'prix_semaine'`
+  );
+  if (Number(columnRows?.[0]?.total || 0) === 0) {
+    await pool.query('ALTER TABLE biens ADD COLUMN prix_semaine DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_nuitee');
+  }
+}
+
+async function listPricingPeriodsForBienIds(bienIds) {
+  await ensureSeasonalPricingSchema();
+  const ids = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const byBienId = new Map();
+  if (ids.length === 0) return byBienId;
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await pool.query(
+    `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine
+     FROM bien_pricing_periods
+     WHERE bien_id IN (${placeholders})
+     ORDER BY start_date ASC, end_date ASC`,
+    ids
+  );
+  for (const row of rows || []) {
+    const item = {
+      id: String(row.id),
+      start: String(row.start_date || '').slice(0, 10),
+      end: String(row.end_date || '').slice(0, 10),
+      prix_nuitee: Number(row.prix_nuitee || 0),
+      prix_semaine: row.prix_semaine === null || row.prix_semaine === undefined ? null : Number(row.prix_semaine || 0),
+    };
+    if (!byBienId.has(row.bien_id)) byBienId.set(row.bien_id, []);
+    byBienId.get(row.bien_id).push(item);
+  }
+  return byBienId;
+}
+
+async function syncBienPricingPeriods(bienId, periods) {
+  await ensureSeasonalPricingSchema();
+  const normalizedBienId = String(bienId || '').trim();
+  if (!normalizedBienId) return;
+  const now = getAgencySqlDateTime();
+  const normalized = (Array.isArray(periods) ? periods : [])
+    .map((period, index) => normalizeSeasonalPricingPeriod(period, index))
+    .filter(Boolean);
+  await pool.query('DELETE FROM bien_pricing_periods WHERE bien_id = ?', [normalizedBienId]);
+  for (const period of normalized) {
+    await pool.query(
+      `INSERT INTO bien_pricing_periods (
+         id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [period.id, normalizedBienId, period.start, period.end, period.prix_nuitee, period.prix_semaine, now, now]
+    );
+  }
+}
+
 function formatReservationDemandRow(row) {
   if (!row) return null;
   return {
@@ -6094,6 +6185,7 @@ async function initializeDatabaseSchema() {
       ['ensureMessengerSchema', ensureMessengerSchema],
       ['ensureBiensWorkflowSchema', ensureBiensWorkflowSchema],
       ['ensurePaidServicesSchema', ensurePaidServicesSchema],
+      ['ensureSeasonalPricingSchema', ensureSeasonalPricingSchema],
       ['ensureTypeFilterImagesSchema', ensureTypeFilterImagesSchema],
       ['ensureHomeFilterOptionImagesSchema', ensureHomeFilterOptionImagesSchema],
     ];
@@ -6473,6 +6565,7 @@ app.delete('/api/services-payants/catalogue/:id', requireAdminSession, async (re
 app.get('/api/biens', async (req, res) => {
   try {
     await ensurePaidServicesSchema();
+    await ensureSeasonalPricingSchema();
     const [rows] = await pool.query(`
       SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom, p.telephone as proprietaire_telephone
       FROM biens b 
@@ -6482,6 +6575,7 @@ app.get('/api/biens', async (req, res) => {
     `);
     const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
     const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
       try {
@@ -6497,6 +6591,7 @@ app.get('/api/biens', async (req, res) => {
       return {
         ...row,
         location_saisonniere_config_json: JSON.stringify(nextConfig),
+        pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
       };
     });
     res.json(enrichedRows);
@@ -6510,6 +6605,7 @@ app.get('/api/biens', async (req, res) => {
 app.get('/api/biens/:id', async (req, res) => {
   try {
     await ensurePaidServicesSchema();
+    await ensureSeasonalPricingSchema();
     const [rows] = await pool.query(`
       SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom, p.telephone as proprietaire_telephone
       FROM biens b
@@ -6522,6 +6618,7 @@ app.get('/api/biens/:id', async (req, res) => {
     }
     const row = (await enrichBiensWithCaracteristiques(rows))[0];
     const servicesByBienId = await listPaidServicesForBienIds([row.id]);
+    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds([row.id]);
     let config = null;
     try {
       config = row.location_saisonniere_config_json
@@ -6535,6 +6632,7 @@ app.get('/api/biens/:id', async (req, res) => {
     res.json({
       ...row,
       location_saisonniere_config_json: JSON.stringify(injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || [])),
+      pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
     });
   } catch (error) {
     console.error('Error fetching bien:', error);
@@ -6545,10 +6643,11 @@ app.get('/api/biens/:id', async (req, res) => {
 // POST create bien
 app.post('/api/biens', requireAdminSession, async (req, res) => {
   try {
+    await ensureSeasonalPricingSchema();
     const {
       id,
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
+      prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -6759,6 +6858,11 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
       await syncBienCaracteristiqueValeurs(bienId, caracteristique_ids, caracteristique_valeurs);
     }
     await syncBienPaidServices(bienId, location_saisonniere_config?.services_payants || []);
+    await pool.query('UPDATE biens SET prix_semaine = ? WHERE id = ?', [
+      (resolvedMode === 'vente' || prix_semaine === undefined || prix_semaine === null || Number(prix_semaine) <= 0) ? null : Number(prix_semaine),
+      bienId,
+    ]);
+    await syncBienPricingPeriods(bienId, pricing_periods || []);
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
     res.status(201).json(newBien[0]);
@@ -6775,9 +6879,10 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
 // PUT update bien
 app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
   try {
+    await ensureSeasonalPricingSchema();
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
+      prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -6988,6 +7093,11 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       await syncBienCaracteristiqueValeurs(req.params.id, caracteristique_ids, caracteristique_valeurs);
     }
     await syncBienPaidServices(req.params.id, location_saisonniere_config?.services_payants || []);
+    await pool.query('UPDATE biens SET prix_semaine = ? WHERE id = ?', [
+      (resolvedMode === 'vente' || prix_semaine === undefined || prix_semaine === null || Number(prix_semaine) <= 0) ? null : Number(prix_semaine),
+      req.params.id,
+    ]);
+    await syncBienPricingPeriods(req.params.id, pricing_periods || []);
 
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
     res.json(updatedBien[0]);
@@ -10992,6 +11102,33 @@ app.delete('/api/unavailable-dates/:id', requireAdminSession, async (req, res) =
     res.json({ message: 'Unavailable date deleted' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete unavailable date' });
+  }
+});
+
+app.get('/api/pricing-periods/:bien_id', async (req, res) => {
+  try {
+    await ensureSeasonalPricingSchema();
+    const bienId = String(req.params.bien_id || '').trim();
+    if (!bienId) return res.status(400).json({ error: 'bien_id requis' });
+    const [rows] = await pool.query(
+      `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine
+       FROM bien_pricing_periods
+       WHERE bien_id = ?
+       ORDER BY start_date ASC, end_date ASC`,
+      [bienId]
+    );
+    const data = (rows || []).map((row) => ({
+      id: String(row.id),
+      bien_id: String(row.bien_id),
+      start: String(row.start_date || '').slice(0, 10),
+      end: String(row.end_date || '').slice(0, 10),
+      prix_nuitee: Number(row.prix_nuitee || 0),
+      prix_semaine: row.prix_semaine === null || row.prix_semaine === undefined ? null : Number(row.prix_semaine || 0),
+    }));
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching pricing periods:', error);
+    res.status(500).json({ error: 'Failed to fetch pricing periods' });
   }
 });
 

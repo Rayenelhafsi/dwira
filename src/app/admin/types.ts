@@ -153,6 +153,14 @@ export interface DateStatus {
   paymentDeadline?: string;
 }
 
+export interface SeasonalPricingPeriod {
+  id?: string;
+  start: string;
+  end: string;
+  prix_nuitee: number;
+  prix_semaine?: number | null;
+}
+
 export interface ImmeubleAppartementDetail {
   index: number;
   reference?: string | null;
@@ -273,6 +281,7 @@ export interface Bien {
   nb_chambres: number;
   nb_salle_bain: number;
   prix_nuitee: number;
+  prix_semaine?: number | null;
   tarification_methode?: TarificationMethodeVente | null;
   prix_affiche_client?: number | null;
   prix_fixe_proprietaire?: number | null;
@@ -396,6 +405,7 @@ export interface Bien {
   admin_last_saved_at?: string | null;
   media?: Media[];
   unavailableDates?: DateStatus[];
+  pricing_periods?: SeasonalPricingPeriod[];
   caracteristiques?: string[];
   caracteristique_ids?: string[];
   caracteristique_valeurs?: Record<string, string | string[]>;

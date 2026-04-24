@@ -1,5 +1,5 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig } from '../admin/types';
+import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig, SeasonalPricingPeriod } from '../admin/types';
 import { Property } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
 import { extractGuestLimitsFromCharacteristicLines, resolveBienCapacity } from '../utils/bienCapacity';
@@ -146,6 +146,24 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     const raw = (row as any).location_saisonniere_config_json;
     if (raw) locationSaisonniereConfig = typeof raw === 'string' ? JSON.parse(raw) : raw;
   } catch {}
+  let pricingPeriodsFromDb: SeasonalPricingPeriod[] = [];
+  try {
+    const rawPricingPeriods = (row as any).pricing_periods_json;
+    if (rawPricingPeriods) {
+      const parsed = typeof rawPricingPeriods === 'string' ? JSON.parse(rawPricingPeriods) : rawPricingPeriods;
+      if (Array.isArray(parsed)) {
+        pricingPeriodsFromDb = parsed
+          .map((item: any) => ({
+            id: item?.id ? String(item.id) : undefined,
+            start: String(item?.start || item?.start_date || '').slice(0, 10),
+            end: String(item?.end || item?.end_date || '').slice(0, 10),
+            prix_nuitee: Number(item?.prix_nuitee || 0),
+            prix_semaine: item?.prix_semaine === null || item?.prix_semaine === undefined ? null : Number(item.prix_semaine || 0),
+          }))
+          .filter((item) => item.start && item.end && Number.isFinite(item.prix_nuitee) && item.prix_nuitee > 0);
+      }
+    }
+  } catch {}
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
@@ -199,6 +217,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     nb_chambres: resolvedCapacity.bedrooms,
     nb_salle_bain: resolvedCapacity.bathrooms,
     prix_nuitee: toNumber(row.prix_nuitee),
+    prix_semaine: toNullableNumber((row as any).prix_semaine),
     tarification_methode: ((row as any).tarification_methode || null) as any,
     prix_affiche_client: toNullableNumber((row as any).prix_affiche_client),
     prix_fixe_proprietaire: toNullableNumber((row as any).prix_fixe_proprietaire),
@@ -364,7 +383,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       status: ud.status,
       color: ud.color || (ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827'),
       paymentDeadline: ud.paymentDeadline || ud.payment_deadline || undefined,
-    }))
+    })),
+    pricing_periods: pricingPeriodsFromDb,
   };
 }
 
@@ -451,6 +471,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     mode: bien.mode,
     location: zoneNames[bien.zone_id || ''] || 'KÃ©libia',
     pricePerNight: bien.prix_nuitee,
+    pricePerWeek: bien.prix_semaine ?? null,
     priceContext: bien.mode === 'vente' ? 'sale' : 'night',
     rating: 4.5 + Math.random() * 0.5,
     reviews: Math.floor(Math.random() * 30) + 5,
@@ -464,6 +485,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     category: resolvedCategory,
     isFeatured: bien.is_featured === true,
     unavailableDates: bien.unavailableDates || [],
+    pricingPeriods: Array.isArray(bien.pricing_periods) ? bien.pricing_periods : [],
     cleaningFee: isCleaningAvailable && seasonalCleaningFee > 0 ? seasonalCleaningFee : 0,
     serviceFee: isServiceAvailable && seasonalServiceFee > 0 ? seasonalServiceFee : 0,
     seasonalConfig: {
@@ -719,6 +741,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         nb_chambres: p.bedrooms,
         nb_salle_bain: p.bathrooms,
         prix_nuitee: p.pricePerNight,
+        prix_semaine: p.pricePerWeek ?? null,
         tarification_methode: null,
         prix_affiche_client: null,
         prix_fixe_proprietaire: null,
@@ -813,7 +836,8 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
           end: ud.end,
           status: ud.status,
           color: ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827'
-        })) || []
+        })) || [],
+        pricing_periods: p.pricingPeriods || []
       }));
 
       setBiens(localBiens);

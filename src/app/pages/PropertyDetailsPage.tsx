@@ -19,6 +19,7 @@ import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailu
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
+import { calculateAccommodationPricing } from "../utils/seasonalPricing";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
@@ -1947,9 +1948,15 @@ out body 40;
       extrasTotal: paidServicesTotal + productsAccueilFee,
       total: paidServicesTotal + productsAccueilFee
     };
-    // Use Math.abs to prevent negative nights when dates are selected in reverse order
-    const nights = Math.abs(differenceInDays(selectedEnd, selectedStart));
-    const accommodationTotal = property!.pricePerNight * nights;
+    const accommodationPricing = calculateAccommodationPricing({
+      startDate: selectedStart,
+      endDate: selectedEnd,
+      defaultNightlyPrice: property!.pricePerNight,
+      defaultWeeklyPrice: property!.pricePerWeek,
+      pricingPeriods: property!.pricingPeriods,
+    });
+    const nights = accommodationPricing.nights;
+    const accommodationTotal = accommodationPricing.accommodationTotal;
     const cleaningFee = (hasCleaningFee && includeCleaningFee && property?.cleaningFee) ? property.cleaningFee : 0;
     const serviceFee = (hasServiceFee && includeServiceFee && property?.serviceFee) ? property.serviceFee : 0;
     const extraMattressTotal = extraMattresses * extraMattressPrice;
@@ -1958,6 +1965,8 @@ out body 40;
     return {
       nights,
       accommodationTotal,
+      averageNightlyPrice: accommodationPricing.averageNightlyPrice,
+      hasPeriodOverride: accommodationPricing.hasPeriodOverride,
       cleaningFee,
       serviceFee,
       extraMattressTotal,
@@ -3310,6 +3319,9 @@ out body 40;
                 <div>
                   <span className="text-2xl font-bold text-gray-900">{property.pricePerNight} TND</span>
                   {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
+                  {property.priceContext !== 'sale' && Number(property.pricePerWeek || 0) > 0 ? (
+                    <p className="mt-1 text-xs text-gray-500">{Number(property.pricePerWeek || 0)} TND / semaine</p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-1 text-sm text-gray-600">
                   <Star size={14} className="text-amber-500 fill-current" />
@@ -3672,7 +3684,7 @@ out body 40;
 
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    <div className="flex justify-between">
-                     <span className="underline">{property.pricePerNight} TND x {pricing.nights} nuits</span>
+                     <span className="underline">{pricing.hasPeriodOverride ? `${pricing.averageNightlyPrice} TND (moyenne) x ${pricing.nights} nuits` : `${property.pricePerNight} TND x ${pricing.nights} nuits`}</span>
                      <span>{pricing.accommodationTotal} TND</span>
                    </div>
                    {pricing.cleaningFee > 0 && (
