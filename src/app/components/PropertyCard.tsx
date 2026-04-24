@@ -61,9 +61,16 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
               <p className="truncate text-sm font-semibold text-white">{property.location}</p>
               <p className="truncate text-xs text-white/80">{property.category}</p>
             </div>
-            <div className="shrink-0 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 shadow-md">
-              {property.pricePerNight} TND
-              {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
+            <div className="shrink-0 rounded-2xl bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 shadow-md">
+              <div>
+                {property.pricePerNight} TND
+                {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
+              </div>
+              {property.priceContext !== 'sale' && Number(property.pricePerWeek || 0) > 0 ? (
+                <div className="text-[11px] font-medium text-gray-600">
+                  {Number(property.pricePerWeek || 0)} TND / semaine
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
