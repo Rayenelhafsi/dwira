@@ -79,6 +79,33 @@ export function extractCapacityFromCharacteristicLines(lines?: string[] | null) 
   return extractCapacityFromEntries(entries);
 }
 
+export function extractGuestLimitsFromCharacteristicLines(lines?: string[] | null) {
+  let maxAdults: number | null = null;
+  let maxChildren: number | null = null;
+
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const raw = String(line || '').trim();
+    if (!raw) continue;
+    const separatorIndex = raw.indexOf(':');
+    if (separatorIndex < 0) continue;
+
+    const name = normalizeCapacityLabel(raw.slice(0, separatorIndex).trim());
+    const valueRaw = raw.slice(separatorIndex + 1).trim();
+    const parsed = toNullableNonNegativeInt(valueRaw);
+    if (parsed === null) continue;
+
+    if (name.includes('capacite max adultes')) {
+      maxAdults = Math.max(1, parsed);
+      continue;
+    }
+    if (name.includes('capacite enfants')) {
+      maxChildren = parsed;
+    }
+  }
+
+  return { maxAdults, maxChildren };
+}
+
 export function resolveBienCapacity(input: {
   nbChambres?: number | string | null;
   nbSalleBain?: number | string | null;

@@ -47,9 +47,21 @@ export default function ReservationConfirmationPage() {
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
   const seasonalConfig = property?.seasonalConfig;
-  const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
-  const maxAdultGuests = Math.max(1, Math.min(maxGuests, Number(seasonalConfig?.maxAdultes ?? maxGuests)));
-  const maxChildGuests = Math.max(0, Math.min(maxGuests, Number(seasonalConfig?.maxEnfants ?? maxGuests)));
+  const fallbackMaxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
+  const rawMaxAdults = Number(seasonalConfig?.maxAdultes);
+  const rawMaxChildren = Number(seasonalConfig?.maxEnfants);
+  const hasAdultsCap = Number.isFinite(rawMaxAdults) && rawMaxAdults > 0;
+  const hasChildrenCap = Number.isFinite(rawMaxChildren) && rawMaxChildren >= 0;
+  const hasSplitGuestCaps = hasAdultsCap || hasChildrenCap;
+  const maxAdultGuests = hasSplitGuestCaps
+    ? Math.max(1, Math.floor(hasAdultsCap ? rawMaxAdults : Math.max(1, fallbackMaxGuests - (hasChildrenCap ? rawMaxChildren : 0))))
+    : fallbackMaxGuests;
+  const maxChildGuests = hasSplitGuestCaps
+    ? Math.max(0, Math.floor(hasChildrenCap ? rawMaxChildren : Math.max(0, fallbackMaxGuests - maxAdultGuests)))
+    : Math.max(0, fallbackMaxGuests - 1);
+  const maxGuests = hasSplitGuestCaps
+    ? Math.max(1, maxAdultGuests + maxChildGuests)
+    : fallbackMaxGuests;
   const hasCleaningFee = !isVisitRequest
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;

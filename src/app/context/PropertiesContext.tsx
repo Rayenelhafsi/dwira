@@ -2,7 +2,7 @@
 import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig } from '../admin/types';
 import { Property } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
-import { resolveBienCapacity } from '../utils/bienCapacity';
+import { extractGuestLimitsFromCharacteristicLines, resolveBienCapacity } from '../utils/bienCapacity';
 
 // API Base URL
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -403,6 +403,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     : [];
   const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || PROPERTY_FALLBACK_IMAGE_DATA_URI;
   const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
+  const guestLimits = extractGuestLimitsFromCharacteristicLines(bien.caracteristiques);
   const resolvedGuests = bien.mode === 'location_saisonniere'
     ? (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1))
     : Math.max(1, Number(bien.nb_chambres || 0) + 1);
@@ -454,8 +455,8 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
       dureeMinSejourNuits: bien.location_saisonniere_config?.duree_min_sejour_nuits ?? null,
       dureeMaxSejourNuits: bien.location_saisonniere_config?.duree_max_sejour_nuits ?? null,
       limitePersonnesNuit: bien.location_saisonniere_config?.limite_personnes_nuit ?? null,
-      maxAdultes: bien.location_saisonniere_config?.max_adultes ?? null,
-      maxEnfants: bien.location_saisonniere_config?.max_enfants ?? null,
+      maxAdultes: guestLimits.maxAdults ?? bien.location_saisonniere_config?.max_adultes ?? null,
+      maxEnfants: guestLimits.maxChildren ?? bien.location_saisonniere_config?.max_enfants ?? null,
       politiqueAnnulation: bien.location_saisonniere_config?.politique_annulation ?? null,
       depotGarantie: bien.location_saisonniere_config?.depot_garantie ?? false,
       montantCaution: bien.location_saisonniere_config?.montant_caution ?? null,

@@ -384,8 +384,6 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   niveau_sonore: 'calme',
   acces_general: 'facile',
   limite_personnes_nuit: 2,
-  max_adultes: 2,
-  max_enfants: 2,
   duree_min_sejour_nuits: 1,
   duree_max_sejour_nuits: 30,
   politique_annulation: 'moderee',
@@ -1579,9 +1577,6 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
   };
-  const saisonLimitTotal = Math.max(1, Number(saisonConfig.limite_personnes_nuit ?? DEFAULT_LOCATION_SAISONNIERE_CONFIG.limite_personnes_nuit ?? 1));
-  const saisonLimitAdults = Math.max(1, Math.min(saisonLimitTotal, Number(saisonConfig.max_adultes ?? saisonLimitTotal)));
-  const saisonLimitChildren = Math.max(0, Math.min(saisonLimitTotal, Number(saisonConfig.max_enfants ?? saisonLimitTotal)));
   const selectedZone = zones.find((item) => item.id === formData.zone_id);
   const toOuiNon = (value: boolean | null | undefined) => value ? 'Oui' : 'Non';
   const normalizeMapsInput = (raw?: string | null) => {
@@ -6504,10 +6499,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                         </div>
                       )}
                       {isSecuriteDetailTab && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div><label className="block text-xs text-gray-600 mb-1">Limite personnes (nuit)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? ''} onChange={(e) => { const raw = e.target.value === '' ? null : Math.max(1, Math.floor(Number(e.target.value))); if (raw === null) { updateSaisonConfig({ limite_personnes_nuit: null }); return; } updateSaisonConfig({ limite_personnes_nuit: raw, max_adultes: Math.min(raw, Math.max(1, Number(saisonConfig.max_adultes ?? raw))), max_enfants: Math.min(raw, Math.max(0, Number(saisonConfig.max_enfants ?? raw))) }); }} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Max adultes</label><input type="number" min={1} max={saisonLimitTotal} value={saisonLimitAdults} onChange={(e) => { const raw = e.target.value === '' ? null : Math.max(1, Math.floor(Number(e.target.value))); if (raw === null) { updateSaisonConfig({ max_adultes: null }); return; } updateSaisonConfig({ max_adultes: Math.min(saisonLimitTotal, raw) }); }} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Max enfants</label><input type="number" min={0} max={saisonLimitTotal} value={saisonLimitChildren} onChange={(e) => { const raw = e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))); if (raw === null) { updateSaisonConfig({ max_enfants: null }); return; } updateSaisonConfig({ max_enfants: Math.min(saisonLimitTotal, raw) }); }} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div><label className="block text-xs text-gray-600 mb-1">Fumeurs</label><select value={saisonConfig.fumeurs || ''} onChange={(e) => updateSaisonConfig({ fumeurs: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_FUMEURS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Alcool</label><select value={saisonConfig.alcool || ''} onChange={(e) => updateSaisonConfig({ alcool: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ALCOOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Animaux</label><select value={saisonConfig.animaux || ''} onChange={(e) => updateSaisonConfig({ animaux: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ANIMAUX_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
