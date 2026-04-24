@@ -22,6 +22,11 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const ratingDisplay = Number.isFinite(property.rating)
     ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
     : "0,0";
+  const weeklyPriceFromNight = Math.max(0, Number(property.pricePerNight || 0) * 7);
+  const weeklyPriceFromData = Math.max(0, Number(property.pricePerWeek || 0));
+  const syncedWeeklyPrice = property.priceContext === 'sale'
+    ? 0
+    : (weeklyPriceFromNight > 0 ? weeklyPriceFromNight : weeklyPriceFromData);
   const handleMessengerClick = () => {
     void openMessengerPropertyConversation({
       page: contactConfig.messengerPage,
@@ -66,9 +71,9 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
                 {property.pricePerNight} TND
                 {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
               </div>
-              {property.priceContext !== 'sale' && Number(property.pricePerWeek || 0) > 0 ? (
+              {property.priceContext !== 'sale' && syncedWeeklyPrice > 0 ? (
                 <div className="text-[11px] font-medium text-gray-600">
-                  {Number(property.pricePerWeek || 0)} TND / semaine
+                  {syncedWeeklyPrice} TND / semaine
                 </div>
               ) : null}
             </div>

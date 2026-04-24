@@ -160,7 +160,15 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
             prix_nuitee: Number(item?.prix_nuitee || 0),
             prix_semaine: item?.prix_semaine === null || item?.prix_semaine === undefined ? null : Number(item.prix_semaine || 0),
           }))
-          .filter((item) => item.start && item.end && Number.isFinite(item.prix_nuitee) && item.prix_nuitee > 0);
+          .filter((item) =>
+            item.start
+            && item.end
+            && isValidSqlDate(item.start)
+            && isValidSqlDate(item.end)
+            && item.end >= item.start
+            && Number.isFinite(item.prix_nuitee)
+            && item.prix_nuitee > 0
+          );
       }
     }
   } catch {}
@@ -386,6 +394,13 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     })),
     pricing_periods: pricingPeriodsFromDb,
   };
+}
+
+function isValidSqlDate(value: string): boolean {
+  const raw = String(value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const parsed = new Date(`${raw}T00:00:00`);
+  return !Number.isNaN(parsed.getTime());
 }
 
 // Convert Bien (Admin format) to Property (Site format)
