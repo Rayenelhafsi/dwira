@@ -1008,6 +1008,8 @@ out body 40;
   }, [showSeasonalDetails, scrollToSeasonalDetails]);
   const seasonalConfig = property?.seasonalConfig;
   const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
+  const maxAdultGuests = Math.max(1, Math.min(maxGuests, Number(seasonalConfig?.maxAdultes ?? maxGuests)));
+  const maxChildGuests = Math.max(0, Math.min(maxGuests, Number(seasonalConfig?.maxEnfants ?? maxGuests)));
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
   const maxStay = Math.max(minStay, seasonalConfig?.dureeMaxSejourNuits || 365);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
@@ -1898,8 +1900,8 @@ out body 40;
     const fallbackGuests = Math.max(1, Number(candidate.guests || 1));
     const nextAdults = Math.max(1, Number((candidate as PendingReservationDraft).adultGuests ?? fallbackGuests));
     const nextChildren = Math.max(0, Number((candidate as PendingReservationDraft).childGuests ?? (fallbackGuests - nextAdults)));
-    const boundedAdults = Math.min(maxGuests, nextAdults);
-    const boundedChildren = Math.min(Math.max(0, maxGuests - boundedAdults), nextChildren);
+    const boundedAdults = Math.min(maxGuests, maxAdultGuests, nextAdults);
+    const boundedChildren = Math.min(Math.max(0, Math.min(maxChildGuests, maxGuests - boundedAdults)), nextChildren);
     setAdultGuests(boundedAdults);
     setChildGuests(boundedChildren);
     setIncludeCleaningFee(Boolean(candidate.includeCleaningFee));
@@ -1909,7 +1911,7 @@ out body 40;
     setPaymentMode(candidate.paymentMode === 'totalite' ? 'totalite' : 'avance');
     setReservationNote(String(candidate.reservationNote || ""));
     setPendingDraft(candidate);
-  }, [location.state, maxGuests, property]);
+  }, [location.state, maxAdultGuests, maxChildGuests, maxGuests, property]);
 
   // Calculate total price
   const calculateTotal = () => {
@@ -2374,15 +2376,21 @@ out body 40;
   }, [isAwaitingLogin, navigate, openProfileSetupStep, property, user]);
 
   useEffect(() => {
-    setAdultGuests((prev) => Math.min(Math.max(prev, 1), maxGuests));
-    setChildGuests((prev) => Math.min(Math.max(prev, 0), Math.max(0, maxGuests - 1)));
+    setAdultGuests((prev) => Math.min(Math.max(prev, 1), Math.min(maxAdultGuests, maxGuests)));
+    setChildGuests((prev) => Math.min(Math.max(prev, 0), Math.min(maxChildGuests, Math.max(0, maxGuests - 1))));
     setExtraMattresses((prev) => Math.min(Math.max(prev, 0), extraMattressMax));
-  }, [maxGuests, extraMattressMax]);
+  }, [extraMattressMax, maxAdultGuests, maxChildGuests, maxGuests]);
   useEffect(() => {
-    if (adultGuests + childGuests <= maxGuests) return;
-    const overflow = adultGuests + childGuests - maxGuests;
-    setChildGuests((prev) => Math.max(0, prev - overflow));
-  }, [adultGuests, childGuests, maxGuests]);
+    const allowedAdultsByTotal = Math.max(1, Math.min(maxAdultGuests, maxGuests - childGuests));
+    if (adultGuests > allowedAdultsByTotal) {
+      setAdultGuests(allowedAdultsByTotal);
+      return;
+    }
+    const allowedChildrenByTotal = Math.max(0, Math.min(maxChildGuests, maxGuests - adultGuests));
+    if (childGuests > allowedChildrenByTotal) {
+      setChildGuests(allowedChildrenByTotal);
+    }
+  }, [adultGuests, childGuests, maxAdultGuests, maxChildGuests, maxGuests]);
 
   useEffect(() => {
     if (!hasCleaningFee) setIncludeCleaningFee(false);
@@ -3333,7 +3341,7 @@ out body 40;
                    </label>
                    <div className="space-y-2 rounded-lg border border-gray-200 p-3">
                      <div className="flex items-center justify-between gap-3">
-                       <span className="text-sm font-medium text-gray-700">Adultes</span>
+                       <span className="text-sm font-medium text-gray-700">Adultes (max {maxAdultGuests})</span>
                        <div className="inline-flex items-center rounded-lg border border-gray-200">
                          <button
                            type="button"
@@ -3346,7 +3354,7 @@ out body 40;
                          <span className="min-w-10 px-2 text-center text-sm font-semibold text-gray-900">{adultGuests}</span>
                          <button
                            type="button"
-                           onClick={() => setAdultGuests((prev) => Math.min(maxGuests - childGuests, prev + 1))}
+                           onClick={() => setAdultGuests((prev) => Math.min(Math.max(1, Math.min(maxAdultGuests, maxGuests - childGuests)), prev + 1))}
                            className="px-2 py-1 text-gray-600 hover:bg-gray-50"
                            aria-label="Augmenter adultes"
                          >
@@ -3355,7 +3363,7 @@ out body 40;
                        </div>
                      </div>
                      <div className="flex items-center justify-between gap-3">
-                       <span className="text-sm font-medium text-gray-700">Enfants</span>
+                       <span className="text-sm font-medium text-gray-700">Enfants (max {maxChildGuests})</span>
                        <div className="inline-flex items-center rounded-lg border border-gray-200">
                          <button
                            type="button"
@@ -3368,7 +3376,7 @@ out body 40;
                          <span className="min-w-10 px-2 text-center text-sm font-semibold text-gray-900">{childGuests}</span>
                          <button
                            type="button"
-                           onClick={() => setChildGuests((prev) => Math.min(Math.max(0, maxGuests - adultGuests), prev + 1))}
+                           onClick={() => setChildGuests((prev) => Math.min(Math.max(0, Math.min(maxChildGuests, maxGuests - adultGuests)), prev + 1))}
                            className="px-2 py-1 text-gray-600 hover:bg-gray-50"
                            aria-label="Augmenter enfants"
                          >

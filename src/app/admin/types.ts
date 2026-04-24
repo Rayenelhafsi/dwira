@@ -236,6 +236,8 @@ export type LocationSaisonniereConfig = {
   niveau_sonore?: NiveauSonoreAppartement | null;
   acces_general?: AccesGeneralAppartement | null;
   limite_personnes_nuit?: number | null;
+  max_adultes?: number | null;
+  max_enfants?: number | null;
   duree_min_sejour_nuits?: number | null;
   duree_max_sejour_nuits?: number | null;
   politique_annulation?: PolitiqueAnnulation | null;

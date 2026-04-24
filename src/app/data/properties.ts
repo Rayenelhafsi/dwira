@@ -39,6 +39,8 @@ export interface Property {
     dureeMinSejourNuits?: number | null;
     dureeMaxSejourNuits?: number | null;
     limitePersonnesNuit?: number | null;
+    maxAdultes?: number | null;
+    maxEnfants?: number | null;
     politiqueAnnulation?: 'flexible' | 'moderee' | 'stricte' | 'non_remboursable' | null;
     depotGarantie?: boolean;
     montantCaution?: number | null;

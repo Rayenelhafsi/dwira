@@ -48,6 +48,8 @@ export default function ReservationConfirmationPage() {
   const isVisitRequest = requestType === 'visite';
   const seasonalConfig = property?.seasonalConfig;
   const maxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
+  const maxAdultGuests = Math.max(1, Math.min(maxGuests, Number(seasonalConfig?.maxAdultes ?? maxGuests)));
+  const maxChildGuests = Math.max(0, Math.min(maxGuests, Number(seasonalConfig?.maxEnfants ?? maxGuests)));
   const hasCleaningFee = !isVisitRequest
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;
@@ -85,8 +87,8 @@ export default function ReservationConfirmationPage() {
     const dueNow = draft.paymentMode === 'totalite' ? total : Math.round((total * advancePercent) / 100);
     const adultsRaw = Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1));
     const childrenRaw = Math.max(0, Number(draft.childGuests ?? 0));
-    const adultGuests = Math.min(maxGuests, adultsRaw);
-    const childGuests = Math.min(Math.max(0, maxGuests - adultGuests), childrenRaw);
+    const adultGuests = Math.min(maxGuests, maxAdultGuests, adultsRaw);
+    const childGuests = Math.min(Math.max(0, Math.min(maxChildGuests, maxGuests - adultGuests)), childrenRaw);
     const guests = Math.min(maxGuests, Math.max(1, adultGuests + childGuests));
     return {
       guests,
@@ -108,7 +110,7 @@ export default function ReservationConfirmationPage() {
       paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : 'avance',
       advancePercent,
     };
-  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxGuests, property, seasonalConfig]);
+  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxAdultGuests, maxChildGuests, maxGuests, property, seasonalConfig]);
 
   useEffect(() => {
     let cancelled = false;
