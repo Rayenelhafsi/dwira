@@ -79,6 +79,14 @@ const MAIN_TYPE_TO_CATEGORIES: Record<PropertyMainType, string[]> = {
 const ADVANCED_FIXED_TAB_OPTIONS: Record<string, string[]> = {
   "Accessibilite": ["RDC", "Acces PMR"],
   "Capacite & configuration": ["Gazon", "Jardin partage", "Jardin prive", "Terrasse"],
+  "Caracteristiques": [
+    "acces & check-in special",
+    "balcon / terasse & exterieur",
+    "climatisation",
+    "Wifi",
+    "parking",
+    "garage",
+  ],
 };
 
 type FeatureApiRow = {
@@ -814,6 +822,23 @@ export default function PropertiesPage() {
         const matchesAmenity = (selectedAmenity: string) => {
           const token = normalizeFeatureName(selectedAmenity);
           if (!token) return true;
+          if (token.includes("acces") && token.includes("check-in")) {
+            return Boolean(String(property.seasonalConfig?.checkinHeure || "").trim())
+              || normalizedAmenities.some((item) =>
+                item.includes("check-in")
+                || item.includes("check in")
+                || item.includes("acces")
+              );
+          }
+          if (token.includes("balcon") && token.includes("terasse")) {
+            return normalizedAmenities.some((item) =>
+              item.includes("balcon")
+              || item.includes("terrasse")
+              || item.includes("terasse")
+              || item.includes("exterieur")
+              || item.includes("jardin")
+            );
+          }
           if (token.includes("pied dans l eau")) {
             return normalizedAmenities.some((item) =>
               item.includes("pied dans l eau")
