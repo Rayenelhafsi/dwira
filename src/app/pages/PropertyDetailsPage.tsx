@@ -666,7 +666,8 @@ export default function PropertyDetailsPage() {
 
   const [selectedStart, setSelectedStart] = useState<Date | null>(null);
   const [selectedEnd, setSelectedEnd] = useState<Date | null>(null);
-  const [guests, setGuests] = useState(1);
+  const [adultGuests, setAdultGuests] = useState(1);
+  const [childGuests, setChildGuests] = useState(0);
   const [includeCleaningFee, setIncludeCleaningFee] = useState(false);
   const [includeServiceFee, setIncludeServiceFee] = useState(false);
   const [extraMattresses, setExtraMattresses] = useState(0);
@@ -727,6 +728,7 @@ export default function PropertyDetailsPage() {
   const [lightboxOriginalIndex, setLightboxOriginalIndex] = useState<number | null>(null);
   const [lightboxPreviewQualityByIndex, setLightboxPreviewQualityByIndex] = useState<Record<number, number>>({});
   const isSaleProperty = property?.priceContext === 'sale';
+  const guests = adultGuests + childGuests;
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
     [biens, property?.id]
@@ -1893,7 +1895,13 @@ out body 40;
     draftHydratedRef.current = true;
     setSelectedStart(parsedStart);
     setSelectedEnd(parsedEnd);
-    setGuests(Math.max(1, Number(candidate.guests || 1)));
+    const fallbackGuests = Math.max(1, Number(candidate.guests || 1));
+    const nextAdults = Math.max(1, Number((candidate as PendingReservationDraft).adultGuests ?? fallbackGuests));
+    const nextChildren = Math.max(0, Number((candidate as PendingReservationDraft).childGuests ?? (fallbackGuests - nextAdults)));
+    const boundedAdults = Math.min(maxGuests, nextAdults);
+    const boundedChildren = Math.min(Math.max(0, maxGuests - boundedAdults), nextChildren);
+    setAdultGuests(boundedAdults);
+    setChildGuests(boundedChildren);
     setIncludeCleaningFee(Boolean(candidate.includeCleaningFee));
     setIncludeServiceFee(Boolean(candidate.includeServiceFee));
     setExtraMattresses(Math.max(0, Number(candidate.extraMattresses || 0)));
@@ -1901,7 +1909,7 @@ out body 40;
     setPaymentMode(candidate.paymentMode === 'totalite' ? 'totalite' : 'avance');
     setReservationNote(String(candidate.reservationNote || ""));
     setPendingDraft(candidate);
-  }, [location.state, property]);
+  }, [location.state, maxGuests, property]);
 
   // Calculate total price
   const calculateTotal = () => {
@@ -2084,6 +2092,8 @@ out body 40;
       startDate,
       endDate,
       guests,
+      adultGuests,
+      childGuests,
       includeCleaningFee,
       includeServiceFee,
       extraMattresses,
@@ -2364,9 +2374,15 @@ out body 40;
   }, [isAwaitingLogin, navigate, openProfileSetupStep, property, user]);
 
   useEffect(() => {
-    setGuests((prev) => Math.min(Math.max(prev, 1), maxGuests));
+    setAdultGuests((prev) => Math.min(Math.max(prev, 1), maxGuests));
+    setChildGuests((prev) => Math.min(Math.max(prev, 0), Math.max(0, maxGuests - 1)));
     setExtraMattresses((prev) => Math.min(Math.max(prev, 0), extraMattressMax));
   }, [maxGuests, extraMattressMax]);
+  useEffect(() => {
+    if (adultGuests + childGuests <= maxGuests) return;
+    const overflow = adultGuests + childGuests - maxGuests;
+    setChildGuests((prev) => Math.max(0, prev - overflow));
+  }, [adultGuests, childGuests, maxGuests]);
 
   useEffect(() => {
     if (!hasCleaningFee) setIncludeCleaningFee(false);
@@ -3315,15 +3331,55 @@ out body 40;
                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
                      {isSaleProperty ? 'Visiteurs' : 'Voyageurs'} <span className="text-gray-500 font-normal normal-case">(max {maxGuests})</span>
                    </label>
-                   <select 
-                      className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                      value={guests}
-                      onChange={(e) => setGuests(parseInt(e.target.value))}
-                   >
-                     {[...Array(maxGuests)].map((_, i) => (
-                       <option key={i} value={i + 1}>{i + 1} {isSaleProperty ? `visiteur${i > 0 ? 's' : ''}` : `voyageur${i > 0 ? 's' : ''}`}</option>
-                     ))}
-                   </select>
+                   <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+                     <div className="flex items-center justify-between gap-3">
+                       <span className="text-sm font-medium text-gray-700">Adultes</span>
+                       <div className="inline-flex items-center rounded-lg border border-gray-200">
+                         <button
+                           type="button"
+                           onClick={() => setAdultGuests((prev) => Math.max(1, prev - 1))}
+                           className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                           aria-label="Diminuer adultes"
+                         >
+                           <Minus size={14} />
+                         </button>
+                         <span className="min-w-10 px-2 text-center text-sm font-semibold text-gray-900">{adultGuests}</span>
+                         <button
+                           type="button"
+                           onClick={() => setAdultGuests((prev) => Math.min(maxGuests - childGuests, prev + 1))}
+                           className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                           aria-label="Augmenter adultes"
+                         >
+                           <Plus size={14} />
+                         </button>
+                       </div>
+                     </div>
+                     <div className="flex items-center justify-between gap-3">
+                       <span className="text-sm font-medium text-gray-700">Enfants</span>
+                       <div className="inline-flex items-center rounded-lg border border-gray-200">
+                         <button
+                           type="button"
+                           onClick={() => setChildGuests((prev) => Math.max(0, prev - 1))}
+                           className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                           aria-label="Diminuer enfants"
+                         >
+                           <Minus size={14} />
+                         </button>
+                         <span className="min-w-10 px-2 text-center text-sm font-semibold text-gray-900">{childGuests}</span>
+                         <button
+                           type="button"
+                           onClick={() => setChildGuests((prev) => Math.min(Math.max(0, maxGuests - adultGuests), prev + 1))}
+                           className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                           aria-label="Augmenter enfants"
+                         >
+                           <Plus size={14} />
+                         </button>
+                       </div>
+                     </div>
+                     <div className="pt-1 text-xs text-gray-600">
+                       Total: <span className="font-semibold text-gray-900">{guests}</span> / {maxGuests}
+                     </div>
+                   </div>
                 </div>
 
                 {/* Optional Fees */}

@@ -9,6 +9,8 @@ export type PendingReservationDraft = {
   startDate: string;
   endDate: string;
   guests: number;
+  adultGuests?: number;
+  childGuests?: number;
   includeCleaningFee: boolean;
   includeServiceFee: boolean;
   extraMattresses?: number;

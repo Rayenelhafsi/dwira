@@ -29,7 +29,14 @@ import { fr } from "date-fns/locale";
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
 type HomeSeasideOptionKey = "pied_dans_eau" | "vue_sur_mer" | "pres_plage";
-type HomeComfortOptionKey = "climatise" | "piscine_privee" | "piscine_partagee";
+type HomeComfortOptionKey =
+  | "climatise"
+  | "piscine_privee"
+  | "piscine_partagee"
+  | "rdc"
+  | "toutes_pieces_climatisees"
+  | "jardin_gazon"
+  | "terrasse";
 const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
   { value: "location_saisonniere", label: "Location saisonniere" },
   { value: "vente", label: "Vente" },
@@ -56,9 +63,21 @@ const COMFORT_OPTION_LABELS: Record<HomeComfortOptionKey, string> = {
   climatise: "Climatise",
   piscine_privee: "Piscine privee",
   piscine_partagee: "Piscine partagee",
+  rdc: "RDC",
+  toutes_pieces_climatisees: "Toutes les pieces climatisees",
+  jardin_gazon: "Jardin / Gazon",
+  terrasse: "Terrasse",
 };
 const SEASIDE_OPTION_KEYS: HomeSeasideOptionKey[] = ["pied_dans_eau", "vue_sur_mer", "pres_plage"];
-const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = ["climatise", "piscine_privee", "piscine_partagee"];
+const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = [
+  "climatise",
+  "toutes_pieces_climatisees",
+  "rdc",
+  "jardin_gazon",
+  "terrasse",
+  "piscine_privee",
+  "piscine_partagee",
+];
 const POOL_OPTION_KEYS: HomeComfortOptionKey[] = ["piscine_privee", "piscine_partagee"];
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
@@ -468,11 +487,11 @@ export default function HomePage() {
   };
   const toggleComfortOption = (key: HomeComfortOptionKey) => {
     setSelectedComfortOptions((prev) => {
-      if (key === "climatise") {
-        return prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
+      if (POOL_OPTION_KEYS.includes(key)) {
+        const withoutPool = prev.filter((item) => !POOL_OPTION_KEYS.includes(item));
+        return prev.includes(key) ? withoutPool : [...withoutPool, key];
       }
-      const withoutPool = prev.filter((item) => !POOL_OPTION_KEYS.includes(item));
-      return prev.includes(key) ? withoutPool : [...withoutPool, key];
+      return prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
     });
   };
 
@@ -568,8 +587,21 @@ export default function HomePage() {
           });
           const matchComfort = selectedComfortOptions.every((option) => {
             if (option === "climatise") return hasAny("climatise", "climatisation");
+            if (option === "toutes_pieces_climatisees") {
+              return hasAny(
+                "toutes les pieces climatisees",
+                "toutes pieces climatisees",
+                "climatisation complete",
+                "climatisation dans toutes les pieces"
+              );
+            }
             if (option === "piscine_privee") return hasAny("piscine privee");
             if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
+            if (option === "rdc") {
+              return property.seasonalConfig?.etage === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+            }
+            if (option === "jardin_gazon") return hasAny("jardin", "gazon", "pelouse", "espace vert");
+            if (option === "terrasse") return hasAny("terrasse");
             return true;
           });
           return matchLocation && matchMainType && matchSubType && matchSeaside && matchComfort;
@@ -613,6 +645,12 @@ export default function HomePage() {
     if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
     navigate(`/logements?${params.toString()}`);
   };
+  const selectedLocationWidgetImage =
+    selectedLocationImages.zone
+    || selectedLocationImages.region
+    || selectedLocationImages.gouvernerat
+    || selectedLocationImages.pays
+    || null;
 
   useEffect(() => {
     if (!showLocationDropdown && !showCalendar && !showCategoryDropdown && !showSeasideDropdown && !showComfortDropdown) return;
@@ -722,17 +760,25 @@ export default function HomePage() {
                 <div className={`relative pointer-events-auto ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
-                    className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showLocationDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
+                    className={`relative w-full flex items-center gap-3 overflow-hidden px-4 py-3 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showLocationDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 bg-gray-50 hover:border-emerald-400"}`}
                     onClick={() => {
                       setShowLocationDropdown(!showLocationDropdown);
                       setShowCategoryDropdown(false);
                       setShowCalendar(false);
                     }}
                   >
-                    <MapPin className="text-emerald-600 shrink-0" size={20} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-500 font-medium">Où cherchez-vous ?</p>
-                      <p className="text-sm text-gray-800 font-semibold truncate">
+                    {selectedLocationWidgetImage && (
+                      <img
+                        src={resolveZoneImageUrl(selectedLocationWidgetImage)}
+                        alt={locationRegion || locationZone || location || "Region selectionnee"}
+                        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                      />
+                    )}
+                    {selectedLocationWidgetImage && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
+                    <MapPin className={`relative z-10 shrink-0 ${selectedLocationWidgetImage ? "text-white" : "text-emerald-600"}`} size={20} />
+                    <div className="relative z-10 flex-1 min-w-0">
+                      <p className={`text-xs font-medium ${selectedLocationWidgetImage ? "text-white/90" : "text-gray-500"}`}>Où cherchez-vous ?</p>
+                      <p className={`truncate text-sm font-semibold ${selectedLocationWidgetImage ? "text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]" : "text-gray-800"}`}>
                         {location || "Tous les emplacements"}
                       </p>
                     </div>

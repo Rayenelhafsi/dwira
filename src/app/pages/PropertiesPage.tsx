@@ -11,7 +11,14 @@ import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
 type HomeSeasideOptionKey = "pied_dans_eau" | "vue_sur_mer" | "pres_plage";
-type HomeComfortOptionKey = "climatise" | "piscine_privee" | "piscine_partagee";
+type HomeComfortOptionKey =
+  | "climatise"
+  | "piscine_privee"
+  | "piscine_partagee"
+  | "rdc"
+  | "toutes_pieces_climatisees"
+  | "jardin_gazon"
+  | "terrasse";
 
 const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
   { value: "location_saisonniere", label: "Location saisonniere" },
@@ -35,9 +42,21 @@ const COMFORT_OPTION_LABELS: Record<HomeComfortOptionKey, string> = {
   climatise: "Climatise",
   piscine_privee: "Piscine privee",
   piscine_partagee: "Piscine partagee",
+  rdc: "RDC",
+  toutes_pieces_climatisees: "Toutes les pieces climatisees",
+  jardin_gazon: "Jardin / Gazon",
+  terrasse: "Terrasse",
 };
 const SEASIDE_OPTION_KEYS: HomeSeasideOptionKey[] = ["pied_dans_eau", "vue_sur_mer", "pres_plage"];
-const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = ["climatise", "piscine_privee", "piscine_partagee"];
+const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = [
+  "climatise",
+  "toutes_pieces_climatisees",
+  "rdc",
+  "jardin_gazon",
+  "terrasse",
+  "piscine_privee",
+  "piscine_partagee",
+];
 const POOL_OPTION_KEYS: HomeComfortOptionKey[] = ["piscine_privee", "piscine_partagee"];
 const ZONE_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23d1fae5'/%3E%3Cstop offset='100%25' stop-color='%23a7f3d0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='360' fill='url(%23g)'/%3E%3Cpath d='M0 260h640v100H0z' fill='%23059669' fill-opacity='0.16'/%3E%3C/svg%3E";
@@ -667,11 +686,11 @@ export default function PropertiesPage() {
   };
   const toggleComfortOption = (key: HomeComfortOptionKey) => {
     setSelectedComfortOptions((prev) => {
-      if (key === "climatise") {
-        return prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
+      if (POOL_OPTION_KEYS.includes(key)) {
+        const withoutPool = prev.filter((item) => !POOL_OPTION_KEYS.includes(item));
+        return prev.includes(key) ? withoutPool : [...withoutPool, key];
       }
-      const withoutPool = prev.filter((item) => !POOL_OPTION_KEYS.includes(item));
-      return prev.includes(key) ? withoutPool : [...withoutPool, key];
+      return prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
     });
   };
 
@@ -783,6 +802,14 @@ export default function PropertiesPage() {
           if (token.includes("climatisation") || token.includes("climatise")) {
             return normalizedAmenities.some((item) => item.includes("clim"));
           }
+          if (token.includes("toutes les pieces climatisees") || token.includes("toutes pieces climatisees")) {
+            return normalizedAmenities.some((item) =>
+              item.includes("toutes les pieces climatisees")
+              || item.includes("toutes pieces climatisees")
+              || item.includes("climatisation complete")
+              || item.includes("climatisation dans toutes les pieces")
+            );
+          }
           if (token.includes("piscine privee")) {
             return normalizedAmenities.some((item) => item.includes("piscine") && item.includes("prive"));
           }
@@ -790,6 +817,26 @@ export default function PropertiesPage() {
             return normalizedAmenities.some((item) =>
               item.includes("piscine") && (item.includes("partag") || item.includes("commune") || item.includes("collectiv"))
             );
+          }
+          if (token.includes("rdc") || token.includes("rez de chaussee") || token.includes("ground floor")) {
+            return String(property.seasonalConfig?.etage || "").toLowerCase() === "rdc"
+              || normalizedAmenities.some((item) =>
+                item.includes("rdc")
+                || item.includes("rez de chaussee")
+                || item.includes("rez-de-chaussee")
+                || item.includes("ground floor")
+              );
+          }
+          if (token.includes("jardin") || token.includes("gazon") || token.includes("pelouse")) {
+            return normalizedAmenities.some((item) =>
+              item.includes("jardin")
+              || item.includes("gazon")
+              || item.includes("pelouse")
+              || item.includes("espace vert")
+            );
+          }
+          if (token.includes("terrasse")) {
+            return normalizedAmenities.some((item) => item.includes("terrasse"));
           }
           return normalizedAmenities.some((item) => item === token);
         };
@@ -849,8 +896,21 @@ export default function PropertiesPage() {
 
         const matchComfort = selectedComfortOptions.every((option) => {
           if (option === "climatise") return hasAny("climatise", "climatisation");
+          if (option === "toutes_pieces_climatisees") {
+            return hasAny(
+              "toutes les pieces climatisees",
+              "toutes pieces climatisees",
+              "climatisation complete",
+              "climatisation dans toutes les pieces"
+            );
+          }
           if (option === "piscine_privee") return hasAny("piscine privee");
           if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
+          if (option === "rdc") {
+            return property.seasonalConfig?.etage === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+          }
+          if (option === "jardin_gazon") return hasAny("jardin", "gazon", "pelouse", "espace vert");
+          if (option === "terrasse") return hasAny("terrasse");
           return true;
         });
         if (selectedComfortOptions.length > 0) {

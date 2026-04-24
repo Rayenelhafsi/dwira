@@ -14,6 +14,17 @@ type LocationState = {
   draft?: PendingReservationDraft;
 };
 
+function buildClientNote(
+  draft: PendingReservationDraft,
+  guestBreakdown: { guests: number; adultGuests: number; childGuests: number },
+  isVisitRequest: boolean
+) {
+  const travelerPrefix = isVisitRequest ? "Visiteurs" : "Voyageurs";
+  const breakdownLine = `${travelerPrefix}: ${guestBreakdown.adultGuests} adulte(s), ${guestBreakdown.childGuests} enfant(s), total ${guestBreakdown.guests}`;
+  const baseNote = String(draft.reservationNote || "").trim();
+  return baseNote ? `${baseNote}\n${breakdownLine}` : breakdownLine;
+}
+
 export default function ReservationConfirmationPage() {
   const { slug } = useParams();
   const location = useLocation();
@@ -72,9 +83,15 @@ export default function ReservationConfirmationPage() {
     const total = accommodationTotal + extrasTotal;
     const advancePercent = Number(seasonalConfig?.avancePourcentage || 30);
     const dueNow = draft.paymentMode === 'totalite' ? total : Math.round((total * advancePercent) / 100);
-    const guests = Math.min(maxGuests, Math.max(1, Number(draft.guests || 1)));
+    const adultsRaw = Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1));
+    const childrenRaw = Math.max(0, Number(draft.childGuests ?? 0));
+    const adultGuests = Math.min(maxGuests, adultsRaw);
+    const childGuests = Math.min(Math.max(0, maxGuests - adultGuests), childrenRaw);
+    const guests = Math.min(maxGuests, Math.max(1, adultGuests + childGuests));
     return {
       guests,
+      adultGuests,
+      childGuests,
       nights,
       accommodationTotal,
       cleaningFee,
@@ -255,7 +272,15 @@ export default function ReservationConfirmationPage() {
             amount_due_now: summary.dueNow,
             selected_fixed_services: summary.fixedPaidServices || [],
             selected_variable_services: summary.variablePaidServices || [],
-            client_note: draft.reservationNote || null,
+            client_note: buildClientNote(
+              draft,
+              {
+                guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
+                adultGuests: summary?.adultGuests || Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1)),
+                childGuests: summary?.childGuests || Math.max(0, Number(draft.childGuests || 0)),
+              },
+              isVisitRequest
+            ),
             request_type: requestType,
             turnstileToken: antiBotConfig.enabled ? turnstileToken : undefined,
             sessionId,
@@ -348,6 +373,14 @@ export default function ReservationConfirmationPage() {
                   {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Voyageurs</span>
                     <span className="font-semibold text-gray-900">{summary?.guests || draft.guests}</span>
+                  </div>}
+                  {!isVisitRequest && <div className="flex items-center justify-between gap-3">
+                    <span>Adultes</span>
+                    <span className="font-semibold text-gray-900">{summary?.adultGuests ?? Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1))}</span>
+                  </div>}
+                  {!isVisitRequest && <div className="flex items-center justify-between gap-3">
+                    <span>Enfants</span>
+                    <span className="font-semibold text-gray-900">{summary?.childGuests ?? Math.max(0, Number(draft.childGuests || 0))}</span>
                   </div>}
                   {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Hebergement</span>
@@ -480,6 +513,8 @@ export default function ReservationConfirmationPage() {
                     <SummaryItem label={isVisitRequest ? "Date souhaitee" : "Arrivee"} value={format(new Date(draft.startDate), "dd/MM/yyyy")} />
                     <SummaryItem label={isVisitRequest ? "Date alternative" : "Depart"} value={format(new Date(draft.endDate), "dd/MM/yyyy")} />
                     <SummaryItem label={isVisitRequest ? "Visiteurs" : "Voyageurs"} value={`${summary?.guests || draft.guests}`} icon={<Users className="h-4 w-4" />} />
+                    <SummaryItem label="Adultes" value={`${summary?.adultGuests ?? Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1))}`} />
+                    <SummaryItem label="Enfants" value={`${summary?.childGuests ?? Math.max(0, Number(draft.childGuests || 0))}`} />
                     <SummaryItem label={isVisitRequest ? "Type demande" : "Nuits"} value={isVisitRequest ? "Visite de bien" : `${summary?.nights || 0}`} />
                   </div>
                 </div>

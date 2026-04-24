@@ -143,42 +143,61 @@ async function uploadLocalMediaToCloudinary({ localFilePath, filename, mimetype,
   if (!CLOUDINARY_CREDS) return null;
   const mediaType = String(mimetype || '').startsWith('video/') ? 'video' : 'image';
   const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CREDS.cloudName}/${mediaType}/upload`;
-  const timestamp = Math.floor(Date.now() / 1000);
   const publicId = buildCloudinaryPublicId(filename, folderPrefix);
   const cloudinaryFolder = String(folderPrefix || '').trim().replace(/^\/+|\/+$/g, '');
   const fileBuffer = await fs.promises.readFile(localFilePath);
   const effectiveMime = String(mimetype || '').trim() || 'application/octet-stream';
   const dataUri = `data:${effectiveMime};base64,${fileBuffer.toString('base64')}`;
 
-  const paramsForSignature = {
-    folder: cloudinaryFolder,
-    invalidate: 'true',
-    overwrite: 'true',
-    public_id: publicId,
-    timestamp: String(timestamp),
-    type: 'upload',
-    unique_filename: 'false',
-    use_filename: 'false',
+  const sendCloudinaryUpload = async (timestamp) => {
+    const paramsForSignature = {
+      folder: cloudinaryFolder,
+      invalidate: 'true',
+      overwrite: 'true',
+      public_id: publicId,
+      timestamp: String(timestamp),
+      type: 'upload',
+      unique_filename: 'false',
+      use_filename: 'false',
+    };
+    const signature = signCloudinaryParams(paramsForSignature, CLOUDINARY_CREDS.apiSecret);
+
+    const form = new FormData();
+    form.append('file', dataUri);
+    if (cloudinaryFolder) {
+      form.append('folder', cloudinaryFolder);
+    }
+    form.append('public_id', publicId);
+    form.append('overwrite', 'true');
+    form.append('invalidate', 'true');
+    form.append('unique_filename', 'false');
+    form.append('use_filename', 'false');
+    form.append('type', 'upload');
+    form.append('timestamp', String(timestamp));
+    form.append('api_key', CLOUDINARY_CREDS.apiKey);
+    form.append('signature', signature);
+
+    const response = await fetch(endpoint, { method: 'POST', body: form });
+    const payload = await response.json().catch(() => ({}));
+    return { response, payload };
   };
-  const signature = signCloudinaryParams(paramsForSignature, CLOUDINARY_CREDS.apiSecret);
 
-  const form = new FormData();
-  form.append('file', dataUri);
-  if (cloudinaryFolder) {
-    form.append('folder', cloudinaryFolder);
+  let timestamp = Math.floor(Date.now() / 1000);
+  let { response, payload } = await sendCloudinaryUpload(timestamp);
+  if (!response.ok) {
+    const detail = String(payload?.error?.message || payload?.message || `HTTP ${response.status}`);
+    const staleRequest = /stale request|timestamp/i.test(detail);
+    if (staleRequest) {
+      const cloudDateHeader = String(response.headers.get('date') || '').trim();
+      const cloudServerMs = cloudDateHeader ? Date.parse(cloudDateHeader) : Number.NaN;
+      if (Number.isFinite(cloudServerMs) && cloudServerMs > 0) {
+        timestamp = Math.floor(cloudServerMs / 1000);
+        const retried = await sendCloudinaryUpload(timestamp);
+        response = retried.response;
+        payload = retried.payload;
+      }
+    }
   }
-  form.append('public_id', publicId);
-  form.append('overwrite', 'true');
-  form.append('invalidate', 'true');
-  form.append('unique_filename', 'false');
-  form.append('use_filename', 'false');
-  form.append('type', 'upload');
-  form.append('timestamp', String(timestamp));
-  form.append('api_key', CLOUDINARY_CREDS.apiKey);
-  form.append('signature', signature);
-
-  const response = await fetch(endpoint, { method: 'POST', body: form });
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
     throw new Error(detail);
@@ -1687,6 +1706,9 @@ const siteDbPort = String(process.env.SITE_DB_PORT || process.env.VPS_DB_PORT ||
 const siteDbUser = String(process.env.SITE_DB_USER || process.env.VPS_DB_USER || '').trim();
 const siteDbPassword = String(process.env.SITE_DB_PASSWORD || process.env.VPS_DB_PASSWORD || '').trim();
 const siteDbName = String(process.env.SITE_DB_NAME || process.env.VPS_DB_NAME || '').trim();
+const localDbPassword = Object.prototype.hasOwnProperty.call(process.env, 'DB_PASSWORD')
+  ? process.env.DB_PASSWORD
+  : 'root';
 if (isSiteDbSource && (!siteDbHost || !siteDbUser || !siteDbName)) {
   throw new Error('[DB] DB_SOURCE=site requires SITE_DB_HOST/SITE_DB_USER/SITE_DB_NAME (or VPS_DB_* equivalents).');
 }
@@ -1694,7 +1716,7 @@ const dbConfig = {
   host: isSiteDbSource ? siteDbHost : (process.env.DB_HOST || 'localhost'),
   port: Number(isSiteDbSource ? (siteDbPort || 3306) : (process.env.DB_PORT || 3306)),
   user: isSiteDbSource ? siteDbUser : (process.env.DB_USER || 'root'),
-  password: isSiteDbSource ? siteDbPassword : (process.env.DB_PASSWORD || 'root'),
+  password: isSiteDbSource ? siteDbPassword : localDbPassword,
   database: isSiteDbSource ? siteDbName : (process.env.DB_NAME || 'dwira'),
   waitForConnections: true,
   connectionLimit: 10
@@ -2789,12 +2811,12 @@ async function ensureAuthSchema() {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     await pool.query(
       `INSERT INTO administrateurs (id, nom, email, mot_de_passe_hash, actif, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 1, ?, ?) AS new_admin
+       VALUES (?, ?, ?, ?, 1, ?, ?)
        ON DUPLICATE KEY UPDATE
-         nom = new_admin.nom,
-         mot_de_passe_hash = new_admin.mot_de_passe_hash,
+         nom = VALUES(nom),
+         mot_de_passe_hash = VALUES(mot_de_passe_hash),
          actif = 1,
-         updated_at = new_admin.updated_at`,
+         updated_at = VALUES(updated_at)`,
       ['admin-seed', process.env.ADMIN_SEED_NAME || 'Administrateur', seedEmail.toLowerCase(), hashedPassword, now, now]
     );
   }
@@ -7000,7 +7022,25 @@ app.get('/api/zones', async (req, res) => {
   try {
     await ensureZonesSchema();
     const [rows] = await pool.query('SELECT * FROM zones ORDER BY nom');
-    res.json(rows);
+    const normalizedRows = (Array.isArray(rows) ? rows : []).map((row) => {
+      const nom = String(row?.nom || '').trim();
+      const pays = String(row?.pays || '').trim();
+      const gouvernerat = String(row?.gouvernerat || '').trim();
+      const region = String(row?.region || '').trim();
+      const quartier = String(row?.quartier || '').trim();
+      const hasLegacyMissingGeo = !pays && !gouvernerat && !region && !quartier;
+
+      if (!hasLegacyMissingGeo) return row;
+
+      return {
+        ...row,
+        pays: 'Tunisie',
+        gouvernerat: 'Nabeul',
+        region: nom || null,
+        quartier: nom || null,
+      };
+    });
+    res.json(normalizedRows);
   } catch (error) {
     console.error('Error fetching zones:', error);
     res.status(500).json({ error: 'Failed to fetch zones' });
