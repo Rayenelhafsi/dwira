@@ -76,6 +76,10 @@ const MAIN_TYPE_TO_CATEGORIES: Record<PropertyMainType, string[]> = {
   immeuble: ["S+4"],
   autre: [],
 };
+const ADVANCED_FIXED_TAB_OPTIONS: Record<string, string[]> = {
+  "Accessibilite": ["RDC", "Acces PMR"],
+  "Capacite & configuration": ["Gazon", "Jardin partage", "Jardin prive", "Terrasse"],
+};
 
 type FeatureApiRow = {
   id: string;
@@ -203,6 +207,10 @@ export default function PropertiesPage() {
   const [selectedFeatureNames, setSelectedFeatureNames] = useState<string[]>(
     () => searchParams.get("features")?.split(",").map((item) => item.trim()).filter(Boolean) || []
   );
+  const [minDoubleRooms, setMinDoubleRooms] = useState(parseInt(searchParams.get("doubleRoomsMin") || "0", 10));
+  const [minParentRooms, setMinParentRooms] = useState(parseInt(searchParams.get("parentRoomsMin") || "0", 10));
+  const [minSimpleRooms, setMinSimpleRooms] = useState(parseInt(searchParams.get("simpleRoomsMin") || "0", 10));
+  const [minBathroomsCount, setMinBathroomsCount] = useState(parseInt(searchParams.get("bathroomsMin") || "0", 10));
   const [expandedFeatureTabs, setExpandedFeatureTabs] = useState<string[]>([]);
   const [selectedCharacteristicsCategory, setSelectedCharacteristicsCategory] = useState("");
   const [activeCharacteristicsCategoryModal, setActiveCharacteristicsCategoryModal] = useState("");
@@ -505,18 +513,7 @@ export default function PropertiesPage() {
 
     return next;
   }, [modeProperties, bienById, modeFeaturesByType]);
-  const featureTabsList = useMemo(() => {
-    const tabNames = new Set<string>();
-    Object.values(modeFeaturesByType).forEach((rows) => {
-      (Array.isArray(rows) ? rows : []).forEach((feature) => {
-        if (Number(feature?.visibilite_client) === 0) return;
-        const tab = cleanFeatureTabName(String(feature?.onglet_nom || "")).trim();
-        if (!tab) return;
-        tabNames.add(tab);
-      });
-    });
-    return Array.from(tabNames).sort((a, b) => a.localeCompare(b, "fr"));
-  }, [modeFeaturesByType]);
+  const featureTabsList = useMemo(() => Object.keys(ADVANCED_FIXED_TAB_OPTIONS), []);
   const propertyFeatureTabMap = useMemo(() => {
     const next = new Map<string, string[]>();
     modeProperties.forEach((property) => {
@@ -596,20 +593,16 @@ export default function PropertiesPage() {
     });
     return next;
   }, [modeProperties]);
-  const tabFeatureOptionsMap = useMemo(() => {
-    const tabMap = new Map<string, Set<string>>();
-    Object.values(modeFeaturesByType).forEach((rows) => {
-      (Array.isArray(rows) ? rows : []).forEach((feature) => {
-        if (Number(feature?.visibilite_client) === 0) return;
-        const tab = cleanFeatureTabName(String(feature?.onglet_nom || "")).trim();
-        const featureName = String(feature?.nom || "").trim();
-        if (!tab || !featureName) return;
-        if (!tabMap.has(tab)) tabMap.set(tab, new Set());
-        tabMap.get(tab)?.add(featureName);
-      });
-    });
-    return new Map(Array.from(tabMap.entries()).map(([tab, values]) => [tab, Array.from(values).sort((a, b) => a.localeCompare(b, "fr"))]));
-  }, [modeFeaturesByType]);
+  const tabFeatureOptionsMap = useMemo(
+    () =>
+      new Map(
+        Object.entries(ADVANCED_FIXED_TAB_OPTIONS).map(([tab, values]) => [
+          tab,
+          values.slice().sort((a, b) => a.localeCompare(b, "fr")),
+        ])
+      ),
+    []
+  );
 
   useEffect(() => {
     const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
@@ -636,6 +629,10 @@ export default function PropertiesPage() {
     if (selectedMainType) params.set("mainType", selectedMainType);
     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
     if (selectedFeatureNames.length > 0) params.set("features", selectedFeatureNames.join(","));
+    if (minDoubleRooms > 0) params.set("doubleRoomsMin", String(minDoubleRooms));
+    if (minParentRooms > 0) params.set("parentRoomsMin", String(minParentRooms));
+    if (minSimpleRooms > 0) params.set("simpleRoomsMin", String(minSimpleRooms));
+    if (minBathroomsCount > 0) params.set("bathroomsMin", String(minBathroomsCount));
     if (selectedPaidServices.length > 0) params.set("paidServices", selectedPaidServices.join(","));
     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
@@ -655,6 +652,10 @@ export default function PropertiesPage() {
     selectedMainType,
     selectedCategories,
     selectedFeatureNames,
+    minDoubleRooms,
+    minParentRooms,
+    minSimpleRooms,
+    minBathroomsCount,
     selectedPaidServices,
     selectedSeasideOptions,
     selectedComfortOptions,
@@ -702,6 +703,10 @@ export default function PropertiesPage() {
     setSelectedCategories([]);
     setSelectedMainType("");
     setSelectedFeatureNames([]);
+    setMinDoubleRooms(0);
+    setMinParentRooms(0);
+    setMinSimpleRooms(0);
+    setMinBathroomsCount(0);
     setExpandedFeatureTabs([]);
     setSelectedPaidServices([]);
     setShowPaidServicesModal(false);
@@ -767,6 +772,10 @@ export default function PropertiesPage() {
       selectedSeasideOptions.length > 0 ||
       selectedComfortOptions.length > 0 ||
       selectedFeatureNames.length > 0 ||
+      minDoubleRooms > 0 ||
+      minParentRooms > 0 ||
+      minSimpleRooms > 0 ||
+      minBathroomsCount > 0 ||
       Boolean(selectedStanding) ||
       minGuests > 1 ||
       isFeaturedOnly ||
@@ -778,6 +787,26 @@ export default function PropertiesPage() {
         return mode === selectedMode;
       })
       .map((property) => {
+        const sourceBien = bienById.get(String(property.id));
+        const characteristicLines = (Array.isArray(sourceBien?.caracteristiques) ? sourceBien?.caracteristiques : [])
+          .map((item) => String(item || "").trim())
+          .filter(Boolean);
+        const extractNumericCharacteristic = (keywords: string[]) => {
+          for (const line of characteristicLines) {
+            const normalizedLine = normalizeFeatureName(line);
+            if (!keywords.some((keyword) => normalizedLine.includes(normalizeFeatureName(keyword)))) continue;
+            const parts = line.split(":");
+            const rawValue = parts.length > 1 ? parts.slice(1).join(":").trim() : "";
+            if (!rawValue) continue;
+            const parsed = Number(String(rawValue).replace(",", "."));
+            if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
+          }
+          return 0;
+        };
+        const propertyDoubleRooms = extractNumericCharacteristic(["nombre chambres double"]);
+        const propertyParentRooms = extractNumericCharacteristic(["nombre chambres parentale", "nombre chambre parentale"]);
+        const propertySimpleRooms = extractNumericCharacteristic(["nombre chambres simple", "nombre chambre simple"]);
+        const propertyBathrooms = extractNumericCharacteristic(["nombre de salle de bain", "nombre salles de bain", "nombre salle de bain"]);
         const propertyAmenities = propertyAmenityMap.get(String(property.id)) || property.amenities || [];
         const propertyFeatureTabs = propertyFeatureTabMap.get(String(property.id)) || [];
         const propertyPaidServices = propertyPaidServicesMap.get(String(property.id)) || [];
@@ -833,6 +862,23 @@ export default function PropertiesPage() {
               || item.includes("gazon")
               || item.includes("pelouse")
               || item.includes("espace vert")
+            );
+          }
+          if (token.includes("jardin partage")) {
+            return normalizedAmenities.some((item) => item.includes("jardin") && item.includes("partage"));
+          }
+          if (token.includes("jardin prive")) {
+            return normalizedAmenities.some((item) =>
+              item.includes("jardin prive")
+              || (item.includes("jardin") && item.includes("prive"))
+            );
+          }
+          if (token.includes("acces pmr")) {
+            return normalizedAmenities.some((item) =>
+              item.includes("acces pmr")
+              || item.includes("pmr")
+              || item.includes("mobilite reduite")
+              || item.includes("fauteuil")
             );
           }
           if (token.includes("terrasse")) {
@@ -930,6 +976,26 @@ export default function PropertiesPage() {
               hints.push("Alternative: bien similaire sans Wifi, mais avec autres criteres proches");
             }
           }
+        }
+        if (minDoubleRooms > 0) {
+          maxScore += 8;
+          if (propertyDoubleRooms >= minDoubleRooms) score += 8;
+          else missing.push("Chambres double insuffisantes");
+        }
+        if (minParentRooms > 0) {
+          maxScore += 8;
+          if (propertyParentRooms >= minParentRooms) score += 8;
+          else missing.push("Chambres parentale insuffisantes");
+        }
+        if (minSimpleRooms > 0) {
+          maxScore += 8;
+          if (propertySimpleRooms >= minSimpleRooms) score += 8;
+          else missing.push("Chambres simple insuffisantes");
+        }
+        if (minBathroomsCount > 0) {
+          maxScore += 8;
+          if (propertyBathrooms >= minBathroomsCount) score += 8;
+          else missing.push("Salles de bain insuffisantes");
         }
         if (propertyFeatureTabs.length > 0 && selectedFeatureNames.length > 0) {
           maxScore += 10;
@@ -1057,6 +1123,10 @@ export default function PropertiesPage() {
       location,
       selectedCategories,
       selectedFeatureNames,
+      minDoubleRooms,
+      minParentRooms,
+      minSimpleRooms,
+      minBathroomsCount,
       selectedPaidServices,
       selectedSeasideOptions,
       selectedComfortOptions,
@@ -1081,6 +1151,10 @@ export default function PropertiesPage() {
     Number(Boolean(checkOut)) +
     selectedCategories.length +
     selectedFeatureNames.length +
+    Number(minDoubleRooms > 0) +
+    Number(minParentRooms > 0) +
+    Number(minSimpleRooms > 0) +
+    Number(minBathroomsCount > 0) +
     selectedPaidServices.length +
     selectedSeasideOptions.length +
     selectedComfortOptions.length +
@@ -1101,23 +1175,9 @@ export default function PropertiesPage() {
     setExpandedFeatureTabs([featureTabsList[0]]);
   }, [advancedPanel, featureTabsList, expandedFeatureTabs]);
   useEffect(() => {
-    const categories = (tabFeatureOptionsMap.get("Caracteristiques") || []).filter((name) =>
-      tabFeatureOptionsMap.has(name)
-    );
-    if (categories.length === 0) {
-      if (selectedCharacteristicsCategory) setSelectedCharacteristicsCategory("");
-      return;
-    }
-    if (!selectedCharacteristicsCategory || !categories.includes(selectedCharacteristicsCategory)) {
-      setSelectedCharacteristicsCategory(categories[0]);
-    }
-  }, [tabFeatureOptionsMap, selectedCharacteristicsCategory]);
-  useEffect(() => {
-    if (!activeCharacteristicsCategoryModal) return;
-    if (!tabFeatureOptionsMap.has(activeCharacteristicsCategoryModal)) {
-      setActiveCharacteristicsCategoryModal("");
-    }
-  }, [activeCharacteristicsCategoryModal, tabFeatureOptionsMap]);
+    if (selectedCharacteristicsCategory) setSelectedCharacteristicsCategory("");
+    if (activeCharacteristicsCategoryModal) setActiveCharacteristicsCategoryModal("");
+  }, [selectedCharacteristicsCategory, activeCharacteristicsCategoryModal]);
   useEffect(() => {
     if (!showPaidServicesModal) return;
     if (paidServiceCategories.length === 0) {
@@ -1625,60 +1685,69 @@ export default function PropertiesPage() {
                           </button>
                           {expandedFeatureTabs.includes(tab) && (
                             <div className="border-t border-gray-100 px-4 py-3">
-                              {isCharacteristicsTabName(tab) ? (
-                                <>
-                                  <p className="mb-3 text-xs text-gray-500">Cliquez sur une categorie pour ouvrir ses options dans un popup.</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {(tabFeatureOptionsMap.get(tab) || []).map((categoryName) => {
-                                      const hasNestedOptions = tabFeatureOptionsMap.has(categoryName);
-                                      const categoryOptions = tabFeatureOptionsMap.get(categoryName) || [];
-                                      const selectedCount = categoryOptions.filter((opt) => selectedFeatureNames.includes(opt)).length;
-                                      return (
-                                        <button
-                                          key={`char-category-${categoryName}`}
-                                          type="button"
-                                          onClick={() => {
-                                            if (!hasNestedOptions) return;
-                                            setSelectedCharacteristicsCategory(categoryName);
-                                            setActiveCharacteristicsCategoryModal(categoryName);
-                                          }}
-                                          className={`rounded-full border px-3 py-2 text-sm transition-colors ${
-                                            selectedCharacteristicsCategory === categoryName
-                                              ? "border-emerald-500 bg-emerald-100 font-semibold text-emerald-800"
-                                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                                          } ${hasNestedOptions ? "" : "cursor-not-allowed opacity-60"}`}
-                                          disabled={!hasNestedOptions}
-                                        >
-                                          {categoryName}
-                                          {selectedCount > 0 && <span className="ml-2 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{selectedCount}</span>}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <p className="mb-2 text-xs text-gray-500">Choisissez des options precises (ex: Lave-linge), pas la categorie complete.</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {(tabFeatureOptionsMap.get(tab) || []).map((featureName) => (
-                                      <button
-                                        key={`feature-${tab}-${featureName}`}
-                                        type="button"
-                                        onClick={() => toggleFeatureName(featureName)}
-                                        className={`rounded-full border px-3 py-2 text-xs transition-colors ${
-                                          selectedFeatureNames.includes(featureName)
-                                            ? "border-emerald-500 bg-emerald-100 text-emerald-800 font-semibold"
-                                            : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                                        }`}
-                                      >
-                                        {featureName}
-                                      </button>
-                                    ))}
-                                    {(tabFeatureOptionsMap.get(tab) || []).length === 0 && (
-                                      <p className="text-xs text-gray-500">Aucun choix disponible pour cette categorie.</p>
-                                    )}
-                                  </div>
-                                </>
+                              <p className="mb-2 text-xs text-gray-500">Choisissez les options de cet onglet.</p>
+                              <div className="flex flex-wrap gap-2">
+                                {(tabFeatureOptionsMap.get(tab) || []).map((featureName) => (
+                                  <button
+                                    key={`feature-${tab}-${featureName}`}
+                                    type="button"
+                                    onClick={() => toggleFeatureName(featureName)}
+                                    className={`rounded-full border px-3 py-2 text-xs transition-colors ${
+                                      selectedFeatureNames.includes(featureName)
+                                        ? "border-emerald-500 bg-emerald-100 text-emerald-800 font-semibold"
+                                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                                    }`}
+                                  >
+                                    {featureName}
+                                  </button>
+                                ))}
+                                {(tabFeatureOptionsMap.get(tab) || []).length === 0 && (
+                                  <p className="text-xs text-gray-500">Aucun choix disponible pour cette categorie.</p>
+                                )}
+                              </div>
+                              {normalizeFeatureName(tab).includes("capacite") && (
+                                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                  <label className="space-y-1">
+                                    <span className="text-xs font-semibold text-gray-700">Nombre chambres double (min)</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={minDoubleRooms}
+                                      onChange={(e) => setMinDoubleRooms(Math.max(0, Number(e.target.value || 0)))}
+                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                  <label className="space-y-1">
+                                    <span className="text-xs font-semibold text-gray-700">Nombre de chambres parentale (min)</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={minParentRooms}
+                                      onChange={(e) => setMinParentRooms(Math.max(0, Number(e.target.value || 0)))}
+                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                  <label className="space-y-1">
+                                    <span className="text-xs font-semibold text-gray-700">Nombre de chambres simple (min)</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={minSimpleRooms}
+                                      onChange={(e) => setMinSimpleRooms(Math.max(0, Number(e.target.value || 0)))}
+                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                  <label className="space-y-1">
+                                    <span className="text-xs font-semibold text-gray-700">Nombre de salle de bain (min)</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={minBathroomsCount}
+                                      onChange={(e) => setMinBathroomsCount(Math.max(0, Number(e.target.value || 0)))}
+                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                </div>
                               )}
                             </div>
                           )}
