@@ -9882,6 +9882,20 @@ app.put('/api/caracteristique-onglets/:id', requireAdminSession, async (req, res
 app.get('/api/caracteristiques', async (req, res) => {
   try {
     await ensureBiensWorkflowSchema();
+    const normalizeFeatureNameForFilter = (value) => String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const isLegacyNightLimitFeature = (featureName) => {
+      const normalized = normalizeFeatureNameForFilter(featureName);
+      return normalized.startsWith('limite personnes')
+        && normalized.includes('nuit');
+    };
+    const filterLegacyNightLimit = (rows) => (Array.isArray(rows) ? rows : [])
+      .filter((row) => !isLegacyNightLimitFeature(row?.nom));
+
     const mode = normalizeBienMode(req.query.mode_bien || req.query.mode);
     const type = normalizeBienType(req.query.type_bien || req.query.type);
     const bienId = String(req.query.bien_id || '').trim() || null;
@@ -9927,11 +9941,11 @@ app.get('/api/caracteristiques', async (req, res) => {
            ORDER BY c.nom ASC`;
       const params = bienId ? [bienId, mode, type] : [mode, type];
       const [rows] = await pool.query(query, params);
-      return res.json(rows);
+      return res.json(filterLegacyNightLimit(rows));
     }
 
     const [rows] = await pool.query('SELECT * FROM caracteristiques ORDER BY nom ASC');
-    res.json(rows);
+    res.json(filterLegacyNightLimit(rows));
   } catch (error) {
     console.error('Error fetching caracteristiques:', error);
     res.status(500).json({ error: 'Failed to fetch caracteristiques' });
@@ -9945,6 +9959,12 @@ app.post('/api/caracteristiques', requireAdminSession, async (req, res) => {
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
     const featureName = String(nom || '').trim();
+    const normalizedFeatureName = featureName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
     const featureType = ['simple', 'choix_multiple', 'plusieurs_choix', 'valeur', 'texte'].includes(String(type_caracteristique || '').trim())
       ? String(type_caracteristique).trim()
       : 'simple';
@@ -9956,6 +9976,9 @@ app.post('/api/caracteristiques', requireAdminSession, async (req, res) => {
     const visibleClient = Number(visibilite_client) === 0 ? 0 : 1;
     if (!featureName) {
       return res.status(400).json({ error: 'nom requis' });
+    }
+    if (normalizedFeatureName.startsWith('limite personnes') && normalizedFeatureName.includes('nuit')) {
+      return res.status(400).json({ error: "La caracteristique 'Limite personnes (nuit)' est obsolete. Utilisez Capacite max adultes et Capacite enfants." });
     }
     if ((featureType === 'choix_multiple' || featureType === 'plusieurs_choix') && normalizedChoices.length === 0) {
       return res.status(400).json({ error: 'choix requis pour type choix_multiple/plusieurs_choix' });
@@ -10521,6 +10544,12 @@ app.put('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
     const bienId = String(req.body.bien_id || '').trim() || null;
     const applyToAll = req.body.apply_to_all === true || String(req.body.apply_to_all || '').trim() === '1';
     const nom = String(req.body.nom || '').trim();
+    const normalizedNom = nom
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
     const featureType = ['simple', 'choix_multiple', 'plusieurs_choix', 'valeur', 'texte'].includes(String(req.body.type_caracteristique || '').trim())
       ? String(req.body.type_caracteristique).trim()
       : 'simple';
@@ -10534,6 +10563,9 @@ app.put('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
 
     if (!featureId) return res.status(400).json({ error: 'id requis' });
     if (!nom) return res.status(400).json({ error: 'nom requis' });
+    if (normalizedNom.startsWith('limite personnes') && normalizedNom.includes('nuit')) {
+      return res.status(400).json({ error: "La caracteristique 'Limite personnes (nuit)' est obsolete. Utilisez Capacite max adultes et Capacite enfants." });
+    }
     const validation = validateModeAndType(mode, type);
     if (!validation.valid) return res.status(400).json({ error: validation.error });
     if ((featureType === 'choix_multiple' || featureType === 'plusieurs_choix') && normalizedChoices.length === 0) {

@@ -13,7 +13,8 @@ const normalizeCapacityLabel = (value: string) =>
 
 const toNullableNonNegativeInt = (value: string | number | null | undefined): number | null => {
   if (value === undefined || value === null || value === '') return null;
-  const parsed = Number(value);
+  const normalized = String(value).replace(',', '.').trim();
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return null;
   return Math.max(0, Math.floor(parsed));
 };

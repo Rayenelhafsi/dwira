@@ -404,8 +404,14 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
   const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || PROPERTY_FALLBACK_IMAGE_DATA_URI;
   const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
   const guestLimits = extractGuestLimitsFromCharacteristicLines(bien.caracteristiques);
+  const splitGuestMax =
+    guestLimits.maxAdults !== null || guestLimits.maxChildren !== null
+      ? Math.max(1, Number(guestLimits.maxAdults || 0) + Number(guestLimits.maxChildren || 0))
+      : 0;
   const resolvedGuests = bien.mode === 'location_saisonniere'
-    ? (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1))
+    ? (splitGuestMax > 0
+      ? splitGuestMax
+      : (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1)))
     : Math.max(1, Number(bien.nb_chambres || 0) + 1);
   const isCleaningAvailable = bien.location_saisonniere_config?.frais_menage_disponible
     ?? Number(bien.location_saisonniere_config?.frais_menage ?? 0) > 0;

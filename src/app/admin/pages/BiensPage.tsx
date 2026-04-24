@@ -476,6 +476,11 @@ const APPARTEMENT_VENTE_BOOLEAN_LABELS: Record<(typeof APPARTEMENT_VENTE_BOOLEAN
   electricite_steg: 'Électricité STEG',
 };
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+const isLegacyNightLimitFeature = (featureName: string) => {
+  const normalized = normalizeFeatureName(String(featureName || ''));
+  return normalized.startsWith('limite personnes')
+    && normalized.includes('nuit');
+};
 const normalizeTabNameForMatch = (value: string) =>
   normalizeFeatureName(String(value || '').replace(/^\s*\d+\s*[\.\-:)]\s*/g, ''));
 const parseFeatureChoices = (value: string) =>
@@ -3209,6 +3214,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       const seenNames = new Set<string>();
       const dedupedFeatures = nextFeaturesRaw.filter((f: Caracteristique) => {
         const normalizedName = normalizeFeatureName(f.nom || '');
+        if (isLegacyNightLimitFeature(normalizedName)) return false;
         if (seenNames.has(normalizedName)) return false;
         seenNames.add(normalizedName);
         return true;
