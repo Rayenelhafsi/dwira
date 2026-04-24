@@ -79,7 +79,7 @@ const MAIN_TYPE_TO_CATEGORIES: Record<PropertyMainType, string[]> = {
 const ADVANCED_FIXED_TAB_OPTIONS: Record<string, string[]> = {
   "Accessibilite": ["RDC", "Acces PMR"],
   "Capacite & configuration": ["Gazon", "Jardin partage", "Jardin prive", "Terrasse"],
-  "Caracteristiques": [
+  "Confort & equipements interieurs": [
     "acces & check-in special",
     "balcon / terasse & exterieur",
     "climatisation",
@@ -87,6 +87,19 @@ const ADVANCED_FIXED_TAB_OPTIONS: Record<string, string[]> = {
     "parking",
     "garage",
   ],
+  "Exterieur & Loisirs": [
+    "Acces direct plage",
+    "Espace de Jeux",
+    "Barbecue",
+    "Materiel plage",
+    "Douche exterieure",
+    "Mobilier exterieur",
+    "Parasol",
+    "Piscine",
+    "Terrasse amenagee",
+  ],
+  "Securite & reglement": ["alcool", "animaux", "cameras", "fetes", "fumeurs"],
+  "Tech & divertissement": ["SmartTv", "Netflix"],
 };
 
 type FeatureApiRow = {
@@ -219,6 +232,7 @@ export default function PropertiesPage() {
   const [minParentRooms, setMinParentRooms] = useState(parseInt(searchParams.get("parentRoomsMin") || "0", 10));
   const [minSimpleRooms, setMinSimpleRooms] = useState(parseInt(searchParams.get("simpleRoomsMin") || "0", 10));
   const [minBathroomsCount, setMinBathroomsCount] = useState(parseInt(searchParams.get("bathroomsMin") || "0", 10));
+  const [minClimatizedRooms, setMinClimatizedRooms] = useState(parseInt(searchParams.get("climatizedRoomsMin") || "0", 10));
   const [expandedFeatureTabs, setExpandedFeatureTabs] = useState<string[]>([]);
   const [selectedCharacteristicsCategory, setSelectedCharacteristicsCategory] = useState("");
   const [activeCharacteristicsCategoryModal, setActiveCharacteristicsCategoryModal] = useState("");
@@ -641,6 +655,7 @@ export default function PropertiesPage() {
     if (minParentRooms > 0) params.set("parentRoomsMin", String(minParentRooms));
     if (minSimpleRooms > 0) params.set("simpleRoomsMin", String(minSimpleRooms));
     if (minBathroomsCount > 0) params.set("bathroomsMin", String(minBathroomsCount));
+    if (minClimatizedRooms > 0) params.set("climatizedRoomsMin", String(minClimatizedRooms));
     if (selectedPaidServices.length > 0) params.set("paidServices", selectedPaidServices.join(","));
     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
@@ -664,6 +679,7 @@ export default function PropertiesPage() {
     minParentRooms,
     minSimpleRooms,
     minBathroomsCount,
+    minClimatizedRooms,
     selectedPaidServices,
     selectedSeasideOptions,
     selectedComfortOptions,
@@ -715,6 +731,7 @@ export default function PropertiesPage() {
     setMinParentRooms(0);
     setMinSimpleRooms(0);
     setMinBathroomsCount(0);
+    setMinClimatizedRooms(0);
     setExpandedFeatureTabs([]);
     setSelectedPaidServices([]);
     setShowPaidServicesModal(false);
@@ -784,6 +801,7 @@ export default function PropertiesPage() {
       minParentRooms > 0 ||
       minSimpleRooms > 0 ||
       minBathroomsCount > 0 ||
+      minClimatizedRooms > 0 ||
       Boolean(selectedStanding) ||
       minGuests > 1 ||
       isFeaturedOnly ||
@@ -815,6 +833,7 @@ export default function PropertiesPage() {
         const propertyParentRooms = extractNumericCharacteristic(["nombre chambres parentale", "nombre chambre parentale"]);
         const propertySimpleRooms = extractNumericCharacteristic(["nombre chambres simple", "nombre chambre simple"]);
         const propertyBathrooms = extractNumericCharacteristic(["nombre de salle de bain", "nombre salles de bain", "nombre salle de bain"]);
+        const propertyClimatizedRooms = extractNumericCharacteristic(["nombres de chambres climatise", "nombre de chambres climatise", "chambres climatise"]);
         const propertyAmenities = propertyAmenityMap.get(String(property.id)) || property.amenities || [];
         const propertyFeatureTabs = propertyFeatureTabMap.get(String(property.id)) || [];
         const propertyPaidServices = propertyPaidServicesMap.get(String(property.id)) || [];
@@ -908,6 +927,40 @@ export default function PropertiesPage() {
           }
           if (token.includes("terrasse")) {
             return normalizedAmenities.some((item) => item.includes("terrasse"));
+          }
+          if (token.includes("acces direct plage")) {
+            return normalizedAmenities.some((item) =>
+              item.includes("acces direct plage")
+              || item.includes("pied dans l eau")
+              || item.includes("front de mer")
+            );
+          }
+          if (token.includes("espace de jeux")) {
+            return normalizedAmenities.some((item) => item.includes("espace de jeux") || item.includes("aire de jeux") || item.includes("jeux"));
+          }
+          if (token.includes("barbecue")) {
+            return normalizedAmenities.some((item) => item.includes("barbecue") || item.includes("bbq"));
+          }
+          if (token.includes("materiel plage")) {
+            return normalizedAmenities.some((item) => item.includes("materiel plage") || item.includes("equipement plage"));
+          }
+          if (token.includes("douche exterieure")) {
+            return normalizedAmenities.some((item) => item.includes("douche exterieure"));
+          }
+          if (token.includes("mobilier exterieur")) {
+            return normalizedAmenities.some((item) => item.includes("mobilier exterieur") || item.includes("salon de jardin"));
+          }
+          if (token.includes("parasol")) {
+            return normalizedAmenities.some((item) => item.includes("parasol"));
+          }
+          if (token.includes("piscine")) {
+            return normalizedAmenities.some((item) => item.includes("piscine"));
+          }
+          if (token.includes("smarttv") || token.includes("smart tv")) {
+            return normalizedAmenities.some((item) => item.includes("smarttv") || item.includes("smart tv"));
+          }
+          if (token.includes("netflix")) {
+            return normalizedAmenities.some((item) => item.includes("netflix"));
           }
           return normalizedAmenities.some((item) => item === token);
         };
@@ -1021,6 +1074,11 @@ export default function PropertiesPage() {
           maxScore += 8;
           if (propertyBathrooms >= minBathroomsCount) score += 8;
           else missing.push("Salles de bain insuffisantes");
+        }
+        if (minClimatizedRooms > 0) {
+          maxScore += 8;
+          if (propertyClimatizedRooms >= minClimatizedRooms || hasAny("climatise", "climatisation")) score += 8;
+          else missing.push("Chambres climatisees insuffisantes");
         }
         if (propertyFeatureTabs.length > 0 && selectedFeatureNames.length > 0) {
           maxScore += 10;
@@ -1152,6 +1210,7 @@ export default function PropertiesPage() {
       minParentRooms,
       minSimpleRooms,
       minBathroomsCount,
+      minClimatizedRooms,
       selectedPaidServices,
       selectedSeasideOptions,
       selectedComfortOptions,
@@ -1180,6 +1239,7 @@ export default function PropertiesPage() {
     Number(minParentRooms > 0) +
     Number(minSimpleRooms > 0) +
     Number(minBathroomsCount > 0) +
+    Number(minClimatizedRooms > 0) +
     selectedPaidServices.length +
     selectedSeasideOptions.length +
     selectedComfortOptions.length +
@@ -1769,6 +1829,20 @@ export default function PropertiesPage() {
                                       min={0}
                                       value={minBathroomsCount}
                                       onChange={(e) => setMinBathroomsCount(Math.max(0, Number(e.target.value || 0)))}
+                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                </div>
+                              )}
+                              {normalizeFeatureName(tab).includes("confort") && (
+                                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                  <label className="space-y-1">
+                                    <span className="text-xs font-semibold text-gray-700">Nombres de chambres climatise (min)</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={minClimatizedRooms}
+                                      onChange={(e) => setMinClimatizedRooms(Math.max(0, Number(e.target.value || 0)))}
                                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                                     />
                                   </label>
