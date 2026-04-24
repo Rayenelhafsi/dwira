@@ -1012,7 +1012,7 @@ out body 40;
   const rawMaxChildren = Number(seasonalConfig?.maxEnfants);
   const hasAdultsCap = Number.isFinite(rawMaxAdults) && rawMaxAdults > 0;
   const hasChildrenCap = Number.isFinite(rawMaxChildren) && rawMaxChildren >= 0;
-  const hasSplitGuestCaps = hasAdultsCap || hasChildrenCap;
+  const hasSplitGuestCaps = hasAdultsCap && hasChildrenCap;
   const maxAdultGuests = hasSplitGuestCaps
     ? Math.max(1, Math.floor(hasAdultsCap ? rawMaxAdults : Math.max(1, fallbackMaxGuests - (hasChildrenCap ? rawMaxChildren : 0))))
     : fallbackMaxGuests;

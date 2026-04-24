@@ -404,9 +404,19 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
   const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || PROPERTY_FALLBACK_IMAGE_DATA_URI;
   const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
   const guestLimits = extractGuestLimitsFromCharacteristicLines(bien.caracteristiques);
+  const cfgAdultsRaw = Number(bien.location_saisonniere_config?.max_adultes);
+  const cfgChildrenRaw = Number(bien.location_saisonniere_config?.max_enfants);
+  const hasFeatureSplitCaps = guestLimits.maxAdults !== null && guestLimits.maxChildren !== null;
+  const hasConfigSplitCaps = Number.isFinite(cfgAdultsRaw) && cfgAdultsRaw > 0 && Number.isFinite(cfgChildrenRaw) && cfgChildrenRaw >= 0;
+  const resolvedMaxAdults = hasFeatureSplitCaps
+    ? Number(guestLimits.maxAdults)
+    : (hasConfigSplitCaps ? Math.floor(cfgAdultsRaw) : null);
+  const resolvedMaxChildren = hasFeatureSplitCaps
+    ? Number(guestLimits.maxChildren)
+    : (hasConfigSplitCaps ? Math.floor(cfgChildrenRaw) : null);
   const splitGuestMax =
-    guestLimits.maxAdults !== null || guestLimits.maxChildren !== null
-      ? Math.max(1, Number(guestLimits.maxAdults || 0) + Number(guestLimits.maxChildren || 0))
+    resolvedMaxAdults !== null && resolvedMaxChildren !== null
+      ? Math.max(1, Number(resolvedMaxAdults) + Number(resolvedMaxChildren))
       : 0;
   const resolvedGuests = bien.mode === 'location_saisonniere'
     ? (splitGuestMax > 0
@@ -461,8 +471,8 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
       dureeMinSejourNuits: bien.location_saisonniere_config?.duree_min_sejour_nuits ?? null,
       dureeMaxSejourNuits: bien.location_saisonniere_config?.duree_max_sejour_nuits ?? null,
       limitePersonnesNuit: bien.location_saisonniere_config?.limite_personnes_nuit ?? null,
-      maxAdultes: guestLimits.maxAdults ?? bien.location_saisonniere_config?.max_adultes ?? null,
-      maxEnfants: guestLimits.maxChildren ?? bien.location_saisonniere_config?.max_enfants ?? null,
+      maxAdultes: resolvedMaxAdults,
+      maxEnfants: resolvedMaxChildren,
       politiqueAnnulation: bien.location_saisonniere_config?.politique_annulation ?? null,
       depotGarantie: bien.location_saisonniere_config?.depot_garantie ?? false,
       montantCaution: bien.location_saisonniere_config?.montant_caution ?? null,
