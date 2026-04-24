@@ -149,6 +149,9 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
+  const caracteristiquesWithValuesFromDb = typeof (row as any).caracteristiques_with_values_list === 'string' && String((row as any).caracteristiques_with_values_list).trim().length > 0
+    ? String((row as any).caracteristiques_with_values_list).split('||').map((x: string) => x.trim()).filter(Boolean)
+    : [];
   const caracteristiqueIdsFromDb = typeof row.caracteristique_ids_list === 'string' && row.caracteristique_ids_list.trim().length > 0
     ? row.caracteristique_ids_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
@@ -173,7 +176,9 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     }
   } catch {}
 
-  const effectiveCaracteristiques = caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques;
+  const effectiveCaracteristiques = caracteristiquesWithValuesFromDb.length > 0
+    ? caracteristiquesWithValuesFromDb
+    : (caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques);
   const resolvedCapacity = resolveBienCapacity({
     nbChambres: row.nb_chambres,
     nbSalleBain: row.nb_salle_bain,

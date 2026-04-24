@@ -3638,6 +3638,7 @@ async function enrichBiensWithCaracteristiques(rows) {
       ids: [],
       idsSet: new Set(),
       noms: [],
+      nomsAvecValeurs: [],
       valeurs: {},
     };
     if (!current.idsSet.has(caracteristiqueId)) {
@@ -3647,16 +3648,35 @@ async function enrichBiensWithCaracteristiques(rows) {
 
     const visibleClient = Number(featureRow?.visibilite_client ?? 1) !== 0;
     const nomAffiche = String(featureRow?.nom_affiche || '').trim();
-    if (visibleClient && nomAffiche) {
-      current.noms.push(nomAffiche);
-    }
-
+    let parsedValue = null;
+    let hasParsedValue = false;
     const rawValue = featureRow?.override_valeur_json;
     if (rawValue !== null && rawValue !== undefined && String(rawValue).trim().length > 0) {
       try {
-        current.valeurs[caracteristiqueId] = JSON.parse(String(rawValue));
+        parsedValue = JSON.parse(String(rawValue));
+        hasParsedValue = true;
+        current.valeurs[caracteristiqueId] = parsedValue;
       } catch {
         // ignore malformed persisted value
+      }
+    }
+
+    if (visibleClient && nomAffiche) {
+      current.noms.push(nomAffiche);
+      if (hasParsedValue) {
+        if (Array.isArray(parsedValue)) {
+          const normalized = parsedValue.map((item) => String(item || '').trim()).filter(Boolean);
+          if (normalized.length > 0) {
+            current.nomsAvecValeurs.push(`${nomAffiche}: ${normalized.join(', ')}`);
+          } else {
+            current.nomsAvecValeurs.push(nomAffiche);
+          }
+        } else {
+          const normalized = String(parsedValue ?? '').trim();
+          current.nomsAvecValeurs.push(normalized ? `${nomAffiche}: ${normalized}` : nomAffiche);
+        }
+      } else {
+        current.nomsAvecValeurs.push(nomAffiche);
       }
     }
 
@@ -3671,6 +3691,7 @@ async function enrichBiensWithCaracteristiques(rows) {
         ...row,
         caracteristique_ids_list: null,
         caracteristiques_list: null,
+        caracteristiques_with_values_list: null,
         caracteristique_valeurs_json: null,
       };
     }
@@ -3678,6 +3699,7 @@ async function enrichBiensWithCaracteristiques(rows) {
       ...row,
       caracteristique_ids_list: data.ids.length > 0 ? data.ids.join('||') : null,
       caracteristiques_list: data.noms.length > 0 ? data.noms.join('||') : null,
+      caracteristiques_with_values_list: data.nomsAvecValeurs.length > 0 ? data.nomsAvecValeurs.join('||') : null,
       caracteristique_valeurs_json: Object.keys(data.valeurs).length > 0 ? JSON.stringify(data.valeurs) : null,
     };
   });
@@ -9940,8 +9962,27 @@ app.get('/api/caracteristiques', async (req, res) => {
            WHERE cc.mode_bien = ? AND cc.type_bien = ?
            ORDER BY c.nom ASC`;
       const params = bienId ? [bienId, mode, type] : [mode, type];
-      const [rows] = await pool.query(query, params);
-      return res.json(filterLegacyNightLimit(rows));
+      try {
+        const [rows] = await pool.query(query, params);
+        return res.json(filterLegacyNightLimit(rows));
+      } catch (queryError) {
+        const queryErrorCode = String(queryError?.code || '').trim().toUpperCase();
+        if (bienId && queryErrorCode === 'ER_BAD_FIELD_ERROR') {
+          const fallbackQuery = `SELECT DISTINCT c.*, NULL AS valeur_json, mo.onglet_id, co.nom as onglet_nom
+             FROM caracteristiques c
+             INNER JOIN caracteristique_contextes cc ON cc.caracteristique_id = c.id
+             LEFT JOIN modifier_onglets mo
+               ON mo.caracteristique_id = c.id
+              AND mo.mode_bien = cc.mode_bien
+              AND mo.type_bien = cc.type_bien
+             LEFT JOIN caracteristique_onglets co ON co.id = mo.onglet_id
+             WHERE cc.mode_bien = ? AND cc.type_bien = ?
+             ORDER BY c.nom ASC`;
+          const [fallbackRows] = await pool.query(fallbackQuery, [mode, type]);
+          return res.json(filterLegacyNightLimit(fallbackRows));
+        }
+        throw queryError;
+      }
     }
 
     const [rows] = await pool.query('SELECT * FROM caracteristiques ORDER BY nom ASC');
