@@ -1114,6 +1114,99 @@ export default function BiensPage() {
       }
     }
   };
+  const syncUnavailableDatesForBien = async (bienId: string, dates: DateStatus[]) => {
+    const normalizedBienId = String(bienId || '').trim();
+    if (!normalizedBienId) return;
+
+    const normalizeStatus = (value: unknown): 'blocked' | 'pending' | 'booked' => {
+      const raw = String(value || '').trim().toLowerCase();
+      if (raw === 'booked' || raw === 'pending' || raw === 'blocked') return raw;
+      return 'blocked';
+    };
+    const normalizeSqlDate = (value: unknown): string => String(value || '').slice(0, 10);
+    const isValidSqlDate = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const buildKey = (start: string, end: string, status: string) => `${start}|${end}|${status}`;
+
+    const desired = (Array.isArray(dates) ? dates : [])
+      .map((item) => {
+        const start = normalizeSqlDate(item?.start);
+        const end = normalizeSqlDate(item?.end);
+        const status = normalizeStatus(item?.status);
+        if (!start || !end || !isValidSqlDate(start) || !isValidSqlDate(end) || end < start) return null;
+        return { start, end, status };
+      })
+      .filter((item): item is { start: string; end: string; status: 'blocked' | 'pending' | 'booked' } => Boolean(item));
+
+    const existingResponse = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(normalizedBienId)}`, { credentials: 'include' });
+    if (!existingResponse.ok) {
+      throw new Error('Failed to fetch unavailable dates');
+    }
+    const existingRows = (await existingResponse.json().catch(() => [])) as Array<{
+      id?: string;
+      start_date?: string;
+      end_date?: string;
+      status?: string;
+      reservation_demand_id?: string | null;
+    }>;
+
+    // Keep reservation-generated rows untouched.
+    const managedExisting = (Array.isArray(existingRows) ? existingRows : []).filter((row) => !row?.reservation_demand_id);
+    const existingBuckets = new Map<string, Array<{ id: string }>>();
+    for (const row of managedExisting) {
+      const id = String(row?.id || '').trim();
+      const start = normalizeSqlDate(row?.start_date);
+      const end = normalizeSqlDate(row?.end_date);
+      const status = normalizeStatus(row?.status);
+      if (!id || !start || !end || !isValidSqlDate(start) || !isValidSqlDate(end)) continue;
+      const key = buildKey(start, end, status);
+      const list = existingBuckets.get(key) || [];
+      list.push({ id });
+      existingBuckets.set(key, list);
+    }
+
+    const toCreate: Array<{ start: string; end: string; status: 'blocked' | 'pending' | 'booked' }> = [];
+    for (const row of desired) {
+      const key = buildKey(row.start, row.end, row.status);
+      const existingList = existingBuckets.get(key);
+      if (existingList && existingList.length > 0) {
+        existingList.pop();
+      } else {
+        toCreate.push(row);
+      }
+    }
+
+    const toDelete: string[] = [];
+    for (const list of existingBuckets.values()) {
+      for (const item of list) toDelete.push(item.id);
+    }
+
+    for (const unavailableDateId of toDelete) {
+      const deleteResponse = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(unavailableDateId)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!deleteResponse.ok && deleteResponse.status !== 404) {
+        throw new Error('Failed to delete unavailable date');
+      }
+    }
+
+    for (const row of toCreate) {
+      const createResponse = await fetch(`${API_URL}/unavailable-dates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          bien_id: normalizedBienId,
+          start_date: row.start,
+          end_date: row.end,
+          status: row.status,
+        }),
+      });
+      if (!createResponse.ok) {
+        throw new Error('Failed to save unavailable date');
+      }
+    }
+  };
   const handleSave = async (bien: Bien) => {
     const isEditingNow = Boolean(editingBien);
     const editingSnapshot = editingBien;
@@ -1142,10 +1235,12 @@ export default function BiensPage() {
           if (mediaWasChanged) {
             await syncMediaForBien(bien.id, media || []);
           }
+          await syncUnavailableDatesForBien(bien.id, unavailableDates || []);
         } else {
           const createdBienId = await addBien(bienData as any);
           finalBienId = String(createdBienId || String(bienData.id || bien.id || ''));
           await syncMediaForBien(finalBienId, media || []);
+          await syncUnavailableDatesForBien(finalBienId, unavailableDates || []);
         }
         await refreshData();
         if (finalBienId) {
@@ -1168,11 +1263,13 @@ export default function BiensPage() {
               if (fallbackMediaWasChanged) {
                 await syncMediaForBien(bien.id, bien.media || []);
               }
+              await syncUnavailableDatesForBien(bien.id, bien.unavailableDates || []);
             } else {
               const { created_at: _createdAt, updated_at: _updatedAt, media: _media, unavailableDates: _dates, ...draftBienData } = draftBien;
               const createdBienId = await addBien(draftBienData);
               finalBienId = String(createdBienId || String(draftBienData.id || bien.id || ''));
               await syncMediaForBien(finalBienId, bien.media || []);
+              await syncUnavailableDatesForBien(finalBienId, bien.unavailableDates || []);
             }
             await refreshData();
             if (finalBienId) {

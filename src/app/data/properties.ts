@@ -1,8 +1,10 @@
 export interface DateStatus {
+  id?: string;
   start: string;
   end: string;
   status: 'blocked' | 'pending' | 'booked';
   paymentDeadline?: string; // Date when the first person must confirm payment (for pending status)
+  reservationDemandId?: string | null;
 }
 
 export interface SeasonalPricingPeriod {

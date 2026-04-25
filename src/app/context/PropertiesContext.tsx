@@ -405,11 +405,13 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       .sort((a, b) => (a.position || 0) - (b.position || 0)),
 
     unavailableDates: (Array.isArray(unavailableDates) ? unavailableDates : []).map(ud => ({
+      id: ud.id ? String(ud.id) : undefined,
       start: ud.start_date,
       end: ud.end_date,
       status: ud.status,
       color: ud.color || (ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827'),
       paymentDeadline: ud.paymentDeadline || ud.payment_deadline || undefined,
+      reservationDemandId: ud.reservation_demand_id ? String(ud.reservation_demand_id) : null,
     })),
     pricing_periods: pricingPeriodsFromDb,
   };

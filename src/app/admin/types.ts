@@ -146,11 +146,13 @@ export type TerrainViabilisationSteg = 'disponible' | 'a_proximite' | 'transform
 export type TerrainTypeSol = 'sablonneux' | 'rocheux' | 'terre_agricole';
 
 export interface DateStatus {
+  id?: string;
   start: string;
   end: string;
   status: 'blocked' | 'pending' | 'booked';
   color?: string;
   paymentDeadline?: string;
+  reservationDemandId?: string | null;
 }
 
 export interface SeasonalPricingPeriod {
