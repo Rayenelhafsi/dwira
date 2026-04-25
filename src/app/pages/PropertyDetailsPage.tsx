@@ -19,7 +19,7 @@ import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailu
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
-import { calculateAccommodationPricing } from "../utils/seasonalPricing";
+import { calculateAccommodationPricing, resolveCurrentPricing } from "../utils/seasonalPricing";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
@@ -1038,6 +1038,14 @@ out body 40;
   const fumeursLabel = seasonalConfig?.fumeurs ? ({ autorise: 'Autorise', interdit: 'Interdit', balcon_terrasse: 'Autorise sur balcon/terrasse' } as const)[seasonalConfig.fumeurs] : null;
   const alcoolLabel = seasonalConfig?.alcool ? ({ autorise: 'Autorise', interdit: 'Interdit' } as const)[seasonalConfig.alcool] : null;
   const animauxLabel = seasonalConfig?.animaux ? ({ autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' } as const)[seasonalConfig.animaux] : null;
+  const currentDisplayPricing = useMemo(
+    () => resolveCurrentPricing({
+      defaultNightlyPrice: Number(property?.pricePerNight || 0),
+      defaultWeeklyPrice: Number(property?.pricePerWeek || 0),
+      pricingPeriods: property?.pricingPeriods || [],
+    }),
+    [property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods]
+  );
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;
@@ -1310,7 +1318,8 @@ out body 40;
       }
       if (key.includes('tarification')) {
         return [
-          { label: 'Tarif nuit', value: `${property?.pricePerNight || 0} TND` },
+          { label: 'Tarif nuit', value: `${currentDisplayPricing.nightlyPrice || 0} TND` },
+          { label: 'Tarif semaine', value: `${currentDisplayPricing.weeklyPrice || 0} TND` },
           ...(hasCleaningFee ? [{ label: 'Frais de menage', value: `${property?.cleaningFee || 0} TND` }] : []),
           ...(hasServiceFee ? [{ label: 'Frais de service', value: `${property?.serviceFee || 0} TND` }] : []),
           ...(hasExtraMattress ? [{ label: 'Matelas supplementaire', value: `${extraMattressPrice} TND / unite` }] : []),
@@ -1340,9 +1349,10 @@ out body 40;
     politiqueAnnulationLabel,
     property?.cleaningFee,
     property?.location,
-    property?.pricePerNight,
     property?.serviceFee,
     property?.title,
+    currentDisplayPricing.nightlyPrice,
+    currentDisplayPricing.weeklyPrice,
     seasonalConfig?.ascenseur,
     seasonalConfig?.checkinHeure,
     seasonalConfig?.checkoutHeure,
@@ -1414,6 +1424,8 @@ out body 40;
     if (startsWith('frais de menage')) return hasCleaningFee ? `${property?.cleaningFee || 0} TND` : 'Non disponible';
     if (startsWith('frais de service')) return hasServiceFee ? `${property?.serviceFee || 0} TND` : 'Non disponible';
     if (startsWith('matelas supplementaire')) return hasExtraMattress ? `${extraMattressPrice} TND / unite` : 'Non disponible';
+    if (startsWith('tarif nuit') || startsWith('prix nuit')) return `${currentDisplayPricing.nightlyPrice || 0} TND`;
+    if (startsWith('tarif semaine') || startsWith('prix semaine')) return `${currentDisplayPricing.weeklyPrice || 0} TND`;
     return 'Oui';
   }, [
     accesLabel,
@@ -1434,6 +1446,8 @@ out body 40;
     property?.location,
     property?.serviceFee,
     property?.title,
+    currentDisplayPricing.nightlyPrice,
+    currentDisplayPricing.weeklyPrice,
     seasonalConfig?.ascenseur,
     seasonalConfig?.checkinHeure,
     seasonalConfig?.checkoutHeure,
@@ -3317,10 +3331,10 @@ out body 40;
             <div className="sticky top-24 bg-white rounded-xl shadow-xl border border-gray-100 p-6">
               <div className="flex justify-between items-baseline mb-6">
                 <div>
-                  <span className="text-2xl font-bold text-gray-900">{property.pricePerNight} TND</span>
+                  <span className="text-2xl font-bold text-gray-900">{currentDisplayPricing.nightlyPrice} TND</span>
                   {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
-                  {property.priceContext !== 'sale' && Number(property.pricePerWeek || 0) > 0 ? (
-                    <p className="mt-1 text-xs text-gray-500">{Number(property.pricePerWeek || 0)} TND / semaine</p>
+                  {property.priceContext !== 'sale' && Number(currentDisplayPricing.weeklyPrice || 0) > 0 ? (
+                    <p className="mt-1 text-xs text-gray-500">{Number(currentDisplayPricing.weeklyPrice || 0)} TND / semaine</p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-1 text-sm text-gray-600">
