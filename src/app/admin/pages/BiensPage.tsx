@@ -2129,6 +2129,47 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     setHasSeededDefaultPaidServices(Boolean(sourceData));
   }, [initialData, seedData]);
 
+  useEffect(() => {
+    const bienId = String(initialData?.id || '').trim();
+    if (!bienId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
+        if (!response.ok) return;
+        const rows = await response.json().catch(() => []);
+        const normalizedRows = (Array.isArray(rows) ? rows : [])
+          .map((row: any) => {
+            const start = String(row?.start_date || '').slice(0, 10);
+            const end = String(row?.end_date || '').slice(0, 10);
+            const rawStatus = String(row?.status || '').trim().toLowerCase();
+            const status: 'blocked' | 'pending' | 'booked' = rawStatus === 'booked' || rawStatus === 'pending' || rawStatus === 'blocked'
+              ? rawStatus
+              : 'blocked';
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || end < start) return null;
+            return {
+              id: row?.id ? String(row.id) : undefined,
+              start,
+              end,
+              status,
+              color: status === 'booked' ? '#ef4444' : status === 'pending' ? '#f97316' : '#111827',
+              paymentDeadline: row?.paymentDeadline || row?.payment_deadline || undefined,
+              reservationDemandId: row?.reservation_demand_id ? String(row.reservation_demand_id) : null,
+            } satisfies DateStatus;
+          })
+          .filter((row): row is DateStatus => Boolean(row));
+        if (!cancelled) {
+          setUnavailableDates(normalizedRows);
+        }
+      } catch {
+        // Keep initial unavailable dates as fallback.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialData?.id]);
+
   useEffect(() => { setZonesOptions(zones); }, [zones]);
   useEffect(() => { setProprietaireOptions(proprietaires); }, [proprietaires]);
   useEffect(() => {

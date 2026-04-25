@@ -72,6 +72,16 @@ type FeatureTabRow = {
   ordre?: number;
 };
 
+type UnavailableDateRow = {
+  id?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: 'blocked' | 'pending' | 'booked' | string;
+  paymentDeadline?: string;
+  payment_deadline?: string;
+  reservation_demand_id?: string | null;
+};
+
 type SeasonalDetailRow = { label: string; value: string };
 type SeasonalFallbackTab = { id: string; nom: string; rows: SeasonalDetailRow[] };
 type AmenitySection = { id: string; nom: string; features: FeatureApiRow[] };
@@ -598,6 +608,53 @@ export default function PropertyDetailsPage() {
       cancelled = true;
     };
   }, [facebookEmbedUnavailableByUrl, propertyVideos]);
+  useEffect(() => {
+    const bienId = String((property as any)?.id || '').trim();
+    if (!bienId) {
+      setLiveUnavailableDates(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
+        if (!response.ok) return;
+        const rows = (await response.json().catch(() => [])) as UnavailableDateRow[];
+        const normalized = (Array.isArray(rows) ? rows : [])
+          .map((row) => {
+            const start = String(row?.start_date || '').slice(0, 10);
+            const end = String(row?.end_date || '').slice(0, 10);
+            const rawStatus = String(row?.status || '').trim().toLowerCase();
+            const status = rawStatus === 'booked' || rawStatus === 'pending' || rawStatus === 'blocked'
+              ? rawStatus
+              : 'blocked';
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || end < start) return null;
+            return {
+              start,
+              end,
+              status: status as 'blocked' | 'pending' | 'booked',
+              paymentDeadline: row?.paymentDeadline || row?.payment_deadline || undefined,
+              reservationDemandId: row?.reservation_demand_id ? String(row.reservation_demand_id) : null,
+            };
+          })
+          .filter((entry): entry is {
+            start: string;
+            end: string;
+            status: 'blocked' | 'pending' | 'booked';
+            paymentDeadline?: string;
+            reservationDemandId?: string | null;
+          } => Boolean(entry));
+        if (!cancelled) {
+          setLiveUnavailableDates(normalized);
+        }
+      } catch {
+        // Keep context values as fallback.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [property?.id]);
   const allGalleryImages = property?.images || [];
   const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>([GALLERY_FALLBACK_IMAGE]);
   const [galleryAvailabilityChecked, setGalleryAvailabilityChecked] = useState(false);
@@ -706,6 +763,13 @@ export default function PropertyDetailsPage() {
     cin: "",
   });
   const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
+  const [liveUnavailableDates, setLiveUnavailableDates] = useState<Array<{
+    start: string;
+    end: string;
+    status: 'blocked' | 'pending' | 'booked';
+    paymentDeadline?: string;
+    reservationDemandId?: string | null;
+  }> | null>(null);
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
   const [pulsePhase, setPulsePhase] = useState(0);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -1993,14 +2057,17 @@ out body 40;
     };
   };
 
+  const effectiveUnavailableDates = liveUnavailableDates
+    ?? (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []);
+
   // Check if selected range includes pending dates and get the payment deadline
   const getPendingDateInfo = () => {
-    if (!selectedStart || !selectedEnd || !property?.unavailableDates) return null;
+    if (!selectedStart || !selectedEnd || !effectiveUnavailableDates) return null;
     
     const rangeStart = selectedStart < selectedEnd ? selectedStart : selectedEnd;
     const rangeEnd = selectedStart < selectedEnd ? selectedEnd : selectedStart;
     
-    const overlappingPending = property.unavailableDates.find((range) => {
+    const overlappingPending = effectiveUnavailableDates.find((range) => {
       if (range.status !== 'pending') return false;
       const start = parseISO(range.start);
       const end = parseISO(range.end);
@@ -3318,7 +3385,7 @@ out body 40;
                 </p>
               )}
               <AvailabilityCalendar
-                unavailableDates={property.unavailableDates || []}
+                unavailableDates={effectiveUnavailableDates || []}
                 onDateRangeSelect={handleDateRangeSelect}
                 selectedStart={selectedStart}
                 selectedEnd={selectedEnd}
@@ -3786,7 +3853,7 @@ out body 40;
               </p>
             )}
             <AvailabilityCalendar
-              unavailableDates={property.unavailableDates || []}
+              unavailableDates={effectiveUnavailableDates || []}
               onDateRangeSelect={handleBookingDateRangeSelect}
               selectedStart={selectedStart}
               selectedEnd={selectedEnd}
