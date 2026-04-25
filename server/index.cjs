@@ -5036,10 +5036,20 @@ function formatDateFr(value) {
 }
 
 function computeNights(startDate, endDate) {
-  const start = new Date(`${String(startDate).slice(0, 10)}T00:00:00`);
-  const end = new Date(`${String(endDate).slice(0, 10)}T00:00:00`);
+  const startSql = toSqlDateOnly(startDate);
+  const endSql = toSqlDateOnly(endDate);
+  const start = new Date(`${startSql}T00:00:00`);
+  const end = new Date(`${endSql}T00:00:00`);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
   return Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function formatStayPeriodFr(startDate, endDate) {
+  const startSql = toSqlDateOnly(startDate);
+  const endSql = toSqlDateOnly(endDate);
+  if (!startSql || !endSql) return `${formatDateFr(startDate)} au ${formatDateFr(endDate)}`;
+  const nights = computeNights(startSql, endSql);
+  return `${formatDateFr(startSql)} au ${formatDateFr(endSql)} (${nights} nuit${nights > 1 ? 's' : ''})`;
 }
 
 function extractIdentityNumberFromText(rawText, documentType) {
@@ -5682,6 +5692,7 @@ async function generateReservationClientContractHtml({
   const fileName = `contract-client-${contractId}.html`;
   const filePath = path.join(contractsDir, fileName);
   const nights = computeNights(demand.start_date, demand.end_date);
+  const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
   const reservationTotal = Number(totalAmount || 0);
   const servicesQuoteTotal = Number(demand?.variable_services_quote_total || 0);
   const hasServicesQuote = servicesQuoteTotal > 0;
@@ -5740,7 +5751,7 @@ async function generateReservationClientContractHtml({
       <p><strong>Reference:</strong> ${escapeHtml(bien?.reference || demand.bien_id)}</p>
       <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
       <p><strong>Type:</strong> ${escapeHtml(bien?.type || '-')}</p>
-      <p><strong>Periode:</strong> ${escapeHtml(formatDateFr(demand.start_date))} au ${escapeHtml(formatDateFr(demand.end_date))} - ${escapeHtml(String(nights))} nuit(s)</p>
+      <p><strong>Periode:</strong> ${escapeHtml(stayPeriodLabel)}</p>
       <p><strong>Voyageurs:</strong> ${escapeHtml(String(Number(demand.guests || 1)))}</p>
     </div>
 
@@ -5796,6 +5807,7 @@ async function generateReservationOwnerContractHtml({
   const fileName = `contract-owner-${contractId}.html`;
   const filePath = path.join(contractsDir, fileName);
   const nights = computeNights(demand.start_date, demand.end_date);
+  const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
   const reservationTotal = Number(totalAmount || 0);
   const servicesQuoteTotal = Number(demand?.variable_services_quote_total || 0);
   const hasServicesQuote = servicesQuoteTotal > 0;
@@ -5847,7 +5859,7 @@ async function generateReservationOwnerContractHtml({
     <div class="box">
       <p><strong>Reference:</strong> ${escapeHtml(bien?.reference || demand.bien_id)}</p>
       <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
-      <p><strong>Periode:</strong> ${escapeHtml(formatDateFr(demand.start_date))} au ${escapeHtml(formatDateFr(demand.end_date))} - ${escapeHtml(String(nights))} nuit(s)</p>
+      <p><strong>Periode:</strong> ${escapeHtml(stayPeriodLabel)}</p>
       <p><strong>Voyageurs:</strong> ${escapeHtml(String(Number(demand.guests || 1)))}</p>
     </div>
 
@@ -7555,6 +7567,7 @@ app.delete('/api/locataires/:id', requireAdminSession, async (req, res) => {
 
 app.get('/api/contrats', requireAdminSession, async (req, res) => {
   try {
+    await ensureContractsSchema();
     const [rows] = await pool.query(`
       SELECT c.*, b.titre as bien_titre, l.nom as locataire_nom 
       FROM contrats c 
@@ -7570,6 +7583,7 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
 
 app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
   try {
+    await ensureContractsSchema();
     const requester = req.authUser || null;
     const contractId = String(req.params.id || '').trim();
     if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
@@ -7621,16 +7635,18 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
 
 app.post('/api/contrats', requireAdminSession, async (req, res) => {
   try {
-    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut } = req.body;
+    await ensureContractsSchema();
+    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut, origine } = req.body;
     const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
     if (locataireProfile && (locataireProfile.globalStatus === 'blackliste' || locataireProfile.locataireStatus === 'blackliste')) {
       return res.status(400).json({ error: 'Creation impossible: ce locataire est blackliste' });
     }
     const id = 'c' + Date.now();
     const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const contractOrigin = String(origine || 'manuel').trim().toLowerCase() === 'automatique' ? 'automatique' : 'manuel';
     await pool.query(
-      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, url_pdf || null, owner_url_pdf || null, statut || 'actif', created_at]
+      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, url_pdf || null, owner_url_pdf || null, contractOrigin, statut || 'actif', created_at]
     );
     const [matchingDemandRows] = await pool.query(
       `SELECT d.id
@@ -7925,6 +7941,225 @@ app.put('/api/notifications/:id/lu', requireAdminSession, async (req, res) => {
     res.json({ message: 'Notification marked as read' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update notification' });
+  }
+});
+
+app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    await ensureContractsSchema();
+
+    const {
+      bien_id,
+      start_date,
+      end_date,
+      guests,
+      payment_mode,
+      total_amount,
+      amount_due_now,
+      client_note,
+      client_first_name,
+      client_last_name,
+      client_email,
+      client_telephone,
+      identity_document_type,
+      identity_document_number,
+    } = req.body || {};
+
+    const bienId = String(bien_id || '').trim();
+    const startDate = toSqlDateOnly(start_date);
+    const endDate = toSqlDateOnly(end_date);
+    if (!bienId || !startDate || !endDate) {
+      return res.status(400).json({ error: 'bien_id, start_date et end_date requis' });
+    }
+    if (endDate < startDate) {
+      return res.status(400).json({ error: 'La date de fin doit etre apres la date de debut' });
+    }
+
+    const [bienRows] = await pool.query(
+      'SELECT id, titre, reference, mode, type, proprietaire_id, prix_nuitee FROM biens WHERE id = ? LIMIT 1',
+      [bienId]
+    );
+    const bien = bienRows[0];
+    if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+    if (String(bien.mode || '') === 'vente') {
+      return res.status(400).json({ error: 'Reservation manuelle indisponible pour un bien en vente' });
+    }
+
+    const [overlapRows] = await pool.query(
+      `SELECT id
+       FROM unavailable_dates
+       WHERE bien_id = ?
+         AND start_date <= ?
+         AND end_date >= ?
+         AND status IN ('blocked', 'booked', 'pending')
+       LIMIT 1`,
+      [bienId, endDate, startDate]
+    );
+    if (overlapRows[0]) {
+      return res.status(400).json({ error: 'Periode deja indisponible pour ce bien' });
+    }
+
+    const firstName = normalizePersonName(client_first_name || '');
+    const lastName = normalizePersonName(client_last_name || '');
+    const fullName = normalizePersonName(`${firstName} ${lastName}`) || 'Client';
+    const email = normalizeEmailForCompare(client_email);
+    const telephone = normalizePhoneNumber(client_telephone || '');
+    const identityDocType = normalizeIdentityDocumentType(identity_document_type, 'cin_tn');
+    const identityNumber = normalizeIdentityNumber(identity_document_number || '');
+    const now = getAgencySqlDateTime();
+    const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
+    const nights = computeNights(startDate, endDate);
+    const fallbackTotal = Math.max(0, Number(bien.prix_nuitee || 0) * Math.max(1, nights));
+    const normalizedTotalAmount = Number.isFinite(Number(total_amount)) && Number(total_amount) > 0
+      ? Number(total_amount)
+      : fallbackTotal;
+    const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) && Number(amount_due_now) >= 0
+      ? Number(amount_due_now)
+      : (normalizedPaymentMode === 'totalite'
+        ? normalizedTotalAmount
+        : Math.round((normalizedTotalAmount * 0.3) * 100) / 100);
+    const normalizedGuests = Math.max(1, Number(guests || 1));
+
+    const locataireId = await upsertLocataireFromReservationProfile({
+      userId: null,
+      name: fullName,
+      email,
+      telephone,
+      cin: identityNumber,
+    });
+    if (!locataireId) {
+      return res.status(500).json({ error: 'Impossible de creer le profil locataire' });
+    }
+
+    const demandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const unavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const contractId = `c${Date.now()}`;
+    const [ownerRows] = await pool.query(
+      'SELECT id, nom, email FROM proprietaires WHERE id = ? LIMIT 1',
+      [bien.proprietaire_id || '']
+    );
+    const owner = ownerRows[0] || null;
+
+    await pool.query(
+      `INSERT INTO reservation_demands (
+        id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
+        start_date, end_date, guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json,
+        variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at,
+        client_confirmation_clicked_at, identity_document_type, identity_document_number, identity_first_name, identity_last_name, identity_submitted_at,
+        contract_generated_at, admin_note, client_note, finalization_due_at, contract_id, payment_id, created_at, updated_at
+      ) VALUES (?, ?, 'reservation', ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contrat_realise', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)` ,
+      [
+        demandId,
+        bienId,
+        unavailableDateId,
+        email || null,
+        fullName,
+        bien.proprietaire_id || null,
+        startDate,
+        endDate,
+        normalizedGuests,
+        normalizedPaymentMode,
+        normalizedTotalAmount,
+        normalizedAmountDueNow,
+        JSON.stringify([]),
+        JSON.stringify([]),
+        JSON.stringify([]),
+        0,
+        'aucun',
+        now,
+        now,
+        now,
+        identityDocType,
+        identityNumber || null,
+        firstName || null,
+        lastName || null,
+        now,
+        now,
+        'Reservation/contrat cree manuellement par administrateur',
+        client_note || null,
+        now,
+        contractId,
+        now,
+        now,
+      ]
+    );
+
+    await pool.query(
+      `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+       VALUES (?, ?, ?, ?, 'booked', ?, NULL)`,
+      [unavailableDateId, bienId, startDate, endDate, demandId]
+    );
+
+    const demandSnapshot = {
+      id: demandId,
+      bien_id: bienId,
+      bien_titre: bien.titre || null,
+      start_date: startDate,
+      end_date: endDate,
+      guests: normalizedGuests,
+      client_email: email || null,
+      variable_services_quote_total: 0,
+    };
+
+    const [contractUrl, ownerContractUrl] = await Promise.all([
+      generateReservationClientContractHtml({
+        demand: demandSnapshot,
+        bien,
+        contractId,
+        contractCreatedAt: now,
+        totalAmount: normalizedTotalAmount,
+        amountDueNow: normalizedAmountDueNow,
+        paymentMode: normalizedPaymentMode,
+        identityNumber: identityNumber || '-',
+        identityDocumentType: identityDocType,
+        identityFirstName: firstName || '-',
+        identityLastName: lastName || '-',
+      }),
+      generateReservationOwnerContractHtml({
+        demand: demandSnapshot,
+        bien,
+        owner,
+        contractId,
+        contractCreatedAt: now,
+        totalAmount: normalizedTotalAmount,
+        amountDueNow: normalizedAmountDueNow,
+        paymentMode: normalizedPaymentMode,
+      }),
+    ]);
+
+    await pool.query(
+      `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manuel', 'actif', ?)`,
+      [contractId, bienId, locataireId, startDate, endDate, normalizedAmountDueNow, contractUrl, ownerContractUrl, now]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      'contrat_realise',
+      'admin',
+      String(req.authUser?.id || 'admin'),
+      `Contrat ${contractId} genere manuellement par administrateur`,
+      now
+    );
+
+    res.status(201).json({
+      reservation_demand_id: demandId,
+      contract_id: contractId,
+      contract_url: contractUrl,
+      owner_contract_url: ownerContractUrl,
+      bien_id: bienId,
+      start_date: startDate,
+      end_date: endDate,
+      guests: normalizedGuests,
+      total_amount: normalizedTotalAmount,
+      amount_due_now: normalizedAmountDueNow,
+      payment_mode: normalizedPaymentMode,
+      origine: 'manuel',
+    });
+  } catch (error) {
+    console.error('Error creating manual contract reservation:', error);
+    res.status(500).json({ error: 'Impossible de creer la reservation manuelle' });
   }
 });
 
@@ -9722,15 +9957,15 @@ app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSes
     if (current.contract_id) {
       await pool.query(
         `UPDATE contrats
-         SET bien_id = ?, locataire_id = ?, date_debut = ?, date_fin = ?, montant_recu = ?, url_pdf = ?, owner_url_pdf = ?, statut = ?
+         SET bien_id = ?, locataire_id = ?, date_debut = ?, date_fin = ?, montant_recu = ?, url_pdf = ?, owner_url_pdf = ?, origine = 'automatique', statut = ?
          WHERE id = ?`,
         [current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'actif', contractId]
       );
     } else {
       await pool.query(
-        `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [contractId, current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'actif', now]
+        `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [contractId, current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'automatique', 'actif', now]
       );
     }
 
@@ -10689,6 +10924,19 @@ async function ensureContractsSchema() {
   );
   if (!rows[0]) {
     await pool.query('ALTER TABLE contrats ADD COLUMN owner_url_pdf VARCHAR(500) NULL AFTER url_pdf');
+  }
+  const [originRows] = await pool.query(
+    `
+    SELECT 1
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'contrats'
+      AND COLUMN_NAME = 'origine'
+    LIMIT 1
+    `
+  );
+  if (!originRows[0]) {
+    await pool.query("ALTER TABLE contrats ADD COLUMN origine VARCHAR(20) NOT NULL DEFAULT 'automatique' AFTER owner_url_pdf");
   }
 }
 

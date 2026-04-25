@@ -1,6 +1,7 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2, Plus, ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+import AvailabilityCalendar from '../../components/AvailabilityCalendar';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -26,6 +27,7 @@ type ContratApi = {
   montant_recu: number;
   url_pdf?: string;
   owner_url_pdf?: string;
+  origine?: 'manuel' | 'automatique' | string;
   statut: 'actif' | 'termine' | 'resilie';
   created_at: string;
   bien_titre?: string;
@@ -34,9 +36,13 @@ type ContratApi = {
 
 type BienApi = {
   id: string;
+  mode?: string;
+  type?: string;
   reference?: string;
   proprietaire_nom?: string;
   titre?: string;
+  prix_nuitee?: number;
+  prix_semaine?: number | null;
 };
 
 type LocataireApi = {
@@ -44,7 +50,59 @@ type LocataireApi = {
   nom: string;
 };
 
+type UnavailableDateApi = {
+  id?: string;
+  start_date: string;
+  end_date: string;
+  status: 'blocked' | 'pending' | 'booked';
+};
+
 type SortOption = 'created_desc' | 'created_asc' | 'start_desc' | 'start_asc';
+type OriginFilter = 'all' | 'manuel' | 'automatique';
+type ManualStep = 1 | 2 | 3;
+
+type ManualReservationDraft = {
+  client_first_name: string;
+  client_last_name: string;
+  client_email: string;
+  client_telephone: string;
+  identity_document_type: 'cin_tn' | 'passport_tn' | 'passport_foreign';
+  identity_document_number: string;
+  guests: string;
+  total_amount: string;
+  amount_due_now: string;
+  payment_mode: 'avance' | 'totalite';
+  client_note: string;
+};
+
+const MANUAL_DEFAULT: ManualReservationDraft = {
+  client_first_name: '',
+  client_last_name: '',
+  client_email: '',
+  client_telephone: '',
+  identity_document_type: 'cin_tn',
+  identity_document_number: '',
+  guests: '1',
+  total_amount: '',
+  amount_due_now: '',
+  payment_mode: 'avance',
+  client_note: '',
+};
+
+function computeNights(start: Date | null, end: Date | null): number {
+  if (!start || !end) return 0;
+  const startUtc = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const endUtc = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+  return Math.max(1, Math.round((endUtc - startUtc) / (24 * 60 * 60 * 1000)));
+}
+
+function toSqlDate(value: Date | null): string {
+  if (!value) return '';
+  const yyyy = value.getFullYear();
+  const mm = String(value.getMonth() + 1).padStart(2, '0');
+  const dd = String(value.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 export default function ContratsPage() {
   const [contrats, setContrats] = useState<ContratApi[]>([]);
@@ -53,21 +111,24 @@ export default function ContratsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadingContratId, setUploadingContratId] = useState<string | null>(null);
-  const [creatingContract, setCreatingContract] = useState(false);
+  const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
 
   const [searchLocataire, setSearchLocataire] = useState('');
   const [searchProprietaire, setSearchProprietaire] = useState('');
   const [searchReference, setSearchReference] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('created_desc');
-  const [newContract, setNewContract] = useState({
-    bien_id: '',
-    locataire_id: '',
-    date_debut: '',
-    date_fin: '',
-    montant_recu: '',
-    statut: 'actif' as 'actif' | 'termine' | 'resilie',
-  });
+
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualStep, setManualStep] = useState<ManualStep>(1);
+  const [manualDraft, setManualDraft] = useState<ManualReservationDraft>(MANUAL_DEFAULT);
+  const [manualBienSearch, setManualBienSearch] = useState('');
+  const [selectedBienId, setSelectedBienId] = useState('');
+  const [selectedStart, setSelectedStart] = useState<Date | null>(null);
+  const [selectedEnd, setSelectedEnd] = useState<Date | null>(null);
+  const [selectedBienUnavailableDates, setSelectedBienUnavailableDates] = useState<UnavailableDateApi[]>([]);
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [loadingManualCalendar, setLoadingManualCalendar] = useState(false);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -121,11 +182,46 @@ export default function ContratsPage() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    const bienId = String(selectedBienId || '').trim();
+    if (!manualOpen || manualStep !== 3 || !bienId) {
+      setSelectedBienUnavailableDates([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setLoadingManualCalendar(true);
+      try {
+        const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`);
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Impossible de charger le calendrier du bien'));
+        const rows = await response.json();
+        if (!cancelled) {
+          setSelectedBienUnavailableDates(Array.isArray(rows) ? rows : []);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setSelectedBienUnavailableDates([]);
+          toast.error(err?.message || 'Impossible de charger le calendrier');
+        }
+      } finally {
+        if (!cancelled) setLoadingManualCalendar(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [manualOpen, manualStep, selectedBienId]);
+
   const bienById = useMemo(() => {
     const map = new Map<string, BienApi>();
     for (const bien of biens) map.set(bien.id, bien);
     return map;
   }, [biens]);
+
+  const selectedBien = useMemo(() => {
+    const id = String(selectedBienId || '').trim();
+    return id ? (bienById.get(id) || null) : null;
+  }, [bienById, selectedBienId]);
 
   const filteredAndSorted = useMemo(() => {
     const locataireQuery = searchLocataire.trim().toLowerCase();
@@ -137,10 +233,12 @@ export default function ContratsPage() {
       const locataireNom = (contrat.locataire_nom || '').toLowerCase();
       const proprietaireNom = (bien?.proprietaire_nom || '').toLowerCase();
       const referenceBien = (bien?.reference || '').toLowerCase();
+      const normalizedOrigin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
 
       const matchesLocataire = !locataireQuery || locataireNom.includes(locataireQuery);
       const matchesProprietaire = !proprietaireQuery || proprietaireNom.includes(proprietaireQuery);
       const matchesReference = !referenceQuery || referenceBien.includes(referenceQuery);
+      const matchesOrigin = originFilter === 'all' || normalizedOrigin === originFilter;
 
       let matchesDate = true;
       if (filterDate) {
@@ -153,7 +251,7 @@ export default function ContratsPage() {
           created.toISOString().slice(0, 10) === filterDate;
       }
 
-      return matchesLocataire && matchesProprietaire && matchesReference && matchesDate;
+      return matchesLocataire && matchesProprietaire && matchesReference && matchesOrigin && matchesDate;
     });
 
     return [...filtered].sort((a, b) => {
@@ -167,7 +265,34 @@ export default function ContratsPage() {
       if (sortBy === 'start_asc') return startA - startB;
       return createdB - createdA;
     });
-  }, [contrats, bienById, searchLocataire, searchProprietaire, searchReference, filterDate, sortBy]);
+  }, [contrats, bienById, searchLocataire, searchProprietaire, searchReference, filterDate, sortBy, originFilter]);
+
+  const availableBiensForManual = useMemo(() => {
+    const query = manualBienSearch.trim().toLowerCase();
+    return biens
+      .filter((bien) => String(bien.mode || '').toLowerCase() !== 'vente')
+      .filter((bien) => {
+        if (!query) return true;
+        const ref = String(bien.reference || '').toLowerCase();
+        const title = String(bien.titre || '').toLowerCase();
+        return ref.includes(query) || title.includes(query);
+      });
+  }, [biens, manualBienSearch]);
+
+  const manualNights = useMemo(() => computeNights(selectedStart, selectedEnd), [selectedStart, selectedEnd]);
+  const manualStartDateSql = useMemo(() => toSqlDate(selectedStart), [selectedStart]);
+  const manualEndDateSql = useMemo(() => toSqlDate(selectedEnd), [selectedEnd]);
+
+  const baseNightly = Math.max(0, Number(selectedBien?.prix_nuitee || 0));
+  const computedTotalFallback = manualNights > 0 ? Math.round((baseNightly * manualNights) * 100) / 100 : 0;
+  const resolvedManualTotal = Number.isFinite(Number(manualDraft.total_amount)) && Number(manualDraft.total_amount) > 0
+    ? Number(manualDraft.total_amount)
+    : computedTotalFallback;
+  const resolvedManualDueNow = Number.isFinite(Number(manualDraft.amount_due_now)) && Number(manualDraft.amount_due_now) >= 0
+    ? Number(manualDraft.amount_due_now)
+    : (manualDraft.payment_mode === 'totalite'
+      ? resolvedManualTotal
+      : Math.round((resolvedManualTotal * 0.3) * 100) / 100);
 
   const getPdfUrl = (url?: string) => {
     if (!url) return '';
@@ -221,43 +346,6 @@ export default function ContratsPage() {
     }
   };
 
-  const handleCreateContract = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!newContract.bien_id || !newContract.locataire_id || !newContract.date_debut || !newContract.date_fin || !newContract.montant_recu) {
-      toast.error('Veuillez remplir les champs obligatoires');
-      return;
-    }
-    if (newContract.date_fin < newContract.date_debut) {
-      toast.error('La date de fin doit etre apres la date de debut');
-      return;
-    }
-
-    setCreatingContract(true);
-    try {
-      const response = await fetch(`${API_URL}/contrats`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bien_id: newContract.bien_id,
-          locataire_id: newContract.locataire_id,
-          date_debut: newContract.date_debut,
-          date_fin: newContract.date_fin,
-          montant_recu: Number(newContract.montant_recu),
-          statut: newContract.statut,
-        }),
-      });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Creation contrat impossible'));
-      toast.success('Contrat ajoute');
-      setNewContract({ bien_id: '', locataire_id: '', date_debut: '', date_fin: '', montant_recu: '', statut: 'actif' });
-      await fetchData();
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err?.message || 'Erreur creation contrat');
-    } finally {
-      setCreatingContract(false);
-    }
-  };
-
   const handleDeleteContract = async (contratId: string) => {
     const confirmed = window.confirm('Supprimer ce contrat ?');
     if (!confirmed) return;
@@ -272,6 +360,81 @@ export default function ContratsPage() {
     }
   };
 
+  const resetManualWizard = () => {
+    setManualOpen(false);
+    setManualStep(1);
+    setManualDraft(MANUAL_DEFAULT);
+    setManualBienSearch('');
+    setSelectedBienId('');
+    setSelectedStart(null);
+    setSelectedEnd(null);
+    setSelectedBienUnavailableDates([]);
+  };
+
+  const goToManualStep2 = () => {
+    const first = manualDraft.client_first_name.trim();
+    const last = manualDraft.client_last_name.trim();
+    const email = manualDraft.client_email.trim();
+    const doc = manualDraft.identity_document_number.trim();
+    if (!first || !last || !email || !doc) {
+      toast.error('Remplissez les informations client obligatoires');
+      return;
+    }
+    setManualStep(2);
+  };
+
+  const goToManualStep3 = () => {
+    if (!selectedBienId) {
+      toast.error('Selectionnez un bien');
+      return;
+    }
+    setManualStep(3);
+  };
+
+  const handleCreateManualReservation = async () => {
+    if (!selectedBienId || !manualStartDateSql || !manualEndDateSql) {
+      toast.error('Selectionnez un bien et une periode');
+      return;
+    }
+    if (manualEndDateSql < manualStartDateSql) {
+      toast.error('La date de fin doit etre apres la date de debut');
+      return;
+    }
+
+    setManualSubmitting(true);
+    try {
+      const response = await fetch(`${API_URL}/contrats/manual-reservation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bien_id: selectedBienId,
+          start_date: manualStartDateSql,
+          end_date: manualEndDateSql,
+          guests: Math.max(1, Number(manualDraft.guests || 1)),
+          payment_mode: manualDraft.payment_mode,
+          total_amount: resolvedManualTotal,
+          amount_due_now: resolvedManualDueNow,
+          client_note: manualDraft.client_note,
+          client_first_name: manualDraft.client_first_name,
+          client_last_name: manualDraft.client_last_name,
+          client_email: manualDraft.client_email,
+          client_telephone: manualDraft.client_telephone,
+          identity_document_type: manualDraft.identity_document_type,
+          identity_document_number: manualDraft.identity_document_number,
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Creation reservation manuelle impossible'));
+      toast.success('Reservation manuelle creee avec contrat');
+      await fetchData();
+      resetManualWizard();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || 'Erreur creation reservation manuelle');
+    } finally {
+      setManualSubmitting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -282,48 +445,154 @@ export default function ContratsPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Contrats</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Contrats</h1>
+        {!manualOpen ? (
+          <button
+            type="button"
+            onClick={() => setManualOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            <Plus size={16} />
+            Contrat manuel
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={resetManualWizard}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Fermer
+          </button>
+        )}
+      </div>
 
-      <form onSubmit={handleCreateContract} className="bg-white p-4 rounded-lg border border-gray-200 space-y-3">
-        <h2 className="text-base font-semibold text-gray-900">Nouveau contrat</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-          <select
-            value={newContract.bien_id}
-            onChange={(e) => setNewContract((prev) => ({ ...prev, bien_id: e.target.value }))}
-            className="w-full px-3 py-2 border rounded-lg text-sm"
-            required
-          >
-            <option value="">Selectionner un bien</option>
-            {biens.map((bien) => <option key={bien.id} value={bien.id}>{bien.reference || bien.id} - {bien.titre || 'Bien'}</option>)}
-          </select>
-          <select
-            value={newContract.locataire_id}
-            onChange={(e) => setNewContract((prev) => ({ ...prev, locataire_id: e.target.value }))}
-            className="w-full px-3 py-2 border rounded-lg text-sm"
-            required
-          >
-            <option value="">Selectionner un locataire</option>
-            {locataires.map((locataire) => <option key={locataire.id} value={locataire.id}>{locataire.nom}</option>)}
-          </select>
-          <input type="date" value={newContract.date_debut} onChange={(e) => setNewContract((prev) => ({ ...prev, date_debut: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" required />
-          <input type="date" value={newContract.date_fin} onChange={(e) => setNewContract((prev) => ({ ...prev, date_fin: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" required />
-          <input type="number" min="0" step="0.01" placeholder="Montant recu (DT)" value={newContract.montant_recu} onChange={(e) => setNewContract((prev) => ({ ...prev, montant_recu: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" required />
-          <div className="flex gap-2">
-            <select value={newContract.statut} onChange={(e) => setNewContract((prev) => ({ ...prev, statut: e.target.value as 'actif' | 'termine' | 'resilie' }))} className="w-full px-3 py-2 border rounded-lg text-sm">
-              <option value="actif">actif</option>
-              <option value="termine">termine</option>
-              <option value="resilie">resilie</option>
-            </select>
-            <button type="submit" disabled={creatingContract} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 whitespace-nowrap">
-              {creatingContract ? 'Ajout...' : 'Ajouter'}
-            </button>
+      {manualOpen && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5 space-y-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+            <CheckCircle2 size={16} />
+            Contrat manuel - Etape {manualStep}/3
           </div>
+
+          {manualStep === 1 && (
+            <div className="space-y-3">
+              <h2 className="text-base font-semibold text-gray-900">Informations client</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prenom *" value={manualDraft.client_first_name} onChange={(e) => setManualDraft((p) => ({ ...p, client_first_name: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Nom *" value={manualDraft.client_last_name} onChange={(e) => setManualDraft((p) => ({ ...p, client_last_name: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Email *" value={manualDraft.client_email} onChange={(e) => setManualDraft((p) => ({ ...p, client_email: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Telephone" value={manualDraft.client_telephone} onChange={(e) => setManualDraft((p) => ({ ...p, client_telephone: e.target.value }))} />
+                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.identity_document_type} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_type: e.target.value as ManualReservationDraft['identity_document_type'] }))}>
+                  <option value="cin_tn">CIN tunisienne</option>
+                  <option value="passport_tn">Passeport tunisien</option>
+                  <option value="passport_foreign">Passeport etranger</option>
+                </select>
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Numero identite *" value={manualDraft.identity_document_number} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_number: e.target.value }))} />
+                <input type="number" min={1} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Voyageurs" value={manualDraft.guests} onChange={(e) => setManualDraft((p) => ({ ...p, guests: e.target.value }))} />
+                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_mode} onChange={(e) => setManualDraft((p) => ({ ...p, payment_mode: e.target.value as ManualReservationDraft['payment_mode'] }))}>
+                  <option value="avance">Avance</option>
+                  <option value="totalite">Totalite</option>
+                </select>
+                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Montant global (optionnel)" value={manualDraft.total_amount} onChange={(e) => setManualDraft((p) => ({ ...p, total_amount: e.target.value }))} />
+                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="A payer maintenant (optionnel)" value={manualDraft.amount_due_now} onChange={(e) => setManualDraft((p) => ({ ...p, amount_due_now: e.target.value }))} />
+              </div>
+              <textarea className="w-full rounded-lg border px-3 py-2 text-sm" rows={2} placeholder="Note client (optionnel)" value={manualDraft.client_note} onChange={(e) => setManualDraft((p) => ({ ...p, client_note: e.target.value }))} />
+              <div className="flex justify-end">
+                <button type="button" onClick={goToManualStep2} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                  Suivant
+                  <ArrowRight size={15} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {manualStep === 2 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-gray-900">Selection du bien</h2>
+                <div className="relative w-full max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input value={manualBienSearch} onChange={(e) => setManualBienSearch(e.target.value)} placeholder="Filtrer par reference ou titre" className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm bg-white" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[420px] overflow-auto pr-1">
+                {availableBiensForManual.map((bien) => {
+                  const isSelected = selectedBienId === bien.id;
+                  return (
+                    <button
+                      key={bien.id}
+                      type="button"
+                      onClick={() => setSelectedBienId(bien.id)}
+                      className={`text-left rounded-lg border p-3 transition ${isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white hover:border-emerald-300'}`}
+                    >
+                      <p className="text-xs font-semibold text-gray-500">{bien.reference || bien.id}</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900 line-clamp-2">{bien.titre || 'Bien'}</p>
+                      <p className="mt-1 text-xs text-gray-600">Prix nuit base: {Number(bien.prix_nuitee || 0)} DT</p>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between">
+                <button type="button" onClick={() => setManualStep(1)} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                  <ArrowLeft size={15} />
+                  Retour
+                </button>
+                <button type="button" onClick={goToManualStep3} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                  Suivant
+                  <ArrowRight size={15} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {manualStep === 3 && (
+            <div className="space-y-3">
+              <h2 className="text-base font-semibold text-gray-900">Periode de reservation</h2>
+              {selectedBien ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700">
+                  <p><strong>Bien:</strong> {selectedBien.reference || selectedBien.id} - {selectedBien.titre || 'Bien'}</p>
+                </div>
+              ) : null}
+              {loadingManualCalendar ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">Chargement du calendrier...</div>
+              ) : (
+                <AvailabilityCalendar
+                  unavailableDates={selectedBienUnavailableDates.map((row) => ({
+                    start: String(row.start_date || '').slice(0, 10),
+                    end: String(row.end_date || '').slice(0, 10),
+                    status: row.status,
+                  }))}
+                  onDateRangeSelect={(start, end) => {
+                    setSelectedStart(start);
+                    setSelectedEnd(end);
+                  }}
+                  selectedStart={selectedStart}
+                  selectedEnd={selectedEnd}
+                />
+              )}
+              <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
+                <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
+                <p><strong>Nuits:</strong> {manualNights || 0}</p>
+                <p><strong>Total:</strong> {resolvedManualTotal} DT</p>
+                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <button type="button" onClick={() => setManualStep(2)} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                  <ArrowLeft size={15} />
+                  Retour
+                </button>
+                <button type="button" onClick={handleCreateManualReservation} disabled={manualSubmitting || !manualStartDateSql || !manualEndDateSql} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                  {manualSubmitting ? 'Confirmation...' : 'Confirmer et reserver'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-      </form>
+      )}
 
       <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-3">
         {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</div>}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input value={searchLocataire} onChange={(e) => setSearchLocataire(e.target.value)} placeholder="Nom locataire" className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" />
@@ -337,6 +606,11 @@ export default function ContratsPage() {
             <input value={searchReference} onChange={(e) => setSearchReference(e.target.value)} placeholder="Reference bien" className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" />
           </div>
           <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
+          <select value={originFilter} onChange={(e) => setOriginFilter(e.target.value as OriginFilter)} className="w-full px-3 py-2 border rounded-lg text-sm">
+            <option value="all">Toutes origines</option>
+            <option value="manuel">Manuel</option>
+            <option value="automatique">Automatique</option>
+          </select>
           <div className="relative">
             <ArrowDownUp className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)} className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm">
@@ -354,20 +628,26 @@ export default function ContratsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {filteredAndSorted.map((contrat) => {
           const bien = bienById.get(contrat.bien_id);
+          const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
           return (
             <div key={contrat.id} className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-3 sm:mb-4">
                 <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600">
                   <FileText size={20} className="sm:w-6 sm:h-6" />
                 </div>
-                <span className={`px-2 py-0.5 sm:py-1 rounded-full text-xs font-bold uppercase ${contrat.statut === 'actif' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                  {contrat.statut}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${origin === 'manuel' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'}`}>
+                    {origin}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${contrat.statut === 'actif' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                    {contrat.statut}
+                  </span>
+                </div>
               </div>
 
               <h3 className="font-bold text-base sm:text-lg text-gray-900 mb-1 truncate">{contrat.bien_titre || bien?.titre || 'Bien Inconnu'}</h3>
               <p className="text-xs sm:text-sm text-gray-500 mb-1 truncate">Locataire: {contrat.locataire_nom || 'Inconnu'}</p>
-              <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4 truncate">Proprietaire: {bien?.proprietaire_nom || 'Inconnu'} â€¢ Ref: {bien?.reference || '-'}</p>
+              <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4 truncate">Proprietaire: {bien?.proprietaire_nom || 'Inconnu'} - Ref: {bien?.reference || '-'}</p>
 
               <div className="space-y-2 text-xs sm:text-sm text-gray-600 border-t pt-3 sm:pt-4">
                 <div className="flex items-center gap-2">
@@ -381,36 +661,16 @@ export default function ContratsPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-2 mt-4">
-                <button
-                  type="button"
-                  onClick={() => handlePreviewPdf(contrat.url_pdf)}
-                  disabled={!contrat.url_pdf}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
-                >
+                <button type="button" onClick={() => handlePreviewPdf(contrat.url_pdf)} disabled={!contrat.url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
                   <Eye size={16} /> Visualiser
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadPdf(contrat.id, contrat.url_pdf)}
-                  disabled={!contrat.url_pdf}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50"
-                >
+                <button type="button" onClick={() => handleDownloadPdf(contrat.id, contrat.url_pdf)} disabled={!contrat.url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50">
                   <Download size={16} /> Telecharger
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handlePreviewPdf(contrat.owner_url_pdf)}
-                  disabled={!contrat.owner_url_pdf}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
-                >
+                <button type="button" onClick={() => handlePreviewPdf(contrat.owner_url_pdf)} disabled={!contrat.owner_url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
                   <Eye size={16} /> Visualiser proprietaire
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadPdf(`${contrat.id}-owner`, contrat.owner_url_pdf)}
-                  disabled={!contrat.owner_url_pdf}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-200 text-amber-700 text-sm font-medium hover:bg-amber-50 disabled:opacity-50"
-                >
+                <button type="button" onClick={() => handleDownloadPdf(`${contrat.id}-owner`, contrat.owner_url_pdf)} disabled={!contrat.owner_url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-200 text-amber-700 text-sm font-medium hover:bg-amber-50 disabled:opacity-50">
                   <Download size={16} /> Telecharger proprietaire
                 </button>
                 <label className="col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 cursor-pointer">
@@ -428,11 +688,7 @@ export default function ContratsPage() {
                     }}
                   />
                 </label>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteContract(contrat.id)}
-                  className="col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50"
-                >
+                <button type="button" onClick={() => handleDeleteContract(contrat.id)} className="col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50">
                   <Trash2 size={16} /> Supprimer
                 </button>
               </div>
