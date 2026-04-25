@@ -4828,20 +4828,64 @@ function injectPaidServicesIntoConfig(rawConfig, services) {
   return baseConfig;
 }
 
+function toSqlDateOnly(value) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const text = String(value).trim();
+  const direct = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (direct) return direct[1];
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    const yyyy = parsed.getFullYear();
+    const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+    const dd = String(parsed.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return '';
+}
+
 function normalizeSeasonalPricingPeriod(period, index = 0) {
-  const start = String(period?.start || period?.start_date || '').slice(0, 10);
-  const end = String(period?.end || period?.end_date || '').slice(0, 10);
+  const start = toSqlDateOnly(period?.start || period?.start_date || '');
+  const end = toSqlDateOnly(period?.end || period?.end_date || '');
+  const isValidIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && !Number.isNaN(new Date(`${String(value).slice(0, 10)}T00:00:00`).getTime());
   const nightlyRaw = Number(period?.prix_nuitee);
   const weeklyRaw = period?.prix_semaine === null || period?.prix_semaine === undefined ? null : Number(period?.prix_semaine);
   const nightly = Number.isFinite(nightlyRaw) && nightlyRaw > 0 ? nightlyRaw : 0;
   const weekly = weeklyRaw === null ? null : (Number.isFinite(weeklyRaw) && weeklyRaw > 0 ? weeklyRaw : null);
-  if (!start || !end || end < start || nightly <= 0) return null;
+  if (!start || !end || !isValidIsoDate(start) || !isValidIsoDate(end) || end < start || nightly <= 0) return null;
   return {
     id: String(period?.id || `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`),
     start,
     end,
     prix_nuitee: nightly,
     prix_semaine: weekly,
+  };
+}
+
+function readEffectivePricingPeriods(payload, locationSaisonniereConfig) {
+  const hasOwn = (obj, key) => !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+  const hasRootSnake = hasOwn(payload, 'pricing_periods');
+  const hasRootCamel = hasOwn(payload, 'pricingPeriods');
+  const hasConfigPeriods = !!locationSaisonniereConfig
+    && typeof locationSaisonniereConfig === 'object'
+    && hasOwn(locationSaisonniereConfig, 'pricing_periods');
+  const hasExplicitPayload = hasRootSnake || hasRootCamel || hasConfigPeriods;
+
+  let rawPeriods = [];
+  if (Array.isArray(payload?.pricing_periods)) {
+    rawPeriods = payload.pricing_periods;
+  } else if (Array.isArray(payload?.pricingPeriods)) {
+    rawPeriods = payload.pricingPeriods;
+  } else if (Array.isArray(locationSaisonniereConfig?.pricing_periods)) {
+    rawPeriods = locationSaisonniereConfig.pricing_periods;
+  }
+
+  return {
+    hasExplicitPayload,
+    periods: rawPeriods,
+    hasConfigPeriods,
   };
 }
 
@@ -4889,8 +4933,8 @@ async function listPricingPeriodsForBienIds(bienIds) {
   for (const row of rows || []) {
     const item = {
       id: String(row.id),
-      start: String(row.start_date || '').slice(0, 10),
-      end: String(row.end_date || '').slice(0, 10),
+      start: toSqlDateOnly(row.start_date),
+      end: toSqlDateOnly(row.end_date),
       prix_nuitee: Number(row.prix_nuitee || 0),
       prix_semaine: row.prix_semaine === null || row.prix_semaine === undefined ? null : Number(row.prix_semaine || 0),
     };
@@ -6785,6 +6829,16 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     if (paiementVente.error) {
       return res.status(400).json({ error: paiementVente.error });
     }
+    const pricingPeriodsPayload = readEffectivePricingPeriods(req.body, location_saisonniere_config);
+    const effectivePricingPeriods = pricingPeriodsPayload.periods;
+    const effectiveLocationSaisonniereConfig = location_saisonniere_config && typeof location_saisonniere_config === 'object'
+      ? {
+          ...location_saisonniere_config,
+          ...(pricingPeriodsPayload.hasConfigPeriods || pricingPeriodsPayload.hasExplicitPayload
+            ? { pricing_periods: effectivePricingPeriods }
+            : {}),
+        }
+      : null;
 
     await pool.query(
       `INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
@@ -6809,7 +6863,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
        resolvedVisibleSurSite,
        resolvedIsFeatured,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
-       location_saisonniere_config && typeof location_saisonniere_config === 'object' ? JSON.stringify(location_saisonniere_config) : null,
+       effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        date_ajout, created_at, updated_at, updated_at]
     );
@@ -6857,12 +6911,12 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
       await syncBienCaracteristiques(bienId, caracteristique_ids);
       await syncBienCaracteristiqueValeurs(bienId, caracteristique_ids, caracteristique_valeurs);
     }
-    await syncBienPaidServices(bienId, location_saisonniere_config?.services_payants || []);
+    await syncBienPaidServices(bienId, effectiveLocationSaisonniereConfig?.services_payants || []);
     await pool.query('UPDATE biens SET prix_semaine = ? WHERE id = ?', [
       (resolvedMode === 'vente' || prix_semaine === undefined || prix_semaine === null || Number(prix_semaine) <= 0) ? null : Number(prix_semaine),
       bienId,
     ]);
-    await syncBienPricingPeriods(bienId, pricing_periods || []);
+    await syncBienPricingPeriods(bienId, effectivePricingPeriods || []);
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
     res.status(201).json(newBien[0]);
@@ -7019,6 +7073,16 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
     if (paiementVente.error) {
       return res.status(400).json({ error: paiementVente.error });
     }
+    const pricingPeriodsPayload = readEffectivePricingPeriods(req.body, location_saisonniere_config);
+    const effectivePricingPeriods = pricingPeriodsPayload.periods;
+    const effectiveLocationSaisonniereConfig = location_saisonniere_config && typeof location_saisonniere_config === 'object'
+      ? {
+          ...location_saisonniere_config,
+          ...(pricingPeriodsPayload.hasConfigPeriods || pricingPeriodsPayload.hasExplicitPayload
+            ? { pricing_periods: effectivePricingPeriods }
+            : {}),
+        }
+      : null;
 
     await pool.query(
       `UPDATE biens SET 
@@ -7044,7 +7108,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
        resolvedVisibleSurSite,
        resolvedIsFeatured,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
-       location_saisonniere_config && typeof location_saisonniere_config === 'object' ? JSON.stringify(location_saisonniere_config) : null,
+       effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
        updated_at, updated_at, req.params.id]
     );
@@ -7092,12 +7156,14 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       await syncBienCaracteristiques(req.params.id, caracteristique_ids);
       await syncBienCaracteristiqueValeurs(req.params.id, caracteristique_ids, caracteristique_valeurs);
     }
-    await syncBienPaidServices(req.params.id, location_saisonniere_config?.services_payants || []);
+    await syncBienPaidServices(req.params.id, effectiveLocationSaisonniereConfig?.services_payants || []);
     await pool.query('UPDATE biens SET prix_semaine = ? WHERE id = ?', [
       (resolvedMode === 'vente' || prix_semaine === undefined || prix_semaine === null || Number(prix_semaine) <= 0) ? null : Number(prix_semaine),
       req.params.id,
     ]);
-    await syncBienPricingPeriods(req.params.id, pricing_periods || []);
+    if (pricingPeriodsPayload.hasExplicitPayload) {
+      await syncBienPricingPeriods(req.params.id, effectivePricingPeriods || []);
+    }
 
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
     res.json(updatedBien[0]);
@@ -11120,8 +11186,8 @@ app.get('/api/pricing-periods/:bien_id', async (req, res) => {
     const data = (rows || []).map((row) => ({
       id: String(row.id),
       bien_id: String(row.bien_id),
-      start: String(row.start_date || '').slice(0, 10),
-      end: String(row.end_date || '').slice(0, 10),
+      start: toSqlDateOnly(row.start_date),
+      end: toSqlDateOnly(row.end_date),
       prix_nuitee: Number(row.prix_nuitee || 0),
       prix_semaine: row.prix_semaine === null || row.prix_semaine === undefined ? null : Number(row.prix_semaine || 0),
     }));

@@ -1996,6 +1996,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setRestoredFeatureValuesApplied(false);
     }
     setSelectedFeatureIds(sourceData?.caracteristique_ids || []);
+    setImages(sourceData?.media || []);
+    setUnavailableDates(sourceData?.unavailableDates || []);
+    setPricingPeriods(sourceData?.pricing_periods || []);
     setIsReferenceManuallyEdited(Boolean(initialData?.reference));
     setHasSeededDefaultPaidServices(Boolean(sourceData));
   }, [initialData, seedData]);

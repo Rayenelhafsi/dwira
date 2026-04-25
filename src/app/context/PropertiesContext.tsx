@@ -172,6 +172,25 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       }
     }
   } catch {}
+  if (pricingPeriodsFromDb.length === 0 && Array.isArray((locationSaisonniereConfig as any)?.pricing_periods)) {
+    pricingPeriodsFromDb = ((locationSaisonniereConfig as any).pricing_periods as any[])
+      .map((item: any) => ({
+        id: item?.id ? String(item.id) : undefined,
+        start: String(item?.start || item?.start_date || '').slice(0, 10),
+        end: String(item?.end || item?.end_date || '').slice(0, 10),
+        prix_nuitee: Number(item?.prix_nuitee || 0),
+        prix_semaine: item?.prix_semaine === null || item?.prix_semaine === undefined ? null : Number(item.prix_semaine || 0),
+      }))
+      .filter((item) =>
+        item.start
+        && item.end
+        && isValidSqlDate(item.start)
+        && isValidSqlDate(item.end)
+        && item.end >= item.start
+        && Number.isFinite(item.prix_nuitee)
+        && item.prix_nuitee > 0
+      );
+  }
   const caracteristiquesFromDb = typeof row.caracteristiques_list === 'string' && row.caracteristiques_list.trim().length > 0
     ? row.caracteristiques_list.split('||').map((x: string) => x.trim()).filter(Boolean)
     : [];
