@@ -21,6 +21,13 @@ export type AccommodationPricingResult = {
   hasPeriodOverride: boolean;
 };
 
+export type CurrentPricingResult = {
+  nightlyPrice: number;
+  weeklyPrice: number;
+  hasPeriodOverride: boolean;
+  activePeriod: SeasonalPricingPeriod | null;
+};
+
 function toDateAtMidnight(value: Date | string): Date | null {
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return null;
@@ -35,6 +42,59 @@ function normalizePrice(value: number | null | undefined): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
   return numeric;
+}
+
+function toDateKey(value: Date): string {
+  return format(value, 'yyyy-MM-dd');
+}
+
+export function resolveCurrentPricing(params: {
+  today?: Date | string;
+  defaultNightlyPrice: number;
+  defaultWeeklyPrice?: number | null;
+  pricingPeriods?: SeasonalPricingPeriod[];
+}): CurrentPricingResult {
+  const today = toDateAtMidnight(params.today || new Date());
+  const defaultNightly = normalizePrice(params.defaultNightlyPrice);
+  const fallbackWeekly = normalizePrice(params.defaultWeeklyPrice) || (defaultNightly * 7);
+
+  if (!today) {
+    return {
+      nightlyPrice: defaultNightly,
+      weeklyPrice: fallbackWeekly,
+      hasPeriodOverride: false,
+      activePeriod: null,
+    };
+  }
+
+  const todayKey = toDateKey(today);
+  const candidates = (Array.isArray(params.pricingPeriods) ? params.pricingPeriods : [])
+    .filter((period) => {
+      const start = String(period?.start || '').slice(0, 10);
+      const end = String(period?.end || '').slice(0, 10);
+      const nightly = normalizePrice(period?.prix_nuitee);
+      return start && end && start <= end && nightly > 0 && todayKey >= start && todayKey <= end;
+    })
+    .sort((a, b) => String(b.start || '').localeCompare(String(a.start || '')));
+
+  const activePeriod = candidates[0] || null;
+  if (!activePeriod) {
+    return {
+      nightlyPrice: defaultNightly,
+      weeklyPrice: fallbackWeekly,
+      hasPeriodOverride: false,
+      activePeriod: null,
+    };
+  }
+
+  const nightly = normalizePrice(activePeriod.prix_nuitee) || defaultNightly;
+  const weekly = normalizePrice(activePeriod.prix_semaine) || (nightly * 7);
+  return {
+    nightlyPrice: nightly,
+    weeklyPrice: weekly,
+    hasPeriodOverride: true,
+    activePeriod,
+  };
 }
 
 function segmentCost(nights: number, nightlyPrice: number, weeklyPrice: number): number {

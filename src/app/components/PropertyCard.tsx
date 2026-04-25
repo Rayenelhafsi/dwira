@@ -3,6 +3,7 @@ import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-rea
 import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
 import { SmartImage } from "./SmartImage";
+import { resolveCurrentPricing } from "../utils/seasonalPricing";
 
 interface PropertyCardProps {
   property: Property;
@@ -22,11 +23,17 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const ratingDisplay = Number.isFinite(property.rating)
     ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
     : "0,0";
-  const weeklyPriceFromNight = Math.max(0, Number(property.pricePerNight || 0) * 7);
-  const weeklyPriceFromData = Math.max(0, Number(property.pricePerWeek || 0));
+  const currentPricing = resolveCurrentPricing({
+    defaultNightlyPrice: Number(property.pricePerNight || 0),
+    defaultWeeklyPrice: Number(property.pricePerWeek || 0),
+    pricingPeriods: property.pricingPeriods || [],
+  });
+  const syncedNightlyPrice = property.priceContext === 'sale'
+    ? Number(property.pricePerNight || 0)
+    : currentPricing.nightlyPrice;
   const syncedWeeklyPrice = property.priceContext === 'sale'
     ? 0
-    : (weeklyPriceFromNight > 0 ? weeklyPriceFromNight : weeklyPriceFromData);
+    : currentPricing.weeklyPrice;
   const handleMessengerClick = () => {
     void openMessengerPropertyConversation({
       page: contactConfig.messengerPage,
@@ -68,7 +75,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             </div>
             <div className="shrink-0 rounded-2xl bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 shadow-md">
               <div>
-                {property.pricePerNight} TND
+                {syncedNightlyPrice} TND
                 {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
               </div>
               {property.priceContext !== 'sale' && syncedWeeklyPrice > 0 ? (

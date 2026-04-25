@@ -14,6 +14,7 @@ import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/feature
 import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils/servicePayants';
 import { canRenderVideoInIframe, isFacebookVideoUrl, isSupportedVideoUrl, toVideoEmbedUrl, toVideoExternalUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../../utils/bienCapacity';
+import { resolveCurrentPricing } from '../../utils/seasonalPricing';
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -1512,6 +1513,25 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
       ? terrainParM2
       : Number(bien.prix_affiche_client ?? terrainTotal ?? bien.prix_nuitee ?? 0))
     : Number(bien.prix_nuitee || 0);
+  const currentPricing = resolveCurrentPricing({
+    defaultNightlyPrice: Number(bien.prix_nuitee || 0),
+    defaultWeeklyPrice: Number(bien.prix_semaine || 0),
+    pricingPeriods: Array.isArray(bien.pricing_periods)
+      ? bien.pricing_periods.map((period) => ({
+          id: period.id,
+          start: String(period.start || ''),
+          end: String(period.end || ''),
+          prix_nuitee: Number(period.prix_nuitee || 0),
+          prix_semaine: period.prix_semaine === null || period.prix_semaine === undefined ? null : Number(period.prix_semaine || 0),
+        }))
+      : [],
+  });
+  const syncedNightlyPrice = bien.mode === 'vente'
+    ? Number(displayPrice || 0)
+    : currentPricing.nightlyPrice;
+  const syncedWeeklyPrice = bien.mode === 'vente'
+    ? 0
+    : currentPricing.weeklyPrice;
   const priceSuffix = bien.mode === 'vente'
     ? (bien.type === 'terrain' && terrainMode === 'm2_uniquement' ? '/m2' : '')
     : '/nuit';
@@ -1550,7 +1570,16 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
           <button onClick={onEdit} className="p-2 bg-white rounded-full hover:bg-gray-100"><Edit2 className="h-4 w-4 text-emerald-600" /></button>
           <button onClick={onDuplicate} className="p-2 bg-white rounded-full hover:bg-gray-100"><Copy className="h-4 w-4 text-blue-600" /></button>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3"><p className="text-white font-bold text-lg">{displayPrice} DT{priceSuffix ? <span className="text-xs font-normal text-white/80">{priceSuffix}</span> : null}</p></div>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
+          <p className="text-white font-bold text-lg">
+            {syncedNightlyPrice} DT{priceSuffix ? <span className="text-xs font-normal text-white/80">{priceSuffix}</span> : null}
+          </p>
+          {bien.mode !== 'vente' && syncedWeeklyPrice > 0 ? (
+            <p className="text-white/90 text-xs font-medium">
+              {syncedWeeklyPrice} DT / semaine
+            </p>
+          ) : null}
+        </div>
       </div>
       <div className="p-4 flex-1 flex flex-col">
         <div className="mb-3"><h3 className="font-bold text-gray-900 text-base line-clamp-1 mb-1">{bien.titre}</h3><div className="flex items-center gap-1 text-gray-500 text-xs"><MapPin className="h-3 w-3" /><span>{zones.find(z => z.id === bien.zone_id)?.nom || 'Zone Inconnue'}</span></div></div>
