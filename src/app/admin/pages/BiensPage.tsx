@@ -7526,8 +7526,6 @@ function AdminCalendar({
   const [selectionStart, setSelectionStart] = useState<Date | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<Date | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<'blocked' | 'booked' | 'pending'>('blocked');
-  const [manualStartDate, setManualStartDate] = useState('');
-  const [manualEndDate, setManualEndDate] = useState('');
   const [periodNightlyPrice, setPeriodNightlyPrice] = useState<number>(Math.max(0, Number(defaultNightlyPrice || 0)));
   const [periodWeeklyPrice, setPeriodWeeklyPrice] = useState<number>(Math.max(0, Number(defaultWeeklyPrice || 0)));
   const monthStart = startOfMonth(currentMonth), monthEnd = endOfMonth(currentMonth), calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 }), calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 }), days = eachDayOfInterval({ start: calendarStart, end: calendarEnd }), today = startOfDay(new Date());
@@ -7583,12 +7581,6 @@ function AdminCalendar({
     addPricingPeriod(start, end);
   };
 
-  const handleAddPricingFromManual = () => {
-    if (!manualStartDate || !manualEndDate) return toast.error('Choisissez les deux dates');
-    if (manualEndDate < manualStartDate) return toast.error('La date de fin doit etre apres la date de debut');
-    addPricingPeriod(manualStartDate, manualEndDate);
-  };
-
   const handleRemovePricingPeriod = (index: number) => {
     onPricingPeriodsChange(pricingPeriods.filter((_, i) => i !== index));
     toast.success('Periode tarifaire supprimee');
@@ -7625,14 +7617,6 @@ function AdminCalendar({
           <span className="text-sm text-gray-600">Selection calendrier: {selectionStart ? format(selectionStart, 'dd/MM/yyyy') : '...'}{selectionEnd ? ` - ${format(selectionEnd, 'dd/MM/yyyy')}` : ''}</span>
           <button type="button" onClick={handleAddPeriod} disabled={!selectionStart || !selectionEnd} className="ml-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Ajouter indisponibilite</button>
           <button type="button" onClick={handleAddPricingFromSelection} disabled={!selectionStart || !selectionEnd} className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Ajouter tarif periode</button>
-        </div>
-        <div className="border-t border-gray-200 pt-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">Date debut</label><input type="date" value={manualStartDate} onChange={(e) => setManualStartDate(e.target.value)} className="w-full rounded-lg border-gray-300 border p-2 text-sm" /></div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">Date fin</label><input type="date" value={manualEndDate} onChange={(e) => setManualEndDate(e.target.value)} className="w-full rounded-lg border-gray-300 border p-2 text-sm" /></div>
-          <div className="sm:col-span-2 flex flex-wrap gap-2 sm:justify-end">
-            <button type="button" onClick={handleManualAddPeriod} disabled={!manualStartDate || !manualEndDate} className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Saisir indisponibilite</button>
-            <button type="button" onClick={handleAddPricingFromManual} disabled={!manualStartDate || !manualEndDate} className="w-full sm:w-auto px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Saisir tarif periode</button>
-          </div>
         </div>
       </div>
       <div className="flex items-center justify-between mb-4"><button type="button" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronLeft className="h-5 w-5" /></button><h4 className="text-lg font-semibold capitalize">{format(currentMonth, "MMMM yyyy", { locale: fr })}</h4><button type="button" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronRight className="h-5 w-5" /></button></div>
