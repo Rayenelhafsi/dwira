@@ -525,6 +525,8 @@ export type ReservationDemandStatus =
   | 'reponse_negative_autre_proposition_bien_similaire'
   | 'demande_rejetee_admin'
   | 'attente_envoi_coordonnees_contrat'
+  | 'demande_recu_paiement'
+  | 'recu_paiement_envoye'
   | 'contrat_realise'
   | 'succes_paiement';
 
@@ -543,6 +545,8 @@ export interface ReservationDemand {
   start_date: string;
   end_date: string;
   guests: number;
+  adult_guests?: number;
+  child_guests?: number;
   payment_mode?: 'avance' | 'totalite' | null;
   total_amount?: number | null;
   amount_due_now?: number | null;
@@ -555,6 +559,9 @@ export interface ReservationDemand {
   reservation_payment_paid_at?: string | null;
   services_payment_id?: string | null;
   services_payment_paid_at?: string | null;
+  payment_receipt_image_url?: string | null;
+  payment_receipt_uploaded_at?: string | null;
+  payment_receipt_note?: string | null;
   status: ReservationDemandStatus;
   owner_notified_at?: string | null;
   owner_response_at?: string | null;

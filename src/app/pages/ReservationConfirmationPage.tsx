@@ -289,6 +289,8 @@ export default function ReservationConfirmationPage() {
           start_date: draft.startDate,
           end_date: draft.endDate,
             guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
+            adult_guests: summary?.adultGuests || Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1)),
+            child_guests: summary?.childGuests || Math.max(0, Number(draft.childGuests || 0)),
             payment_mode: summary.paymentMode,
             total_amount: summary.total,
             amount_due_now: summary.dueNow,

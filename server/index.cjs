@@ -4355,6 +4355,8 @@ const RESERVATION_DEMAND_STATUSES = new Set([
   'reponse_negative_autre_proposition_bien_similaire',
   'demande_rejetee_admin',
   'attente_envoi_coordonnees_contrat',
+  'demande_recu_paiement',
+  'recu_paiement_envoye',
   'contrat_realise',
   'succes_paiement',
 ]);
@@ -4970,6 +4972,8 @@ function formatReservationDemandRow(row) {
     request_type: row.request_type === 'visite' ? 'visite' : 'reservation',
     payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
     guests: Number(row.guests || 1),
+    adult_guests: Number(row.adult_guests || row.guests || 1),
+    child_guests: Number(row.child_guests || 0),
     total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     selected_fixed_services: parseJsonArray(row.selected_fixed_services_json),
@@ -4981,6 +4985,9 @@ function formatReservationDemandRow(row) {
     reservation_payment_paid_at: row.reservation_payment_paid_at || null,
     services_payment_id: row.services_payment_id || null,
     services_payment_paid_at: row.services_payment_paid_at || null,
+    payment_receipt_image_url: row.payment_receipt_image_url || null,
+    payment_receipt_uploaded_at: row.payment_receipt_uploaded_at || null,
+    payment_receipt_note: row.payment_receipt_note || null,
     owner_notified_at: row.owner_notified_at || null,
     owner_response_at: row.owner_response_at || null,
     client_confirmation_clicked_at: row.client_confirmation_clicked_at || null,
@@ -5693,6 +5700,9 @@ async function generateReservationClientContractHtml({
   const filePath = path.join(contractsDir, fileName);
   const nights = computeNights(demand.start_date, demand.end_date);
   const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
+  const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
+  const childGuests = Math.max(0, Number(demand.child_guests || 0));
+  const totalGuests = Math.max(1, Number(demand.guests || (adultGuests + childGuests) || 1));
   const reservationTotal = Number(totalAmount || 0);
   const servicesQuoteTotal = Number(demand?.variable_services_quote_total || 0);
   const hasServicesQuote = servicesQuoteTotal > 0;
@@ -5752,7 +5762,7 @@ async function generateReservationClientContractHtml({
       <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
       <p><strong>Type:</strong> ${escapeHtml(bien?.type || '-')}</p>
       <p><strong>Periode:</strong> ${escapeHtml(stayPeriodLabel)}</p>
-      <p><strong>Voyageurs:</strong> ${escapeHtml(String(Number(demand.guests || 1)))}</p>
+      <p><strong>Voyageurs:</strong> ${escapeHtml(String(totalGuests))} (Adultes: ${escapeHtml(String(adultGuests))}, Enfants: ${escapeHtml(String(childGuests))})</p>
     </div>
 
     <h2>Details reservation</h2>
@@ -5808,6 +5818,9 @@ async function generateReservationOwnerContractHtml({
   const filePath = path.join(contractsDir, fileName);
   const nights = computeNights(demand.start_date, demand.end_date);
   const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
+  const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
+  const childGuests = Math.max(0, Number(demand.child_guests || 0));
+  const totalGuests = Math.max(1, Number(demand.guests || (adultGuests + childGuests) || 1));
   const reservationTotal = Number(totalAmount || 0);
   const servicesQuoteTotal = Number(demand?.variable_services_quote_total || 0);
   const hasServicesQuote = servicesQuoteTotal > 0;
@@ -5860,7 +5873,7 @@ async function generateReservationOwnerContractHtml({
       <p><strong>Reference:</strong> ${escapeHtml(bien?.reference || demand.bien_id)}</p>
       <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
       <p><strong>Periode:</strong> ${escapeHtml(stayPeriodLabel)}</p>
-      <p><strong>Voyageurs:</strong> ${escapeHtml(String(Number(demand.guests || 1)))}</p>
+      <p><strong>Voyageurs:</strong> ${escapeHtml(String(totalGuests))} (Adultes: ${escapeHtml(String(adultGuests))}, Enfants: ${escapeHtml(String(childGuests))})</p>
     </div>
 
     <h2>Conditions financieres</h2>
@@ -7739,9 +7752,9 @@ app.post('/api/paiements', requireAdminSession, async (req, res) => {
         await appendReservationDemandHistory(
           demandRows[0].id,
           'succes_paiement',
-          'system',
-          id,
-          `Paiement ${id} enregistre avec succes`,
+          'admin',
+          String(req.authUser?.id || 'admin'),
+          `Paiement ${id} enregistre et valide par admin`,
           demandUpdatedAt
         );
       }
@@ -7954,6 +7967,8 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       start_date,
       end_date,
       guests,
+      adult_guests,
+      child_guests,
       payment_mode,
       total_amount,
       amount_due_now,
@@ -8020,6 +8035,10 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
         ? normalizedTotalAmount
         : Math.round((normalizedTotalAmount * 0.3) * 100) / 100);
     const normalizedGuests = Math.max(1, Number(guests || 1));
+    const normalizedAdultGuests = Math.max(1, Number((adult_guests ?? guests) || 1));
+    const normalizedChildGuests = Math.max(0, Number(child_guests ?? 0));
+    const balancedAdultGuests = Math.min(normalizedGuests, normalizedAdultGuests);
+    const balancedChildGuests = Math.max(0, normalizedGuests - balancedAdultGuests);
 
     const locataireId = await upsertLocataireFromReservationProfile({
       userId: null,
@@ -8044,11 +8063,11 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     await pool.query(
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json,
+        start_date, end_date, guests, adult_guests, child_guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json,
         variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at,
         client_confirmation_clicked_at, identity_document_type, identity_document_number, identity_first_name, identity_last_name, identity_submitted_at,
         contract_generated_at, admin_note, client_note, finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, 'reservation', ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contrat_realise', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)` ,
+      ) VALUES (?, ?, 'reservation', ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contrat_realise', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)` ,
       [
         demandId,
         bienId,
@@ -8059,6 +8078,8 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
         startDate,
         endDate,
         normalizedGuests,
+        balancedAdultGuests,
+        balancedChildGuests,
         normalizedPaymentMode,
         normalizedTotalAmount,
         normalizedAmountDueNow,
@@ -8098,6 +8119,8 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       start_date: startDate,
       end_date: endDate,
       guests: normalizedGuests,
+      adult_guests: balancedAdultGuests,
+      child_guests: balancedChildGuests,
       client_email: email || null,
       variable_services_quote_total: 0,
     };
@@ -9000,6 +9023,33 @@ const reservationIdentityUpload = multer({
   },
 });
 
+const paymentReceiptStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const receiptDir = path.join(__dirname, 'uploads', 'reservation-payment-receipts');
+    if (!fs.existsSync(receiptDir)) {
+      fs.mkdirSync(receiptDir, { recursive: true });
+    }
+    cb(null, receiptDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `payment-receipt-${uniqueSuffix}${ext}`);
+  },
+});
+
+const paymentReceiptUpload = multer({
+  storage: paymentReceiptStorage,
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.(jpg|jpeg|png|webp)$/i.test(path.extname(file.originalname || '').toLowerCase());
+    const mime = String(file.mimetype || '').toLowerCase();
+    const allowedMime = mime.startsWith('image/');
+    if (allowedExt && allowedMime) return cb(null, true);
+    cb(new Error('Only image files (jpg, jpeg, png, webp) are allowed'));
+  },
+});
+
 // ============================================
 // CARACTERISTIQUES API
 // ============================================
@@ -9095,6 +9145,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
         DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
         DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+        DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
       FROM reservation_demands d
@@ -9162,6 +9213,8 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       start_date,
       end_date,
       guests,
+      adult_guests,
+      child_guests,
       payment_mode,
       total_amount,
       amount_due_now,
@@ -9275,12 +9328,18 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       ? (await fetchClienteleProfileBySource('proprietaires', bien.proprietaire_id))?.linkedUserId || null
       : null;
 
+    const normalizedGuests = Math.max(1, Number(guests || 1));
+    const normalizedAdultGuests = Math.max(1, Number((adult_guests ?? guests) || 1));
+    const normalizedChildGuests = Math.max(0, Number(child_guests ?? 0));
+    const balancedAdultGuests = Math.min(normalizedGuests, normalizedAdultGuests);
+    const balancedChildGuests = Math.max(0, normalizedGuests - balancedAdultGuests);
+
     await pool.query(
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at, admin_note, client_note,
+        start_date, end_date, guests, adult_guests, child_guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
@@ -9293,7 +9352,9 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
         ownerUserId,
         start_date,
         end_date,
-        Number(guests || 1),
+        normalizedGuests,
+        balancedAdultGuests,
+        balancedChildGuests,
         normalizedPaymentMode,
         normalizedTotalAmount,
         normalizedAmountDueNow,
@@ -9629,6 +9690,9 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     const identityDocumentImageUrl = body.identity_document_image_url !== undefined ? String(body.identity_document_image_url || '').trim() || null : current.identity_document_image_url;
     const identityOcrText = body.identity_ocr_text !== undefined ? String(body.identity_ocr_text || '').trim() || null : current.identity_ocr_text;
     const identitySubmittedAt = body.identity_submitted_at !== undefined ? body.identity_submitted_at : current.identity_submitted_at;
+    const paymentReceiptImageUrl = body.payment_receipt_image_url !== undefined ? String(body.payment_receipt_image_url || '').trim() || null : current.payment_receipt_image_url;
+    const paymentReceiptUploadedAt = body.payment_receipt_uploaded_at !== undefined ? body.payment_receipt_uploaded_at : current.payment_receipt_uploaded_at;
+    const paymentReceiptNote = body.payment_receipt_note !== undefined ? String(body.payment_receipt_note || '').trim() || null : current.payment_receipt_note;
     const contractGeneratedAt = body.contract_generated_at !== undefined ? body.contract_generated_at : current.contract_generated_at;
     const finalizationDueAt = body.finalization_due_at !== undefined ? body.finalization_due_at : current.finalization_due_at;
     const contractId = body.contract_id !== undefined ? body.contract_id : current.contract_id;
@@ -9642,6 +9706,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
            identity_document_type = ?, identity_document_number = ?, identity_document_country = ?,
            identity_first_name = ?, identity_last_name = ?,
            identity_document_image_url = ?, identity_ocr_text = ?, identity_submitted_at = ?, contract_generated_at = ?,
+           payment_receipt_image_url = ?, payment_receipt_uploaded_at = ?, payment_receipt_note = ?,
            admin_note = ?, client_note = ?, finalization_due_at = ?, contract_id = ?, payment_id = ?, updated_at = ?
        WHERE id = ?`,
       [
@@ -9666,6 +9731,9 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         identityOcrText || null,
         identitySubmittedAt || null,
         contractGeneratedAt || null,
+        paymentReceiptImageUrl || null,
+        paymentReceiptUploadedAt || null,
+        paymentReceiptNote || null,
         adminNote || null,
         clientNote || null,
         finalizationDueAt || null,
@@ -9711,6 +9779,14 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
       await createAdminNotification(
         'info',
         `Rejet notifie au client (popup) pour la demande ${demandId}`,
+        updatedAt
+      );
+    }
+
+    if (requester?.role === 'admin' && nextStatus === 'demande_recu_paiement' && nextStatus !== current.status) {
+      await createAdminNotification(
+        'warning',
+        `Demande de recu de paiement envoyee au client pour la demande ${demandId}`,
         updatedAt
       );
     }
@@ -10072,6 +10148,97 @@ app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSes
   }
 });
 
+app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthenticatedSession, reservationMutationRateLimit, paymentReceiptUpload.single('receipt'), async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    if (!demandId) {
+      return res.status(400).json({ error: 'Demande introuvable' });
+    }
+    const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = demandRows[0];
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(req.authUser, current)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'reservation_demand_access_denied',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        message: 'Reservation demand access denied',
+        metadata: { demandId, context: 'upload_payment_receipt' },
+      });
+      return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Image du recu requise' });
+    }
+    if (!['demande_recu_paiement', 'recu_paiement_envoye', 'contrat_realise'].includes(String(current.status || ''))) {
+      return res.status(400).json({ error: 'Le recu ne peut pas etre envoye a cette etape' });
+    }
+
+    const now = getAgencySqlDateTime();
+    const nextStatus = 'recu_paiement_envoye';
+    const receiptUrl = `/uploads/reservation-payment-receipts/${req.file.filename}`;
+    const receiptNote = String(req.body?.payment_receipt_note || req.body?.note || '').trim() || null;
+    const actorId = String(req.authUser?.id || req.authUser?.email || current.client_user_id || current.client_email || 'client').trim();
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?,
+           payment_receipt_image_url = ?,
+           payment_receipt_uploaded_at = ?,
+           payment_receipt_note = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, receiptUrl, now, receiptNote, now, demandId]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      nextStatus,
+      'client',
+      actorId,
+      'Recu de paiement envoye par le client',
+      now
+    );
+    await createAdminNotification(
+      'warning',
+      `Recu de paiement recu pour la demande ${demandId}. Verification admin requise.`,
+      now
+    );
+
+    const [updatedRows] = await pool.query(
+      `SELECT
+        d.*,
+        b.titre AS bien_titre,
+        b.reference AS bien_reference,
+        p.nom AS proprietaire_nom,
+        DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+        DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+        DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+        DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+        DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+        DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+        DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+        DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+        DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      FROM reservation_demands d
+      LEFT JOIN biens b ON b.id = d.bien_id
+      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      WHERE d.id = ?
+      LIMIT 1`,
+      [demandId]
+    );
+    res.json(formatReservationDemandRow(updatedRows[0]));
+  } catch (error) {
+    console.error('Error uploading payment receipt:', error);
+    res.status(500).json({ error: 'Impossible d envoyer le recu de paiement' });
+  }
+});
+
 app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
@@ -10098,6 +10265,9 @@ app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymen
         metadata: { demandId, context: 'pay' },
       });
       return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
+    if (req.authUser?.role !== 'admin') {
+      return res.status(403).json({ error: 'Paiement valide manuellement par admin. Veuillez envoyer votre recu de paiement.' });
     }
     if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
 
@@ -10216,6 +10386,7 @@ app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymen
         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
         DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
         DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+        DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
       FROM reservation_demands d
@@ -10782,6 +10953,8 @@ async function ensureReservationDemandSchema() {
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
       guests INT NOT NULL DEFAULT 1,
+      adult_guests INT NOT NULL DEFAULT 1,
+      child_guests INT NOT NULL DEFAULT 0,
       payment_mode VARCHAR(20) NULL,
       total_amount DECIMAL(12,2) NULL,
       amount_due_now DECIMAL(12,2) NULL,
@@ -10812,6 +10985,9 @@ async function ensureReservationDemandSchema() {
       reservation_payment_paid_at DATETIME NULL,
       services_payment_id VARCHAR(100) NULL,
       services_payment_paid_at DATETIME NULL,
+      payment_receipt_image_url VARCHAR(500) NULL,
+      payment_receipt_uploaded_at DATETIME NULL,
+      payment_receipt_note TEXT NULL,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       KEY idx_reservation_demands_client (client_user_id, client_email),
@@ -10849,6 +11025,12 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'payment_mode'))) {
     await pool.query("ALTER TABLE reservation_demands ADD COLUMN payment_mode VARCHAR(20) NULL AFTER guests");
   }
+  if (!(await columnExists('reservation_demands', 'adult_guests'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN adult_guests INT NOT NULL DEFAULT 1 AFTER guests');
+  }
+  if (!(await columnExists('reservation_demands', 'child_guests'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN child_guests INT NOT NULL DEFAULT 0 AFTER adult_guests');
+  }
   if (!(await columnExists('reservation_demands', 'total_amount'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN total_amount DECIMAL(12,2) NULL AFTER payment_mode');
   }
@@ -10881,6 +11063,15 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'services_payment_paid_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN services_payment_paid_at DATETIME NULL AFTER services_payment_id');
+  }
+  if (!(await columnExists('reservation_demands', 'payment_receipt_image_url'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_image_url VARCHAR(500) NULL AFTER services_payment_paid_at');
+  }
+  if (!(await columnExists('reservation_demands', 'payment_receipt_uploaded_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_uploaded_at DATETIME NULL AFTER payment_receipt_image_url');
+  }
+  if (!(await columnExists('reservation_demands', 'payment_receipt_note'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_note TEXT NULL AFTER payment_receipt_uploaded_at');
   }
   if (!(await columnExists('reservation_demands', 'identity_document_type'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_type VARCHAR(30) NULL AFTER client_confirmation_clicked_at');

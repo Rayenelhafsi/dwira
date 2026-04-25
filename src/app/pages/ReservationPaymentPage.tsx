@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { ArrowLeft, BadgeCheck, CreditCard, ReceiptText, TimerReset } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ReceiptText, TimerReset, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
@@ -31,6 +31,13 @@ function formatDateTime(value?: string | null) {
   return parsed.toLocaleString("fr-FR", { timeZone: "Africa/Tunis", hour12: false });
 }
 
+function resolveAssetUrl(url?: string | null) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${window.location.origin}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
 export default function ReservationPaymentPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -39,6 +46,9 @@ export default function ReservationPaymentPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [submittingScope, setSubmittingScope] = useState<PaymentScope | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("carte");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptNote, setReceiptNote] = useState("");
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -114,6 +124,35 @@ export default function ReservationPaymentPage() {
     }
   };
 
+  const handleUploadReceipt = async () => {
+    if (!demand) return;
+    if (!receiptFile) {
+      toast.error("Veuillez selectionner une image du recu.");
+      return;
+    }
+    setUploadingReceipt(true);
+    try {
+      const formData = new FormData();
+      formData.append("receipt", receiptFile);
+      if (receiptNote.trim()) formData.append("payment_receipt_note", receiptNote.trim());
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/upload-payment-receipt`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Envoi du recu impossible"));
+      const updated = await response.json();
+      setDemand(updated);
+      setReceiptFile(null);
+      setReceiptNote("");
+      toast.success("Recu envoye. L'admin va verifier avant validation du paiement.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Envoi du recu impossible");
+    } finally {
+      setUploadingReceipt(false);
+    }
+  };
+
   if (!user || user.role !== "user") {
     return <Navigate to="/login" replace />;
   }
@@ -166,7 +205,7 @@ export default function ReservationPaymentPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Paiement client</p>
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Finaliser votre demande</h1>
             <p className="mt-2 text-sm text-gray-500">
-              Vous pouvez regler la reservation, le devis services, ou les deux ensemble selon votre preference.
+              Le paiement est valide manuellement par l'administration apres verification de votre recu.
             </p>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -176,70 +215,39 @@ export default function ReservationPaymentPage() {
               <InfoCard label="Paiement services" value={summary?.servicesPayable ? (summary?.servicesPaid ? `Regle le ${formatDateTime(demand.services_payment_paid_at)}` : formatMoney(summary?.servicesAmount)) : "Aucun devis a regler"} />
             </div>
 
-            <div className="mt-6">
-              <p className="text-sm font-semibold text-gray-900">Methode de paiement</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <button type="button" onClick={() => setPaymentMethod("carte")} className={`rounded-2xl border px-4 py-3 text-left ${paymentMethod === "carte" ? "border-emerald-400 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-white text-gray-700"}`}>
-                  <p className="font-semibold">Carte / paiement en ligne</p>
-                  <p className="mt-1 text-xs text-gray-500">Paiement rapide pour finaliser la demande.</p>
-                </button>
-                <button type="button" onClick={() => setPaymentMethod("virement")} className={`rounded-2xl border px-4 py-3 text-left ${paymentMethod === "virement" ? "border-emerald-400 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-white text-gray-700"}`}>
-                  <p className="font-semibold">Virement</p>
-                  <p className="mt-1 text-xs text-gray-500">Reglement bancaire suivi par l'agence.</p>
+            <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
+              <p className="text-sm font-semibold text-emerald-800">Envoyer mon recu de paiement</p>
+              <p className="mt-1 text-sm text-emerald-700">
+                {demand.status === "demande_recu_paiement"
+                  ? "L'administration demande votre recu pour valider le paiement."
+                  : demand.status === "recu_paiement_envoye"
+                    ? "Recu deja envoye. Vous pouvez en renvoyer un autre si necessaire."
+                    : "Vous pouvez envoyer votre recu de paiement pour verification."}
+              </p>
+              <div className="mt-4 space-y-3">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={(event) => setReceiptFile(event.target.files?.[0] || null)}
+                  className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
+                />
+                <textarea
+                  value={receiptNote}
+                  onChange={(event) => setReceiptNote(event.target.value)}
+                  rows={2}
+                  placeholder="Note (optionnelle)"
+                  className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleUploadReceipt()}
+                  disabled={uploadingReceipt}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  <Upload className="h-4 w-4" />
+                  {uploadingReceipt ? "Envoi..." : "Uploader recu"}
                 </button>
               </div>
-            </div>
-
-            <div className="mt-6 grid gap-4">
-              {summary?.canPayCombined ? (
-                <PaymentOptionCard
-                  title="Payer reservation + services"
-                  description="Une seule action pour regler l'avance ou la totalite de la reservation ainsi que le devis services."
-                  amount={summary.reservationAmount + summary.servicesAmount}
-                  accent="emerald"
-                  cta="Payer les deux"
-                  busy={submittingScope === "combined"}
-                  onClick={() => void handlePay("combined")}
-                />
-              ) : null}
-
-              {summary?.canPayReservation ? (
-                <PaymentOptionCard
-                  title="Payer la reservation seulement"
-                  description="Le contrat de reservation avance sans attendre le paiement des services variables."
-                  amount={summary.reservationAmount}
-                  accent="sky"
-                  cta="Payer reservation"
-                  busy={submittingScope === "reservation"}
-                  onClick={() => void handlePay("reservation")}
-                />
-              ) : (
-                <StatusCard
-                  title="Reservation deja reglee"
-                  description={demand.reservation_payment_paid_at ? `Paiement confirme le ${formatDateTime(demand.reservation_payment_paid_at)}.` : "Aucun paiement reservation restant."}
-                />
-              )}
-
-              {summary?.canPayServices ? (
-                <PaymentOptionCard
-                  title="Payer le devis services"
-                  description="Le devis services payants peut etre regle independamment de la reservation."
-                  amount={summary.servicesAmount}
-                  accent="amber"
-                  cta="Payer services"
-                  busy={submittingScope === "services"}
-                  onClick={() => void handlePay("services")}
-                />
-              ) : (
-                <StatusCard
-                  title={summary?.servicesPayable ? "Services deja regles" : "Pas de devis services a regler"}
-                  description={
-                    summary?.servicesPayable && demand.services_payment_paid_at
-                      ? `Paiement confirme le ${formatDateTime(demand.services_payment_paid_at)}.`
-                      : "Les services variables seront affiches ici seulement quand un devis sera disponible."
-                  }
-                />
-              )}
             </div>
           </section>
 
@@ -275,6 +283,24 @@ export default function ReservationPaymentPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            ) : null}
+
+            {(demand.payment_receipt_image_url || demand.payment_receipt_uploaded_at || demand.payment_receipt_note) ? (
+              <div className="rounded-[28px] border border-sky-200 bg-sky-50 p-6 text-sm text-sky-900 shadow-sm">
+                <p className="font-semibold">Recu envoye</p>
+                <p className="mt-2">Date: {demand.payment_receipt_uploaded_at ? formatDateTime(demand.payment_receipt_uploaded_at) : "-"}</p>
+                {demand.payment_receipt_note ? <p className="mt-1">Note: {demand.payment_receipt_note}</p> : null}
+                {demand.payment_receipt_image_url ? (
+                  <a
+                    href={resolveAssetUrl(demand.payment_receipt_image_url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-white px-3 py-2 font-semibold text-sky-700 hover:bg-sky-100"
+                  >
+                    Ouvrir le recu image
+                  </a>
+                ) : null}
               </div>
             ) : null}
 

@@ -179,7 +179,8 @@ export function Header() {
         setReservationCount(list.length);
         const nextDemand = list.find((item) =>
           item.status === "reponse_positive_attente_confirmation_client" ||
-          item.status === "attente_envoi_coordonnees_contrat"
+          item.status === "attente_envoi_coordonnees_contrat" ||
+          item.status === "demande_recu_paiement"
         ) || null;
         if (!nextDemand) return;
         const serviceQuoteKeyPart = nextDemand.variable_services_quote_status === "devis_envoye"
@@ -215,6 +216,11 @@ export function Header() {
         if (!response.ok) throw new Error(String(updated?.error || "Mise a jour impossible"));
         setShowActionableNotice(false);
         navigate(`/mes-reservations/${encodeURIComponent(updated.id)}/coordonnees`);
+        return;
+      }
+      if (actionableDemand.status === "demande_recu_paiement") {
+        setShowActionableNotice(false);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
         return;
       }
       setShowActionableNotice(false);

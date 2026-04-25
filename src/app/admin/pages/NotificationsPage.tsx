@@ -13,6 +13,8 @@ const openStatuses = new Set<ReservationDemandStatus>([
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
   'attente_envoi_coordonnees_contrat',
+  'demande_recu_paiement',
+  'recu_paiement_envoye',
 ]);
 
 const statusLabels: Record<ReservationDemandStatus, string> = {
@@ -23,6 +25,8 @@ const statusLabels: Record<ReservationDemandStatus, string> = {
   reponse_negative_autre_proposition_bien_similaire: 'Reponse negative, autre proposition pour un bien similaire',
   demande_rejetee_admin: 'Demande rejetee par admin',
   attente_envoi_coordonnees_contrat: 'Attente d envoi de coordonnees pour contrat',
+  demande_recu_paiement: 'Demande de recu de paiement',
+  recu_paiement_envoye: 'Recu de paiement envoye',
   contrat_realise: 'Contrat realise',
   succes_paiement: 'Succes paiement',
 };
@@ -45,6 +49,13 @@ function formatDateTime(value?: string | null) {
   const parsed = new Date(String(value).replace(' ', 'T'));
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString('fr-FR', { timeZone: 'Africa/Tunis', hour12: false });
+}
+
+function resolveAssetUrl(url?: string | null) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${window.location.origin}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
 export default function NotificationsPage() {
@@ -355,7 +366,7 @@ export default function NotificationsPage() {
                     {demand.bien_reference || demand.bien_id} - {demand.bien_titre || 'Bien'}
                   </p>
                   <p className="mt-1 text-sm text-gray-600">
-                    Client: {demand.client_name || demand.client_email || 'Client non identifie'} | Periode: {demand.start_date} au {demand.end_date} | Voyageurs: {demand.guests}
+                    Client: {demand.client_name || demand.client_email || 'Client non identifie'} | Periode: {demand.start_date} au {demand.end_date} | Voyageurs: {demand.guests} (Adultes: {Number(demand.adult_guests || demand.guests || 1)}, Enfants: {Number(demand.child_guests || 0)})
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
                     Proprietaire: {demand.proprietaire_nom || '-'} | Cree le {formatDateTime(demand.created_at)}
@@ -487,6 +498,27 @@ export default function NotificationsPage() {
               {(demand.identity_submitted_at || demand.identity_document_number) && (
                 <div className="mt-2 text-xs text-gray-500">
                   Coordonnees client: <span className="font-medium text-gray-700">{demand.identity_document_type || '-'}</span> - numero <span className="font-medium text-gray-700">{demand.identity_document_number || '-'}</span> - soumis le <span className="font-medium text-gray-700">{demand.identity_submitted_at ? formatDateTime(demand.identity_submitted_at) : '-'}</span>
+                </div>
+              )}
+              {(demand.payment_receipt_image_url || demand.payment_receipt_uploaded_at || demand.payment_receipt_note) && (
+                <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Recu de paiement client</p>
+                  <p className="mt-1 text-xs text-gray-600">
+                    Envoye le <span className="font-medium text-gray-800">{demand.payment_receipt_uploaded_at ? formatDateTime(demand.payment_receipt_uploaded_at) : '-'}</span>
+                  </p>
+                  {demand.payment_receipt_note ? (
+                    <p className="mt-1 text-xs text-gray-700">Note client: <span className="font-medium">{demand.payment_receipt_note}</span></p>
+                  ) : null}
+                  {demand.payment_receipt_image_url ? (
+                    <a
+                      href={resolveAssetUrl(demand.payment_receipt_image_url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                    >
+                      Ouvrir le recu
+                    </a>
+                  ) : null}
                 </div>
               )}
             </div>

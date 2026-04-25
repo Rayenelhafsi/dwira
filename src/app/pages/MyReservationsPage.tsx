@@ -25,6 +25,8 @@ const statusLabels: Record<ReservationDemand["status"], string> = {
   reponse_negative_autre_proposition_bien_similaire: "Reponse negative, autre proposition pour un bien similaire",
   demande_rejetee_admin: "Demande rejetee par administration",
   attente_envoi_coordonnees_contrat: "Attente d'envoi de coordonnees pour contrat",
+  demande_recu_paiement: "Demande de recu de paiement",
+  recu_paiement_envoye: "Recu de paiement envoye",
   contrat_realise: "Contrat realise",
   succes_paiement: "Succes paiement",
 };
@@ -355,6 +357,12 @@ export default function MyReservationsPage() {
                             value={reservation.services_payment_id || reservation.variable_services_quote_status === "paye" ? `Regles le ${formatDateTime(reservation.services_payment_paid_at)}` : "Devis a regler"}
                           />
                         ) : null}
+                        {reservation.request_type !== "visite" && (reservation.status === "demande_recu_paiement" || reservation.status === "recu_paiement_envoye" || reservation.status === "succes_paiement") ? (
+                          <Info
+                            label="Recu paiement"
+                            value={reservation.payment_receipt_uploaded_at ? `Envoye le ${formatDateTime(reservation.payment_receipt_uploaded_at)}` : "En attente d'envoi"}
+                          />
+                        ) : null}
                         <Info label="Cree le" value={formatDateTime(reservation.created_at)} icon={<CalendarClock className="h-4 w-4" />} />
                         <Info label="Derniere mise a jour" value={formatDateTime(reservation.updated_at)} />
                       </div>
@@ -429,6 +437,11 @@ export default function MyReservationsPage() {
                       {reservation.status === "contrat_realise" && (
                         <Link to={`/mes-reservations/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                           Proceder vers paiement
+                        </Link>
+                      )}
+                      {(reservation.status === "demande_recu_paiement" || reservation.status === "recu_paiement_envoye") && (
+                        <Link to={`/mes-reservations/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                          Upload recu de paiement
                         </Link>
                       )}
                       {reservation.status === "succes_paiement" && (
