@@ -43,6 +43,17 @@ type BienApi = {
   titre?: string;
   prix_nuitee?: number;
   prix_semaine?: number | null;
+  image_url?: string;
+  image?: string;
+};
+
+type MediaApi = {
+  id: string;
+  bien_id: string;
+  type?: string;
+  url?: string;
+  motif_upload?: string | null;
+  position?: number | null;
 };
 
 type LocataireApi = {
@@ -89,6 +100,9 @@ const MANUAL_DEFAULT: ManualReservationDraft = {
   client_note: '',
 };
 
+const BIEN_IMAGE_FALLBACK =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M150 240l90-88 62 62 52-52 88 78H150z' fill='%23cbd5e1'/%3E%3Ccircle cx='232' cy='124' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
+
 function computeNights(start: Date | null, end: Date | null): number {
   if (!start || !end) return 0;
   const startUtc = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
@@ -104,10 +118,22 @@ function toSqlDate(value: Date | null): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function toAbsoluteAssetUrl(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const apiOrigin = /^https?:\/\//i.test(API_URL)
+    ? new URL(API_URL).origin
+    : window.location.origin;
+  if (raw.startsWith('/')) return `${apiOrigin}${raw}`;
+  return `${apiOrigin}/${raw}`;
+}
+
 export default function ContratsPage() {
   const [contrats, setContrats] = useState<ContratApi[]>([]);
   const [biens, setBiens] = useState<BienApi[]>([]);
   const [locataires, setLocataires] = useState<LocataireApi[]>([]);
+  const [bienImageById, setBienImageById] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadingContratId, setUploadingContratId] = useState<string | null>(null);
@@ -153,10 +179,53 @@ export default function ContratsPage() {
 
     if (biensResult.status === 'fulfilled' && biensResult.value.ok) {
       const biensData = await biensResult.value.json();
-      setBiens(Array.isArray(biensData) ? biensData : []);
+      const normalizedBiens = Array.isArray(biensData) ? biensData : [];
+      setBiens(normalizedBiens);
+      const bienIds = normalizedBiens.map((row: any) => String(row?.id || '').trim()).filter(Boolean);
+      if (bienIds.length > 0) {
+        try {
+          const mediaResponse = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`, { credentials: 'include' });
+          if (mediaResponse.ok) {
+            const mediaRows = await mediaResponse.json();
+            const grouped = new Map<string, MediaApi[]>();
+            for (const media of (Array.isArray(mediaRows) ? mediaRows : []) as MediaApi[]) {
+              const bienId = String(media?.bien_id || '').trim();
+              if (!bienId) continue;
+              const list = grouped.get(bienId) || [];
+              list.push(media);
+              grouped.set(bienId, list);
+            }
+            const nextImages: Record<string, string> = {};
+            for (const bienId of bienIds) {
+              const medias = (grouped.get(bienId) || [])
+                .filter((m) => String(m?.type || 'image').toLowerCase() !== 'video')
+                .filter((m) => {
+                  const motif = String(m?.motif_upload || '');
+                  const isProof = motif === 'preuve_type_rue'
+                    || motif === 'preuve_type_papier'
+                    || motif.startsWith('preuve_type_rue|')
+                    || motif.startsWith('preuve_type_papier|');
+                  return !isProof;
+                })
+                .sort((a, b) => Number(a?.position ?? 0) - Number(b?.position ?? 0));
+              const first = String(medias[0]?.url || '').trim();
+              if (!first) continue;
+              nextImages[bienId] = toAbsoluteAssetUrl(first);
+            }
+            setBienImageById(nextImages);
+          } else {
+            setBienImageById({});
+          }
+        } catch {
+          setBienImageById({});
+        }
+      } else {
+        setBienImageById({});
+      }
       hasAnyData = true;
     } else {
       setBiens([]);
+      setBienImageById({});
       errors.push('biens');
     }
 
@@ -518,6 +587,9 @@ export default function ContratsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[420px] overflow-auto pr-1">
                 {availableBiensForManual.map((bien) => {
                   const isSelected = selectedBienId === bien.id;
+                  const imageSrc = bienImageById[bien.id]
+                    || toAbsoluteAssetUrl(String(bien.image_url || bien.image || ''))
+                    || BIEN_IMAGE_FALLBACK;
                   return (
                     <button
                       key={bien.id}
@@ -525,6 +597,19 @@ export default function ContratsPage() {
                       onClick={() => setSelectedBienId(bien.id)}
                       className={`text-left rounded-lg border p-3 transition ${isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white hover:border-emerald-300'}`}
                     >
+                      <div className="mb-2 h-24 w-full overflow-hidden rounded-md border border-gray-100 bg-gray-50">
+                        <img
+                          src={imageSrc}
+                          alt={bien.titre || bien.reference || 'Bien'}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                          onError={(event) => {
+                            if (event.currentTarget.src !== BIEN_IMAGE_FALLBACK) {
+                              event.currentTarget.src = BIEN_IMAGE_FALLBACK;
+                            }
+                          }}
+                        />
+                      </div>
                       <p className="text-xs font-semibold text-gray-500">{bien.reference || bien.id}</p>
                       <p className="mt-1 text-sm font-semibold text-gray-900 line-clamp-2">{bien.titre || 'Bien'}</p>
                       <p className="mt-1 text-xs text-gray-600">Prix nuit base: {Number(bien.prix_nuitee || 0)} DT</p>
@@ -705,4 +790,3 @@ export default function ContratsPage() {
     </div>
   );
 }
-
