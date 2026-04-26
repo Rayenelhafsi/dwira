@@ -133,6 +133,19 @@ const normalizeFeatureName = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const formatReferenceLabel = (reference?: string | null) => {
+  const safeReference = String(reference || "").trim();
+  if (!safeReference) return "";
+  return /^ref\b/i.test(safeReference) ? safeReference : `REF - ${safeReference}`;
+};
+
+const buildReferenceTitle = (reference?: string | null, title?: string | null) => {
+  const safeTitle = String(title || "").trim();
+  const referenceLabel = formatReferenceLabel(reference);
+  if (!referenceLabel) return safeTitle;
+  return `${referenceLabel} : ${safeTitle}`;
+};
+
 const getPaidServiceTypeMeta = (type: PaidServiceItem["type_tarification"]) => {
   if (type === "sur_demande") {
     return {
@@ -543,6 +556,7 @@ export default function PropertyDetailsPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => p.slug === slug);
+  const propertyDisplayTitle = buildReferenceTitle(property?.reference, property?.title);
   const propertyVideos = property?.videos || [];
   const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
   const [facebookEmbedUnavailableByUrl, setFacebookEmbedUnavailableByUrl] = useState<Record<string, boolean>>({});
@@ -2687,7 +2701,7 @@ out body 40;
         {/* Header */}
         <div className="hidden md:flex flex-col md:flex-row justify-between items-start mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{property.title}</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{propertyDisplayTitle}</h1>
             <div className="flex items-center gap-4 text-gray-600 text-sm">
               <div className="flex items-center gap-1">
                 <MapPin size={16} />
@@ -2773,7 +2787,7 @@ out body 40;
                 Sejour premium
               </div>
               <h1 className="mt-3 text-[2rem] font-bold leading-[1.02] tracking-[-0.04em] text-slate-950">
-                {property.title}
+                {propertyDisplayTitle}
               </h1>
               <div className="mt-4 flex flex-wrap items-center gap-2.5 text-sm text-gray-600">
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-2">

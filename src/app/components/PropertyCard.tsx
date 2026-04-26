@@ -13,6 +13,46 @@ interface PropertyCardProps {
 const PROPERTY_CARD_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Crect width='1200' height='800' fill='%23e5e7eb'/%3E%3Cpath d='M220 560l180-180 120 120 110-110 170 150H220z' fill='%23cbd5e1'/%3E%3Ccircle cx='430' cy='260' r='56' fill='%23cbd5e1'/%3E%3C/svg%3E";
 
+const normalizeTypeToken = (value: string) => value.toLowerCase().replace(/[^a-z0-9+]+/g, " ").trim();
+
+const resolveMainTypeLabel = (category: string, title: string) => {
+  const normalizedCategory = normalizeTypeToken(category);
+  const normalizedTitle = normalizeTypeToken(title);
+  if (normalizedCategory.includes("s+")) return "Appartement";
+  if (normalizedCategory.includes("appartement")) return "Appartement";
+  if (normalizedCategory.includes("villa")) return "Villa";
+  if (normalizedCategory.includes("studio")) return "Studio";
+  if (normalizedCategory.includes("bungalow")) return "Bungalow";
+  if (normalizedCategory.includes("terrain")) return "Terrain";
+  if (normalizedCategory.includes("immeuble")) return "Immeuble";
+  if (normalizedTitle.includes("appartement")) return "Appartement";
+  if (normalizedTitle.includes("villa")) return "Villa";
+  if (normalizedTitle.includes("studio")) return "Studio";
+  return "Bien";
+};
+
+const resolveSubTypeLabel = (category: string, mainType: string) => {
+  const rawCategory = String(category || "").trim();
+  const normalizedCategory = normalizeTypeToken(rawCategory);
+  const normalizedMainType = normalizeTypeToken(mainType);
+  const sPlusMatch = rawCategory.match(/s\+\d+/i);
+  if (sPlusMatch?.[0]) return sPlusMatch[0].toUpperCase();
+  if (!normalizedCategory || normalizedCategory === normalizedMainType) {
+    return normalizedMainType === "studio" ? "S+1" : "";
+  }
+  if (normalizedCategory === "studio") return "S+1";
+  return rawCategory;
+};
+
+const buildDisplayTitle = (reference: string | undefined, title: string) => {
+  const safeTitle = String(title || "").trim();
+  const safeReference = String(reference || "").trim();
+  if (!safeReference) return safeTitle;
+  return /^ref\b/i.test(safeReference)
+    ? `${safeReference} : ${safeTitle}`
+    : `REF - ${safeReference} : ${safeTitle}`;
+};
+
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const baseDetailPath = property.detailPath || `/properties/${property.slug}`;
   const linkTo = searchParams 
@@ -34,6 +74,10 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const syncedWeeklyPrice = property.priceContext === 'sale'
     ? 0
     : currentPricing.weeklyPrice;
+  const mainTypeLabel = resolveMainTypeLabel(property.category || "", property.title || "");
+  const subTypeLabel = resolveSubTypeLabel(property.category || "", mainTypeLabel);
+  const typeWidgetLabel = subTypeLabel ? `${mainTypeLabel} ${subTypeLabel}` : mainTypeLabel;
+  const displayTitle = buildDisplayTitle(property.reference, property.title);
   const handleMessengerClick = () => {
     void openMessengerPropertyConversation({
       page: contactConfig.messengerPage,
@@ -71,7 +115,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
           <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3">
             <div className="min-w-0 rounded-2xl border border-white/15 bg-white/12 px-3 py-2 backdrop-blur-md">
               <p className="truncate text-sm font-semibold text-white">{property.location}</p>
-              <p className="truncate text-xs text-white/80">{property.category}</p>
+              <p className="truncate text-xs text-white/80">{typeWidgetLabel}</p>
             </div>
             <div className="shrink-0 rounded-2xl bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 shadow-md">
               <div>
@@ -90,7 +134,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
         <div className="space-y-4 p-5">
           <div className="flex items-start justify-between gap-3">
             <h3 className="line-clamp-2 text-2xl font-bold leading-tight text-slate-900 transition-colors group-hover:text-emerald-700">
-              {property.title}
+              {displayTitle}
             </h3>
             {property.isFeatured && (
               <span className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">

@@ -1724,6 +1724,7 @@ const dbConfig = {
 console.log(
   `[DB] source=${isSiteDbSource ? 'site' : 'local'} host=${dbConfig.host} db=${dbConfig.database} user=${dbConfig.user}`
 );
+const canMirrorFromSiteDb = Boolean(siteDbHost && siteDbUser && siteDbName);
 
 const pool = mysql.createPool(dbConfig);
 let mediaHasPositionColumn = true;
@@ -1884,6 +1885,21 @@ async function generateStructuredBienReference({ mode, type, titre, zoneId, prop
 
 function buildChildReference(baseReference, prefix, index) {
   return `${normalizeReferenceBase(baseReference)}-${prefix}${index}`;
+}
+
+function createSiteMirrorPool() {
+  if (!canMirrorFromSiteDb) {
+    throw new Error('SITE_DB_* credentials are missing.');
+  }
+  return mysql.createPool({
+    host: siteDbHost,
+    port: Number(siteDbPort || 3306),
+    user: siteDbUser,
+    password: siteDbPassword,
+    database: siteDbName,
+    waitForConnections: true,
+    connectionLimit: 2,
+  });
 }
 
 function normalizeBienMode(rawMode) {
@@ -3270,6 +3286,33 @@ async function ensureBiensWorkflowSchema() {
        ON DUPLICATE KEY UPDATE nom = VALUES(nom), ordre = VALUES(ordre), is_system = VALUES(is_system)`,
       [id, mode_bien, type_bien, nom, ordre, is_system]
     );
+  }
+
+  if (!isSiteDbSource) {
+    const locationTypesForTabs = ['appartement', 'villa_maison', 'studio', 'bungalow'];
+    const locationSeasonTabs = [
+      ['informations_generales', 'Informations generales', 20],
+      ['localisation_acces', 'Localisation & acces', 30],
+      ['caracteristiques', 'Caracteristiques', 40],
+      ['lits_couchage', 'Lits & couchage', 50],
+      ['confort_equipements_interieurs', 'Conforts & equipements interieurs', 60],
+      ['securite_reglement', 'Securite & reglement', 70],
+      ['conditions_reservation', 'Conditions de reservation', 80],
+      ['accessibilite', 'Accessibilite', 90],
+      ['capacite_configuration', 'Capacite & configuration', 100],
+      ['cuisine_repas', 'Cuisine & repas', 110],
+    ];
+    for (const type_bien of locationTypesForTabs) {
+      for (const [tabSuffix, tabName, tabOrder] of locationSeasonTabs) {
+        const tabId = `ls_${type_bien}_${tabSuffix}`;
+        await pool.query(
+          `INSERT INTO caracteristique_onglets (id, mode_bien, type_bien, nom, ordre, is_system)
+           VALUES (?, 'location_saisonniere', ?, ?, ?, 1)
+           ON DUPLICATE KEY UPDATE nom = VALUES(nom), ordre = VALUES(ordre), is_system = VALUES(is_system)`,
+          [tabId, type_bien, tabName, tabOrder]
+        );
+      }
+    }
   }
 
   await pool.query(`
@@ -8197,6 +8240,218 @@ app.get('/api/system/db-source', requireAdminSession, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch db source state' });
+  }
+});
+
+app.post('/api/system/sync-feature-catalog-from-site', requireAdminSession, async (req, res) => {
+  let sitePool = null;
+  let localConn = null;
+  try {
+    await ensureBiensWorkflowSchema();
+    if (isSiteDbSource) {
+      return res.status(400).json({ error: 'Cette action doit etre lancee depuis une instance locale (DB_SOURCE=local).' });
+    }
+    if (!canMirrorFromSiteDb) {
+      return res.status(400).json({ error: 'SITE_DB_HOST/SITE_DB_USER/SITE_DB_NAME requis pour la synchro.' });
+    }
+
+    const modeRaw = String(req.body?.mode_bien || req.body?.mode || '').trim();
+    const typeRaw = String(req.body?.type_bien || req.body?.type || '').trim();
+    const mode = modeRaw ? normalizeBienMode(modeRaw) : null;
+    const type = typeRaw ? normalizeBienType(typeRaw) : null;
+
+    if (type && !mode) {
+      return res.status(400).json({ error: 'type_bien exige mode_bien.' });
+    }
+    if (mode && !BIEN_MODES.includes(mode)) {
+      return res.status(400).json({ error: 'mode_bien invalide.' });
+    }
+    if (mode && type) {
+      const validation = validateModeAndType(mode, type);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+    }
+
+    sitePool = createSiteMirrorPool();
+    const whereParts = [];
+    const whereParams = [];
+    if (mode) {
+      whereParts.push('mode_bien = ?');
+      whereParams.push(mode);
+    }
+    if (type) {
+      whereParts.push('type_bien = ?');
+      whereParams.push(type);
+    }
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+    const [contextRowsRaw] = await sitePool.query(
+      `SELECT id, caracteristique_id, mode_bien, type_bien, onglet_id
+       FROM caracteristique_contextes
+       ${whereClause}`,
+      whereParams
+    );
+    const contextRows = Array.isArray(contextRowsRaw) ? contextRowsRaw : [];
+    if (contextRows.length === 0) {
+      return res.json({
+        message: 'Aucune donnee a synchroniser pour le scope demande.',
+        scope: { mode_bien: mode || null, type_bien: type || null },
+        counts: { caracteristiques: 0, onglets: 0, contextes: 0, modifier_onglets: 0 },
+      });
+    }
+
+    const featureIds = Array.from(new Set(contextRows.map((row) => String(row.caracteristique_id || '').trim()).filter(Boolean)));
+    const tabIdsFromContext = contextRows.map((row) => String(row.onglet_id || '').trim()).filter(Boolean);
+
+    const [modifierRowsRaw] = await sitePool.query(
+      `SELECT id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre
+       FROM modifier_onglets
+       ${whereClause}`,
+      whereParams
+    );
+    const modifierRows = (Array.isArray(modifierRowsRaw) ? modifierRowsRaw : []).filter((row) =>
+      featureIds.includes(String(row.caracteristique_id || '').trim())
+    );
+    const tabIds = Array.from(new Set([...tabIdsFromContext, ...modifierRows.map((row) => String(row.onglet_id || '').trim()).filter(Boolean)]));
+
+    const chunk = (arr, size = 200) => {
+      const out = [];
+      for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+      return out;
+    };
+
+    const featureRows = [];
+    for (const ids of chunk(featureIds)) {
+      if (ids.length === 0) continue;
+      const placeholders = ids.map(() => '?').join(', ');
+      const [rows] = await sitePool.query(
+        `SELECT id, nom, type_caracteristique, choix_json, unite, icon_name, visibilite_client
+         FROM caracteristiques
+         WHERE id IN (${placeholders})`,
+        ids
+      );
+      if (Array.isArray(rows)) featureRows.push(...rows);
+    }
+
+    const tabRows = [];
+    for (const ids of chunk(tabIds)) {
+      if (ids.length === 0) continue;
+      const placeholders = ids.map(() => '?').join(', ');
+      const [rows] = await sitePool.query(
+        `SELECT id, mode_bien, type_bien, nom, ordre, is_system
+         FROM caracteristique_onglets
+         WHERE id IN (${placeholders})`,
+        ids
+      );
+      if (Array.isArray(rows)) tabRows.push(...rows);
+    }
+
+    localConn = await pool.getConnection();
+    await localConn.beginTransaction();
+
+    for (const row of featureRows) {
+      await localConn.query(
+        `INSERT INTO caracteristiques (id, nom, type_caracteristique, choix_json, unite, icon_name, visibilite_client)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           nom = VALUES(nom),
+           type_caracteristique = VALUES(type_caracteristique),
+           choix_json = VALUES(choix_json),
+           unite = VALUES(unite),
+           icon_name = VALUES(icon_name),
+           visibilite_client = VALUES(visibilite_client)`,
+        [
+          row.id,
+          row.nom,
+          row.type_caracteristique || 'simple',
+          row.choix_json || null,
+          row.unite || null,
+          row.icon_name || null,
+          Number(row.visibilite_client) === 0 ? 0 : 1,
+        ]
+      );
+    }
+
+    for (const row of tabRows) {
+      await localConn.query(
+        `INSERT INTO caracteristique_onglets (id, mode_bien, type_bien, nom, ordre, is_system)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           nom = VALUES(nom),
+           ordre = VALUES(ordre),
+           is_system = VALUES(is_system)`,
+        [
+          row.id,
+          normalizeBienMode(row.mode_bien),
+          normalizeBienType(row.type_bien),
+          row.nom,
+          Number(row.ordre || 999),
+          Number(row.is_system || 0),
+        ]
+      );
+    }
+
+    for (const row of contextRows) {
+      await localConn.query(
+        `INSERT INTO caracteristique_contextes (id, caracteristique_id, mode_bien, type_bien, onglet_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           caracteristique_id = VALUES(caracteristique_id),
+           mode_bien = VALUES(mode_bien),
+           type_bien = VALUES(type_bien),
+           onglet_id = VALUES(onglet_id)`,
+        [
+          row.id,
+          row.caracteristique_id,
+          normalizeBienMode(row.mode_bien),
+          normalizeBienType(row.type_bien),
+          String(row.onglet_id || '').trim() || null,
+        ]
+      );
+    }
+
+    for (const row of modifierRows) {
+      await localConn.query(
+        `INSERT INTO modifier_onglets (id, mode_bien, type_bien, onglet_id, caracteristique_id, ordre)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           onglet_id = VALUES(onglet_id),
+           caracteristique_id = VALUES(caracteristique_id),
+           ordre = VALUES(ordre)`,
+        [
+          row.id,
+          normalizeBienMode(row.mode_bien),
+          normalizeBienType(row.type_bien),
+          String(row.onglet_id || '').trim() || null,
+          row.caracteristique_id,
+          Number(row.ordre || 0),
+        ]
+      );
+    }
+
+    await localConn.commit();
+    res.json({
+      message: 'Synchronisation terminee (site -> local).',
+      scope: { mode_bien: mode || null, type_bien: type || null },
+      counts: {
+        caracteristiques: featureRows.length,
+        onglets: tabRows.length,
+        contextes: contextRows.length,
+        modifier_onglets: modifierRows.length,
+      },
+    });
+  } catch (error) {
+    if (localConn) {
+      try { await localConn.rollback(); } catch {}
+    }
+    console.error('Error syncing feature catalog from site:', error);
+    res.status(500).json({ error: 'Echec de la synchro des caracteristiques depuis la base site.' });
+  } finally {
+    if (localConn) localConn.release();
+    if (sitePool) {
+      try { await sitePool.end(); } catch {}
+    }
   }
 });
 

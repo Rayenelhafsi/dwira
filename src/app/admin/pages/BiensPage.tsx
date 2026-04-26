@@ -220,31 +220,50 @@ const TERRAIN_SECTION_TABS = [
   { id: 'documents_disponibles', label: '8. Documents disponibles' },
 ] as const;
 const UI_SECTION_FEATURE_TAB_DEFINITIONS: Partial<Record<keyof BienUiConfig, { label: string; ordre: number }>> = {
-  show_gallery: { label: 'Galerie', ordre: 10 },
   show_informations_generales: { label: 'Informations generales', ordre: 20 },
   show_caracteristiques: { label: 'Caracteristiques', ordre: 30 },
-  show_tarification_publique: { label: 'Tarification publique', ordre: 40 },
-  show_modalites_paiement: { label: 'Modalites de paiement', ordre: 50 },
   show_immeuble_appartements: { label: 'Bloc appartements', ordre: 60 },
   show_immeuble_garages: { label: 'Bloc garages', ordre: 70 },
   show_immeuble_locaux_commerciaux: { label: 'Bloc locaux commerciaux', ordre: 80 },
   show_lotissement_terrains: { label: 'Bloc terrains du lotissement', ordre: 90 },
 };
 const UI_SECTION_OPTIONS_LOCATION: Array<{ key: keyof BienUiConfig; label: string }> = [
-  { key: 'show_gallery', label: 'Galerie' },
   { key: 'show_informations_generales', label: 'Informations generales' },
   { key: 'show_caracteristiques', label: 'Caracteristiques' },
   { key: 'show_localisation', label: 'Localisation & acces' },
-  { key: 'show_disponibilites', label: 'Disponibilites & calendrier' },
   { key: 'show_booking_card', label: 'Carte reservation' },
 ];
 const UI_SECTION_OPTIONS_VENTE: Array<{ key: keyof BienUiConfig; label: string }> = [
-  { key: 'show_gallery', label: 'Galerie' },
   { key: 'show_informations_generales', label: 'Informations generales' },
   { key: 'show_caracteristiques', label: 'Caracteristiques' },
-  { key: 'show_tarification_publique', label: 'Tarification publique' },
-  { key: 'show_modalites_paiement', label: 'Modalites de paiement' },
 ];
+const REMOVED_ADMIN_TAB_LABEL_TOKENS = [
+  'galerie',
+  'tarification publique',
+  'modalite de paiement',
+  'modalites de paiement',
+  'disponibilites calendrier',
+  'exterieur loisirs',
+  'maintenance exploitation',
+  'mainetenance exploitation',
+  'notes scoring',
+  'services inclut',
+  'services inclus',
+  'tech divertisement',
+  'tech divertissement',
+];
+const normalizeAdminTabLabel = (value?: string | null) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+const isRemovedAdminTabLabel = (label?: string | null) => {
+  const normalized = normalizeAdminTabLabel(label);
+  if (!normalized) return false;
+  return REMOVED_ADMIN_TAB_LABEL_TOKENS.some((token) => normalized.includes(token));
+};
 type TerrainSectionTab = string;
 type CaracteristiqueOnglet = {
   id: string;
@@ -1746,6 +1765,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const [pricingPeriods, setPricingPeriods] = useState<SeasonalPricingPeriod[]>(initialData?.pricing_periods || seedData?.pricing_periods || []);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
+  const [removedUiBlocks, setRemovedUiBlocks] = useState<Record<string, boolean>>({});
   const [newImageMotif, setNewImageMotif] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
@@ -1797,6 +1817,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const [hasSeededDefaultPaidServices, setHasSeededDefaultPaidServices] = useState(Boolean(initialData));
   const [draggedImageIndex, setDraggedImageIndex] = useState<string | null>(null);
   const [validationDialogState, setValidationDialogState] = useState<{ open: boolean; issues: ValidationIssue[] }>({ open: false, issues: [] });
+  const removeUiBlock = (key: string) => {
+    setRemovedUiBlocks((prev) => ({ ...prev, [key]: true }));
+  };
   const [zoneDeleteDialog, setZoneDeleteDialog] = useState<DeleteRelationDialogState>({
     open: false,
     sourceId: '',
@@ -4527,11 +4550,63 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const terrainTabsForRender = featureTabs
     .slice()
     .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
-    .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }));
-  const detailTabsForRender = (featureTabs.length > 0 ? featureTabs : DEFAULT_DETAILS_TABS)
+    .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }))
+    .filter((tab) => !isRemovedAdminTabLabel(tab.label));
+  const detailTabsForRenderBase = (featureTabs.length > 0 ? featureTabs : DEFAULT_DETAILS_TABS)
     .slice()
     .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
-    .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }));
+    .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }))
+    .filter((tab) => !isRemovedAdminTabLabel(tab.label));
+  const canonicalLocationTabs: Array<{ key: string; label: string }> = [
+    { key: 'informations_generales', label: 'Informations generales' },
+    { key: 'localisation_acces', label: 'Localisation & acces' },
+    { key: 'caracteristiques', label: 'Caracteristiques' },
+    { key: 'lits_couchage', label: 'Lits & couchage' },
+    { key: 'conforts_equipements_interieurs', label: 'Conforts & equipements interieurs' },
+    { key: 'securite_reglement', label: 'Securite & reglement' },
+    { key: 'conditions_reservation', label: 'Conditions de reservation' },
+    { key: 'accessibilite', label: 'Accessibilite' },
+    { key: 'capacite_configuration', label: 'Capacite & configuration' },
+    { key: 'cuisine_repas', label: 'Cuisine & repas' },
+  ];
+  const detectCanonicalLocationTabKey = (label?: string | null) => {
+    const normalized = normalizeFeatureName(String(label || '').replace(/^\s*\d+\s*[\.\-:)]\s*/g, ''));
+    if (normalized.includes('information')) return 'informations_generales';
+    if (normalized.includes('localisation')) return 'localisation_acces';
+    if (normalized.includes('caracteristique')) return 'caracteristiques';
+    if (normalized.includes('lits') || normalized.includes('couchage')) return 'lits_couchage';
+    if (normalized.includes('confort') || normalized.includes('equipement')) return 'conforts_equipements_interieurs';
+    if (normalized.includes('securite') || normalized.includes('reglement')) return 'securite_reglement';
+    if (normalized.includes('condition') || normalized.includes('reservation')) return 'conditions_reservation';
+    if (normalized.includes('accessibil')) return 'accessibilite';
+    if (normalized.includes('capacite') || normalized.includes('configuration')) return 'capacite_configuration';
+    if (normalized.includes('cuisine') || normalized.includes('repas')) return 'cuisine_repas';
+    return '';
+  };
+  let detailTabsForRender = detailTabsForRenderBase;
+  if (selectedModeForUi === 'location_saisonniere') {
+    const canonicalMap = new Map<string, { id: string; label: string; is_system: boolean }>();
+    const extraTabs: Array<{ id: string; label: string; is_system: boolean }> = [];
+    for (const tab of detailTabsForRenderBase) {
+      const canonicalKey = detectCanonicalLocationTabKey(tab.label);
+      if (!canonicalKey) {
+        extraTabs.push(tab);
+        continue;
+      }
+      if (!canonicalMap.has(canonicalKey)) {
+        canonicalMap.set(canonicalKey, { ...tab });
+      }
+    }
+    detailTabsForRender = [
+      ...canonicalLocationTabs.map((tab) => {
+        const existing = canonicalMap.get(tab.key);
+        if (existing) return { ...existing, label: tab.label };
+        return { id: `__canonical_${tab.key}`, label: tab.label, is_system: true };
+      }),
+      ...extraTabs,
+    ];
+  }
+  const visibleFeatureTabs = featureTabs.filter((tab) => !isRemovedAdminTabLabel(String(tab.nom || tab.id)));
   const uiConfig = (formData.ui_config || {}) as BienUiConfig;
   const isUiSectionVisible = (key: keyof BienUiConfig) => uiConfig[key] !== false;
   const visibleFeaturesForSelectedTab = selectedFeatureTabId
@@ -4539,7 +4614,78 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     : [];
   const unassignedFeatures = availableFeatures.filter((feature) => !String(feature.onglet_id || '').trim());
   const terrainTabFeatures = availableFeatures.filter((feature) => (feature.onglet_id || '') === terrainSectionTab);
-  const detailTabFeatures = availableFeatures.filter((feature) => String(feature.onglet_id || '') === detailSectionTabId);
+  const detailTabFeaturesRaw = availableFeatures.filter((feature) => String(feature.onglet_id || '') === detailSectionTabId);
+  const activeDetailTabCanonicalKey = detectCanonicalLocationTabKey(detailTabsForRender.find((tab) => tab.id === detailSectionTabId)?.label || '');
+  const LOCATION_TAB_FEATURE_ALLOWLIST: Record<string, string[]> = {
+    informations_generales: [
+      'nombre de chambres global',
+      'nombre de sdb global',
+      'categorie standing',
+      'etage',
+      'ascenseur',
+      'vue',
+      'niveau sonore',
+      'acces general',
+    ],
+    localisation_acces: [
+      'distance centre ville',
+      'distance commerces',
+      'distance plage',
+      'distance restaurants cafes',
+      'stationnement proche',
+      'type de route',
+      'type quartier',
+    ],
+    caracteristiques: ['*'],
+    lits_couchage: [
+      'canape lit',
+      'lit bebe',
+      'lit double',
+      'lit simple',
+    ],
+    conforts_equipements_interieurs: [
+      'climatisation',
+      'fer a repasser',
+      'seche cheveux',
+      'ventilateurs',
+    ],
+    securite_reglement: [
+      'cameras',
+      'fetes',
+      'heures silence',
+      'type acces logement',
+      'visiteurs',
+    ],
+    conditions_reservation: [
+      'duree max sejour nuits',
+      'duree max sejour nuits nuit',
+      'duree min sejour nuits nuit',
+      'montant caution dt',
+      'politique annulation',
+      'type caution',
+    ],
+    accessibilite: ['rampes', 'rdc'],
+    capacite_configuration: [
+      'capacite bebes angel',
+      'capacite enfants personne',
+      'capacite max adultes personne',
+      'nombre chambres double chambre',
+      'nombre chambres parentale chambre',
+      'nombre chambres simple chambre',
+      'nombre salles de bain sdb',
+      'nombre salons salon',
+    ],
+    cuisine_repas: ['nombre chaises chaises', 'type cuisine'],
+  };
+  const detailTabFeatures = (selectedModeForUi === 'location_saisonniere' && activeDetailTabCanonicalKey)
+    ? detailTabFeaturesRaw.filter((feature) => {
+        const allowed = LOCATION_TAB_FEATURE_ALLOWLIST[activeDetailTabCanonicalKey] || [];
+        if (allowed.includes('*')) return true;
+        if (allowed.length === 0) return false;
+        const normalizedName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+        return allowed.some((token) => normalizedName.includes(token) || token.includes(normalizedName));
+      })
+    : detailTabFeaturesRaw;
   const detailTabFeatureCountById = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const feature of availableFeatures) {
@@ -4632,9 +4778,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         await loadAvailableFeatures(selectedMode, selectedType);
       } else {
         const infoTabId =
-          featureTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')).includes('information'))?.id
+          visibleFeatureTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')).includes('information'))?.id
           || selectedFeatureTabId
-          || featureTabs[0]?.id
+          || visibleFeatureTabs[0]?.id
           || null;
         await createFeatureWithContext({
           nom: 'Sous-type',
@@ -4744,9 +4890,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       const targetChoice = String(step2SousTypeSelectedValue || '').trim();
       if (!step2SousTypeFeature?.id) {
         const infoTabId =
-          featureTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')).includes('information'))?.id
+          visibleFeatureTabs.find((tab) => normalizeFeatureName(String(tab.nom || '')).includes('information'))?.id
           || selectedFeatureTabId
-          || featureTabs[0]?.id
+          || visibleFeatureTabs[0]?.id
           || null;
         await createFeatureWithContext({
           nom: 'Sous-type',
@@ -4827,12 +4973,29 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const renderFeatureControl = (feature: Caracteristique, keyPrefix: string) => {
     const featureType = normalizeFeatureType(feature.type_caracteristique);
     const featureId = String(feature.id || '');
+    const deleteButton = (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void handleRemoveFeature(feature);
+        }}
+        disabled={featureSaving}
+        className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+      >
+        Supprimer
+      </button>
+    );
     if (featureType === 'choix_multiple') {
       const options = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
       const selectedValue = (featureChoiceValuesById[featureId] || [])[0] || '';
       return (
         <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">{feature.nom}</label>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="block text-sm font-medium text-gray-700">{feature.nom}</label>
+            {deleteButton}
+          </div>
           <select
             value={selectedValue}
             onChange={(e) => {
@@ -4855,8 +5018,11 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       return (
         <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <label className="block text-sm font-medium text-gray-700">{feature.nom}</label>
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Multi-selection</span>
+            <div className="flex items-center gap-2">
+              <label className="block text-sm font-medium text-gray-700">{feature.nom}</label>
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Multi-selection</span>
+            </div>
+            {deleteButton}
           </div>
           <select
             value={pickerValue}
@@ -4911,7 +5077,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       const currentValue = String(featureValueById[featureId] || '');
       return (
         <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">{feature.nom}{unit ? ` (${unit})` : ''}</label>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="block text-sm font-medium text-gray-700">{feature.nom}{unit ? ` (${unit})` : ''}</label>
+            {deleteButton}
+          </div>
           <input
             type="number"
             step="0.01"
@@ -4931,7 +5100,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       const currentValue = String(featureValueById[featureId] || '');
       return (
         <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">{feature.nom}</label>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="block text-sm font-medium text-gray-700">{feature.nom}</label>
+            {deleteButton}
+          </div>
           <input
             type="text"
             placeholder="Saisir une valeur..."
@@ -4948,15 +5120,20 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     }
     const isChecked = selectedFeatureIds.includes(featureId);
     return (
-      <label key={`${keyPrefix}-${featureId}`} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-3 shadow-sm cursor-pointer transition-colors ${isChecked ? 'border-emerald-300 bg-emerald-50/60' : 'border-gray-200 bg-white hover:border-emerald-200'}`}>
-        <span className="text-sm font-medium text-gray-700">{feature.nom}</span>
-        <input
-          type="checkbox"
-          checked={isChecked}
-          onChange={(e) => setFeatureSelected(featureId, e.target.checked)}
-          className="h-4 w-4 rounded border-gray-300 text-emerald-600"
-        />
-      </label>
+      <div key={`${keyPrefix}-${featureId}`} className={`rounded-xl border px-3 py-3 shadow-sm transition-colors ${isChecked ? 'border-emerald-300 bg-emerald-50/60' : 'border-gray-200 bg-white hover:border-emerald-200'}`}>
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex cursor-pointer items-center gap-3">
+            <span className="text-sm font-medium text-gray-700">{feature.nom}</span>
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onChange={(e) => setFeatureSelected(featureId, e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-emerald-600"
+            />
+          </label>
+          {deleteButton}
+        </div>
+      </div>
     );
   };
   const renderTerrainTabFeatures = () => (
@@ -4987,6 +5164,13 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setDetailSectionTabId(preferredDetailTabId);
     }
   }, [isTerrainVente, detailSectionTabId, detailTabsForRender, preferredDetailTabId]);
+  useEffect(() => {
+    if (!selectedFeatureTabId) return;
+    const hasTab = visibleFeatureTabs.some((tab) => tab.id === selectedFeatureTabId);
+    if (!hasTab) {
+      setSelectedFeatureTabId(visibleFeatureTabs[0]?.id || '');
+    }
+  }, [selectedFeatureTabId, visibleFeatureTabs]);
   const activeDetailTabLabel = normalizeFeatureName(String(detailTabsForRender.find((tab) => tab.id === detailSectionTabId)?.label || ''));
   const isInfoDetailTab = activeDetailTabLabel.includes('information');
   const isCharacteristicsDetailTab = activeDetailTabLabel.includes('caracteristique');
@@ -5324,6 +5508,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const canAddFeature =
     String(newFeature || '').trim().length > 0
     && String(selectedFeatureTabId || '').trim().length > 0
+    && visibleFeatureTabs.some((tab) => tab.id === selectedFeatureTabId)
     && (
       newFeatureType === 'simple'
       || newFeatureType === 'texte'
@@ -5743,8 +5928,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
             </div>}
             {generalStep === 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 3 - CaractÃ©ristiques</h3>
-                <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Gerer caractÃ©ristiques</button>
+                <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 3 - Caracteristiques</h3>
+                <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Gerer caracteristiques</button>
               </div>
               <p className="text-sm text-gray-500">Les caracteristiques sont selectionnees et affichees directement dans les onglets de details ci-dessous.</p>
               {showFeaturePanel && (
@@ -5752,22 +5937,22 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                     <select value={selectedFeatureTabId} onChange={(e) => setSelectedFeatureTabId(e.target.value)} className="rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="">-- Choisir onglet --</option>
-                      {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                      {visibleFeatureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                     </select>
                     <input type="text" value={newFeatureTabName} onChange={(e) => setNewFeatureTabName(e.target.value)} placeholder="Ajouter un onglet (nom)" className="rounded-lg border-gray-300 border p-2 text-sm" />
                     <button type="button" onClick={() => void handleCreateFeatureTab()} disabled={featureSaving} className="px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg text-sm disabled:opacity-60">Ajouter onglet</button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {featureTabs.map((tab) => (
+                    {visibleFeatureTabs.map((tab) => (
                       <span key={tab.id} className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${(selectedFeatureTabId === tab.id) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-emerald-200 text-emerald-700'}`}>
                         <button type="button" onClick={() => setSelectedFeatureTabId(tab.id)}>{tab.nom}</button>
                         <button type="button" onClick={() => void handleDeleteFeatureTab(tab)} className={`${selectedFeatureTabId === tab.id ? 'text-white' : 'text-red-500'}`}>x</button>
                       </span>
                     ))}
-                    {featureTabs.length === 0 && <span className="text-xs text-gray-500">Aucun onglet disponible</span>}
+                    {visibleFeatureTabs.length === 0 && <span className="text-xs text-gray-500">Aucun onglet disponible</span>}
                   </div>
                   <div className="space-y-2">
-                    {featureTabs.map((tab) => (
+                    {visibleFeatureTabs.map((tab) => (
                       <div key={`edit-tab-${tab.id}`} className="grid grid-cols-1 md:grid-cols-4 gap-2 p-2 bg-white border border-emerald-200 rounded-lg">
                         <input
                           value={featureTabDrafts[tab.id] ?? tab.nom}
@@ -5800,7 +5985,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     </select>
                     <select value={selectedFeatureTabId} onChange={(e) => setSelectedFeatureTabId(e.target.value)} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                       <option value="">-- Choisir onglet details --</option>
-                      {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                      {visibleFeatureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                     </select>
                     <button type="button" onClick={() => void handleAddFeature()} disabled={featureSaving || !canAddFeature} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">{featureSaving ? '...' : 'Ajouter'}</button>
                   </div>
@@ -5845,7 +6030,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                               <input value={draft.nom} onChange={(e) => handleFeatureDraftChange(feature.id, { nom: e.target.value })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm" />
                               <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                                 <option value="">Choisir onglet</option>
-                                {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                                {visibleFeatureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                               </select>
                               <select value={draft.type_caracteristique} onChange={(e) => handleFeatureDraftChange(feature.id, { type_caracteristique: e.target.value as 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte' })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
                                 <option value="simple">Simple</option>
@@ -5900,7 +6085,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                               <option value={0}>Interne</option>
                             </select>
                             <select value={draft.onglet_id} onChange={(e) => handleFeatureDraftChange(feature.id, { onglet_id: e.target.value })} className="min-w-0 rounded-lg border-gray-300 border p-2 text-sm">
-                              {featureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
+                              {visibleFeatureTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.nom}</option>)}
                             </select>
                           </div>
                           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -6268,7 +6453,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                         </select>
                       </div>
                       <div className="md:col-span-2">
-                        <h5 className="text-sm font-semibold text-gray-800 mb-2">CaractÃ©ristiques gÃ©nÃ©rales</h5>
+                        <h5 className="text-sm font-semibold text-gray-800 mb-2">Caracteristiques generales</h5>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           {TERRAIN_VENTE_BOOLEAN_FIELDS.slice(2).map((field) => (
                             <label key={field} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -6607,52 +6792,100 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     <>
                       {(formData.mode === 'location_saisonniere') && (
                         <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-4">
-                          <h5 className="text-sm font-semibold text-emerald-800">Parametres location saisonniere</h5>
                           <div className="rounded-lg border border-gray-200 bg-white p-3">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">1) Informations generales</p>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Reference</span><p className="font-semibold text-gray-900 mt-0.5">{formData.reference || '-'}</p></div>
-                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Titre annonce</span><p className="font-semibold text-gray-900 mt-0.5">{formData.titre || '-'}</p></div>
-                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Type logement</span><p className="font-semibold text-gray-900 mt-0.5">{typeLabels[normalizeLegacyType((formData.type || 'appartement') as BienType)] || '-'}</p></div>
-                          </div>
                           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs text-gray-600 mb-1">Nombre de chambres global</label>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_nb_chambres ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Nombre de chambres global</label>
+                                <button type="button" onClick={() => removeUiBlock('info_nb_chambres')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
                               <input type="number" min={0} name="nb_chambres" value={formData.nb_chambres ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2 text-sm bg-white" />
                             </div>
-                            <div>
-                              <label className="block text-xs text-gray-600 mb-1">Nombre de SDB global</label>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_nb_sdb ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Nombre de SDB global</label>
+                                <button type="button" onClick={() => removeUiBlock('info_nb_sdb')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
                               <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2 text-sm bg-white" />
                             </div>
                           </div>
                         </div>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div><label className="block text-xs text-gray-600 mb-1">Categorie standing</label><select value={saisonConfig.categorie_standing || ''} onChange={(e) => updateSaisonConfig({ categorie_standing: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_STANDING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Etage</label><select value={saisonConfig.etage || ''} onChange={(e) => updateSaisonConfig({ etage: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ETAGE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Ascenseur</label><select value={saisonConfig.ascenseur ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ ascenseur: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="oui">Oui</option><option value="non">Non</option></select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Vue</label><select value={saisonConfig.vue || ''} onChange={(e) => updateSaisonConfig({ vue: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_VUE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Niveau sonore</label><select value={saisonConfig.niveau_sonore || ''} onChange={(e) => updateSaisonConfig({ niveau_sonore: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_NIVEAU_SONORE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                            <div><label className="block text-xs text-gray-600 mb-1">Acces general</label><select value={saisonConfig.acces_general || ''} onChange={(e) => updateSaisonConfig({ acces_general: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ACCES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_categorie_standing ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Categorie standing</label>
+                                <button type="button" onClick={() => removeUiBlock('info_categorie_standing')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <select value={saisonConfig.categorie_standing || ''} onChange={(e) => updateSaisonConfig({ categorie_standing: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_STANDING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_etage ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Etage</label>
+                                <button type="button" onClick={() => removeUiBlock('info_etage')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <select value={saisonConfig.etage || ''} onChange={(e) => updateSaisonConfig({ etage: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ETAGE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_ascenseur ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Ascenseur</label>
+                                <button type="button" onClick={() => removeUiBlock('info_ascenseur')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <select value={saisonConfig.ascenseur ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ ascenseur: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="oui">Oui</option><option value="non">Non</option></select>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_vue ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Vue</label>
+                                <button type="button" onClick={() => removeUiBlock('info_vue')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <select value={saisonConfig.vue || ''} onChange={(e) => updateSaisonConfig({ vue: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_VUE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_niveau_sonore ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Niveau sonore</label>
+                                <button type="button" onClick={() => removeUiBlock('info_niveau_sonore')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <select value={saisonConfig.niveau_sonore || ''} onChange={(e) => updateSaisonConfig({ niveau_sonore: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_NIVEAU_SONORE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_acces_general ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Acces general</label>
+                                <button type="button" onClick={() => removeUiBlock('info_acces_general')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <select value={saisonConfig.acces_general || ''} onChange={(e) => updateSaisonConfig({ acces_general: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ACCES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                            </div>
                           </div>
+                          {renderDetailTabFeatures()}
                         </div>
                       )}
-                      {renderDetailTabFeatures()}
+                      {(formData.mode !== 'location_saisonniere') && renderDetailTabFeatures()}
                     </>
                   )}
                   {!isInfoDetailTab && (formData.mode === 'location_saisonniere') && (
                     <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
                       {isLocalisationDetailTab && (
                         <div className="rounded-lg border border-gray-200 bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">2) Localisation et acces</p>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Zone / Quartier</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.quartier || selectedZone?.nom || '-'}</p></div>
-                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Ville</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.region || selectedZone?.nom || '-'}</p></div>
-                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Gouvernerat</span><p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.gouvernerat || '-'}</p></div>
-                            <div className="rounded border border-gray-200 bg-gray-50 p-2"><span className="text-gray-500">Coordonnees GPS</span><p className="font-semibold text-gray-900 mt-0.5 break-all">{selectedZone?.google_maps_url || '-'}</p></div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.loc_zone_quartier ? 'none' : undefined }}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-gray-500">Zone / Quartier</span>
+                                <button type="button" onClick={() => removeUiBlock('loc_zone_quartier')} className="rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.quartier || selectedZone?.nom || '-'}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.loc_ville ? 'none' : undefined }}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-gray-500">Ville</span>
+                                <button type="button" onClick={() => removeUiBlock('loc_ville')} className="rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.region || selectedZone?.nom || '-'}</p>
+                            </div>
                           </div>
                           <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
-                            <div className="rounded border border-emerald-200 bg-emerald-50 p-2">
-                              <span className="text-emerald-700 font-semibold">Lien Maps du bien (separe de la zone)</span>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.loc_maps_bien ? 'none' : undefined }}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-emerald-700 font-semibold">Lien Maps du bien (separe de la zone)</span>
+                                <button type="button" onClick={() => removeUiBlock('loc_maps_bien')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
                               <p className="text-gray-600 mt-1">Collez une URL embed Google Maps ou un iframe complet. Ce lien est prioritaire sur la zone.</p>
                               <input
                                 type="text"
@@ -6667,38 +6900,131 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                       )}
                       {isLitsDetailTab && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div><label className="block text-xs text-gray-600 mb-1">Prix matelas supplementaire (DT)</label><input type="number" min={0} value={saisonConfig.matelas_supplementaire_prix ?? 25} onChange={(e) => updateSaisonConfig({ matelas_supplementaire_prix: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Max matelas supplementaires</label><input type="number" min={0} value={saisonConfig.matelas_supplementaires_max ?? 0} onChange={(e) => updateSaisonConfig({ matelas_supplementaires_max: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.lits_prix_matelas ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Prix matelas supplementaire (DT)</label>
+                              <button type="button" onClick={() => removeUiBlock('lits_prix_matelas')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <input type="number" min={0} value={saisonConfig.matelas_supplementaire_prix ?? 25} onChange={(e) => updateSaisonConfig({ matelas_supplementaire_prix: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.lits_max_matelas ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Max matelas supplementaires</label>
+                              <button type="button" onClick={() => removeUiBlock('lits_max_matelas')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <input type="number" min={0} value={saisonConfig.matelas_supplementaires_max ?? 0} onChange={(e) => updateSaisonConfig({ matelas_supplementaires_max: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                          </div>
                         </div>
                       )}
                       {isConfortDetailTab && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div><label className="block text-xs text-gray-600 mb-1">Produits d'accueil gratuits</label><select value={saisonConfig.produits_accueil_gratuits ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="oui">Oui</option><option value="non">Non</option></select></div>
-                          {!saisonConfig.produits_accueil_gratuits && <div><label className="block text-xs text-gray-600 mb-1">Frais produits d'accueil (DT)</label><input type="number" min={0} value={saisonConfig.frais_produits_accueil ?? 0} onChange={(e) => updateSaisonConfig({ frais_produits_accueil: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>}
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.confort_produits_gratuits ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Produits d'accueil gratuits</label>
+                              <button type="button" onClick={() => removeUiBlock('confort_produits_gratuits')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={saisonConfig.produits_accueil_gratuits ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="oui">Oui</option><option value="non">Non</option></select>
+                          </div>
+                          {!saisonConfig.produits_accueil_gratuits && (
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.confort_frais_produits ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Frais produits d'accueil (DT)</label>
+                                <button type="button" onClick={() => removeUiBlock('confort_frais_produits')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <input type="number" min={0} value={saisonConfig.frais_produits_accueil ?? 0} onChange={(e) => updateSaisonConfig({ frais_produits_accueil: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                            </div>
+                          )}
                         </div>
                       )}
                       {isSecuriteDetailTab && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div><label className="block text-xs text-gray-600 mb-1">Fumeurs</label><select value={saisonConfig.fumeurs || ''} onChange={(e) => updateSaisonConfig({ fumeurs: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_FUMEURS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Alcool</label><select value={saisonConfig.alcool || ''} onChange={(e) => updateSaisonConfig({ alcool: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ALCOOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Animaux</label><select value={saisonConfig.animaux || ''} onChange={(e) => updateSaisonConfig({ animaux: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ANIMAUX_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.securite_fumeurs ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Fumeurs</label>
+                              <button type="button" onClick={() => removeUiBlock('securite_fumeurs')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={saisonConfig.fumeurs || ''} onChange={(e) => updateSaisonConfig({ fumeurs: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_FUMEURS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.securite_alcool ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Alcool</label>
+                              <button type="button" onClick={() => removeUiBlock('securite_alcool')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={saisonConfig.alcool || ''} onChange={(e) => updateSaisonConfig({ alcool: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ALCOOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                          </div>
+                          <div className="md:col-span-2 rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.securite_animaux ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Animaux</label>
+                              <button type="button" onClick={() => removeUiBlock('securite_animaux')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={saisonConfig.animaux || ''} onChange={(e) => updateSaisonConfig({ animaux: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ANIMAUX_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                          </div>
                         </div>
                       )}
                       {isConditionsDetailTab && (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div><label className="block text-xs text-gray-600 mb-1">Duree min sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_min_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_min_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Duree max sejour (nuits)</label><input type="number" min={1} value={saisonConfig.duree_max_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_max_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Politique annulation</label><select value={saisonConfig.politique_annulation || ''} onChange={(e) => updateSaisonConfig({ politique_annulation: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_POLITIQUE_ANNULATION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Depot de garantie</label><select value={saisonConfig.depot_garantie ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ depot_garantie: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="oui">Oui</option><option value="non">Non</option></select></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Montant caution</label><input type="number" min={0} value={saisonConfig.montant_caution ?? ''} onChange={(e) => updateSaisonConfig({ montant_caution: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Type caution</label><select value={saisonConfig.type_caution || ''} onChange={(e) => updateSaisonConfig({ type_caution: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_TYPE_CAUTION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Check-in</label><input value={saisonConfig.checkin_heure || ''} onChange={(e) => updateSaisonConfig({ checkin_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Check-out</label><input value={saisonConfig.checkout_heure || ''} onChange={(e) => updateSaisonConfig({ checkout_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" /></div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_duree_min ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Duree min sejour (nuits)</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_duree_min')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <input type="number" min={1} value={saisonConfig.duree_min_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_min_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_duree_max ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Duree max sejour (nuits)</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_duree_max')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <input type="number" min={1} value={saisonConfig.duree_max_sejour_nuits ?? ''} onChange={(e) => updateSaisonConfig({ duree_max_sejour_nuits: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_annulation ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Politique annulation</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_annulation')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={saisonConfig.politique_annulation || ''} onChange={(e) => updateSaisonConfig({ politique_annulation: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_POLITIQUE_ANNULATION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_depot ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Depot de garantie</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_depot')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={saisonConfig.depot_garantie ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ depot_garantie: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="oui">Oui</option><option value="non">Non</option></select>
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_montant_caution ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Montant caution</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_montant_caution')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <input type="number" min={0} value={saisonConfig.montant_caution ?? ''} onChange={(e) => updateSaisonConfig({ montant_caution: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_type_caution ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Type caution</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_type_caution')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={saisonConfig.type_caution || ''} onChange={(e) => updateSaisonConfig({ type_caution: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_TYPE_CAUTION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_checkin ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Check-in</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_checkin')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <input value={saisonConfig.checkin_heure || ''} onChange={(e) => updateSaisonConfig({ checkin_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.cond_checkout ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Check-out</label>
+                              <button type="button" onClick={() => removeUiBlock('cond_checkout')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <input value={saisonConfig.checkout_heure || ''} onChange={(e) => updateSaisonConfig({ checkout_heure: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white" />
+                          </div>
                         </div>
                       )}
+                      {renderDetailTabFeatures()}
                     </div>
                   )}
-                  {!isInfoDetailTab && renderDetailTabFeatures()}
+                  {!isInfoDetailTab && (formData.mode !== 'location_saisonniere') && renderDetailTabFeatures()}
                 </div>
               )}
               <div className="flex justify-between">
