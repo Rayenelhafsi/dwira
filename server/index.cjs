@@ -7740,7 +7740,6 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
               b.prix_nuitee,
               b.avance,
               b.caution,
-              b.ville,
               p.nom AS proprietaire_nom,
               p.email AS proprietaire_email,
               l.nom AS locataire_nom,
@@ -7805,7 +7804,7 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
       titre: contract.bien_titre || '',
       type: contract.bien_type || '',
       caution: contract.caution,
-      ville: contract.ville || 'Kelibia',
+      ville: String(demand.ville || demand.city || '').trim() || 'Kelibia',
     };
 
     const previousUrl = String(contract.url_pdf || '').trim() || null;
