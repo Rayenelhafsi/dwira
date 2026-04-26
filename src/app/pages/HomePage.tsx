@@ -4,7 +4,7 @@ import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, Chevro
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
@@ -118,8 +118,6 @@ export default function HomePage() {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [showSeasideDropdown, setShowSeasideDropdown] = useState(false);
   const [showComfortDropdown, setShowComfortDropdown] = useState(false);
-  const [categoryStep, setCategoryStep] = useState<"main" | "sub">("main");
-  const [categoryStepDirection, setCategoryStepDirection] = useState<1 | -1>(1);
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [hasSearched, setHasSearched] = useState(false);
@@ -149,53 +147,65 @@ export default function HomePage() {
       ),
     [zones]
   );
+  const normalizeLocationToken = (value?: string | null) =>
+    String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const dedupeLocationValues = (values: string[]) => {
+    const byToken = new Map<string, string>();
+    for (const rawValue of values) {
+      const value = String(rawValue || "").trim();
+      if (!value) continue;
+      const token = normalizeLocationToken(value);
+      if (!token || byToken.has(token)) continue;
+      byToken.set(token, value);
+    }
+    return Array.from(byToken.values()).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  };
   const cascadePaysOptions = useMemo(
-    () => Array.from(new Set(normalizedZones.map((zone) => String(zone.pays || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'fr')),
+    () => dedupeLocationValues(normalizedZones.map((zone) => String(zone.pays || "").trim()).filter(Boolean)),
     [normalizedZones]
   );
   const cascadeGouverneratOptions = useMemo(
     () =>
-      Array.from(
-        new Set(
-          normalizedZones
-            .filter((zone) => !locationPays || String(zone.pays || '').trim() === locationPays)
-            .map((zone) => String(zone.gouvernerat || '').trim())
-            .filter(Boolean)
-        )
-      ).sort((a, b) => a.localeCompare(b, 'fr')),
+      dedupeLocationValues(
+        normalizedZones
+          .filter((zone) => !locationPays || String(zone.pays || "").trim() === locationPays)
+          .map((zone) => String(zone.gouvernerat || "").trim())
+          .filter(Boolean)
+      ),
     [normalizedZones, locationPays]
   );
   const cascadeRegionOptions = useMemo(
     () =>
-      Array.from(
-        new Set(
-          normalizedZones
-            .filter(
-              (zone) =>
-                (!locationPays || String(zone.pays || '').trim() === locationPays)
-                && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
-            )
-            .map((zone) => String(zone.region || '').trim())
-            .filter(Boolean)
-        )
-      ).sort((a, b) => a.localeCompare(b, 'fr')),
+      dedupeLocationValues(
+        normalizedZones
+          .filter(
+            (zone) =>
+              (!locationPays || String(zone.pays || "").trim() === locationPays)
+              && (!locationGouvernerat || String(zone.gouvernerat || "").trim() === locationGouvernerat)
+          )
+          .map((zone) => String(zone.region || "").trim())
+          .filter(Boolean)
+      ),
     [normalizedZones, locationPays, locationGouvernerat]
   );
   const cascadeZoneOptions = useMemo(
     () =>
-      Array.from(
-        new Set(
-          normalizedZones
-            .filter(
-              (zone) =>
-                (!locationPays || String(zone.pays || '').trim() === locationPays)
-                && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
-                && (!locationRegion || String(zone.region || '').trim() === locationRegion)
-            )
-            .map((zone) => String(zone.quartier || zone.nom || '').trim())
-            .filter(Boolean)
-        )
-      ).sort((a, b) => a.localeCompare(b, 'fr')),
+      dedupeLocationValues(
+        normalizedZones
+          .filter(
+            (zone) =>
+              (!locationPays || String(zone.pays || "").trim() === locationPays)
+              && (!locationGouvernerat || String(zone.gouvernerat || "").trim() === locationGouvernerat)
+              && (!locationRegion || String(zone.region || "").trim() === locationRegion)
+          )
+          .map((zone) => String(zone.quartier || zone.nom || "").trim())
+          .filter(Boolean)
+      ),
     [normalizedZones, locationPays, locationGouvernerat, locationRegion]
   );
   const resolveZoneImageUrl = (url?: string | null) => {
@@ -432,9 +442,7 @@ export default function HomePage() {
     setSelectedCategories((prev) => prev.filter((cat) => allowed.has(cat)));
     const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
     setSelectedMainType((prev) => {
-      const next = prev && mainTypeAllowed.has(prev) ? prev : "";
-      if (!next) setCategoryStep("main");
-      return next;
+      return prev && mainTypeAllowed.has(prev) ? prev : "";
     });
   }, [availableTypeOptions, groupedTypeOptions]);
 
@@ -443,13 +451,6 @@ export default function HomePage() {
     const allowedSecondary = new Set(secondaryTypeOptions.map((item) => item.label));
     setSelectedCategories((prev) => prev.filter((cat) => allowedSecondary.has(cat)));
   }, [selectedMainType, secondaryTypeOptions]);
-
-  const selectMainType = (mainType: PropertyMainType) => {
-    setCategoryStepDirection(1);
-    setSelectedMainType(mainType);
-    setSelectedCategories([]);
-    setCategoryStep("sub");
-  };
 
   useEffect(() => {
     if (loading) {
@@ -1002,9 +1003,6 @@ export default function HomePage() {
                       setShowCategoryDropdown(!showCategoryDropdown);
                       setShowLocationDropdown(false);
                       setShowCalendar(false);
-                      if (!showCategoryDropdown) {
-                        setCategoryStep(selectedMainType ? "sub" : "main");
-                      }
                     }}
                   >
                     {selectedTypeImage && (
@@ -1029,78 +1027,49 @@ export default function HomePage() {
                       <div className="p-2">
                         <button
                           className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                          onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setCategoryStep("main"); setCategoryStepDirection(-1); setShowCategoryDropdown(false); }}
+                          onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setShowCategoryDropdown(false); }}
                         >
                           Tous les types
                         </button>
-                        <div className="relative mt-2 overflow-hidden">
-                          <AnimatePresence initial={false} mode="wait" custom={categoryStepDirection}>
-                            {(categoryStep === "main" || !selectedMainType) ? (
-                              <motion.div
-                                key="category-main-desktop"
-                                custom={categoryStepDirection}
-                                initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
-                                animate={{ x: 0, opacity: 1 }}
-                                exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
-                                transition={{ duration: 0.24, ease: "easeOut" }}
-                                className="space-y-2"
+                        <div className="mt-3 space-y-3">
+                          <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Type principal</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {groupedTypeOptions.map((group) => (
+                              <button
+                                key={`home-main-${group.mainType}`}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedMainType(group.mainType);
+                                  setSelectedCategories([]);
+                                }}
+                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
-                                {groupedTypeOptions.map((group) => (
-                                  <button
-                                    key={group.mainType}
-                                    className="relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden hover:bg-gray-50 text-gray-700"
-                                    onClick={() => selectMainType(group.mainType)}
-                                  >
-                                    <img
-                                      src={resolveTypeImageUrl(group.imageUrl)}
-                                      alt={group.label}
-                                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                                    />
-                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
-                                  </button>
-                                ))}
-                              </motion.div>
-                            ) : (
-                              <motion.div
-                                key={`category-sub-desktop-${selectedMainType}`}
-                                custom={categoryStepDirection}
-                                initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
-                                animate={{ x: 0, opacity: 1 }}
-                                exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
-                                transition={{ duration: 0.24, ease: "easeOut" }}
-                                className="space-y-2"
+                                <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sous-type</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {secondaryTypeOptions.map((cat) => (
+                              <button
+                                key={`home-sub-${cat.label}`}
+                                type="button"
+                                onClick={() => toggleCategory(cat.label)}
+                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
-                                <button
-                                  type="button"
-                                  onClick={() => { setCategoryStepDirection(-1); setCategoryStep("main"); setSelectedCategories([]); }}
-                                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
-                                >
-                                  Changer le type principal
-                                </button>
-                                {secondaryTypeOptions.map((cat) => (
-                                  <button
-                                    key={cat.label}
-                                    className={`relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden ${selectedCategories.includes(cat.label) ? 'ring-2 ring-emerald-400' : 'hover:bg-gray-50 text-gray-700'}`}
-                                    onClick={() => toggleCategory(cat.label)}
-                                  >
-                                    <img
-                                      src={resolveTypeImageUrl(cat.imageUrl)}
-                                      alt={cat.label}
-                                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                                    />
-                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                                    {selectedCategories.includes(cat.label) && (
-                                      <div className="relative z-10 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
-                                        <Check size={12} className="text-white" />
-                                      </div>
-                                    )}
-                                  </button>
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
+                                <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
+                                {selectedCategories.includes(cat.label) && (
+                                  <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
+                                    <Check size={12} />
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                         {groupedTypeOptions.length === 0 && (
                           <div className="px-4 py-3 text-sm text-gray-500">Aucun type disponible pour ce mode.</div>
@@ -1257,7 +1226,7 @@ export default function HomePage() {
                       <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
                         {MAIN_TYPE_LABELS[selectedMainType]}
-                        <button onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setCategoryStep("main"); }} className="ml-1 hover:text-emerald-200">
+                        <button onClick={() => { setSelectedMainType(""); setSelectedCategories([]); }} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
@@ -1456,78 +1425,49 @@ export default function HomePage() {
             <div ref={categoryMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
               <button
                 className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setCategoryStep("main"); setCategoryStepDirection(-1); setShowCategoryDropdown(false); }}
+                onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setShowCategoryDropdown(false); }}
               >
                 Tous les types
               </button>
-              <div className="relative mt-2 overflow-hidden">
-                <AnimatePresence initial={false} mode="wait" custom={categoryStepDirection}>
-                  {(categoryStep === "main" || !selectedMainType) ? (
-                    <motion.div
-                      key="category-main-mobile"
-                      custom={categoryStepDirection}
-                      initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
-                      transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="space-y-2"
+              <div className="mt-3 space-y-3">
+                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Type principal</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {groupedTypeOptions.map((group) => (
+                    <button
+                      key={`mobile-main-${group.mainType}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMainType(group.mainType);
+                        setSelectedCategories([]);
+                      }}
+                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
-                      {groupedTypeOptions.map((group) => (
-                        <button
-                          key={`mobile-main-${group.mainType}`}
-                          className="relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden hover:bg-gray-50 text-gray-700"
-                          onClick={() => selectMainType(group.mainType)}
-                        >
-                          <img
-                            src={resolveTypeImageUrl(group.imageUrl)}
-                            alt={group.label}
-                            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                          />
-                          <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                          <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
-                        </button>
-                      ))}
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key={`category-sub-mobile-${selectedMainType}`}
-                      custom={categoryStepDirection}
-                      initial={{ x: categoryStepDirection > 0 ? 40 : -40, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      exit={{ x: categoryStepDirection > 0 ? -40 : 40, opacity: 0 }}
-                      transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="space-y-2"
+                      <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                      <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                      <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sous-type</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {secondaryTypeOptions.map((cat) => (
+                    <button
+                      key={`mobile-sub-${cat.label}`}
+                      type="button"
+                      onClick={() => toggleCategory(cat.label)}
+                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => { setCategoryStepDirection(-1); setCategoryStep("main"); setSelectedCategories([]); }}
-                        className="w-full rounded-xl border border-gray-200 px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        Changer le type principal
-                      </button>
-                      {secondaryTypeOptions.map((cat) => (
-                        <button
-                          key={`mobile-cat-${cat.label}`}
-                          className={`relative w-full h-24 text-left px-4 rounded-xl text-sm transition-colors flex items-center justify-between overflow-hidden ${selectedCategories.includes(cat.label) ? 'ring-2 ring-emerald-400' : 'hover:bg-gray-50 text-gray-700'}`}
-                          onClick={() => toggleCategory(cat.label)}
-                        >
-                          <img
-                            src={resolveTypeImageUrl(cat.imageUrl)}
-                            alt={cat.label}
-                            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                          />
-                          <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                          <span className="relative z-10 text-white font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                          {selectedCategories.includes(cat.label) && (
-                            <div className="relative z-10 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
-                              <Check size={12} className="text-white" />
-                            </div>
-                          )}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                      <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                      <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
+                      {selectedCategories.includes(cat.label) && (
+                        <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
+                          <Check size={12} />
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
               {groupedTypeOptions.length === 0 && (
                 <div className="px-4 py-3 text-sm text-gray-500">Aucun type disponible pour ce mode.</div>
