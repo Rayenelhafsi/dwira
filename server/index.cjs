@@ -5164,8 +5164,52 @@ function sanitizePdfWinAnsiText(value) {
     .replace(/\u2014/g, '-');
 }
 
+function fitPdfTextToWidth(font, text, size, maxWidth) {
+  const normalized = sanitizePdfWinAnsiText(text).replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return normalized;
+  if (font.widthOfTextAtSize(normalized, size) <= maxWidth) return normalized;
+
+  const ellipsis = '...';
+  const ellipsisWidth = font.widthOfTextAtSize(ellipsis, size);
+  const room = Math.max(0, maxWidth - ellipsisWidth);
+  let out = '';
+  for (const ch of normalized) {
+    const next = out + ch;
+    if (font.widthOfTextAtSize(next, size) > room) break;
+    out = next;
+  }
+  return `${out.trimEnd()}${ellipsis}`;
+}
+
+function splitPdfTextByWidth(font, text, size, maxWidth) {
+  const normalized = sanitizePdfWinAnsiText(text).replace(/\s+/g, ' ').trim();
+  if (!normalized) return { line: '', remainder: '' };
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return { line: normalized, remainder: '' };
+  if (font.widthOfTextAtSize(normalized, size) <= maxWidth) return { line: normalized, remainder: '' };
+
+  const words = normalized.split(' ');
+  let line = '';
+  let idx = 0;
+  for (; idx < words.length; idx += 1) {
+    const candidate = line ? `${line} ${words[idx]}` : words[idx];
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      line = candidate;
+      continue;
+    }
+    if (!line) {
+      // Single word longer than the zone.
+      line = fitPdfTextToWidth(font, words[idx], size, maxWidth);
+      idx += 1;
+    }
+    break;
+  }
+  const remainder = words.slice(idx).join(' ').trim();
+  return { line, remainder };
+}
+
 function drawPdfLineValue(page, font, text, x, y, width, size = 10.5) {
-  const content = sanitizePdfWinAnsiText(text).trim();
+  const content = fitPdfTextToWidth(font, text, size, width);
   if (!content) return;
   page.drawRectangle({
     x: x - 1.5,
@@ -5853,7 +5897,11 @@ async function generateReservationClientContractHtml({
   drawPdfLineValue(page1, font, String(bien?.type || '-'), 160, 347.75, 220);
   drawPdfLineValue(page1, font, String(bien?.adresse || bien?.address || '-'), 223, 332.85, 280);
   drawPdfLineValue(page1, font, String(totalGuests), 195, 317.95, 52);
-  drawPdfLineValue(page1, font, equipements || '-', 170, 303.05, 360);
+  const equipSplit = splitPdfTextByWidth(font, equipements || '-', 10.5, 360);
+  drawPdfLineValue(page1, font, equipSplit.line || '-', 170, 303.05, 360);
+  if (equipSplit.remainder) {
+    drawPdfLineValue(page1, font, equipSplit.remainder, 51.1, 284.15, 500);
+  }
   drawPdfLineValue(page1, font, `Du ${start.dd || '--'} / ${start.mm || '--'} / ${start.yyyy || '----'} au ${end.dd || '--'} / ${end.mm || '--'} / ${end.yyyy || '----'}`, 70, 232.1, 430);
   drawPdfLineValue(page1, font, String(demand?.arrival_time || '-'), 150, 217.2, 95);
   drawPdfLineValue(page1, font, String(demand?.departure_time || '-'), 145, 202.3, 95);
