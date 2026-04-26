@@ -20,7 +20,10 @@ Thumbs.db
 
 # Runtime / deployment artifacts
 server/uploads/
-server/contracts/
+server/contracts/*
+!server/contracts/templates/
+server/contracts/templates/*
+!server/contracts/templates/contrat_location_saisonniere_dwira_2026_v5.pdf
 secrets/
 site.tar.gz
 dwira.sql

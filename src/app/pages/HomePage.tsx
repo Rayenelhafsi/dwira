@@ -37,10 +37,10 @@ type HomeComfortOptionKey =
   | "toutes_pieces_climatisees"
   | "jardin_gazon"
   | "terrasse";
-const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
-  { value: "location_saisonniere", label: "Location saisonniere" },
-  { value: "vente", label: "Vente" },
-  { value: "location_annuelle", label: "Location annuelle" },
+const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean }> = [
+  { value: "location_saisonniere", label: "Location saisonniere", comingSoon: false },
+  { value: "vente", label: "Vente", comingSoon: PUBLIC_COMING_SOON.ventes },
+  { value: "location_annuelle", label: "Location annuelle", comingSoon: PUBLIC_COMING_SOON.locationAnnuelle },
 ];
 
 const ZONE_FALLBACK_IMAGE =
@@ -457,10 +457,13 @@ export default function HomePage() {
     }
     const requestedMode = searchParams.get("mode");
     if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
-      setSelectedMode(requestedMode);
-      return;
+      const requestedTab = orderedModeTabs.find((tab) => tab.value === requestedMode);
+      if (requestedTab && !requestedTab.comingSoon) {
+        setSelectedMode(requestedMode);
+        return;
+      }
     }
-    const defaultMode = orderedModeTabs[0]?.value || "location_saisonniere";
+    const defaultMode = orderedModeTabs.find((tab) => !tab.comingSoon)?.value || "location_saisonniere";
     setSelectedMode(defaultMode);
     const next = new URLSearchParams(searchParams);
     if (next.get("mode") !== defaultMode) {
@@ -732,7 +735,9 @@ export default function HomePage() {
               <button
                 key={tab.value}
                 type="button"
+                disabled={Boolean(tab.comingSoon)}
                 onClick={() => {
+                  if (tab.comingSoon) return;
                   setSelectedMode(tab.value);
                   setHasSearched(false);
                   const next = new URLSearchParams(searchParams);
@@ -742,10 +747,13 @@ export default function HomePage() {
                 className={`relative min-w-0 rounded-[18px] border px-2 py-3 text-xs font-semibold leading-tight transition-all duration-200 sm:px-3 sm:text-sm md:rounded-[22px] md:px-5 ${
                   selectedMode === tab.value
                     ? "z-10 border-white/70 bg-white/78 text-emerald-800 shadow-[0_10px_30px_rgba(15,23,42,0.18)] backdrop-blur-xl"
-                    : "border-white/18 bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl hover:bg-white/20"
+                    : tab.comingSoon
+                      ? "border-white/18 bg-white/8 text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl opacity-80 cursor-not-allowed"
+                      : "border-white/18 bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl hover:bg-white/20"
                 }`}
               >
-                {tab.label}
+                <span className="block">{tab.label}</span>
+                {tab.comingSoon && <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-amber-200">Bientot</span>}
               </button>
             ))}
             </motion.div>

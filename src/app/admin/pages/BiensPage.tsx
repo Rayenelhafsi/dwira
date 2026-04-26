@@ -4431,6 +4431,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         if (rawValue) caracteristiqueValeurs[featureId] = rawValue;
       }
     }
+    const persistedCaracteristiqueIds = Array.from(new Set([
+      ...selectedFeatureIds.map((id) => String(id || '').trim()).filter(Boolean),
+      ...Object.keys(caracteristiqueValeurs).map((id) => String(id || '').trim()).filter(Boolean),
+    ]));
     const characteristicDisplayLines = availableFeatures
       .filter((feature) => selectedFeatureIds.includes(feature.id) && Number(feature.visibilite_client) !== 0)
       .map((feature) => {
@@ -4495,7 +4499,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         : null,
       description: buildDescriptionWithCharacteristics(formData.description || '', characteristicDisplayLines),
       caracteristiques: characteristicDisplayLines,
-      caracteristique_ids: selectedFeatureIds,
+      caracteristique_ids: persistedCaracteristiqueIds,
       caracteristique_valeurs: caracteristiqueValeurs,
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       media: imagesWithPositions,
@@ -4552,6 +4556,15 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
     .map((tab) => ({ id: tab.id, label: String(tab.nom || tab.id), is_system: Number(tab.is_system || 0) === 1 }))
     .filter((tab) => !isRemovedAdminTabLabel(tab.label));
+  const tabFeatureCountQuick = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const feature of availableFeatures) {
+      const tabId = String(feature.onglet_id || '').trim();
+      if (!tabId) continue;
+      counts[tabId] = (counts[tabId] || 0) + 1;
+    }
+    return counts;
+  }, [availableFeatures]);
   const detailTabsForRenderBase = (featureTabs.length > 0 ? featureTabs : DEFAULT_DETAILS_TABS)
     .slice()
     .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999))
@@ -4595,6 +4608,13 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       }
       if (!canonicalMap.has(canonicalKey)) {
         canonicalMap.set(canonicalKey, { ...tab });
+      } else {
+        const current = canonicalMap.get(canonicalKey)!;
+        const currentCount = Number(tabFeatureCountQuick[current.id] || 0);
+        const candidateCount = Number(tabFeatureCountQuick[tab.id] || 0);
+        if (candidateCount > currentCount) {
+          canonicalMap.set(canonicalKey, { ...tab });
+        }
       }
     }
     detailTabsForRender = [
@@ -4609,7 +4629,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const visibleFeatureTabs = featureTabs.filter((tab) => !isRemovedAdminTabLabel(String(tab.nom || tab.id)));
   const uiConfig = (formData.ui_config || {}) as BienUiConfig;
   const isUiSectionVisible = (key: keyof BienUiConfig) => uiConfig[key] !== false;
-  const visibleFeaturesForSelectedTab = selectedFeatureTabId
+  const visibleFeaturesForSelectedTabRaw = selectedFeatureTabId
     ? availableFeatures.filter((feature) => String(feature.onglet_id || '') === selectedFeatureTabId)
     : [];
   const unassignedFeatures = availableFeatures.filter((feature) => !String(feature.onglet_id || '').trim());
@@ -4677,14 +4697,33 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     ],
     cuisine_repas: ['nombre chaises chaises', 'type cuisine'],
   };
+  const isFeatureAllowedForCleanLocationTab = (feature: Caracteristique, canonicalTabKey: string) => {
+    const allowed = LOCATION_TAB_FEATURE_ALLOWLIST[canonicalTabKey] || [];
+    if (allowed.includes('*')) return true;
+    if (allowed.length === 0) return false;
+    const normalizedName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+    return allowed.some((token) => normalizedName.includes(token) || token.includes(normalizedName));
+  };
+  const resolveFeatureTabIdFromDetailTab = (detailTabId: string) => {
+    const directMatch = visibleFeatureTabs.find((tab) => tab.id === detailTabId);
+    if (directMatch) return directMatch.id;
+    if (selectedModeForUi !== 'location_saisonniere') return '';
+    const detailLabel = detailTabsForRender.find((tab) => tab.id === detailTabId)?.label || '';
+    const canonicalKey = detectCanonicalLocationTabKey(detailLabel);
+    if (!canonicalKey) return '';
+    const candidates = visibleFeatureTabs.filter((tab) => detectCanonicalLocationTabKey(String(tab.nom || '')) === canonicalKey);
+    if (candidates.length === 0) return '';
+    candidates.sort((a, b) => Number(tabFeatureCountQuick[b.id] || 0) - Number(tabFeatureCountQuick[a.id] || 0));
+    return candidates[0]?.id || '';
+  };
+  const selectedFeatureTabCanonicalKey = detectCanonicalLocationTabKey(
+    visibleFeatureTabs.find((tab) => tab.id === selectedFeatureTabId)?.nom || ''
+  );
+  const visibleFeaturesForSelectedTab = (selectedModeForUi === 'location_saisonniere' && selectedFeatureTabCanonicalKey)
+    ? visibleFeaturesForSelectedTabRaw.filter((feature) => isFeatureAllowedForCleanLocationTab(feature, selectedFeatureTabCanonicalKey))
+    : visibleFeaturesForSelectedTabRaw;
   const detailTabFeatures = (selectedModeForUi === 'location_saisonniere' && activeDetailTabCanonicalKey)
-    ? detailTabFeaturesRaw.filter((feature) => {
-        const allowed = LOCATION_TAB_FEATURE_ALLOWLIST[activeDetailTabCanonicalKey] || [];
-        if (allowed.includes('*')) return true;
-        if (allowed.length === 0) return false;
-        const normalizedName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
-        return allowed.some((token) => normalizedName.includes(token) || token.includes(normalizedName));
-      })
+    ? detailTabFeaturesRaw.filter((feature) => isFeatureAllowedForCleanLocationTab(feature, activeDetailTabCanonicalKey))
     : detailTabFeaturesRaw;
   const detailTabFeatureCountById = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -5205,6 +5244,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
             type="button"
             onClick={(event) => {
               setDetailSectionTabId(section.id);
+              if (showFeaturePanel) {
+                const linkedFeatureTabId = resolveFeatureTabIdFromDetailTab(section.id);
+                if (linkedFeatureTabId) setSelectedFeatureTabId(linkedFeatureTabId);
+              }
               event.currentTarget.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
             }}
             className={`inline-flex whitespace-nowrap px-3 py-2 text-xs rounded-full border transition-colors ${detailSectionTabId === section.id ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
@@ -5929,7 +5972,26 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
             {generalStep === 3 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 3 - Caracteristiques</h3>
-                <button type="button" onClick={() => setShowFeaturePanel(!showFeaturePanel)} className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Gerer caracteristiques</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFeaturePanel((prev) => {
+                      const next = !prev;
+                      if (next) {
+                        const linkedFeatureTabId = resolveFeatureTabIdFromDetailTab(detailSectionTabId);
+                        if (linkedFeatureTabId) {
+                          setSelectedFeatureTabId(linkedFeatureTabId);
+                        } else if (!selectedFeatureTabId && visibleFeatureTabs[0]?.id) {
+                          setSelectedFeatureTabId(visibleFeatureTabs[0].id);
+                        }
+                      }
+                      return next;
+                    });
+                  }}
+                  className="px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                >
+                  Gerer caracteristiques
+                </button>
               </div>
               <p className="text-sm text-gray-500">Les caracteristiques sont selectionnees et affichees directement dans les onglets de details ci-dessous.</p>
               {showFeaturePanel && (

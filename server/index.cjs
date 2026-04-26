@@ -10,6 +10,7 @@ const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const Tesseract = require('tesseract.js');
 const XLSX = require('xlsx');
+const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 let firebaseAdmin = null;
 try {
   firebaseAdmin = require('firebase-admin');
@@ -5102,6 +5103,70 @@ function formatStayPeriodFr(startDate, endDate) {
   return `${formatDateFr(startSql)} au ${formatDateFr(endSql)} (${nights} nuit${nights > 1 ? 's' : ''})`;
 }
 
+function parseSqlDateParts(value) {
+  const sql = toSqlDateOnly(value);
+  if (!sql) return { dd: '', mm: '', yyyy: '', iso: '' };
+  const [yyyy, mm, dd] = sql.split('-');
+  return { dd: dd || '', mm: mm || '', yyyy: yyyy || '', iso: sql };
+}
+
+function parseSqlDateTimeParts(value) {
+  if (!value) return { date: parseSqlDateParts(''), hh: '', min: '' };
+  const text = String(value).trim();
+  const parsed = new Date(text.includes('T') ? text : text.replace(' ', 'T'));
+  if (!Number.isNaN(parsed.getTime())) {
+    const dateIso = parsed.toISOString().slice(0, 10);
+    return {
+      date: parseSqlDateParts(dateIso),
+      hh: String(parsed.getHours()).padStart(2, '0'),
+      min: String(parsed.getMinutes()).padStart(2, '0'),
+    };
+  }
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  return {
+    date: parseSqlDateParts(match ? `${match[1]}-${match[2]}-${match[3]}` : ''),
+    hh: match?.[4] || '',
+    min: match?.[5] || '',
+  };
+}
+
+function formatAmountTndRaw(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '';
+  return num.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function normalizePaymentModeForTemplate(paymentMode) {
+  if (paymentMode === 'totalite') return 'Paiement par carte electronique';
+  return 'Virement';
+}
+
+function parseDemandVariableServices(demand) {
+  if (Array.isArray(demand?.variable_services_quote)) return demand.variable_services_quote;
+  const raw = demand?.variable_services_quote_json;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function drawPdfLineValue(page, font, text, x, y, width, size = 10.5) {
+  const content = String(text || '').trim();
+  if (!content) return;
+  page.drawRectangle({
+    x: x - 1.5,
+    y: y - 1.5,
+    width,
+    height: size + 4,
+    color: rgb(1, 1, 1),
+  });
+  page.drawText(content, { x, y, size, font, color: rgb(0, 0, 0) });
+}
+
 function extractIdentityNumberFromText(rawText, documentType) {
   const text = String(rawText || '').toUpperCase();
   const compact = text.replace(/\s+/g, ' ').trim();
@@ -5739,107 +5804,78 @@ async function generateReservationClientContractHtml({
   if (!fs.existsSync(contractsDir)) {
     fs.mkdirSync(contractsDir, { recursive: true });
   }
-  const fileName = `contract-client-${contractId}.html`;
+  const fileName = `contract-client-${contractId}.pdf`;
   const filePath = path.join(contractsDir, fileName);
-  const nights = computeNights(demand.start_date, demand.end_date);
-  const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
   const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
   const childGuests = Math.max(0, Number(demand.child_guests || 0));
   const totalGuests = Math.max(1, Number(demand.guests || (adultGuests + childGuests) || 1));
   const reservationTotal = Number(totalAmount || 0);
-  const servicesQuoteTotal = Number(demand?.variable_services_quote_total || 0);
-  const hasServicesQuote = servicesQuoteTotal > 0;
-  const globalTotal = reservationTotal + servicesQuoteTotal;
   const amountNow = Number(amountDueNow || 0);
   const balance = Math.max(0, reservationTotal - amountNow);
-  const nowDisplay = new Date(String(contractCreatedAt).replace(' ', 'T')).toLocaleString('fr-FR', { timeZone: AGENCY_TIME_ZONE, hour12: false });
-  const docLabel = identityDocumentType === 'cin_tn'
-    ? 'CIN tunisienne'
-    : (identityDocumentType === 'passport_tn' ? 'Passeport tunisien' : 'Passeport etranger');
-  const paymentModeLabel = paymentMode === 'totalite' ? 'Totalite' : 'Avance';
+  const templatePath = path.join(__dirname, 'contracts', 'templates', 'contrat_location_saisonniere_dwira_2026_v5.pdf');
+  const templateBytes = await fs.promises.readFile(templatePath);
+  const pdf = await PDFDocument.load(templateBytes);
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
 
-  const html = `<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Contrat ${escapeHtml(contractId)}</title>
-  <style>
-    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; background: #f4f6f8; color: #0f172a; }
-    .page { max-width: 980px; margin: 28px auto; background: #fff; border: 1px solid #d7dee5; border-radius: 14px; padding: 24px; }
-    h1 { margin: 0; font-size: 28px; }
-    h2 { margin: 20px 0 8px; font-size: 17px; color: #0b4f39; }
-    .muted { color: #64748b; font-size: 13px; }
-    .meta { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 14px; }
-    .box { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
-    .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
-    p { margin: 4px 0; line-height: 1.5; }
-    ul { margin: 6px 0 0 20px; }
-    .sign { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-top: 20px; }
-    .sign .box { min-height: 110px; }
-    @media print { body { background: #fff; } .page { margin: 0; border: 0; border-radius: 0; } }
-  </style>
-</head>
-<body>
-  <main class="page">
-    <h1>Contrat de location saisonniere</h1>
-    <p class="muted">Genere automatiquement le ${escapeHtml(nowDisplay)} - Ref contrat: ${escapeHtml(contractId)}</p>
+  const fullName = `${String(identityLastName || '').trim()} ${String(identityFirstName || '').trim()}`.trim() || String(demand?.client_name || demand?.client_email || '');
+  const identityRef = identityDocumentType === 'cin_tn'
+    ? `CIN ${String(identityNumber || '').trim()}`
+    : `Passeport ${String(identityNumber || '').trim()}`;
+  const start = parseSqlDateParts(demand.start_date);
+  const end = parseSqlDateParts(demand.end_date);
+  const finalization = parseSqlDateTimeParts(demand.finalization_due_at || contractCreatedAt);
+  const modePaiement = normalizePaymentModeForTemplate(paymentMode);
+  const equipements = [
+    String(bien?.reference || '').trim() && `Ref: ${String(bien.reference).trim()}`,
+    String(bien?.titre || demand?.bien_titre || '').trim(),
+    String(bien?.type || '').trim() && `Type: ${String(bien.type).trim()}`,
+  ].filter(Boolean).join(' | ');
+  const services = parseDemandVariableServices(demand).slice(0, 6);
+  const signatureDate = parseSqlDateParts(contractCreatedAt);
+  const caution = Number.isFinite(Number(bien?.caution)) ? Number(bien.caution) : 0;
+  const phoneCandidate = String(demand?.client_phone || demand?.phone || '').trim();
 
-    <div class="meta">
-      <div class="box">
-        <h2>Locataire</h2>
-        <p><strong>Nom:</strong> ${escapeHtml(identityLastName || '-')}</p>
-        <p><strong>Prenom:</strong> ${escapeHtml(identityFirstName || '-')}</p>
-        <p><strong>Email:</strong> ${escapeHtml(demand.client_email || '-')}</p>
-        <p><strong>Identite:</strong> ${escapeHtml(docLabel)} - ${escapeHtml(identityNumber || '-')}</p>
-      </div>
-      <div class="box">
-        <h2>Agence</h2>
-        <p><strong>Agence:</strong> Dwira Immobilier</p>
-      </div>
-    </div>
+  const page1 = pdf.getPage(0);
+  drawPdfLineValue(page1, font, fullName, 306.1, 514.15, 220);
+  drawPdfLineValue(page1, font, identityRef, 306.1, 494.05, 220);
+  drawPdfLineValue(page1, font, String(demand?.client_address || demand?.address || '-'), 306.1, 473.95, 220);
+  drawPdfLineValue(page1, font, phoneCandidate || '-', 306.1, 453.85, 220);
+  drawPdfLineValue(page1, font, String(bien?.type || '-'), 160, 347.75, 220);
+  drawPdfLineValue(page1, font, String(bien?.adresse || bien?.address || '-'), 223, 332.85, 280);
+  drawPdfLineValue(page1, font, String(totalGuests), 195, 317.95, 52);
+  drawPdfLineValue(page1, font, equipements || '-', 170, 303.05, 360);
+  drawPdfLineValue(page1, font, `Du ${start.dd || '--'} / ${start.mm || '--'} / ${start.yyyy || '----'} au ${end.dd || '--'} / ${end.mm || '--'} / ${end.yyyy || '----'}`, 70, 232.1, 430);
+  drawPdfLineValue(page1, font, String(demand?.arrival_time || '-'), 150, 217.2, 95);
+  drawPdfLineValue(page1, font, String(demand?.departure_time || '-'), 145, 202.3, 95);
 
-    <h2>Bien et sejour</h2>
-    <div class="box">
-      <p><strong>Reference:</strong> ${escapeHtml(bien?.reference || demand.bien_id)}</p>
-      <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
-      <p><strong>Type:</strong> ${escapeHtml(bien?.type || '-')}</p>
-      <p><strong>Periode:</strong> ${escapeHtml(stayPeriodLabel)}</p>
-      <p><strong>Voyageurs:</strong> ${escapeHtml(String(totalGuests))} (Adultes: ${escapeHtml(String(adultGuests))}, Enfants: ${escapeHtml(String(childGuests))})</p>
-    </div>
+  const page2 = pdf.getPage(1);
+  drawPdfLineValue(page2, font, formatAmountTndRaw(reservationTotal), 306.1, 716.35, 175, 11);
+  drawPdfLineValue(page2, font, formatAmountTndRaw(amountNow), 306.1, 695.2, 175, 11);
+  drawPdfLineValue(page2, font, `${finalization.date.dd || '--'} / ${finalization.date.mm || '--'} / ${finalization.date.yyyy || '----'} a ${finalization.hh || '--'} h ${finalization.min || '--'}`, 306.1, 674.05, 250, 11);
+  drawPdfLineValue(page2, font, String(demand?.payment_id || demand?.reservation_payment_id || '-'), 306.1, 652.9, 250, 11);
+  drawPdfLineValue(page2, font, formatAmountTndRaw(balance), 306.1, 631.75, 175, 11);
+  drawPdfLineValue(page2, font, modePaiement, 306.1, 604.3, 250, 11);
+  drawPdfLineValue(page2, font, formatAmountTndRaw(caution), 182, 334.1, 130);
 
-    <h2>Details reservation</h2>
-    <div class="grid3">
-      <div class="box"><p class="muted">Montant reservation</p><p><strong>${escapeHtml(formatCurrency(reservationTotal))}</strong></p></div>
-      ${hasServicesQuote ? `<div class="box"><p class="muted">Devis services</p><p><strong>${escapeHtml(formatCurrency(servicesQuoteTotal))}</strong></p></div>` : ''}
-      <div class="box"><p class="muted">Montant global</p><p><strong>${escapeHtml(formatCurrency(hasServicesQuote ? globalTotal : reservationTotal))}</strong></p></div>
-      <div class="box"><p class="muted">Methode de paiement</p><p><strong>${escapeHtml(paymentModeLabel)}</strong></p></div>
-      <div class="box"><p class="muted">A payer maintenant</p><p><strong>${escapeHtml(formatCurrency(amountNow))}</strong></p></div>
-      <div class="box"><p class="muted">Reste a payer</p><p><strong>${escapeHtml(formatCurrency(balance))}</strong></p></div>
-    </div>
-    ${hasServicesQuote ? `
-    <div class="box" style="margin-top: 10px;">
-      <p><strong>Note services payants:</strong> le montant global inclut le devis des services additionnels confirmes par l'agence.</p>
-    </div>` : ''}
+  let serviceY = 421;
+  for (const service of services) {
+    const label = String(service?.label || service?.name || service?.service || '-').trim();
+    const amount = Number.isFinite(Number(service?.prix ?? service?.price ?? service?.montant))
+      ? formatAmountTndRaw(Number(service.prix ?? service.price ?? service.montant))
+      : '';
+    if (!label) continue;
+    drawPdfLineValue(page2, font, label.slice(0, 56), 51.1, serviceY, 335, 9.8);
+    if (amount) drawPdfLineValue(page2, font, amount, 403.35, serviceY, 95, 9.8);
+    serviceY -= 14.5;
+    if (serviceY < 356) break;
+  }
 
-    <h2>Clauses principales</h2>
-    <div class="box">
-      <ul>
-        <li>Le locataire s'engage a utiliser le bien de facon paisible et conforme au reglement.</li>
-        <li>Le contrat prend effet sur la periode de sejour mentionnee ci-dessus.</li>
-        <li>Le paiement final constitue la derniere etape pour confirmer definitivement la location.</li>
-      </ul>
-    </div>
+  const page3 = pdf.getPage(2);
+  drawPdfLineValue(page3, font, String(bien?.ville || 'Kelibia'), 85, 597.55, 165);
+  drawPdfLineValue(page3, font, `${signatureDate.dd || '--'} / ${signatureDate.mm || '--'} / ${signatureDate.yyyy || '----'}`, 330, 597.55, 140);
 
-    <div class="sign" style="grid-template-columns: repeat(2, minmax(0,1fr));">
-      <div class="box"><p><strong>Signature locataire</strong></p><p class="muted">Lu et approuve</p></div>
-      <div class="box"><p><strong>Signature agence</strong></p><p class="muted">Cachet et signature</p></div>
-    </div>
-  </main>
-</body>
-</html>`;
-
-  await fs.promises.writeFile(filePath, html, 'utf8');
+  const outputBytes = await pdf.save();
+  await fs.promises.writeFile(filePath, outputBytes);
   return `/contracts/${fileName}`;
 }
 
@@ -7686,6 +7722,120 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
   } catch (error) {
     console.error('Error fetching contrat by id:', error);
     res.status(500).json({ error: 'Failed to fetch contrat' });
+  }
+});
+
+app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    await ensureContractsSchema();
+    const contractId = String(req.params.id || '').trim();
+    if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
+
+    const [contractRows] = await pool.query(
+      `SELECT c.*, 
+              b.titre AS bien_titre,
+              b.reference AS bien_reference,
+              b.type AS bien_type,
+              b.prix_nuitee,
+              b.avance,
+              b.caution,
+              b.ville,
+              p.nom AS proprietaire_nom,
+              p.email AS proprietaire_email,
+              l.nom AS locataire_nom,
+              l.email AS locataire_email,
+              l.telephone AS locataire_telephone,
+              l.cin AS locataire_cin
+       FROM contrats c
+       LEFT JOIN biens b ON b.id = c.bien_id
+       LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+       LEFT JOIN locataires l ON l.id = c.locataire_id
+       WHERE c.id = ?
+       LIMIT 1`,
+      [contractId]
+    );
+    const contract = contractRows[0];
+    if (!contract) return res.status(404).json({ error: 'Contrat introuvable' });
+
+    const [demandRows] = await pool.query(
+      `SELECT *
+       FROM reservation_demands
+       WHERE contract_id = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [contractId]
+    );
+    const demand = demandRows[0] || {};
+
+    const locataireName = splitFullName(contract.locataire_nom || '');
+    const identityFirstName = String(demand.identity_first_name || locataireName.firstName || '').trim();
+    const identityLastName = String(demand.identity_last_name || locataireName.lastName || '').trim();
+    const identityNumber = normalizeIdentityNumber(demand.identity_document_number || contract.locataire_cin || '');
+    const identityDocumentType = normalizeIdentityDocumentType(demand.identity_document_type, identityNumber && /^\d{8}$/.test(identityNumber) ? 'cin_tn' : 'passport_foreign');
+
+    const startDate = String(demand.start_date || contract.date_debut || '').trim();
+    const endDate = String(demand.end_date || contract.date_fin || '').trim();
+    const nights = computeNights(startDate, endDate);
+    const totalAmount = Number.isFinite(Number(demand.total_amount))
+      ? Number(demand.total_amount)
+      : (Number(contract.prix_nuitee || 0) > 0 ? (Number(contract.prix_nuitee || 0) * nights) : Number(contract.montant_recu || 0));
+    const paymentMode = normalizePaymentMode(demand.payment_mode || 'avance', 'avance');
+    const amountDueNow = Number.isFinite(Number(demand.amount_due_now))
+      ? Number(demand.amount_due_now)
+      : Number(contract.montant_recu || 0);
+
+    const contractDemandContext = {
+      ...demand,
+      bien_id: contract.bien_id,
+      bien_titre: contract.bien_titre || null,
+      start_date: startDate,
+      end_date: endDate,
+      client_name: `${identityLastName} ${identityFirstName}`.trim() || String(contract.locataire_nom || '').trim(),
+      client_email: String(demand.client_email || contract.locataire_email || '').trim(),
+      client_phone: String(demand.client_phone || contract.locataire_telephone || '').trim(),
+      finalization_due_at: demand.finalization_due_at || null,
+      payment_mode: paymentMode,
+      amount_due_now: amountDueNow,
+      total_amount: totalAmount,
+    };
+    const bienContext = {
+      id: contract.bien_id,
+      reference: contract.bien_reference || '',
+      titre: contract.bien_titre || '',
+      type: contract.bien_type || '',
+      caution: contract.caution,
+      ville: contract.ville || 'Kelibia',
+    };
+
+    const previousUrl = String(contract.url_pdf || '').trim() || null;
+    const regeneratedUrl = await generateReservationClientContractHtml({
+      demand: contractDemandContext,
+      bien: bienContext,
+      contractId,
+      contractCreatedAt: contract.created_at || getAgencySqlDateTime(),
+      totalAmount,
+      amountDueNow,
+      paymentMode,
+      identityNumber: identityNumber || '-',
+      identityDocumentType,
+      identityFirstName: identityFirstName || '-',
+      identityLastName: identityLastName || '-',
+    });
+
+    await pool.query('UPDATE contrats SET url_pdf = ? WHERE id = ?', [regeneratedUrl, contractId]);
+    const [updatedRows] = await pool.query('SELECT * FROM contrats WHERE id = ? LIMIT 1', [contractId]);
+
+    res.json({
+      ok: true,
+      contract_id: contractId,
+      previous_url_pdf: previousUrl,
+      url_pdf: regeneratedUrl,
+      contract: updatedRows[0] || null,
+    });
+  } catch (error) {
+    console.error('Error regenerating contract template PDF:', error);
+    res.status(500).json({ error: 'Regeneration du contrat impossible' });
   }
 });
 

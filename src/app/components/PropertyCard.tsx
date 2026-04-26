@@ -14,20 +14,29 @@ const PROPERTY_CARD_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Crect width='1200' height='800' fill='%23e5e7eb'/%3E%3Cpath d='M220 560l180-180 120 120 110-110 170 150H220z' fill='%23cbd5e1'/%3E%3Ccircle cx='430' cy='260' r='56' fill='%23cbd5e1'/%3E%3C/svg%3E";
 
 const normalizeTypeToken = (value: string) => value.toLowerCase().replace(/[^a-z0-9+]+/g, " ").trim();
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const resolveMainTypeLabel = (category: string, title: string) => {
   const normalizedCategory = normalizeTypeToken(category);
   const normalizedTitle = normalizeTypeToken(title);
-  if (normalizedCategory.includes("s+")) return "Appartement";
   if (normalizedCategory.includes("appartement")) return "Appartement";
   if (normalizedCategory.includes("villa")) return "Villa";
+  if (normalizedCategory.includes("maison")) return "Maison";
   if (normalizedCategory.includes("studio")) return "Studio";
   if (normalizedCategory.includes("bungalow")) return "Bungalow";
   if (normalizedCategory.includes("terrain")) return "Terrain";
+  if (normalizedCategory.includes("lotissement")) return "Lotissement";
   if (normalizedCategory.includes("immeuble")) return "Immeuble";
+  if (normalizedCategory.includes("local commercial")) return "Local commercial";
+  if (normalizedCategory.includes("local")) return "Local";
+  if (normalizedCategory.includes("s+")) return "Appartement";
   if (normalizedTitle.includes("appartement")) return "Appartement";
   if (normalizedTitle.includes("villa")) return "Villa";
+  if (normalizedTitle.includes("maison")) return "Maison";
   if (normalizedTitle.includes("studio")) return "Studio";
+  if (normalizedTitle.includes("local")) return "Local";
+  if (normalizedTitle.includes("terrain")) return "Terrain";
+  if (normalizedTitle.includes("immeuble")) return "Immeuble";
   return "Bien";
 };
 
@@ -37,6 +46,11 @@ const resolveSubTypeLabel = (category: string, mainType: string) => {
   const normalizedMainType = normalizeTypeToken(mainType);
   const sPlusMatch = rawCategory.match(/s\+\d+/i);
   if (sPlusMatch?.[0]) return sPlusMatch[0].toUpperCase();
+  if (normalizedMainType) {
+    const prefixRegex = new RegExp(`^${escapeRegExp(mainType)}\\s*[-:/]?\\s*`, "i");
+    const trimmedWithoutType = rawCategory.replace(prefixRegex, "").trim();
+    if (trimmedWithoutType) return trimmedWithoutType;
+  }
   if (!normalizedCategory || normalizedCategory === normalizedMainType) {
     return normalizedMainType === "studio" ? "S+1" : "";
   }

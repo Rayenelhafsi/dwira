@@ -442,6 +442,19 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     'bungalow': 'Villa',
     'villa': 'Villa',
   };
+  const typeToMainLabel: Record<string, string> = {
+    appartement: 'Appartement',
+    villa_maison: 'Villa',
+    villa: 'Villa',
+    maison: 'Maison',
+    studio: 'Studio',
+    bungalow: 'Bungalow',
+    terrain: 'Terrain',
+    lotissement: 'Lotissement',
+    immeuble: 'Immeuble',
+    local: 'Local',
+    local_commercial: 'Local commercial',
+  };
 
   const detailPath = bien.mode === 'vente' && bien.type === 'immeuble'
     ? `/vente/immeuble/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`
@@ -492,11 +505,21 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
   const seasonalServiceFee = Number(bien.location_saisonniere_config?.frais_service ?? 0);
   const normalizedConfiguration = String(bien.configuration || '').trim();
   const categoryFromType = typeToCategory[bien.type] || 'S+1';
-  const resolvedCategory = (
-    (bien.type === 'appartement' || bien.type === 'S1' || bien.type === 'S2' || bien.type === 'S3' || bien.type === 'S4')
-      ? (normalizedConfiguration || categoryFromType)
-      : categoryFromType
-  );
+  const mainTypeLabel = typeToMainLabel[bien.type] || categoryFromType;
+  const normalizeLabelToken = (value: string) => String(value || '').toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
+  const normalizedMainTypeLabel = normalizeLabelToken(mainTypeLabel);
+  const normalizedConfigurationLabel = normalizeLabelToken(normalizedConfiguration);
+  let resolvedCategory = categoryFromType;
+  if (normalizedConfiguration) {
+    const configurationAlreadyContainsType =
+      normalizedConfigurationLabel.startsWith(normalizedMainTypeLabel)
+      || normalizedConfigurationLabel.includes(normalizedMainTypeLabel);
+    resolvedCategory = configurationAlreadyContainsType
+      ? normalizedConfiguration
+      : `${mainTypeLabel} ${normalizedConfiguration}`;
+  } else if (bien.type === 'appartement' || bien.type === 'S1' || bien.type === 'S2' || bien.type === 'S3' || bien.type === 'S4') {
+    resolvedCategory = categoryFromType;
+  }
 
   return {
     id: bien.id,
