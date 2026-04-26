@@ -5154,8 +5154,18 @@ function parseDemandVariableServices(demand) {
   }
 }
 
+function sanitizePdfWinAnsiText(value) {
+  return String(value || '')
+    .replace(/\u202f/g, ' ')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\u2019/g, "'")
+    .replace(/\u2018/g, "'")
+    .replace(/\u2013/g, '-')
+    .replace(/\u2014/g, '-');
+}
+
 function drawPdfLineValue(page, font, text, x, y, width, size = 10.5) {
-  const content = String(text || '').trim();
+  const content = sanitizePdfWinAnsiText(text).trim();
   if (!content) return;
   page.drawRectangle({
     x: x - 1.5,
