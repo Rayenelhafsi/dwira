@@ -54,6 +54,13 @@ const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
   immeuble: "Immeuble",
   autre: "Autre",
 };
+const MAIN_TYPE_DISPLAY_ORDER: PropertyMainType[] = [
+  "appartement",
+  "villa_maison",
+  "studio",
+  "immeuble",
+  "autre",
+];
 const SEASIDE_OPTION_LABELS: Record<HomeSeasideOptionKey, string> = {
   pied_dans_eau: "Pied dans l'eau",
   vue_sur_mer: "Vue sur mer",
@@ -412,7 +419,7 @@ export default function HomePage() {
 
     return Array.from(groups.values())
       .filter((group) => group.subTypes.length > 0 || group.imageUrl !== TYPE_FALLBACK_IMAGE)
-      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
+      .sort((a, b) => MAIN_TYPE_DISPLAY_ORDER.indexOf(a.mainType) - MAIN_TYPE_DISPLAY_ORDER.indexOf(b.mainType));
   }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
   const secondaryTypeOptions = useMemo(() => {
     if (!selectedMainType) return availableTypeOptions;
