@@ -5356,9 +5356,6 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         if (!Number.isFinite(maxGuests) || maxGuests <= 0) issues.push(createValidationIssue(3, 'limite_personnes_nuit', 'Voyageurs max', 'Le nombre max de voyageurs doit etre > 0'));
         if (!Number.isFinite(maxAdults) || maxAdults <= 0) issues.push(createValidationIssue(3, 'max_adultes', 'Adultes max', 'Le nombre max adultes doit etre > 0'));
         if (!Number.isFinite(maxChildren) || maxChildren < 0) issues.push(createValidationIssue(3, 'max_enfants', 'Enfants max', 'Le nombre max enfants doit etre >= 0'));
-        if (Number.isFinite(maxGuests) && Number.isFinite(maxAdults) && Number.isFinite(maxChildren) && (maxAdults + maxChildren < maxGuests)) {
-          issues.push(createValidationIssue(3, 'max_enfants', 'Capacite voyageurs', 'Adultes max + enfants max doit couvrir voyageurs max'));
-        }
       }
     }
 

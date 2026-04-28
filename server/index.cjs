@@ -9834,9 +9834,6 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     const maxGuestsCap = hasCfgMaxGuests
       ? Math.floor(cfgMaxGuestsRaw)
       : splitCapsTotal;
-    const effectiveMaxGuestsCap = maxGuestsCap !== null && splitCapsTotal !== null
-      ? Math.min(maxGuestsCap, splitCapsTotal)
-      : maxGuestsCap;
 
     const normalizedGuests = Math.max(1, Math.floor(Number(guests || 1)));
     const normalizedAdultGuests = Math.max(1, Math.floor(Number((adult_guests ?? guests) || 1)));
@@ -9845,8 +9842,8 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     if (normalizedGuests !== requestedTotalGuests) {
       return res.status(400).json({ error: 'Le total voyageurs doit etre egal a adultes + enfants' });
     }
-    if (effectiveMaxGuestsCap !== null && normalizedGuests > effectiveMaxGuestsCap) {
-      return res.status(400).json({ error: `Le nombre max de voyageurs est ${effectiveMaxGuestsCap}` });
+    if (maxGuestsCap !== null && normalizedGuests > maxGuestsCap) {
+      return res.status(400).json({ error: `Le nombre max de voyageurs est ${maxGuestsCap}` });
     }
     if (maxAdultsCap !== null && normalizedAdultGuests > maxAdultsCap) {
       return res.status(400).json({ error: `Le nombre max d adultes est ${maxAdultsCap}` });

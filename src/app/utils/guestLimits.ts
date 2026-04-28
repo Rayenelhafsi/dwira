@@ -30,10 +30,9 @@ export function computeGuestLimits(input: GuestLimitsInput): GuestLimits {
     : Math.max(0, (totalCap ?? fallbackGuests) - 1);
 
   const combinedCaps = maxAdultGuests + maxChildGuests;
-  const maxGuestsFromCaps = Math.max(1, combinedCaps);
   const maxGuests = totalCap !== null
-    ? Math.min(totalCap, maxGuestsFromCaps)
-    : maxGuestsFromCaps;
+    ? totalCap
+    : Math.max(1, combinedCaps);
 
   return {
     maxGuests,
