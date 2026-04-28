@@ -68,6 +68,8 @@ type BienApi = {
     montant_caution?: number;
     montantCaution?: number;
   };
+  location_saisonniere_config_json?: string | Record<string, any> | null;
+  locationSaisonniereConfig?: Record<string, any> | null;
   image_url?: string;
   image?: string;
 };
@@ -353,7 +355,9 @@ export default function ContratsPage() {
     return id ? (bienById.get(id) || null) : null;
   }, [bienById, selectedBienId]);
   const selectedSeasonalConfig = useMemo(() => {
-    const raw = (selectedBien as any)?.location_saisonniere_config;
+    const raw = (selectedBien as any)?.location_saisonniere_config
+      ?? (selectedBien as any)?.locationSaisonniereConfig
+      ?? (selectedBien as any)?.location_saisonniere_config_json;
     if (raw && typeof raw === 'object') return raw;
     if (typeof raw === 'string') {
       try {
@@ -368,14 +372,20 @@ export default function ContratsPage() {
       (selectedSeasonalConfig as any)?.limite_personnes_nuit
       ?? (selectedSeasonalConfig as any)?.limitePersonnesNuit
       ?? (selectedSeasonalConfig as any)?.limite_personne_nuit
+      ?? (selectedBien as any)?.limite_personnes_nuit
+      ?? (selectedBien as any)?.limitePersonnesNuit
     );
     const rawAdults = Number(
       (selectedSeasonalConfig as any)?.max_adultes
       ?? (selectedSeasonalConfig as any)?.maxAdultes
+      ?? (selectedBien as any)?.max_adultes
+      ?? (selectedBien as any)?.maxAdultes
     );
     const rawChildren = Number(
       (selectedSeasonalConfig as any)?.max_enfants
       ?? (selectedSeasonalConfig as any)?.maxEnfants
+      ?? (selectedBien as any)?.max_enfants
+      ?? (selectedBien as any)?.maxEnfants
     );
     const fallbackFromCaps = Number.isFinite(rawTotal) && rawTotal > 0
       ? Math.floor(rawTotal)
@@ -618,7 +628,9 @@ export default function ContratsPage() {
   };
 
   const seasonalServices = useMemo(() => {
-    const raw = (selectedSeasonalConfig as any)?.services_payants || (selectedSeasonalConfig as any)?.servicesPayants || [];
+    const raw = (selectedSeasonalConfig as any)?.services_payants
+      ?? (selectedSeasonalConfig as any)?.servicesPayants
+      ?? [];
     return splitServicesByTarification(Array.isArray(raw) ? raw : []).all;
   }, [selectedSeasonalConfig]);
 
@@ -1006,6 +1018,11 @@ export default function ContratsPage() {
                       })}
                     </div>
                     <p className="mt-2 text-xs text-gray-600">Total services fixes: {fixedSeasonalServicesTotal} DT</p>
+                  </div>
+                )}
+                {seasonalServices.length === 0 && (
+                  <div className="mt-3 rounded-2xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500">
+                    Aucun service payant configure pour ce bien.
                   </div>
                 )}
                 <p><strong>Total:</strong> {resolvedManualTotal + fixedSeasonalServicesTotal} DT</p>
