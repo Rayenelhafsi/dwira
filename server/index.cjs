@@ -8285,7 +8285,11 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
         ? normalizedTotalAmount
         : Math.round((normalizedTotalAmount * 0.3) * 100) / 100);
     const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
-    const cfgMaxGuestsRaw = Number(saisonCfg?.limite_personnes_nuit);
+    const cfgMaxGuestsRaw = Number(
+      saisonCfg?.limite_personnes_nuit
+      ?? saisonCfg?.limitePersonnesNuit
+      ?? saisonCfg?.limite_personne_nuit
+    );
     const cfgMaxAdultsRaw = Number(saisonCfg?.max_adultes);
     const cfgMaxChildrenRaw = Number(saisonCfg?.max_enfants);
     const hasCfgMaxGuests = Number.isFinite(cfgMaxGuestsRaw) && cfgMaxGuestsRaw > 0;
@@ -9820,7 +9824,11 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       : null;
 
     const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
-    const cfgMaxGuestsRaw = Number(saisonCfg?.limite_personnes_nuit);
+    const cfgMaxGuestsRaw = Number(
+      saisonCfg?.limite_personnes_nuit
+      ?? saisonCfg?.limitePersonnesNuit
+      ?? saisonCfg?.limite_personne_nuit
+    );
     const cfgMaxAdultsRaw = Number(saisonCfg?.max_adultes);
     const cfgMaxChildrenRaw = Number(saisonCfg?.max_enfants);
     const hasCfgMaxGuests = Number.isFinite(cfgMaxGuestsRaw) && cfgMaxGuestsRaw > 0;

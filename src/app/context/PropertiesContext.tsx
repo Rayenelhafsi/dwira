@@ -476,7 +476,13 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     ? bien.media.filter((m: any) => m.type === 'video' && m.url).map((m: any) => resolvePublicMediaUrl(m.url)).filter(Boolean)
     : [];
   const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || PROPERTY_FALLBACK_IMAGE_DATA_URI;
-  const seasonalMaxGuests = Number(bien.location_saisonniere_config?.limite_personnes_nuit ?? 0);
+  const seasonalRawConfig = bien.location_saisonniere_config || {};
+  const seasonalMaxGuests = Number(
+    (seasonalRawConfig as any)?.limite_personnes_nuit
+    ?? (seasonalRawConfig as any)?.limitePersonnesNuit
+    ?? (seasonalRawConfig as any)?.limite_personne_nuit
+    ?? 0
+  );
   const guestLimits = extractGuestLimitsFromCharacteristicLines(bien.caracteristiques);
   const cfgAdultsRaw = Number(bien.location_saisonniere_config?.max_adultes);
   const cfgChildrenRaw = Number(bien.location_saisonniere_config?.max_enfants);
@@ -557,7 +563,11 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
       accesGeneral: bien.location_saisonniere_config?.acces_general ?? null,
       dureeMinSejourNuits: bien.location_saisonniere_config?.duree_min_sejour_nuits ?? null,
       dureeMaxSejourNuits: bien.location_saisonniere_config?.duree_max_sejour_nuits ?? null,
-      limitePersonnesNuit: bien.location_saisonniere_config?.limite_personnes_nuit ?? null,
+      limitePersonnesNuit:
+        (bien.location_saisonniere_config as any)?.limite_personnes_nuit
+        ?? (bien.location_saisonniere_config as any)?.limitePersonnesNuit
+        ?? (bien.location_saisonniere_config as any)?.limite_personne_nuit
+        ?? null,
       maxAdultes: resolvedMaxAdults,
       maxEnfants: resolvedMaxChildren,
       politiqueAnnulation: bien.location_saisonniere_config?.politique_annulation ?? null,
