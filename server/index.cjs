@@ -5858,7 +5858,7 @@ async function generateReservationClientContractHtml({
   if (!fs.existsSync(contractsDir)) {
     fs.mkdirSync(contractsDir, { recursive: true });
   }
-  const fileName = `contract-client-${contractId}.pdf`;
+  const fileName = `contract-client-${contractId}.html`;
   const filePath = path.join(contractsDir, fileName);
   const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
   const childGuests = Math.max(0, Number(demand.child_guests || 0));
@@ -5866,11 +5866,6 @@ async function generateReservationClientContractHtml({
   const reservationTotal = Number(totalAmount || 0);
   const amountNow = Number(amountDueNow || 0);
   const balance = Math.max(0, reservationTotal - amountNow);
-  const templatePath = path.join(__dirname, 'contracts', 'templates', 'contrat_location_saisonniere_dwira_2026_v5.pdf');
-  const templateBytes = await fs.promises.readFile(templatePath);
-  const pdf = await PDFDocument.load(templateBytes);
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-
   const fullName = `${String(identityLastName || '').trim()} ${String(identityFirstName || '').trim()}`.trim() || String(demand?.client_name || demand?.client_email || '');
   const identityRef = identityDocumentType === 'cin_tn'
     ? `CIN ${String(identityNumber || '').trim()}`
@@ -5889,51 +5884,94 @@ async function generateReservationClientContractHtml({
   const caution = Number.isFinite(Number(bien?.caution)) ? Number(bien.caution) : 0;
   const phoneCandidate = String(demand?.client_phone || demand?.phone || '').trim();
 
-  const page1 = pdf.getPage(0);
-  drawPdfLineValue(page1, font, fullName, 306.1, 514.15, 220);
-  drawPdfLineValue(page1, font, identityRef, 306.1, 494.05, 220);
-  drawPdfLineValue(page1, font, String(demand?.client_address || demand?.address || ''), 306.1, 473.95, 220);
-  drawPdfLineValue(page1, font, phoneCandidate || '', 306.1, 453.85, 220);
-  drawPdfLineValue(page1, font, String(bien?.type || ''), 160, 347.75, 220);
-  drawPdfLineValue(page1, font, String(bien?.adresse || bien?.address || ''), 223, 332.85, 280);
-  drawPdfLineValue(page1, font, String(totalGuests), 195, 317.95, 52);
-  const equipSplit = splitPdfTextByWidth(font, equipements || '', 10.5, 360);
-  drawPdfLineValue(page1, font, equipSplit.line || '', 170, 303.05, 360);
-  if (equipSplit.remainder) {
-    drawPdfLineValue(page1, font, equipSplit.remainder, 51.1, 284.15, 500);
-  }
-  drawPdfLineValue(page1, font, `Du ${start.dd || ''} / ${start.mm || ''} / ${start.yyyy || ''} au ${end.dd || ''} / ${end.mm || ''} / ${end.yyyy || ''}`, 70, 232.1, 430);
-  drawPdfLineValue(page1, font, String(demand?.arrival_time || ''), 150, 217.2, 95);
-  drawPdfLineValue(page1, font, String(demand?.departure_time || ''), 145, 202.3, 95);
-
-  const page2 = pdf.getPage(1);
-  drawPdfLineValue(page2, font, formatAmountTndRaw(reservationTotal), 306.1, 716.35, 175, 11);
-  drawPdfLineValue(page2, font, formatAmountTndRaw(amountNow), 306.1, 695.2, 175, 11);
-  drawPdfLineValue(page2, font, `${finalization.date.dd || ''} / ${finalization.date.mm || ''} / ${finalization.date.yyyy || ''} a ${finalization.hh || ''} h ${finalization.min || ''}`, 306.1, 674.05, 250, 11);
-  drawPdfLineValue(page2, font, String(demand?.payment_id || demand?.reservation_payment_id || ''), 306.1, 652.9, 250, 11);
-  drawPdfLineValue(page2, font, formatAmountTndRaw(balance), 306.1, 631.75, 175, 11);
-  drawPdfLineValue(page2, font, modePaiement, 306.1, 604.3, 250, 11);
-  drawPdfLineValue(page2, font, formatAmountTndRaw(caution), 182, 334.1, 130);
-
-  let serviceY = 421;
-  for (const service of services) {
+  const esc = (value) => escapeHtml(String(value || ''));
+  const serviceRows = [];
+  for (let i = 0; i < 3; i += 1) {
+    const service = services[i];
     const label = String(service?.label || service?.name || service?.service || '').trim();
     const amount = Number.isFinite(Number(service?.prix ?? service?.price ?? service?.montant))
       ? formatAmountTndRaw(Number(service.prix ?? service.price ?? service.montant))
       : '';
-    if (!label) continue;
-    drawPdfLineValue(page2, font, label.slice(0, 56), 51.1, serviceY, 335, 9.8);
-    if (amount) drawPdfLineValue(page2, font, amount, 403.35, serviceY, 95, 9.8);
-    serviceY -= 14.5;
-    if (serviceY < 356) break;
+    serviceRows.push({ label, amount });
   }
 
-  const page3 = pdf.getPage(2);
-  drawPdfLineValue(page3, font, String(bien?.ville || 'Kelibia'), 85, 597.55, 165);
-  drawPdfLineValue(page3, font, `${signatureDate.dd || ''} / ${signatureDate.mm || ''} / ${signatureDate.yyyy || ''}`, 330, 597.55, 140);
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Contrat de Location Saisonniere - DWIRA</title>
+<style>
+  body { margin:0; background:#e9e9e9; font-family:Arial, Helvetica, sans-serif; color:#000; font-size:16px; line-height:1.25; }
+  .page { width:210mm; min-height:297mm; margin:0 auto 12px; background:#fff; padding:20mm 18mm; }
+  h1 { text-align:center; font-size:25px; margin:0 0 16px; font-weight:700; }
+  h2 { font-size:18px; margin:14px 0 4px; font-weight:700; }
+  p { margin:4px 0; }
+  .intro-title { font-size:18px; font-weight:700; margin-bottom:10px; }
+  .center { text-align:center; font-weight:700; margin:8px 0 10px; }
+  .small-italic { font-size:15px; font-style:italic; margin:6px 0 8px; }
+  table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  td, th { border:1px solid #cfcfcf; padding:7px 8px; vertical-align:middle; }
+  .info-table td:first-child,.payment-table td:first-child { width:50%; font-weight:700; background:#f3f3f3; }
+  .services-table th { background:#f3f3f3; font-weight:400; text-align:left; }
+  .services-table th:nth-child(2),.services-table td:nth-child(2) { text-align:center; }
+</style>
+</head>
+<body>
+<section class="page">
+  <h1>CONTRAT DE LOCATION SAISONNIERE</h1>
+  <div class="intro-title">Entre les soussignes :</div>
+  <table class="info-table">
+    <tr><td>Le Bailleur :</td><td>Agence Dwira</td></tr>
+    <tr><td>Adresse :</td><td>Rue Ibn Khaldoun, Kelibia 8090, Nabeul</td></tr>
+    <tr><td>Tel :</td><td>29 879 227 / 52 080 695</td></tr>
+    <tr><td>MF :</td><td>1919183/K/A/M/000</td></tr>
+    <tr><td>Represente par :</td><td>☐ Lengliz Chayma, Gerante   ☐ Hafsi Ghaith, Responsable commercial</td></tr>
+  </table>
+  <p class="small-italic">(ci-apres designe "le Bailleur")</p>
+  <div class="center">Et</div>
+  <table class="info-table">
+    <tr><td>Le Locataire :</td><td></td></tr>
+    <tr><td>Nom et prenom :</td><td>${esc(fullName)}</td></tr>
+    <tr><td>N° CIN ou Passeport :</td><td>${esc(identityRef)}</td></tr>
+    <tr><td>Adresse :</td><td>${esc(demand?.client_address || demand?.address || '')}</td></tr>
+    <tr><td>Tel :</td><td>${esc(phoneCandidate)}</td></tr>
+  </table>
+  <p class="small-italic">(ci-apres designe "le Locataire")</p>
+  <h2>1. Objet du contrat</h2>
+  <p>Le present contrat a pour objet la location d'un bien immobilier meuble a usage exclusif d'habitation saisonniere.</p>
+  <h2>2. Designation du bien loue</h2>
+  <p>Type de logement : ${esc(bien?.type || '')}</p>
+  <p>Adresse exacte du bien loue : ${esc(bien?.adresse || bien?.address || '')}</p>
+  <p>Capacite maximale d'accueil : ${esc(totalGuests)} personnes</p>
+  <p>Equipements fournis : ${esc(equipements)}</p>
+  <h2>3. Duree de la location</h2>
+  <p>Du ${esc(start.dd)} / ${esc(start.mm)} / ${esc(start.yyyy)} au ${esc(end.dd)} / ${esc(end.mm)} / ${esc(end.yyyy)}</p>
+  <p>Heure d'arrivee : ${esc(demand?.arrival_time || '')}</p>
+  <p>Heure de depart : ${esc(demand?.departure_time || '')}</p>
+  <h2>4. Prix et modalites de paiement</h2>
+  <table class="payment-table">
+    <tr><td>Loyer total :</td><td>${esc(formatAmountTndRaw(reservationTotal))} TND</td></tr>
+    <tr><td>Acompte verse a la reservation :</td><td>${esc(formatAmountTndRaw(amountNow))} TND</td></tr>
+    <tr><td>Date limite paiement avance :</td><td>${esc(finalization.date.dd)} / ${esc(finalization.date.mm)} / ${esc(finalization.date.yyyy)} a ${esc(finalization.hh)}:${esc(finalization.min)}</td></tr>
+    <tr><td>N° quittance / ID virement :</td><td>${esc(demand?.payment_id || demand?.reservation_payment_id || '')}</td></tr>
+    <tr><td>Solde a regler a l'arrivee :</td><td>${esc(formatAmountTndRaw(balance))} TND</td></tr>
+    <tr><td>Mode paiement :</td><td>${esc(modePaiement)}</td></tr>
+    <tr><td>Depot de garantie :</td><td>${esc(formatAmountTndRaw(caution))} TND</td></tr>
+  </table>
+  <h2>4.1 Services supplementaires payants</h2>
+  <table class="services-table">
+    <tr><th>Service</th><th>Prix (TND)</th></tr>
+    <tr><td>${esc(serviceRows[0].label)}</td><td>${esc(serviceRows[0].amount)}</td></tr>
+    <tr><td>${esc(serviceRows[1].label)}</td><td>${esc(serviceRows[1].amount)}</td></tr>
+    <tr><td>${esc(serviceRows[2].label)}</td><td>${esc(serviceRows[2].amount)}</td></tr>
+  </table>
+  <h2>Signature</h2>
+  <p>Fait a ${esc(bien?.ville || 'Kelibia')}, le ${esc(signatureDate.dd)} / ${esc(signatureDate.mm)} / ${esc(signatureDate.yyyy)}</p>
+</section>
+</body>
+</html>`;
 
-  const outputBytes = await pdf.save();
-  await fs.promises.writeFile(filePath, outputBytes);
+  await fs.promises.writeFile(filePath, html, 'utf8');
   return `/contracts/${fileName}`;
 }
 
