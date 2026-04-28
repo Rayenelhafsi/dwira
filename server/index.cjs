@@ -5853,6 +5853,7 @@ async function generateReservationClientContractHtml({
   identityDocumentType,
   identityFirstName,
   identityLastName,
+  cautionAmount,
 }) {
   const contractsDir = path.join(__dirname, 'contracts');
   if (!fs.existsSync(contractsDir)) {
@@ -5881,7 +5882,9 @@ async function generateReservationClientContractHtml({
   ].filter(Boolean).join(' | ');
   const services = parseDemandVariableServices(demand).slice(0, 6);
   const signatureDate = parseSqlDateParts(contractCreatedAt);
-  const caution = Number.isFinite(Number(bien?.caution)) ? Number(bien.caution) : 0;
+  const caution = Number.isFinite(Number(cautionAmount))
+    ? Number(cautionAmount)
+    : (Number.isFinite(Number(bien?.caution)) ? Number(bien.caution) : 0);
   const phoneCandidate = String(demand?.client_phone || demand?.phone || '').trim();
 
   const esc = (value) => escapeHtml(String(value || ''));
@@ -8257,6 +8260,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       guests,
       adult_guests,
       child_guests,
+      caution_amount,
       payment_mode,
       total_amount,
       amount_due_now,
@@ -8456,6 +8460,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
         identityDocumentType: identityDocType,
         identityFirstName: firstName || '-',
         identityLastName: lastName || '-',
+        cautionAmount: caution_amount,
       }),
       generateReservationOwnerContractHtml({
         demand: demandSnapshot,

@@ -43,6 +43,7 @@ type BienApi = {
   titre?: string;
   prix_nuitee?: number;
   prix_semaine?: number | null;
+  caution?: number | null;
   image_url?: string;
   image?: string;
 };
@@ -79,7 +80,9 @@ type ManualReservationDraft = {
   client_telephone: string;
   identity_document_type: 'cin_tn' | 'passport_tn' | 'passport_foreign';
   identity_document_number: string;
-  guests: string;
+  adult_guests: string;
+  child_guests: string;
+  caution_amount: string;
   total_amount: string;
   amount_due_now: string;
   payment_mode: 'avance' | 'totalite';
@@ -93,7 +96,9 @@ const MANUAL_DEFAULT: ManualReservationDraft = {
   client_telephone: '',
   identity_document_type: 'cin_tn',
   identity_document_number: '',
-  guests: '1',
+  adult_guests: '1',
+  child_guests: '0',
+  caution_amount: '',
   total_amount: '',
   amount_due_now: '',
   payment_mode: 'avance',
@@ -353,6 +358,13 @@ export default function ContratsPage() {
   const manualEndDateSql = useMemo(() => toSqlDate(selectedEnd), [selectedEnd]);
 
   const baseNightly = Math.max(0, Number(selectedBien?.prix_nuitee || 0));
+  const baseCaution = Math.max(0, Number(selectedBien?.caution || 0));
+  const manualAdultGuests = Math.max(1, Number(manualDraft.adult_guests || 1));
+  const manualChildGuests = Math.max(0, Number(manualDraft.child_guests || 0));
+  const manualGuestsTotal = Math.max(1, manualAdultGuests + manualChildGuests);
+  const resolvedManualCaution = Number.isFinite(Number(manualDraft.caution_amount)) && Number(manualDraft.caution_amount) >= 0
+    ? Number(manualDraft.caution_amount)
+    : baseCaution;
   const computedTotalFallback = manualNights > 0 ? Math.round((baseNightly * manualNights) * 100) / 100 : 0;
   const resolvedManualTotal = Number.isFinite(Number(manualDraft.total_amount)) && Number(manualDraft.total_amount) > 0
     ? Number(manualDraft.total_amount)
@@ -449,6 +461,14 @@ export default function ContratsPage() {
       toast.error('Remplissez les informations client obligatoires');
       return;
     }
+    if (!Number.isFinite(manualAdultGuests) || manualAdultGuests < 1) {
+      toast.error('Le nombre d adultes doit etre >= 1');
+      return;
+    }
+    if (!Number.isFinite(manualChildGuests) || manualChildGuests < 0) {
+      toast.error('Le nombre d enfants doit etre >= 0');
+      return;
+    }
     setManualStep(2);
   };
 
@@ -474,12 +494,16 @@ export default function ContratsPage() {
     try {
       const response = await fetch(`${API_URL}/contrats/manual-reservation`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bien_id: selectedBienId,
           start_date: manualStartDateSql,
           end_date: manualEndDateSql,
-          guests: Math.max(1, Number(manualDraft.guests || 1)),
+          guests: manualGuestsTotal,
+          adult_guests: manualAdultGuests,
+          child_guests: manualChildGuests,
+          caution_amount: resolvedManualCaution,
           payment_mode: manualDraft.payment_mode,
           total_amount: resolvedManualTotal,
           amount_due_now: resolvedManualDueNow,
@@ -557,11 +581,14 @@ export default function ContratsPage() {
                   <option value="passport_foreign">Passeport etranger</option>
                 </select>
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Numero identite *" value={manualDraft.identity_document_number} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_number: e.target.value }))} />
-                <input type="number" min={1} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Voyageurs" value={manualDraft.guests} onChange={(e) => setManualDraft((p) => ({ ...p, guests: e.target.value }))} />
+                <input type="number" min={1} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Adultes (>=18) *" value={manualDraft.adult_guests} onChange={(e) => setManualDraft((p) => ({ ...p, adult_guests: e.target.value }))} />
+                <input type="number" min={0} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Enfants (3-17) *" value={manualDraft.child_guests} onChange={(e) => setManualDraft((p) => ({ ...p, child_guests: e.target.value }))} />
+                <input type="text" readOnly className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm" value={`Voyageurs total: ${manualGuestsTotal}`} />
                 <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_mode} onChange={(e) => setManualDraft((p) => ({ ...p, payment_mode: e.target.value as ManualReservationDraft['payment_mode'] }))}>
                   <option value="avance">Avance</option>
                   <option value="totalite">Totalite</option>
                 </select>
+                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder={`Caution (defaut bien: ${baseCaution} DT)`} value={manualDraft.caution_amount} onChange={(e) => setManualDraft((p) => ({ ...p, caution_amount: e.target.value }))} />
                 <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Montant global (optionnel)" value={manualDraft.total_amount} onChange={(e) => setManualDraft((p) => ({ ...p, total_amount: e.target.value }))} />
                 <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="A payer maintenant (optionnel)" value={manualDraft.amount_due_now} onChange={(e) => setManualDraft((p) => ({ ...p, amount_due_now: e.target.value }))} />
               </div>
@@ -658,8 +685,10 @@ export default function ContratsPage() {
               <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
                 <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
                 <p><strong>Nuits:</strong> {manualNights || 0}</p>
+                <p><strong>Voyageurs:</strong> {manualGuestsTotal} (Adultes: {manualAdultGuests}, Enfants: {manualChildGuests})</p>
                 <p><strong>Total:</strong> {resolvedManualTotal} DT</p>
                 <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT</p>
+                <p><strong>Caution:</strong> {resolvedManualCaution} DT</p>
               </div>
               <div className="flex items-center justify-between">
                 <button type="button" onClick={() => setManualStep(2)} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
