@@ -160,9 +160,9 @@ export default function ContratsPage() {
     setIsLoading(true);
     setError(null);
     const [contratsResult, biensResult, locatairesResult] = await Promise.allSettled([
-      fetch(`${API_URL}/contrats`),
-      fetch(`${API_URL}/biens`),
-      fetch(`${API_URL}/locataires`),
+      fetch(`${API_URL}/contrats`, { credentials: 'include' }),
+      fetch(`${API_URL}/biens`, { credentials: 'include' }),
+      fetch(`${API_URL}/locataires`, { credentials: 'include' }),
     ]);
 
     let hasAnyData = false;
@@ -261,7 +261,7 @@ export default function ContratsPage() {
     void (async () => {
       setLoadingManualCalendar(true);
       try {
-        const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`);
+        const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
         if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Impossible de charger le calendrier du bien'));
         const rows = await response.json();
         if (!cancelled) {
