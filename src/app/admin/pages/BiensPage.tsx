@@ -404,6 +404,8 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   niveau_sonore: 'calme',
   acces_general: 'facile',
   limite_personnes_nuit: 2,
+  max_adultes: 2,
+  max_enfants: 0,
   duree_min_sejour_nuits: 1,
   duree_max_sejour_nuits: 30,
   politique_annulation: 'moderee',
@@ -5219,6 +5221,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const isLotissementTerrainsDetailTab = activeDetailTabLabel.includes('terrain');
   const isLocalisationDetailTab = activeDetailTabLabel.includes('localisation');
   const isLitsDetailTab = activeDetailTabLabel.includes('lits');
+  const isCapaciteDetailTab = activeDetailTabLabel.includes('capacite') || activeDetailTabLabel.includes('configuration');
   const isConfortDetailTab = activeDetailTabLabel.includes('confort') || activeDetailTabLabel.includes('equipement');
   const isSecuriteDetailTab = activeDetailTabLabel.includes('securite') || activeDetailTabLabel.includes('reglement');
   const isConditionsDetailTab = activeDetailTabLabel.includes('condition');
@@ -5345,8 +5348,17 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       if (selectedMode === 'location_saisonniere') {
         const minStay = Number(saisonConfig.duree_min_sejour_nuits || 0);
         const maxStay = Number(saisonConfig.duree_max_sejour_nuits || 0);
+        const maxGuests = Number(saisonConfig.limite_personnes_nuit || 0);
+        const maxAdults = Number(saisonConfig.max_adultes || 0);
+        const maxChildren = Number(saisonConfig.max_enfants ?? -1);
         if (!Number.isFinite(minStay) || minStay <= 0) issues.push(createValidationIssue(3, 'duree_min_sejour_nuits', 'Duree min sejour', 'La duree minimum doit etre > 0'));
         if (!Number.isFinite(maxStay) || maxStay <= 0 || maxStay < minStay) issues.push(createValidationIssue(3, 'duree_max_sejour_nuits', 'Duree max sejour', 'La duree max doit etre >= duree min'));
+        if (!Number.isFinite(maxGuests) || maxGuests <= 0) issues.push(createValidationIssue(3, 'limite_personnes_nuit', 'Voyageurs max', 'Le nombre max de voyageurs doit etre > 0'));
+        if (!Number.isFinite(maxAdults) || maxAdults <= 0) issues.push(createValidationIssue(3, 'max_adultes', 'Adultes max', 'Le nombre max adultes doit etre > 0'));
+        if (!Number.isFinite(maxChildren) || maxChildren < 0) issues.push(createValidationIssue(3, 'max_enfants', 'Enfants max', 'Le nombre max enfants doit etre >= 0'));
+        if (Number.isFinite(maxGuests) && Number.isFinite(maxAdults) && Number.isFinite(maxChildren) && (maxAdults + maxChildren < maxGuests)) {
+          issues.push(createValidationIssue(3, 'max_enfants', 'Capacite voyageurs', 'Adultes max + enfants max doit couvrir voyageurs max'));
+        }
       }
     }
 
@@ -6978,6 +6990,40 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                           </div>
                         </div>
                       )}
+                      {isCapaciteDetailTab && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
+                            <label className="mb-1 block text-xs text-gray-600">Voyageurs max (total)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={saisonConfig.limite_personnes_nuit ?? 1}
+                              onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: Math.max(1, Number(e.target.value || 1)) })}
+                              className="block w-full rounded-lg border border-gray-300 p-2 bg-white"
+                            />
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
+                            <label className="mb-1 block text-xs text-gray-600">Adultes max ({'>'} 18 ans)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={saisonConfig.max_adultes ?? 1}
+                              onChange={(e) => updateSaisonConfig({ max_adultes: Math.max(1, Number(e.target.value || 1)) })}
+                              className="block w-full rounded-lg border border-gray-300 p-2 bg-white"
+                            />
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
+                            <label className="mb-1 block text-xs text-gray-600">Enfants max (3 a 17 ans)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={saisonConfig.max_enfants ?? 0}
+                              onChange={(e) => updateSaisonConfig({ max_enfants: Math.max(0, Number(e.target.value || 0)) })}
+                              className="block w-full rounded-lg border border-gray-300 p-2 bg-white"
+                            />
+                          </div>
+                        </div>
+                      )}
                       {isConfortDetailTab && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.confort_produits_gratuits ? 'none' : undefined }}>
@@ -7220,6 +7266,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                           <label className="block text-xs text-gray-600 mb-1">Avance (%)</label>
                           <input type="number" min={1} max={100} value={saisonConfig.avance_pourcentage ?? 30} onChange={(e) => updateSaisonConfig({ avance_pourcentage: Number(e.target.value || 30) })} className="block w-full rounded-lg border-gray-300 border p-2" />
                         </div>
+                        <div><label className="block text-xs text-gray-600 mb-1">Voyageurs max (total)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? 1} onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: Math.max(1, Number(e.target.value || 1)) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div><label className="block text-xs text-gray-600 mb-1">Adultes max ({'>'} 18 ans)</label><input type="number" min={1} value={saisonConfig.max_adultes ?? 1} onChange={(e) => updateSaisonConfig({ max_adultes: Math.max(1, Number(e.target.value || 1)) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                        <div><label className="block text-xs text-gray-600 mb-1">Enfants max (3 a 17 ans)</label><input type="number" min={0} value={saisonConfig.max_enfants ?? 0} onChange={(e) => updateSaisonConfig({ max_enfants: Math.max(0, Number(e.target.value || 0)) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-xs text-gray-600 mb-1">Prix matelas supplementaire (DT)</label><input type="number" min={0} value={saisonConfig.matelas_supplementaire_prix ?? 25} onChange={(e) => updateSaisonConfig({ matelas_supplementaire_prix: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-xs text-gray-600 mb-1">Max matelas supplementaires</label><input type="number" min={0} value={saisonConfig.matelas_supplementaires_max ?? 0} onChange={(e) => updateSaisonConfig({ matelas_supplementaires_max: Number(e.target.value || 0) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                         <div><label className="block text-xs text-gray-600 mb-1">Produits d'accueil gratuits</label><select value={saisonConfig.produits_accueil_gratuits ? 'oui' : 'non'} onChange={(e) => updateSaisonConfig({ produits_accueil_gratuits: e.target.value === 'oui' })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="oui">Oui</option><option value="non">Non</option></select></div>

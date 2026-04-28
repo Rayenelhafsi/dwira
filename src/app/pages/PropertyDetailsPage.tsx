@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
 import { calculateAccommodationPricing, resolveCurrentPricing } from "../utils/seasonalPricing";
+import { computeGuestLimits } from "../utils/guestLimits";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
@@ -1086,21 +1087,13 @@ out body 40;
     scrollToSeasonalDetails();
   }, [showSeasonalDetails, scrollToSeasonalDetails]);
   const seasonalConfig = property?.seasonalConfig;
-  const fallbackMaxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
-  const rawMaxAdults = Number(seasonalConfig?.maxAdultes);
-  const rawMaxChildren = Number(seasonalConfig?.maxEnfants);
-  const hasAdultsCap = Number.isFinite(rawMaxAdults) && rawMaxAdults > 0;
-  const hasChildrenCap = Number.isFinite(rawMaxChildren) && rawMaxChildren >= 0;
-  const hasSplitGuestCaps = hasAdultsCap && hasChildrenCap;
-  const maxAdultGuests = hasSplitGuestCaps
-    ? Math.max(1, Math.floor(hasAdultsCap ? rawMaxAdults : Math.max(1, fallbackMaxGuests - (hasChildrenCap ? rawMaxChildren : 0))))
-    : fallbackMaxGuests;
-  const maxChildGuests = hasSplitGuestCaps
-    ? Math.max(0, Math.floor(hasChildrenCap ? rawMaxChildren : Math.max(0, fallbackMaxGuests - maxAdultGuests)))
-    : Math.max(0, fallbackMaxGuests - 1);
-  const maxGuests = hasSplitGuestCaps
-    ? Math.max(1, maxAdultGuests + maxChildGuests)
-    : fallbackMaxGuests;
+  const fallbackMaxGuests = Math.max(1, property?.guests || seasonalConfig?.limitePersonnesNuit || 1);
+  const { maxGuests, maxAdultGuests, maxChildGuests } = computeGuestLimits({
+    fallbackGuests: fallbackMaxGuests,
+    maxGuestsCap: seasonalConfig?.limitePersonnesNuit,
+    maxAdultsCap: seasonalConfig?.maxAdultes,
+    maxChildrenCap: seasonalConfig?.maxEnfants,
+  });
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
   const maxStay = Math.max(minStay, seasonalConfig?.dureeMaxSejourNuits || 365);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);

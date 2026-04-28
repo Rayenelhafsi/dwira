@@ -488,14 +488,15 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
   const resolvedMaxChildren = hasFeatureSplitCaps
     ? Number(guestLimits.maxChildren)
     : (hasConfigSplitCaps ? Math.floor(cfgChildrenRaw) : null);
+  const hasTotalGuestCap = Number.isFinite(seasonalMaxGuests) && seasonalMaxGuests > 0;
   const splitGuestMax =
     resolvedMaxAdults !== null && resolvedMaxChildren !== null
       ? Math.max(1, Number(resolvedMaxAdults) + Number(resolvedMaxChildren))
       : 0;
   const resolvedGuests = bien.mode === 'location_saisonniere'
-    ? (splitGuestMax > 0
-      ? splitGuestMax
-      : (seasonalMaxGuests > 0 ? seasonalMaxGuests : Math.max(1, Number(bien.nb_chambres || 0) + 1)))
+    ? (hasTotalGuestCap
+      ? Math.floor(seasonalMaxGuests)
+      : (splitGuestMax > 0 ? splitGuestMax : Math.max(1, Number(bien.nb_chambres || 0) + 1)))
     : Math.max(1, Number(bien.nb_chambres || 0) + 1);
   const isCleaningAvailable = bien.location_saisonniere_config?.frais_menage_disponible
     ?? Number(bien.location_saisonniere_config?.frais_menage ?? 0) > 0;

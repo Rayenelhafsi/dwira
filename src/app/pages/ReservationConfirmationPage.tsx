@@ -8,6 +8,7 @@ import { useAuth } from "../context/AuthContext";
 import { saveReservationToCache } from "../utils/reservations";
 import { getServiceDisplayPrice, splitServicesByTarification } from "../utils/servicePayants";
 import { calculateAccommodationPricing } from "../utils/seasonalPricing";
+import { computeGuestLimits } from "../utils/guestLimits";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 import { getAntiBotConfig } from "../services/auth";
 
@@ -48,21 +49,13 @@ export default function ReservationConfirmationPage() {
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
   const seasonalConfig = property?.seasonalConfig;
-  const fallbackMaxGuests = Math.max(1, seasonalConfig?.limitePersonnesNuit || property?.guests || 1);
-  const rawMaxAdults = Number(seasonalConfig?.maxAdultes);
-  const rawMaxChildren = Number(seasonalConfig?.maxEnfants);
-  const hasAdultsCap = Number.isFinite(rawMaxAdults) && rawMaxAdults > 0;
-  const hasChildrenCap = Number.isFinite(rawMaxChildren) && rawMaxChildren >= 0;
-  const hasSplitGuestCaps = hasAdultsCap && hasChildrenCap;
-  const maxAdultGuests = hasSplitGuestCaps
-    ? Math.max(1, Math.floor(hasAdultsCap ? rawMaxAdults : Math.max(1, fallbackMaxGuests - (hasChildrenCap ? rawMaxChildren : 0))))
-    : fallbackMaxGuests;
-  const maxChildGuests = hasSplitGuestCaps
-    ? Math.max(0, Math.floor(hasChildrenCap ? rawMaxChildren : Math.max(0, fallbackMaxGuests - maxAdultGuests)))
-    : Math.max(0, fallbackMaxGuests - 1);
-  const maxGuests = hasSplitGuestCaps
-    ? Math.max(1, maxAdultGuests + maxChildGuests)
-    : fallbackMaxGuests;
+  const fallbackMaxGuests = Math.max(1, property?.guests || seasonalConfig?.limitePersonnesNuit || 1);
+  const { maxGuests, maxAdultGuests, maxChildGuests } = computeGuestLimits({
+    fallbackGuests: fallbackMaxGuests,
+    maxGuestsCap: seasonalConfig?.limitePersonnesNuit,
+    maxAdultsCap: seasonalConfig?.maxAdultes,
+    maxChildrenCap: seasonalConfig?.maxEnfants,
+  });
   const hasCleaningFee = !isVisitRequest
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;

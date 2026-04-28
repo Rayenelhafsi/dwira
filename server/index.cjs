@@ -8242,7 +8242,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     }
 
     const [bienRows] = await pool.query(
-      'SELECT id, titre, reference, mode, type, proprietaire_id, prix_nuitee FROM biens WHERE id = ? LIMIT 1',
+      'SELECT id, titre, reference, mode, type, proprietaire_id, prix_nuitee, location_saisonniere_config_json FROM biens WHERE id = ? LIMIT 1',
       [bienId]
     );
     const bien = bienRows[0];
@@ -8284,11 +8284,37 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       : (normalizedPaymentMode === 'totalite'
         ? normalizedTotalAmount
         : Math.round((normalizedTotalAmount * 0.3) * 100) / 100);
+    const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
+    const cfgMaxGuestsRaw = Number(saisonCfg?.limite_personnes_nuit);
+    const cfgMaxAdultsRaw = Number(saisonCfg?.max_adultes);
+    const cfgMaxChildrenRaw = Number(saisonCfg?.max_enfants);
+    const hasCfgMaxGuests = Number.isFinite(cfgMaxGuestsRaw) && cfgMaxGuestsRaw > 0;
+    const hasCfgMaxAdults = Number.isFinite(cfgMaxAdultsRaw) && cfgMaxAdultsRaw > 0;
+    const hasCfgMaxChildren = Number.isFinite(cfgMaxChildrenRaw) && cfgMaxChildrenRaw >= 0;
+    const maxGuestsCap = hasCfgMaxGuests
+      ? Math.floor(cfgMaxGuestsRaw)
+      : (hasCfgMaxAdults && hasCfgMaxChildren ? Math.floor(cfgMaxAdultsRaw) + Math.floor(cfgMaxChildrenRaw) : null);
+    const maxAdultsCap = hasCfgMaxAdults ? Math.floor(cfgMaxAdultsRaw) : null;
+    const maxChildrenCap = hasCfgMaxChildren ? Math.floor(cfgMaxChildrenRaw) : null;
+
     const normalizedGuests = Math.max(1, Number(guests || 1));
     const normalizedAdultGuests = Math.max(1, Number((adult_guests ?? guests) || 1));
     const normalizedChildGuests = Math.max(0, Number(child_guests ?? 0));
-    const balancedAdultGuests = Math.min(normalizedGuests, normalizedAdultGuests);
-    const balancedChildGuests = Math.max(0, normalizedGuests - balancedAdultGuests);
+    const requestedTotalGuests = normalizedAdultGuests + normalizedChildGuests;
+    if (normalizedGuests !== requestedTotalGuests) {
+      return res.status(400).json({ error: 'Le total voyageurs doit etre egal a adultes + enfants' });
+    }
+    if (maxGuestsCap !== null && normalizedGuests > maxGuestsCap) {
+      return res.status(400).json({ error: `Le nombre max de voyageurs est ${maxGuestsCap}` });
+    }
+    if (maxAdultsCap !== null && normalizedAdultGuests > maxAdultsCap) {
+      return res.status(400).json({ error: `Le nombre max d adultes est ${maxAdultsCap}` });
+    }
+    if (maxChildrenCap !== null && normalizedChildGuests > maxChildrenCap) {
+      return res.status(400).json({ error: `Le nombre max d enfants est ${maxChildrenCap}` });
+    }
+    const balancedAdultGuests = normalizedAdultGuests;
+    const balancedChildGuests = normalizedChildGuests;
 
     const locataireId = await upsertLocataireFromReservationProfile({
       userId: null,
@@ -9741,7 +9767,10 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       return res.status(400).json({ error: 'La date de fin doit etre apres la date de debut' });
     }
 
-    const [bienRows] = await pool.query('SELECT id, titre, reference, mode, proprietaire_id FROM biens WHERE id = ? LIMIT 1', [bien_id]);
+    const [bienRows] = await pool.query(
+      'SELECT id, titre, reference, mode, proprietaire_id, location_saisonniere_config_json FROM biens WHERE id = ? LIMIT 1',
+      [bien_id]
+    );
     const bien = bienRows[0];
     if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
     await appendClientInteraction({
@@ -9790,11 +9819,43 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       ? (await fetchClienteleProfileBySource('proprietaires', bien.proprietaire_id))?.linkedUserId || null
       : null;
 
-    const normalizedGuests = Math.max(1, Number(guests || 1));
-    const normalizedAdultGuests = Math.max(1, Number((adult_guests ?? guests) || 1));
-    const normalizedChildGuests = Math.max(0, Number(child_guests ?? 0));
-    const balancedAdultGuests = Math.min(normalizedGuests, normalizedAdultGuests);
-    const balancedChildGuests = Math.max(0, normalizedGuests - balancedAdultGuests);
+    const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
+    const cfgMaxGuestsRaw = Number(saisonCfg?.limite_personnes_nuit);
+    const cfgMaxAdultsRaw = Number(saisonCfg?.max_adultes);
+    const cfgMaxChildrenRaw = Number(saisonCfg?.max_enfants);
+    const hasCfgMaxGuests = Number.isFinite(cfgMaxGuestsRaw) && cfgMaxGuestsRaw > 0;
+    const hasCfgMaxAdults = Number.isFinite(cfgMaxAdultsRaw) && cfgMaxAdultsRaw > 0;
+    const hasCfgMaxChildren = Number.isFinite(cfgMaxChildrenRaw) && cfgMaxChildrenRaw >= 0;
+    const maxAdultsCap = hasCfgMaxAdults ? Math.floor(cfgMaxAdultsRaw) : null;
+    const maxChildrenCap = hasCfgMaxChildren ? Math.floor(cfgMaxChildrenRaw) : null;
+    const splitCapsTotal = (maxAdultsCap !== null && maxChildrenCap !== null)
+      ? (maxAdultsCap + maxChildrenCap)
+      : null;
+    const maxGuestsCap = hasCfgMaxGuests
+      ? Math.floor(cfgMaxGuestsRaw)
+      : splitCapsTotal;
+    const effectiveMaxGuestsCap = maxGuestsCap !== null && splitCapsTotal !== null
+      ? Math.min(maxGuestsCap, splitCapsTotal)
+      : maxGuestsCap;
+
+    const normalizedGuests = Math.max(1, Math.floor(Number(guests || 1)));
+    const normalizedAdultGuests = Math.max(1, Math.floor(Number((adult_guests ?? guests) || 1)));
+    const normalizedChildGuests = Math.max(0, Math.floor(Number(child_guests ?? 0)));
+    const requestedTotalGuests = normalizedAdultGuests + normalizedChildGuests;
+    if (normalizedGuests !== requestedTotalGuests) {
+      return res.status(400).json({ error: 'Le total voyageurs doit etre egal a adultes + enfants' });
+    }
+    if (effectiveMaxGuestsCap !== null && normalizedGuests > effectiveMaxGuestsCap) {
+      return res.status(400).json({ error: `Le nombre max de voyageurs est ${effectiveMaxGuestsCap}` });
+    }
+    if (maxAdultsCap !== null && normalizedAdultGuests > maxAdultsCap) {
+      return res.status(400).json({ error: `Le nombre max d adultes est ${maxAdultsCap}` });
+    }
+    if (maxChildrenCap !== null && normalizedChildGuests > maxChildrenCap) {
+      return res.status(400).json({ error: `Le nombre max d enfants est ${maxChildrenCap}` });
+    }
+    const balancedAdultGuests = normalizedAdultGuests;
+    const balancedChildGuests = normalizedChildGuests;
 
     await pool.query(
       `INSERT INTO reservation_demands (
