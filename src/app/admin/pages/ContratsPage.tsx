@@ -78,8 +78,22 @@ type ManualReservationDraft = {
   client_last_name: string;
   client_email: string;
   client_telephone: string;
+  client_address: string;
   identity_document_type: 'cin_tn' | 'passport_tn' | 'passport_foreign';
   identity_document_number: string;
+  representative: 'chayma' | 'ghaith';
+  arrival_time: string;
+  departure_time: string;
+  payment_id: string;
+  payment_deadline_date: string;
+  payment_deadline_time: string;
+  signature_city: string;
+  service_1: string;
+  prix_service_1: string;
+  service_2: string;
+  prix_service_2: string;
+  service_3: string;
+  prix_service_3: string;
   adult_guests: string;
   child_guests: string;
   caution_amount: string;
@@ -94,8 +108,22 @@ const MANUAL_DEFAULT: ManualReservationDraft = {
   client_last_name: '',
   client_email: '',
   client_telephone: '',
+  client_address: '',
   identity_document_type: 'cin_tn',
   identity_document_number: '',
+  representative: 'ghaith',
+  arrival_time: '',
+  departure_time: '',
+  payment_id: '',
+  payment_deadline_date: '',
+  payment_deadline_time: '',
+  signature_city: '',
+  service_1: '',
+  prix_service_1: '',
+  service_2: '',
+  prix_service_2: '',
+  service_3: '',
+  prix_service_3: '',
   adult_guests: '1',
   child_guests: '0',
   caution_amount: '',
@@ -543,8 +571,22 @@ export default function ContratsPage() {
           client_last_name: manualDraft.client_last_name,
           client_email: manualDraft.client_email,
           client_telephone: manualDraft.client_telephone,
+          client_address: manualDraft.client_address,
           identity_document_type: manualDraft.identity_document_type,
           identity_document_number: manualDraft.identity_document_number,
+          representative: manualDraft.representative,
+          arrival_time: manualDraft.arrival_time,
+          departure_time: manualDraft.departure_time,
+          payment_id: manualDraft.payment_id,
+          payment_deadline_date: manualDraft.payment_deadline_date,
+          payment_deadline_time: manualDraft.payment_deadline_time,
+          signature_city: manualDraft.signature_city,
+          service_1: manualDraft.service_1,
+          prix_service_1: manualDraft.prix_service_1,
+          service_2: manualDraft.service_2,
+          prix_service_2: manualDraft.prix_service_2,
+          service_3: manualDraft.service_3,
+          prix_service_3: manualDraft.prix_service_3,
         }),
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Creation reservation manuelle impossible'));
@@ -606,12 +648,23 @@ export default function ContratsPage() {
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Nom *" value={manualDraft.client_last_name} onChange={(e) => setManualDraft((p) => ({ ...p, client_last_name: e.target.value }))} />
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Email *" value={manualDraft.client_email} onChange={(e) => setManualDraft((p) => ({ ...p, client_email: e.target.value }))} />
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Telephone" value={manualDraft.client_telephone} onChange={(e) => setManualDraft((p) => ({ ...p, client_telephone: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Adresse locataire" value={manualDraft.client_address} onChange={(e) => setManualDraft((p) => ({ ...p, client_address: e.target.value }))} />
                 <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.identity_document_type} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_type: e.target.value as ManualReservationDraft['identity_document_type'] }))}>
                   <option value="cin_tn">CIN tunisienne</option>
                   <option value="passport_tn">Passeport tunisien</option>
                   <option value="passport_foreign">Passeport etranger</option>
                 </select>
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Numero identite *" value={manualDraft.identity_document_number} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_number: e.target.value }))} />
+                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.representative} onChange={(e) => setManualDraft((p) => ({ ...p, representative: e.target.value as ManualReservationDraft['representative'] }))}>
+                  <option value="ghaith">Representant: Ghaith</option>
+                  <option value="chayma">Representant: Chayma</option>
+                </select>
+                <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure arrivee" value={manualDraft.arrival_time} onChange={(e) => setManualDraft((p) => ({ ...p, arrival_time: e.target.value }))} />
+                <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure depart" value={manualDraft.departure_time} onChange={(e) => setManualDraft((p) => ({ ...p, departure_time: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="ID paiement (VIR-..., CASH-...)" value={manualDraft.payment_id} onChange={(e) => setManualDraft((p) => ({ ...p, payment_id: e.target.value }))} />
+                <input type="date" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Date limite paiement" value={manualDraft.payment_deadline_date} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_date: e.target.value }))} />
+                <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure limite paiement" value={manualDraft.payment_deadline_time} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_time: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Ville signature (optionnel)" value={manualDraft.signature_city} onChange={(e) => setManualDraft((p) => ({ ...p, signature_city: e.target.value }))} />
                 <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_mode} onChange={(e) => setManualDraft((p) => ({ ...p, payment_mode: e.target.value as ManualReservationDraft['payment_mode'] }))}>
                   <option value="avance">Avance</option>
                   <option value="totalite">Totalite</option>
@@ -619,6 +672,12 @@ export default function ContratsPage() {
                 <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder={`Caution (defaut bien: ${baseCaution} DT)`} value={manualDraft.caution_amount} onChange={(e) => setManualDraft((p) => ({ ...p, caution_amount: e.target.value }))} />
                 <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Montant global (optionnel)" value={manualDraft.total_amount} onChange={(e) => setManualDraft((p) => ({ ...p, total_amount: e.target.value }))} />
                 <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="A payer maintenant (optionnel)" value={manualDraft.amount_due_now} onChange={(e) => setManualDraft((p) => ({ ...p, amount_due_now: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 1 (optionnel)" value={manualDraft.service_1} onChange={(e) => setManualDraft((p) => ({ ...p, service_1: e.target.value }))} />
+                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prix service 1" value={manualDraft.prix_service_1} onChange={(e) => setManualDraft((p) => ({ ...p, prix_service_1: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 2 (optionnel)" value={manualDraft.service_2} onChange={(e) => setManualDraft((p) => ({ ...p, service_2: e.target.value }))} />
+                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prix service 2" value={manualDraft.prix_service_2} onChange={(e) => setManualDraft((p) => ({ ...p, prix_service_2: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 3 (optionnel)" value={manualDraft.service_3} onChange={(e) => setManualDraft((p) => ({ ...p, service_3: e.target.value }))} />
+                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prix service 3" value={manualDraft.prix_service_3} onChange={(e) => setManualDraft((p) => ({ ...p, prix_service_3: e.target.value }))} />
               </div>
               <textarea className="w-full rounded-lg border px-3 py-2 text-sm" rows={2} placeholder="Note client (optionnel)" value={manualDraft.client_note} onChange={(e) => setManualDraft((p) => ({ ...p, client_note: e.target.value }))} />
               <div className="flex justify-end">

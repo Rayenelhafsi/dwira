@@ -5137,7 +5137,7 @@ function formatAmountTndRaw(value) {
 }
 
 function normalizePaymentModeForTemplate(paymentMode) {
-  if (paymentMode === 'totalite') return 'Paiement par carte electronique';
+  if (paymentMode === 'totalite') return 'Carte';
   return 'Virement';
 }
 
@@ -5873,14 +5873,41 @@ async function generateReservationClientContractHtml({
     : `Passeport ${String(identityNumber || '').trim()}`;
   const start = parseSqlDateParts(demand.start_date);
   const end = parseSqlDateParts(demand.end_date);
-  const finalization = parseSqlDateTimeParts(demand.finalization_due_at || contractCreatedAt);
+  const finalization = parseSqlDateTimeParts(demand.payment_deadline_at || demand.finalization_due_at || contractCreatedAt);
   const modePaiement = normalizePaymentModeForTemplate(paymentMode);
-  const equipements = [
-    String(bien?.reference || '').trim() && `Ref: ${String(bien.reference).trim()}`,
-    String(bien?.titre || demand?.bien_titre || '').trim(),
-    String(bien?.type || '').trim() && `Type: ${String(bien.type).trim()}`,
-  ].filter(Boolean).join(' | ');
-  const services = parseDemandVariableServices(demand).slice(0, 6);
+  const equipementsListe = Array.isArray(bien?.caracteristiques) ? bien.caracteristiques : [];
+  const equipementsNormalises = equipementsListe
+    .map((row) => {
+      const text = String(row || '').trim();
+      if (!text) return '';
+      const idx = text.indexOf(':');
+      return (idx >= 0 ? text.slice(0, idx) : text).trim();
+    })
+    .filter(Boolean);
+  if (equipementsNormalises.length === 0) {
+    equipementsNormalises.push(
+      String(bien?.reference || '').trim() && `Ref ${String(bien.reference).trim()}`,
+      String(bien?.titre || demand?.bien_titre || '').trim(),
+      String(bien?.type || '').trim()
+    );
+  }
+  const equipementsLigne1 = equipementsNormalises.filter(Boolean).slice(0, 4).join(', ');
+  const equipementsLigne2 = equipementsNormalises.filter(Boolean).slice(4, 8).join(', ');
+  const manualServices = [
+    {
+      label: String(demand?.service_1 || '').trim(),
+      amount: String(demand?.prix_service_1 || '').trim(),
+    },
+    {
+      label: String(demand?.service_2 || '').trim(),
+      amount: String(demand?.prix_service_2 || '').trim(),
+    },
+    {
+      label: String(demand?.service_3 || '').trim(),
+      amount: String(demand?.prix_service_3 || '').trim(),
+    },
+  ].filter((row) => row.label);
+  const services = manualServices.length > 0 ? manualServices : parseDemandVariableServices(demand).slice(0, 6);
   const signatureDate = parseSqlDateParts(contractCreatedAt);
   const caution = Number.isFinite(Number(cautionAmount))
     ? Number(cautionAmount)
@@ -5888,13 +5915,42 @@ async function generateReservationClientContractHtml({
   const phoneCandidate = String(demand?.client_phone || demand?.phone || '').trim();
 
   const esc = (value) => escapeHtml(String(value || ''));
+  const representativeValue = String(demand?.contract_representative || process.env.CONTRACT_REPRESENTATIVE || 'ghaith').trim().toLowerCase();
+  const checkboxChayma = representativeValue === 'chayma' ? '☑' : '';
+  const checkboxGhaith = representativeValue === 'ghaith' ? '☑' : '';
+  const startDay = String(start.dd || '');
+  const startMonth = String(start.mm || '');
+  const endDay = String(end.dd || '');
+  const endMonth = String(end.mm || '');
+  const finalDay = String(finalization.date.dd || '');
+  const finalMonth = String(finalization.date.mm || '');
+  const finalHour = String(finalization.hh || '');
+  const finalMinute = String(finalization.min || '');
+  const heureArrivee = String(demand?.arrival_time || '').trim();
+  const heureDepart = String(demand?.departure_time || '').trim();
+  const typeLogement = String(bien?.configuration || bien?.type || '');
+  const adresseBien = String(bien?.adresse || bien?.address || '');
+  const saisonCfg = safeParseJson(bien?.location_saisonniere_config_json, {});
+  const capaciteCfg = Number(
+    saisonCfg?.limite_personnes_nuit
+    ?? saisonCfg?.limitePersonnesNuit
+    ?? saisonCfg?.limite_personne_nuit
+  );
+  const capaciteMax = String((Number.isFinite(capaciteCfg) && capaciteCfg > 0) ? Math.floor(capaciteCfg) : totalGuests || '');
+  const loyerTotal = formatAmountTndRaw(reservationTotal);
+  const acompteReservation = formatAmountTndRaw(amountNow);
+  const soldeArrivee = formatAmountTndRaw(balance);
+  const idPaiement = String(demand?.payment_id || demand?.reservation_payment_id || '').trim();
+  const villeSignature = String(demand?.signature_city || bien?.ville || 'Kelibia').trim();
+  const jourSignature = String(signatureDate.dd || '');
+  const moisSignature = String(signatureDate.mm || '');
   const serviceRows = [];
   for (let i = 0; i < 3; i += 1) {
     const service = services[i];
     const label = String(service?.label || service?.name || service?.service || '').trim();
-    const amount = Number.isFinite(Number(service?.prix ?? service?.price ?? service?.montant))
-      ? formatAmountTndRaw(Number(service.prix ?? service.price ?? service.montant))
-      : '';
+    const amount = Number.isFinite(Number(service?.amount ?? service?.prix ?? service?.price ?? service?.montant))
+      ? formatAmountTndRaw(Number(service.amount ?? service.prix ?? service.price ?? service.montant))
+      : String(service?.amount || '').trim();
     serviceRows.push({ label, amount });
   }
 
@@ -5928,7 +5984,7 @@ async function generateReservationClientContractHtml({
     <tr><td>Adresse :</td><td>Rue Ibn Khaldoun, Kelibia 8090, Nabeul</td></tr>
     <tr><td>Tel :</td><td>29 879 227 / 52 080 695</td></tr>
     <tr><td>MF :</td><td>1919183/K/A/M/000</td></tr>
-    <tr><td>Represente par :</td><td>☐ Lengliz Chayma, Gerante   ☐ Hafsi Ghaith, Responsable commercial</td></tr>
+    <tr><td>Represente par :</td><td>${esc(checkboxChayma)} Lengliz Chayma, Gerante   ${esc(checkboxGhaith)} Hafsi Ghaith, Responsable commercial</td></tr>
   </table>
   <p class="small-italic">(ci-apres designe "le Bailleur")</p>
   <div class="center">Et</div>
@@ -5943,21 +5999,23 @@ async function generateReservationClientContractHtml({
   <h2>1. Objet du contrat</h2>
   <p>Le present contrat a pour objet la location d'un bien immobilier meuble a usage exclusif d'habitation saisonniere.</p>
   <h2>2. Designation du bien loue</h2>
-  <p>Type de logement : ${esc(bien?.type || '')}</p>
-  <p>Adresse exacte du bien loue : ${esc(bien?.adresse || bien?.address || '')}</p>
-  <p>Capacite maximale d'accueil : ${esc(totalGuests)} personnes</p>
-  <p>Equipements fournis : ${esc(equipements)}</p>
+  <p>Type de logement : ${esc(typeLogement)}</p>
+  <p>Adresse exacte du bien loue : ${esc(adresseBien)}</p>
+  <p>Capacite maximale d'accueil : ${esc(capaciteMax)} personnes</p>
+  <p>Repartition voyageurs : Adultes ${esc(adultGuests)} / Enfants ${esc(childGuests)}</p>
+  <p>Equipements fournis : ${esc(equipementsLigne1)}</p>
+  <p>${esc(equipementsLigne2)}</p>
   <h2>3. Duree de la location</h2>
-  <p>Du ${esc(start.dd)} / ${esc(start.mm)} / ${esc(start.yyyy)} au ${esc(end.dd)} / ${esc(end.mm)} / ${esc(end.yyyy)}</p>
-  <p>Heure d'arrivee : ${esc(demand?.arrival_time || '')}</p>
-  <p>Heure de depart : ${esc(demand?.departure_time || '')}</p>
+  <p>Du ${esc(startDay)} / ${esc(startMonth)} / ${esc(start.yyyy || '')} au ${esc(endDay)} / ${esc(endMonth)} / ${esc(end.yyyy || '')}</p>
+  <p>Heure d'arrivee : ${esc(heureArrivee)}</p>
+  <p>Heure de depart : ${esc(heureDepart)}</p>
   <h2>4. Prix et modalites de paiement</h2>
   <table class="payment-table">
-    <tr><td>Loyer total :</td><td>${esc(formatAmountTndRaw(reservationTotal))} TND</td></tr>
-    <tr><td>Acompte verse a la reservation :</td><td>${esc(formatAmountTndRaw(amountNow))} TND</td></tr>
-    <tr><td>Date limite paiement avance :</td><td>${esc(finalization.date.dd)} / ${esc(finalization.date.mm)} / ${esc(finalization.date.yyyy)} a ${esc(finalization.hh)}:${esc(finalization.min)}</td></tr>
-    <tr><td>N° quittance / ID virement :</td><td>${esc(demand?.payment_id || demand?.reservation_payment_id || '')}</td></tr>
-    <tr><td>Solde a regler a l'arrivee :</td><td>${esc(formatAmountTndRaw(balance))} TND</td></tr>
+    <tr><td>Loyer total :</td><td>${esc(loyerTotal)} TND</td></tr>
+    <tr><td>Acompte verse a la reservation :</td><td>${esc(acompteReservation)} TND</td></tr>
+    <tr><td>Date limite paiement avance :</td><td>${esc(finalDay)} / ${esc(finalMonth)} / ${esc(finalization.date.yyyy || '')} a ${esc(finalHour)} h ${esc(finalMinute)}</td></tr>
+    <tr><td>N° quittance / ID virement :</td><td>${esc(idPaiement)}</td></tr>
+    <tr><td>Solde a regler a l'arrivee :</td><td>${esc(soldeArrivee)} TND</td></tr>
     <tr><td>Mode paiement :</td><td>${esc(modePaiement)}</td></tr>
     <tr><td>Depot de garantie :</td><td>${esc(formatAmountTndRaw(caution))} TND</td></tr>
   </table>
@@ -5969,7 +6027,7 @@ async function generateReservationClientContractHtml({
     <tr><td>${esc(serviceRows[2].label)}</td><td>${esc(serviceRows[2].amount)}</td></tr>
   </table>
   <h2>Signature</h2>
-  <p>Fait a ${esc(bien?.ville || 'Kelibia')}, le ${esc(signatureDate.dd)} / ${esc(signatureDate.mm)} / ${esc(signatureDate.yyyy)}</p>
+  <p>Fait a ${esc(villeSignature)}, le ${esc(jourSignature)} / ${esc(moisSignature)} / ${esc(signatureDate.yyyy || '')}</p>
 </section>
 </body>
 </html>`;
@@ -8269,8 +8327,22 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       client_last_name,
       client_email,
       client_telephone,
+      client_address,
       identity_document_type,
       identity_document_number,
+      representative,
+      arrival_time,
+      departure_time,
+      payment_id,
+      payment_deadline_date,
+      payment_deadline_time,
+      signature_city,
+      service_1,
+      prix_service_1,
+      service_2,
+      prix_service_2,
+      service_3,
+      prix_service_3,
     } = req.body || {};
 
     const bienId = String(bien_id || '').trim();
@@ -8316,6 +8388,17 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     const identityNumber = normalizeIdentityNumber(identity_document_number || '');
     const now = getAgencySqlDateTime();
     const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
+    const normalizedArrivalTime = String(arrival_time || '').trim();
+    const normalizedDepartureTime = String(departure_time || '').trim();
+    const normalizedPaymentId = String(payment_id || '').trim();
+    const normalizedRepresentative = String(representative || 'ghaith').trim().toLowerCase() === 'chayma' ? 'chayma' : 'ghaith';
+    const normalizedSignatureCity = String(signature_city || '').trim();
+    const paymentDeadlineDate = toSqlDateOnly(payment_deadline_date);
+    const paymentDeadlineTimeRaw = String(payment_deadline_time || '').trim();
+    const paymentDeadlineTime = /^\d{2}:\d{2}$/.test(paymentDeadlineTimeRaw) ? paymentDeadlineTimeRaw : '';
+    const paymentDeadlineAt = paymentDeadlineDate
+      ? `${paymentDeadlineDate} ${paymentDeadlineTime || '00:00'}:00`
+      : now;
     const nights = computeNights(startDate, endDate);
     const fallbackTotal = Math.max(0, Number(bien.prix_nuitee || 0) * Math.max(1, nights));
     const normalizedTotalAmount = Number.isFinite(Number(total_amount)) && Number(total_amount) > 0
@@ -8421,9 +8504,9 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
         now,
         'Reservation/contrat cree manuellement par administrateur',
         client_note || null,
-        now,
+        paymentDeadlineAt,
         contractId,
-        now,
+        normalizedPaymentId || null,
         now,
       ]
     );
@@ -8444,6 +8527,19 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       adult_guests: balancedAdultGuests,
       child_guests: balancedChildGuests,
       client_email: email || null,
+      client_address: String(client_address || '').trim() || null,
+      arrival_time: normalizedArrivalTime || null,
+      departure_time: normalizedDepartureTime || null,
+      payment_id: normalizedPaymentId || null,
+      payment_deadline_at: paymentDeadlineAt,
+      signature_city: normalizedSignatureCity || null,
+      contract_representative: normalizedRepresentative,
+      service_1: String(service_1 || '').trim(),
+      prix_service_1: String(prix_service_1 || '').trim(),
+      service_2: String(service_2 || '').trim(),
+      prix_service_2: String(prix_service_2 || '').trim(),
+      service_3: String(service_3 || '').trim(),
+      prix_service_3: String(prix_service_3 || '').trim(),
       variable_services_quote_total: 0,
     };
 
