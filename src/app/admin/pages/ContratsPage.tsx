@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import AvailabilityCalendar from '../../components/AvailabilityCalendar';
 import { calculateAccommodationPricing, type SeasonalPricingPeriod } from '../../utils/seasonalPricing';
 import { computeGuestLimits } from '../../utils/guestLimits';
+import { getServiceDisplayPrice, splitServicesByTarification } from '../../utils/servicePayants';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -123,6 +124,7 @@ type ManualReservationDraft = {
   total_amount: string;
   amount_due_now: string;
   payment_mode: 'avance' | 'totalite';
+  payment_method: 'virement' | 'especes' | 'carte' | 'cheque';
   client_note: string;
 };
 
@@ -135,8 +137,8 @@ const MANUAL_DEFAULT: ManualReservationDraft = {
   identity_document_type: 'cin_tn',
   identity_document_number: '',
   representative: 'ghaith',
-  arrival_time: '',
-  departure_time: '',
+  arrival_time: '14:00',
+  departure_time: '11:00',
   payment_id: '',
   payment_deadline_date: '',
   payment_deadline_time: '',
@@ -153,6 +155,7 @@ const MANUAL_DEFAULT: ManualReservationDraft = {
   total_amount: '',
   amount_due_now: '',
   payment_mode: 'avance',
+  payment_method: 'virement',
   client_note: '',
 };
 
@@ -211,6 +214,7 @@ export default function ContratsPage() {
   const [selectedBienUnavailableDates, setSelectedBienUnavailableDates] = useState<UnavailableDateApi[]>([]);
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [loadingManualCalendar, setLoadingManualCalendar] = useState(false);
+  const [selectedManualServiceIds, setSelectedManualServiceIds] = useState<string[]>([]);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -551,6 +555,7 @@ export default function ContratsPage() {
     setSelectedStart(null);
     setSelectedEnd(null);
     setSelectedBienUnavailableDates([]);
+    setSelectedManualServiceIds([]);
   };
 
   const goToManualStep2 = () => {
@@ -585,6 +590,23 @@ export default function ContratsPage() {
     });
     setManualStep(3);
   };
+
+  const seasonalServices = useMemo(() => {
+    const raw = (selectedSeasonalConfig as any)?.services_payants || (selectedSeasonalConfig as any)?.servicesPayants || [];
+    return splitServicesByTarification(Array.isArray(raw) ? raw : []).all;
+  }, [selectedSeasonalConfig]);
+
+  const selectedSeasonalServices = useMemo(
+    () => seasonalServices.filter((service) => selectedManualServiceIds.includes(String(service.id))),
+    [seasonalServices, selectedManualServiceIds]
+  );
+
+  const fixedSeasonalServicesTotal = useMemo(
+    () => selectedSeasonalServices
+      .filter((service) => service.type_tarification === 'fixe')
+      .reduce((sum, service) => sum + Number(service.prix || 0), 0),
+    [selectedSeasonalServices]
+  );
 
   const handleCreateManualReservation = async () => {
     if (!selectedBienId || !manualStartDateSql || !manualEndDateSql) {
@@ -623,8 +645,10 @@ export default function ContratsPage() {
           child_guests: manualChildGuests,
           caution_amount: resolvedManualCaution,
           payment_mode: manualDraft.payment_mode,
-          total_amount: resolvedManualTotal,
-          amount_due_now: resolvedManualDueNow,
+          total_amount: resolvedManualTotal + fixedSeasonalServicesTotal,
+          amount_due_now: manualDraft.payment_mode === 'totalite'
+            ? (resolvedManualTotal + fixedSeasonalServicesTotal)
+            : Math.round(((resolvedManualTotal + fixedSeasonalServicesTotal) * advancePercent) / 100),
           client_note: manualDraft.client_note,
           client_first_name: manualDraft.client_first_name,
           client_last_name: manualDraft.client_last_name,
@@ -637,15 +661,16 @@ export default function ContratsPage() {
           arrival_time: manualDraft.arrival_time,
           departure_time: manualDraft.departure_time,
           payment_id: manualDraft.payment_id,
+          payment_method: manualDraft.payment_method,
           payment_deadline_date: manualDraft.payment_deadline_date,
           payment_deadline_time: manualDraft.payment_deadline_time,
           signature_city: manualDraft.signature_city,
-          service_1: manualDraft.service_1,
-          prix_service_1: manualDraft.prix_service_1,
-          service_2: manualDraft.service_2,
-          prix_service_2: manualDraft.prix_service_2,
-          service_3: manualDraft.service_3,
-          prix_service_3: manualDraft.prix_service_3,
+          service_1: selectedSeasonalServices[0]?.label || '',
+          prix_service_1: String(selectedSeasonalServices[0]?.prix || ''),
+          service_2: selectedSeasonalServices[1]?.label || '',
+          prix_service_2: String(selectedSeasonalServices[1]?.prix || ''),
+          service_3: selectedSeasonalServices[2]?.label || '',
+          prix_service_3: String(selectedSeasonalServices[2]?.prix || ''),
         }),
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Creation reservation manuelle impossible'));
@@ -724,12 +749,12 @@ export default function ContratsPage() {
                 <input type="date" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Date limite paiement" value={manualDraft.payment_deadline_date} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_date: e.target.value }))} />
                 <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure limite paiement" value={manualDraft.payment_deadline_time} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_time: e.target.value }))} />
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Ville signature (optionnel)" value={manualDraft.signature_city} onChange={(e) => setManualDraft((p) => ({ ...p, signature_city: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 1 (optionnel)" value={manualDraft.service_1} onChange={(e) => setManualDraft((p) => ({ ...p, service_1: e.target.value }))} />
-                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prix service 1" value={manualDraft.prix_service_1} onChange={(e) => setManualDraft((p) => ({ ...p, prix_service_1: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 2 (optionnel)" value={manualDraft.service_2} onChange={(e) => setManualDraft((p) => ({ ...p, service_2: e.target.value }))} />
-                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prix service 2" value={manualDraft.prix_service_2} onChange={(e) => setManualDraft((p) => ({ ...p, prix_service_2: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 3 (optionnel)" value={manualDraft.service_3} onChange={(e) => setManualDraft((p) => ({ ...p, service_3: e.target.value }))} />
-                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prix service 3" value={manualDraft.prix_service_3} onChange={(e) => setManualDraft((p) => ({ ...p, prix_service_3: e.target.value }))} />
+                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_method} onChange={(e) => setManualDraft((p) => ({ ...p, payment_method: e.target.value as ManualReservationDraft['payment_method'] }))}>
+                  <option value="virement">Methode paiement: Virement</option>
+                  <option value="especes">Methode paiement: Especes</option>
+                  <option value="carte">Methode paiement: Carte</option>
+                  <option value="cheque">Methode paiement: Cheque</option>
+                </select>
               </div>
               <textarea className="w-full rounded-lg border px-3 py-2 text-sm" rows={2} placeholder="Note client (optionnel)" value={manualDraft.client_note} onChange={(e) => setManualDraft((p) => ({ ...p, client_note: e.target.value }))} />
               <div className="flex justify-end">
@@ -871,8 +896,41 @@ export default function ContratsPage() {
                   />
                 </div>
                 <p><strong>Voyageurs:</strong> {manualGuestsTotal} (Adultes: {manualAdultGuests}, Enfants: {manualChildGuests})</p>
-                <p><strong>Total:</strong> {resolvedManualTotal} DT</p>
-                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT ({manualDraft.payment_mode === 'totalite' ? 'Totalite' : `Avance ${advancePercent}%`})</p>
+                {seasonalServices.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <p className="mb-2 text-xs font-bold uppercase text-gray-600">Services supplementaires</p>
+                    <div className="space-y-2 max-h-44 overflow-auto pr-1">
+                      {seasonalServices.map((service) => {
+                        const checked = selectedManualServiceIds.includes(String(service.id));
+                        return (
+                          <label key={service.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+                            <span className="min-w-0 pr-2">
+                              <span className="block truncate font-semibold text-gray-900">{service.label}</span>
+                              <span className="block truncate text-xs text-gray-500">{service.categorie}</span>
+                            </span>
+                            <span className="flex items-center gap-3">
+                              <span className="text-xs font-semibold text-gray-700">{getServiceDisplayPrice(service)}</span>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setSelectedManualServiceIds((prev) => (
+                                    checked
+                                      ? prev.filter((id) => id !== String(service.id))
+                                      : [...prev, String(service.id)]
+                                  ));
+                                }}
+                              />
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-600">Total services fixes: {fixedSeasonalServicesTotal} DT</p>
+                  </div>
+                )}
+                <p><strong>Total:</strong> {resolvedManualTotal + fixedSeasonalServicesTotal} DT</p>
+                <p><strong>A payer maintenant:</strong> {manualDraft.payment_mode === 'totalite' ? (resolvedManualTotal + fixedSeasonalServicesTotal) : Math.round(((resolvedManualTotal + fixedSeasonalServicesTotal) * advancePercent) / 100)} DT ({manualDraft.payment_mode === 'totalite' ? 'Totalite' : `Avance ${advancePercent}%`})</p>
                 <p><strong>Caution:</strong> {resolvedManualCaution} DT</p>
               </div>
               <div className="flex items-center justify-between">

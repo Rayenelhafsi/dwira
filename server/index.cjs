@@ -5136,7 +5136,12 @@ function formatAmountTndRaw(value) {
   return num.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function normalizePaymentModeForTemplate(paymentMode) {
+function normalizePaymentModeForTemplate(paymentMode, paymentMethod) {
+  const method = String(paymentMethod || '').trim().toLowerCase();
+  if (method === 'especes') return 'Especes';
+  if (method === 'carte') return 'Carte';
+  if (method === 'cheque') return 'Cheque';
+  if (method === 'virement') return 'Virement';
   if (paymentMode === 'totalite') return 'Carte';
   return 'Virement';
 }
@@ -5874,7 +5879,7 @@ async function generateReservationClientContractHtml({
   const start = parseSqlDateParts(demand.start_date);
   const end = parseSqlDateParts(demand.end_date);
   const finalization = parseSqlDateTimeParts(demand.payment_deadline_at || demand.finalization_due_at || contractCreatedAt);
-  const modePaiement = normalizePaymentModeForTemplate(paymentMode);
+  const modePaiement = normalizePaymentModeForTemplate(paymentMode, demand?.payment_method);
   const equipementsListe = Array.isArray(bien?.caracteristiques) ? bien.caracteristiques : [];
   const equipementsNormalises = equipementsListe
     .map((row) => {
@@ -8334,6 +8339,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       arrival_time,
       departure_time,
       payment_id,
+      payment_method,
       payment_deadline_date,
       payment_deadline_time,
       signature_city,
@@ -8531,6 +8537,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       arrival_time: normalizedArrivalTime || null,
       departure_time: normalizedDepartureTime || null,
       payment_id: normalizedPaymentId || null,
+      payment_method: String(payment_method || '').trim().toLowerCase() || null,
       payment_deadline_at: paymentDeadlineAt,
       signature_city: normalizedSignatureCity || null,
       contract_representative: normalizedRepresentative,
