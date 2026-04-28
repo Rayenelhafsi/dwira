@@ -8478,7 +8478,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
         variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at,
         client_confirmation_clicked_at, identity_document_type, identity_document_number, identity_first_name, identity_last_name, identity_submitted_at,
         contract_generated_at, admin_note, client_note, finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, 'reservation', ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contrat_realise', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)` ,
+      ) VALUES (?, ?, 'reservation', ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contrat_realise', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)` ,
       [
         demandId,
         bienId,
