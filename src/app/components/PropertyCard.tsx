@@ -147,7 +147,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
 
         <div className="space-y-4 p-5">
           <div className="flex items-start justify-between gap-3">
-            <h3 className="text-xl font-semibold leading-snug text-slate-900 transition-colors group-hover:text-emerald-700 md:text-2xl">
+            <h3 className="line-clamp-4 text-[1.95rem] font-semibold leading-[1.12] tracking-[-0.01em] text-slate-900 transition-colors group-hover:text-emerald-700 sm:line-clamp-3 sm:text-[1.75rem] md:text-[1.6rem] lg:text-[1.75rem]">
               {displayTitle}
             </h3>
             {property.isFeatured && (
