@@ -488,7 +488,7 @@ export default function ContratsPage() {
   ), [selectedBien?.pricing_periods]);
   const pricingSummary = useMemo(() => {
     if (!manualPeriodReady) {
-      return { nights: 0, total: 0, averageNightlyPrice: 0, hasPeriodOverride: false };
+      return { nights: 0, accommodationTotal: 0, averageNightlyPrice: 0, hasPeriodOverride: false };
     }
     return calculateAccommodationPricing({
       startDate: manualStartDateSql,
@@ -510,7 +510,7 @@ export default function ContratsPage() {
   const manualChildGuests = Math.max(0, Number(manualDraft.child_guests || 0));
   const manualGuestsTotal = Math.max(1, manualAdultGuests + manualChildGuests);
   const resolvedManualCaution = baseCaution;
-  const resolvedManualTotal = pricingSummary.total;
+  const resolvedManualTotal = Number(pricingSummary.accommodationTotal || 0);
   const resolvedManualDueNow = manualDraft.payment_mode === 'totalite'
     ? resolvedManualTotal
     : Math.round((resolvedManualTotal * advancePercent) / 100);
