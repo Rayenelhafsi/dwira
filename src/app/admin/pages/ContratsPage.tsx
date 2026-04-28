@@ -352,16 +352,40 @@ export default function ContratsPage() {
     return id ? (bienById.get(id) || null) : null;
   }, [bienById, selectedBienId]);
   const selectedSeasonalConfig = useMemo(() => {
-    const cfg = (selectedBien as any)?.location_saisonniere_config || {};
-    return cfg && typeof cfg === 'object' ? cfg : {};
+    const raw = (selectedBien as any)?.location_saisonniere_config;
+    if (raw && typeof raw === 'object') return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch {}
+    }
+    return {};
   }, [selectedBien]);
   const guestCaps = useMemo(() => {
-    const fallbackGuests = Math.max(1, Number((selectedBien as any)?.guests || 1));
+    const rawTotal = Number(
+      (selectedSeasonalConfig as any)?.limite_personnes_nuit
+      ?? (selectedSeasonalConfig as any)?.limitePersonnesNuit
+      ?? (selectedSeasonalConfig as any)?.limite_personne_nuit
+    );
+    const rawAdults = Number(
+      (selectedSeasonalConfig as any)?.max_adultes
+      ?? (selectedSeasonalConfig as any)?.maxAdultes
+    );
+    const rawChildren = Number(
+      (selectedSeasonalConfig as any)?.max_enfants
+      ?? (selectedSeasonalConfig as any)?.maxEnfants
+    );
+    const fallbackFromCaps = Number.isFinite(rawTotal) && rawTotal > 0
+      ? Math.floor(rawTotal)
+      : ((Number.isFinite(rawAdults) && rawAdults > 0 ? Math.floor(rawAdults) : 1)
+        + (Number.isFinite(rawChildren) && rawChildren >= 0 ? Math.floor(rawChildren) : 0));
+    const fallbackGuests = Math.max(1, Number((selectedBien as any)?.guests || fallbackFromCaps || 10));
     const limits = computeGuestLimits({
       fallbackGuests,
-      maxGuestsCap: Number(selectedSeasonalConfig?.limite_personnes_nuit ?? selectedSeasonalConfig?.limitePersonnesNuit ?? selectedSeasonalConfig?.limite_personne_nuit),
-      maxAdultsCap: Number(selectedSeasonalConfig?.max_adultes),
-      maxChildrenCap: Number(selectedSeasonalConfig?.max_enfants),
+      maxGuestsCap: rawTotal,
+      maxAdultsCap: rawAdults,
+      maxChildrenCap: rawChildren,
     });
     return {
       maxGuests: limits.maxGuests,
