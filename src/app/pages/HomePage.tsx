@@ -437,7 +437,14 @@ export default function HomePage() {
     : (selectedCategories.length > 0 ? selectedCategories.join(", ") : "Tous les types");
   const selectedTypeImage = useMemo(() => {
     if (selectedCategories.length === 1) {
-      const selected = availableTypeOptions.find((item) => item.label === selectedCategories[0]);
+      const selectedCategoryKey = getCanonicalSubTypeKey(selectedCategories[0]);
+      const selectedFromAdmin = typeFilterImageRows.find(
+        (row) =>
+          String(row.mode_bien || "").trim() === selectedMode
+          && getCanonicalSubTypeKey(row.sub_type) === selectedCategoryKey
+      );
+      if (selectedFromAdmin?.image_url) return selectedFromAdmin.image_url;
+      const selected = availableTypeOptions.find((item) => getCanonicalSubTypeKey(item.label) === selectedCategoryKey);
       if (selected?.imageUrl) return selected.imageUrl;
     }
     if (selectedMainType) {
@@ -445,7 +452,7 @@ export default function HomePage() {
       return group?.imageUrl || null;
     }
     return null;
-  }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainType]);
+  }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainType, selectedMode, typeFilterImageRows]);
 
   useEffect(() => {
     if (!locationPays && cascadePaysOptions.some((item) => item.toLowerCase() === 'tunisie')) {
