@@ -89,6 +89,13 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
   if (normalized.includes("immeuble")) return "immeuble";
   return "autre";
 };
+const getCanonicalSubTypeKey = (value?: string | null) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  const sPlusMatch = raw.match(/s\+\d+/);
+  if (sPlusMatch?.[0]) return sPlusMatch[0];
+  return raw.replace(/\s+/g, " ");
+};
 
 export default function HomePage() {
   // Use shared context for properties
@@ -380,7 +387,8 @@ export default function HomePage() {
       const mainType = getMainTypeFromCategory(String(row.main_type || ""));
       const group = groups.get(mainType);
       if (!group) continue;
-      if (!group.subTypes.some((item) => normalizeTypeToken(item.label) === normalizeTypeToken(subType))) {
+      const canonicalSubType = getCanonicalSubTypeKey(subType);
+      if (!group.subTypes.some((item) => getCanonicalSubTypeKey(item.label) === canonicalSubType)) {
         group.subTypes.push({ label: subType, imageUrl: row.image_url || TYPE_FALLBACK_IMAGE });
       }
       if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
@@ -393,7 +401,8 @@ export default function HomePage() {
       const mainType = getMainTypeFromCategory(option.label);
       const group = groups.get(mainType);
       if (!group) continue;
-      if (!group.subTypes.some((item) => normalizeTypeToken(item.label) === normalizeTypeToken(option.label))) {
+      const canonicalSubType = getCanonicalSubTypeKey(option.label);
+      if (!group.subTypes.some((item) => getCanonicalSubTypeKey(item.label) === canonicalSubType)) {
         group.subTypes.push({ label: option.label, imageUrl: option.imageUrl });
       }
       if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
