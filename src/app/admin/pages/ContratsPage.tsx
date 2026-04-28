@@ -531,7 +531,8 @@ export default function ContratsPage() {
     if (!pdfUrl) return;
     const link = document.createElement('a');
     link.href = pdfUrl;
-    link.download = `contrat-${contratId}.pdf`;
+    const ext = String(url || '').toLowerCase().endsWith('.html') ? 'html' : 'pdf';
+    link.download = `contrat-${contratId}.${ext}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

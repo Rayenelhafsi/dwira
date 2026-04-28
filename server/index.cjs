@@ -5906,8 +5906,11 @@ async function generateReservationClientContractHtml({
       String(bien?.type || '').trim()
     );
   }
-  const equipementsLigne1 = equipementsNormalises.filter(Boolean).slice(0, 4).join(', ');
-  const equipementsLigne2 = equipementsNormalises.filter(Boolean).slice(4, 8).join(', ');
+  const equipementsTitre = [
+    String(bien?.reference || '').trim() ? `Ref ${String(bien.reference).trim()}` : '',
+    String(bien?.titre || demand?.bien_titre || '').trim(),
+    String(bien?.type || '').trim(),
+  ].filter(Boolean).join(', ');
   const manualServices = [
     {
       label: String(demand?.service_1 || '').trim(),
@@ -5927,7 +5930,7 @@ async function generateReservationClientContractHtml({
   const caution = Number.isFinite(Number(cautionAmount))
     ? Number(cautionAmount)
     : (Number.isFinite(Number(bien?.caution)) ? Number(bien.caution) : 0);
-  const phoneCandidate = String(demand?.client_phone || demand?.phone || '').trim();
+  const phoneCandidate = String(demand?.client_phone || demand?.client_telephone || demand?.phone || '').trim();
 
   const esc = (value) => escapeHtml(String(value || ''));
   const representativeValue = String(demand?.contract_representative || process.env.CONTRACT_REPRESENTATIVE || 'ghaith').trim().toLowerCase();
@@ -5944,7 +5947,14 @@ async function generateReservationClientContractHtml({
   const heureArrivee = String(demand?.arrival_time || '').trim();
   const heureDepart = String(demand?.departure_time || '').trim();
   const typeLogement = String(bien?.configuration || bien?.type || '');
-  const adresseBien = String(bien?.adresse || bien?.address || '');
+  const adresseParts = [
+    String(bien?.zone_nom || '').trim(),
+    String(bien?.zone_quartier || '').trim(),
+    String(bien?.zone_gouvernerat || '').trim(),
+    String(bien?.zone_region || '').trim(),
+    String(bien?.zone_pays || '').trim(),
+  ].filter(Boolean);
+  const adresseBien = adresseParts.join(', ');
   const saisonCfg = safeParseJson(bien?.location_saisonniere_config_json, {});
   const capaciteCfg = Number(
     saisonCfg?.limite_personnes_nuit
@@ -5952,6 +5962,10 @@ async function generateReservationClientContractHtml({
     ?? saisonCfg?.limite_personne_nuit
   );
   const capaciteMax = String((Number.isFinite(capaciteCfg) && capaciteCfg > 0) ? Math.floor(capaciteCfg) : totalGuests || '');
+  const repartitionVoyageurs = childGuests > 0
+    ? `Adultes ${adultGuests} / Enfants ${childGuests}`
+    : `Adultes ${adultGuests}`;
+  const nights = computeNights(demand.start_date, demand.end_date);
   const loyerTotal = formatAmountTndRaw(reservationTotal);
   const acompteReservation = formatAmountTndRaw(amountNow);
   const soldeArrivee = formatAmountTndRaw(balance);
@@ -5976,7 +5990,8 @@ async function generateReservationClientContractHtml({
 <title>Contrat de Location Saisonniere - DWIRA</title>
 <style>
   body { margin:0; background:#e9e9e9; font-family:Arial, Helvetica, sans-serif; color:#000; font-size:16px; line-height:1.25; }
-  .page { width:210mm; min-height:297mm; margin:0 auto 12px; background:#fff; padding:20mm 18mm; }
+  .page { width:210mm; min-height:297mm; margin:0 auto 12px; background:#fff; padding:20mm 18mm; page-break-after:always; }
+  .page:last-child { page-break-after:auto; }
   h1 { text-align:center; font-size:25px; margin:0 0 16px; font-weight:700; }
   h2 { font-size:18px; margin:14px 0 4px; font-weight:700; }
   p { margin:4px 0; }
@@ -6016,14 +6031,16 @@ async function generateReservationClientContractHtml({
   <h2>2. Designation du bien loue</h2>
   <p>Type de logement : ${esc(typeLogement)}</p>
   <p>Adresse exacte du bien loue : ${esc(adresseBien)}</p>
-  <p>Capacite maximale d'accueil : ${esc(capaciteMax)} personnes</p>
-  <p>Repartition voyageurs : Adultes ${esc(adultGuests)} / Enfants ${esc(childGuests)}</p>
-  <p>Equipements fournis : ${esc(equipementsLigne1)}</p>
-  <p>${esc(equipementsLigne2)}</p>
+  <p>Nombre totale de voyageurs : ${esc(totalGuests)}</p>
+  <p>Repartition voyageurs : ${esc(repartitionVoyageurs)}</p>
+  <p>Titre : ${esc(equipementsTitre)}</p>
   <h2>3. Duree de la location</h2>
-  <p>Du ${esc(startDay)} / ${esc(startMonth)} / ${esc(start.yyyy || '')} au ${esc(endDay)} / ${esc(endMonth)} / ${esc(end.yyyy || '')}</p>
+  <p>Le present contrat est conclu pour une duree determinee : Du ${esc(startDay)} / ${esc(startMonth)} / ${esc(start.yyyy || '')} au ${esc(endDay)} / ${esc(endMonth)} / ${esc(end.yyyy || '')} (${esc(nights)} nuitee${nights > 1 ? 's' : ''})</p>
   <p>Heure d'arrivee : ${esc(heureArrivee)}</p>
   <p>Heure de depart : ${esc(heureDepart)}</p>
+  <p><strong>NB : Le contrat ne pourra etre renouvele automatiquement.</strong></p>
+</section>
+<section class="page">
   <h2>4. Prix et modalites de paiement</h2>
   <table class="payment-table">
     <tr><td>Loyer total :</td><td>${esc(loyerTotal)} TND</td></tr>
@@ -6031,9 +6048,12 @@ async function generateReservationClientContractHtml({
     <tr><td>Date limite paiement avance :</td><td>${esc(finalDay)} / ${esc(finalMonth)} / ${esc(finalization.date.yyyy || '')} a ${esc(finalHour)} h ${esc(finalMinute)}</td></tr>
     <tr><td>N° quittance / ID virement :</td><td>${esc(idPaiement)}</td></tr>
     <tr><td>Solde a regler a l'arrivee :</td><td>${esc(soldeArrivee)} TND</td></tr>
-    <tr><td>Mode paiement :</td><td>${esc(modePaiement)}</td></tr>
-    <tr><td>Depot de garantie :</td><td>${esc(formatAmountTndRaw(caution))} TND</td></tr>
+    <tr><td>Mode de paiement :</td><td>${esc(modePaiement)}</td></tr>
+    <tr><td>Coordonnees pour le versement de l'avance :</td><td>Titulaire : DWIRA KELIBIA<br>Adresse : Rue Ibn Khaldoun, Kelibia 8090, Nabeul</td></tr>
+    <tr><td>RIB / Compte N° :</td><td>14 069 0691017000664 77</td></tr>
+    <tr><td>Contact de confirmation :</td><td>29 879 227 / 52 080 695</td></tr>
   </table>
+  <p class="small-italic">A defaut de paiement de l'avance a la date d'echeance ci-dessus, le present contrat sera annule automatiquement de plein droit, sans autre formalite.</p>
   <h2>4.1 Services supplementaires payants</h2>
   <table class="services-table">
     <tr><th>Service</th><th>Prix (TND)</th></tr>
@@ -6041,8 +6061,45 @@ async function generateReservationClientContractHtml({
     <tr><td>${esc(serviceRows[1].label)}</td><td>${esc(serviceRows[1].amount)}</td></tr>
     <tr><td>${esc(serviceRows[2].label)}</td><td>${esc(serviceRows[2].amount)}</td></tr>
   </table>
-  <h2>Signature</h2>
+  <h2>5. Depot de garantie</h2>
+  <p>Un depot de garantie de ${esc(formatAmountTndRaw(caution))} TND est exige a la remise des cles.</p>
+  <p>Il sera restitue apres etat des lieux de sortie, deduction faite des eventuelles degradations ou manquements constates.</p>
+  <h2>6. Obligations du Locataire</h2>
+  <ul>
+    <li>Utiliser les lieux en "bon pere de famille"</li>
+    <li>Respecter la capacite d'accueil autorisee</li>
+    <li>Ne pas organiser de fetes ou evenements sans accord du Bailleur</li>
+    <li>Respecter le voisinage</li>
+    <li>Signaler toute degradation ou panne</li>
+    <li>Ne pas sous-louer le logement</li>
+    <li>Rendre le logement propre a la fin du sejour</li>
+  </ul>
+  <h2>7. Obligations du Bailleur</h2>
+  <ul>
+    <li>Fournir un logement propre, fonctionnel et conforme a la description</li>
+    <li>Assurer l'entretien des equipements fournis</li>
+    <li>Intervenir en cas de besoin technique ou panne grave</li>
+  </ul>
+</section>
+<section class="page">
+  <h2>8. Annulation</h2>
+  <p>En cas d'annulation par le Locataire :</p>
+  <ul>
+    <li>Plus de 30 jours avant l'arrivee : remboursement total de l'acompte</li>
+    <li>Moins de 30 jours : acompte non rembourse</li>
+  </ul>
+  <p>En cas d'annulation par le Bailleur, l'acompte sera restitue integralement.</p>
+  <h2>9. Assurance</h2>
+  <p>Le Locataire est responsable des dommages causes au logement ou a des tiers. Il est invite a souscrire une assurance "villegiature" (facultative).</p>
+  <h2>10. Etat des lieux</h2>
+  <p>Un etat des lieux d'entree et de sortie sera realise conjointement. Il servira de reference en cas de litige.</p>
+  <h2>11. Litiges</h2>
+  <p>Tout litige relatif a l'interpretation ou a l'execution du present contrat releve de la competence des tribunaux de Nabeul.</p>
   <p>Fait a ${esc(villeSignature)}, le ${esc(jourSignature)} / ${esc(moisSignature)} / ${esc(signatureDate.yyyy || '')}</p>
+  <p>En deux exemplaires originaux, dont un remis a chaque partie.</p>
+  <p><strong>Signature du Locataire</strong> (precedee de la mention "Lu et approuve")</p>
+  <p><strong>Signature du Bailleur</strong> (precedee de la mention "Lu et approuve")</p>
+  <p>${esc(checkboxChayma)} Lengliz Chayma, Gerante<br>${esc(checkboxGhaith)} Hafsi Ghaith, Responsable commercial</p>
 </section>
 </body>
 </html>`;
@@ -7909,9 +7966,15 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
               b.titre AS bien_titre,
               b.reference AS bien_reference,
               b.type AS bien_type,
+              b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
               b.prix_nuitee,
               b.avance,
               b.caution,
+              z.nom AS zone_nom,
+              z.quartier AS zone_quartier,
+              z.gouvernerat AS zone_gouvernerat,
+              z.region AS zone_region,
+              z.pays AS zone_pays,
               p.nom AS proprietaire_nom,
               p.email AS proprietaire_email,
               l.nom AS locataire_nom,
@@ -7920,6 +7983,7 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
               l.cin AS locataire_cin
        FROM contrats c
        LEFT JOIN biens b ON b.id = c.bien_id
+       LEFT JOIN zones z ON z.id = b.zone_id
        LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
        LEFT JOIN locataires l ON l.id = c.locataire_id
        WHERE c.id = ?
@@ -7975,6 +8039,12 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
       reference: contract.bien_reference || '',
       titre: contract.bien_titre || '',
       type: contract.bien_type || '',
+      location_saisonniere_config_json: contract.bien_location_saisonniere_config_json || null,
+      zone_nom: contract.zone_nom || null,
+      zone_quartier: contract.zone_quartier || null,
+      zone_gouvernerat: contract.zone_gouvernerat || null,
+      zone_region: contract.zone_region || null,
+      zone_pays: contract.zone_pays || null,
       caution: contract.caution,
       ville: String(demand.ville || demand.city || '').trim() || 'Kelibia',
     };
@@ -8372,7 +8442,12 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     }
 
     const [bienRows] = await pool.query(
-      'SELECT id, titre, reference, mode, type, proprietaire_id, prix_nuitee, location_saisonniere_config_json FROM biens WHERE id = ? LIMIT 1',
+      `SELECT b.id, b.titre, b.reference, b.mode, b.type, b.proprietaire_id, b.prix_nuitee, b.location_saisonniere_config_json,
+              z.nom AS zone_nom, z.quartier AS zone_quartier, z.gouvernerat AS zone_gouvernerat, z.region AS zone_region, z.pays AS zone_pays
+       FROM biens b
+       LEFT JOIN zones z ON z.id = b.zone_id
+       WHERE b.id = ?
+       LIMIT 1`,
       [bienId]
     );
     const bien = bienRows[0];
@@ -8548,6 +8623,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       adult_guests: balancedAdultGuests,
       child_guests: balancedChildGuests,
       client_email: email || null,
+      client_phone: telephone || null,
       client_address: String(client_address || '').trim() || null,
       arrival_time: normalizedArrivalTime || null,
       departure_time: normalizedDepartureTime || null,
