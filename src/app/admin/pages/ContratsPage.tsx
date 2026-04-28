@@ -296,6 +296,20 @@ export default function ContratsPage() {
     const id = String(selectedBienId || '').trim();
     return id ? (bienById.get(id) || null) : null;
   }, [bienById, selectedBienId]);
+  const guestCaps = useMemo(() => {
+    const cfg = (selectedBien as any)?.location_saisonniere_config || {};
+    const totalRaw = Number(cfg?.limite_personnes_nuit ?? cfg?.limitePersonnesNuit ?? cfg?.limite_personne_nuit);
+    const adultsRaw = Number(cfg?.max_adultes);
+    const childrenRaw = Number(cfg?.max_enfants);
+    const hasTotal = Number.isFinite(totalRaw) && totalRaw > 0;
+    const hasAdults = Number.isFinite(adultsRaw) && adultsRaw > 0;
+    const hasChildren = Number.isFinite(childrenRaw) && childrenRaw >= 0;
+    const maxAdults = hasAdults ? Math.max(1, Math.floor(adultsRaw)) : 10;
+    const maxChildren = hasChildren ? Math.max(0, Math.floor(childrenRaw)) : 10;
+    const splitTotal = Math.max(1, maxAdults + maxChildren);
+    const maxGuests = hasTotal ? Math.max(1, Math.floor(totalRaw)) : splitTotal;
+    return { maxGuests, maxAdults, maxChildren };
+  }, [selectedBien]);
 
   const filteredAndSorted = useMemo(() => {
     const locataireQuery = searchLocataire.trim().toLowerCase();
@@ -477,6 +491,11 @@ export default function ContratsPage() {
       toast.error('Selectionnez un bien');
       return;
     }
+    setManualDraft((prev) => {
+      const adults = Math.min(Math.max(1, Number(prev.adult_guests || 1)), guestCaps.maxAdults, guestCaps.maxGuests);
+      const children = Math.min(Math.max(0, Number(prev.child_guests || 0)), guestCaps.maxChildren, Math.max(0, guestCaps.maxGuests - adults));
+      return { ...prev, adult_guests: String(adults), child_guests: String(children) };
+    });
     setManualStep(3);
   };
 
@@ -487,6 +506,18 @@ export default function ContratsPage() {
     }
     if (manualEndDateSql < manualStartDateSql) {
       toast.error('La date de fin doit etre apres la date de debut');
+      return;
+    }
+    if (manualGuestsTotal > guestCaps.maxGuests) {
+      toast.error(`Le nombre max de voyageurs pour ce bien est ${guestCaps.maxGuests}`);
+      return;
+    }
+    if (manualAdultGuests > guestCaps.maxAdults) {
+      toast.error(`Le nombre max d adultes pour ce bien est ${guestCaps.maxAdults}`);
+      return;
+    }
+    if (manualChildGuests > guestCaps.maxChildren) {
+      toast.error(`Le nombre max d enfants pour ce bien est ${guestCaps.maxChildren}`);
       return;
     }
 
@@ -581,9 +612,6 @@ export default function ContratsPage() {
                   <option value="passport_foreign">Passeport etranger</option>
                 </select>
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Numero identite *" value={manualDraft.identity_document_number} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_number: e.target.value }))} />
-                <input type="number" min={1} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Adultes (>=18) *" value={manualDraft.adult_guests} onChange={(e) => setManualDraft((p) => ({ ...p, adult_guests: e.target.value }))} />
-                <input type="number" min={0} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Enfants (3-17) *" value={manualDraft.child_guests} onChange={(e) => setManualDraft((p) => ({ ...p, child_guests: e.target.value }))} />
-                <input type="text" readOnly className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm" value={`Voyageurs total: ${manualGuestsTotal}`} />
                 <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_mode} onChange={(e) => setManualDraft((p) => ({ ...p, payment_mode: e.target.value as ManualReservationDraft['payment_mode'] }))}>
                   <option value="avance">Avance</option>
                   <option value="totalite">Totalite</option>
@@ -685,6 +713,34 @@ export default function ContratsPage() {
               <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
                 <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
                 <p><strong>Nuits:</strong> {manualNights || 0}</p>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={guestCaps.maxAdults}
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    placeholder={`Adultes (max ${guestCaps.maxAdults})`}
+                    value={manualDraft.adult_guests}
+                    onChange={(e) => {
+                      const nextAdults = Math.min(Math.max(1, Number(e.target.value || 1)), guestCaps.maxAdults, guestCaps.maxGuests);
+                      const nextChildren = Math.min(Math.max(0, Number(manualDraft.child_guests || 0)), guestCaps.maxChildren, Math.max(0, guestCaps.maxGuests - nextAdults));
+                      setManualDraft((p) => ({ ...p, adult_guests: String(nextAdults), child_guests: String(nextChildren) }));
+                    }}
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={guestCaps.maxChildren}
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    placeholder={`Enfants (max ${guestCaps.maxChildren})`}
+                    value={manualDraft.child_guests}
+                    onChange={(e) => {
+                      const nextChildren = Math.min(Math.max(0, Number(e.target.value || 0)), guestCaps.maxChildren, Math.max(0, guestCaps.maxGuests - manualAdultGuests));
+                      setManualDraft((p) => ({ ...p, child_guests: String(nextChildren) }));
+                    }}
+                  />
+                  <input type="text" readOnly className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm" value={`Voyageurs total: ${manualGuestsTotal} / ${guestCaps.maxGuests}`} />
+                </div>
                 <p><strong>Voyageurs:</strong> {manualGuestsTotal} (Adultes: {manualAdultGuests}, Enfants: {manualChildGuests})</p>
                 <p><strong>Total:</strong> {resolvedManualTotal} DT</p>
                 <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT</p>
