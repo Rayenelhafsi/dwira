@@ -436,13 +436,13 @@ export default function HomePage() {
     ? (selectedCategories.length > 0 ? `${selectedMainTypeLabel} • ${selectedCategories.join(", ")}` : selectedMainTypeLabel)
     : (selectedCategories.length > 0 ? selectedCategories.join(", ") : "Tous les types");
   const selectedTypeImage = useMemo(() => {
-    if (selectedMainType) {
-      const group = groupedTypeOptions.find((item) => item.mainType === selectedMainType);
-      return group?.imageUrl || null;
-    }
     if (selectedCategories.length === 1) {
       const selected = availableTypeOptions.find((item) => item.label === selectedCategories[0]);
       if (selected?.imageUrl) return selected.imageUrl;
+    }
+    if (selectedMainType) {
+      const group = groupedTypeOptions.find((item) => item.mainType === selectedMainType);
+      return group?.imageUrl || null;
     }
     return null;
   }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainType]);
