@@ -357,27 +357,52 @@ export default function HomePage() {
   }, [properties, selectedMode, typeFilterImageRows]);
   const groupedTypeOptions = useMemo(() => {
     const groups = new Map<PropertyMainType, { mainType: PropertyMainType; label: string; imageUrl: string; subTypes: Array<{ label: string; imageUrl: string }> }>();
+    const modeRows = typeFilterImageRows.filter((row) => String(row.mode_bien || "").trim() === selectedMode);
+
+    // 1) Seed all main types from admin uploaded "type principal" rows.
+    for (const mainType of Object.keys(MAIN_TYPE_LABELS) as PropertyMainType[]) {
+      const mainImageFromAdmin = modeRows.find(
+        (row) => normalizeTypeToken(row.main_type) === normalizeTypeToken(mainType) && !String(row.sub_type || "").trim()
+      )?.image_url || "";
+      groups.set(mainType, {
+        mainType,
+        label: MAIN_TYPE_LABELS[mainType],
+        imageUrl: mainImageFromAdmin || TYPE_FALLBACK_IMAGE,
+        subTypes: [],
+      });
+    }
+
+    // 2) Add sub-types from admin rows first (authoritative source for filter images).
+    for (const row of modeRows) {
+      const subType = String(row.sub_type || "").trim();
+      if (!subType) continue;
+      const mainType = getMainTypeFromCategory(String(row.main_type || ""));
+      const group = groups.get(mainType);
+      if (!group) continue;
+      if (!group.subTypes.some((item) => normalizeTypeToken(item.label) === normalizeTypeToken(subType))) {
+        group.subTypes.push({ label: subType, imageUrl: row.image_url || TYPE_FALLBACK_IMAGE });
+      }
+      if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
+        group.imageUrl = row.image_url || group.imageUrl;
+      }
+    }
+
+    // 3) Complete with sub-types inferred from published properties (fallback when admin row missing).
     for (const option of availableTypeOptions) {
       const mainType = getMainTypeFromCategory(option.label);
-      const existing = groups.get(mainType);
-      const mainImageFromAdmin = typeFilterImageRows.find((row) =>
-        String(row.mode_bien || '').trim() === selectedMode
-        && normalizeTypeToken(row.main_type) === normalizeTypeToken(mainType)
-        && !String(row.sub_type || '').trim()
-      )?.image_url || '';
-      if (!existing) {
-        groups.set(mainType, {
-          mainType,
-          label: MAIN_TYPE_LABELS[mainType],
-          imageUrl: mainImageFromAdmin || option.imageUrl,
-          subTypes: [{ label: option.label, imageUrl: option.imageUrl }],
-        });
-        continue;
+      const group = groups.get(mainType);
+      if (!group) continue;
+      if (!group.subTypes.some((item) => normalizeTypeToken(item.label) === normalizeTypeToken(option.label))) {
+        group.subTypes.push({ label: option.label, imageUrl: option.imageUrl });
       }
-      existing.subTypes.push({ label: option.label, imageUrl: option.imageUrl });
-      if (!existing.imageUrl && (mainImageFromAdmin || option.imageUrl)) existing.imageUrl = mainImageFromAdmin || option.imageUrl;
+      if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
+        group.imageUrl = option.imageUrl || group.imageUrl;
+      }
     }
-    return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
+
+    return Array.from(groups.values())
+      .filter((group) => group.subTypes.length > 0 || group.imageUrl !== TYPE_FALLBACK_IMAGE)
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
   }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
   const secondaryTypeOptions = useMemo(() => {
     if (!selectedMainType) return availableTypeOptions;
@@ -1058,13 +1083,13 @@ export default function HomePage() {
                         <div className="relative mt-3 overflow-hidden min-h-[230px]">
                           <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</div>
                           <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-3">
                             {groupedTypeOptions.map((group) => (
                               <button
                                 key={`home-main-${group.mainType}`}
                                 type="button"
                                 onClick={() => chooseDraftMainType(group.mainType)}
-                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
                                 <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
@@ -1081,13 +1106,13 @@ export default function HomePage() {
                             >
                               <ChevronLeft size={14} /> Retour types principaux
                             </button>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-3">
                             {draftSecondaryTypeOptions.map((cat) => (
                               <button
                                 key={`home-sub-${cat.label}`}
                                 type="button"
                                 onClick={() => toggleDraftCategory(cat.label)}
-                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                className={`relative h-24 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
                                 <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
@@ -1463,13 +1488,13 @@ export default function HomePage() {
               <div className="relative mt-3 overflow-hidden min-h-[230px]">
                 <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</p>
                 <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-3">
                   {groupedTypeOptions.map((group) => (
                     <button
                       key={`mobile-main-${group.mainType}`}
                       type="button"
                       onClick={() => chooseDraftMainType(group.mainType)}
-                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
                       <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
@@ -1486,13 +1511,13 @@ export default function HomePage() {
                   >
                     <ChevronLeft size={14} /> Retour types principaux
                   </button>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-3">
                   {draftSecondaryTypeOptions.map((cat) => (
                     <button
                       key={`mobile-sub-${cat.label}`}
                       type="button"
                       onClick={() => toggleDraftCategory(cat.label)}
-                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      className={`relative h-24 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
                       <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
