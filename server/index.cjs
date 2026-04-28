@@ -76,6 +76,16 @@ function readFirebaseServiceAccount() {
   return null;
 }
 
+function safeParseJson(value, fallbackValue = null) {
+  if (value === null || value === undefined || value === '') return fallbackValue;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return fallbackValue;
+  }
+}
+
 const FIREBASE_SERVICE_ACCOUNT = readFirebaseServiceAccount();
 let firebaseMessaging = null;
 if (firebaseAdmin && FIREBASE_SERVICE_ACCOUNT) {
