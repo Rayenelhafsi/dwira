@@ -5022,6 +5022,17 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       return prev.filter((id) => id !== featureId);
     });
   };
+  const getFeatureChoicesWithDefaults = (feature: Caracteristique) => {
+    const baseChoices = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
+    const normalizedFeatureName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+    if (!normalizedFeatureName.includes('exterieur') && !normalizedFeatureName.includes('jardin')) {
+      return baseChoices;
+    }
+    const requiredChoices = ['Piscine', 'Gazon', 'Jardin partage'];
+    const existingTokens = new Set(baseChoices.map((choice) => normalizeFeatureName(choice)));
+    const missing = requiredChoices.filter((choice) => !existingTokens.has(normalizeFeatureName(choice)));
+    return [...baseChoices, ...missing];
+  };
   const renderFeatureControl = (feature: Caracteristique, keyPrefix: string) => {
     const featureType = normalizeFeatureType(feature.type_caracteristique);
     const featureId = String(feature.id || '');
@@ -5040,7 +5051,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       </button>
     );
     if (featureType === 'choix_multiple') {
-      const options = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
+      const options = getFeatureChoicesWithDefaults(feature);
       const selectedValue = (featureChoiceValuesById[featureId] || [])[0] || '';
       return (
         <div key={`${keyPrefix}-${featureId}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
@@ -5064,7 +5075,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       );
     }
     if (featureType === 'plusieurs_choix') {
-      const options = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
+      const options = getFeatureChoicesWithDefaults(feature);
       const selectedValues = featureChoiceValuesById[featureId] || [];
       const pickerValue = featureMultiChoicePickerById[featureId] || '';
       return (
