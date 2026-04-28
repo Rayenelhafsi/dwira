@@ -61,6 +61,8 @@ export interface Property {
     checkoutHeure?: string | null;
     fumeurs?: 'autorise' | 'interdit' | 'balcon_terrasse' | null;
     alcool?: 'autorise' | 'interdit' | null;
+    fetes?: 'autorise' | 'interdit' | null;
+    heuresSilence?: string | null;
     animaux?: 'autorises' | 'interdits' | 'sous_conditions' | null;
     matelasSupplementairePrix?: number | null;
     matelasSupplementairesMax?: number | null;

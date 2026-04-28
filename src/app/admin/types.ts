@@ -258,6 +258,8 @@ export type LocationSaisonniereConfig = {
   checkout_heure?: string | null;
   fumeurs?: RegleFumeurs | null;
   alcool?: 'autorise' | 'interdit' | null;
+  fetes?: 'autorise' | 'interdit' | null;
+  heures_silence?: string | null;
   animaux?: RegleAnimaux | null;
   produits_accueil_gratuits?: boolean;
   frais_produits_accueil?: number | null;

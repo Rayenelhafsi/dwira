@@ -578,6 +578,8 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
       checkoutHeure: bien.location_saisonniere_config?.checkout_heure ?? null,
       fumeurs: bien.location_saisonniere_config?.fumeurs ?? null,
       alcool: bien.location_saisonniere_config?.alcool ?? null,
+      fetes: (bien.location_saisonniere_config as any)?.fetes ?? null,
+      heuresSilence: (bien.location_saisonniere_config as any)?.heures_silence ?? null,
       animaux: bien.location_saisonniere_config?.animaux ?? null,
       matelasSupplementairePrix: bien.location_saisonniere_config?.matelas_supplementaire_prix ?? null,
       matelasSupplementairesMax: bien.location_saisonniere_config?.matelas_supplementaires_max ?? null,

@@ -391,6 +391,15 @@ const SAISON_ALCOOL_OPTIONS = [
   { value: 'autorise', label: 'Autorise' },
   { value: 'interdit', label: 'Interdit' },
 ] as const;
+const SAISON_FETES_OPTIONS = [
+  { value: 'autorise', label: 'Autorise' },
+  { value: 'interdit', label: 'Interdit' },
+] as const;
+const SAISON_HEURES_SILENCE_OPTIONS = Array.from({ length: 24 }, (_, idx) => {
+  const hour = idx === 0 ? 12 : (idx > 12 ? idx - 12 : idx);
+  const meridiem = idx < 12 ? 'AM' : 'PM';
+  return { value: `${hour}${meridiem.toLowerCase()}`, label: `${hour} ${meridiem}` };
+});
 const SAISON_ANIMAUX_OPTIONS = [
   { value: 'autorises', label: 'Autorises' },
   { value: 'interdits', label: 'Interdits' },
@@ -416,6 +425,8 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   checkout_heure: '11:00',
   fumeurs: 'interdit',
   alcool: 'autorise',
+  fetes: 'interdit',
+  heures_silence: '1am',
   animaux: 'interdits',
   produits_accueil_gratuits: true,
   frais_produits_accueil: 0,
@@ -4575,7 +4586,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const canonicalLocationTabs: Array<{ key: string; label: string }> = [
     { key: 'informations_generales', label: 'Informations generales' },
     { key: 'localisation_acces', label: 'Localisation & acces' },
-    { key: 'caracteristiques', label: 'Caracteristiques' },
+    { key: 'caracteristiques', label: 'Exterieur & jardin' },
     { key: 'lits_couchage', label: 'Lits & couchage' },
     { key: 'conforts_equipements_interieurs', label: 'Conforts & equipements interieurs' },
     { key: 'securite_reglement', label: 'Securite & reglement' },
@@ -4588,7 +4599,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     const normalized = normalizeFeatureName(String(label || '').replace(/^\s*\d+\s*[\.\-:)]\s*/g, ''));
     if (normalized.includes('information')) return 'informations_generales';
     if (normalized.includes('localisation')) return 'localisation_acces';
-    if (normalized.includes('caracteristique')) return 'caracteristiques';
+    if (normalized.includes('caracteristique') || normalized.includes('exterieur') || normalized.includes('jardin')) return 'caracteristiques';
     if (normalized.includes('lits') || normalized.includes('couchage')) return 'lits_couchage';
     if (normalized.includes('confort') || normalized.includes('equipement')) return 'conforts_equipements_interieurs';
     if (normalized.includes('securite') || normalized.includes('reglement')) return 'securite_reglement';
@@ -4647,9 +4658,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       'ascenseur',
       'vue',
       'niveau sonore',
-      'acces general',
     ],
     localisation_acces: [
+      'acces general',
       'distance centre ville',
       'distance commerces',
       'distance plage',
@@ -6917,13 +6928,6 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                               </div>
                               <select value={saisonConfig.niveau_sonore || ''} onChange={(e) => updateSaisonConfig({ niveau_sonore: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_NIVEAU_SONORE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
                             </div>
-                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.info_acces_general ? 'none' : undefined }}>
-                              <div className="mb-1 flex items-center justify-between gap-2">
-                                <label className="block text-xs text-gray-600">Acces general</label>
-                                <button type="button" onClick={() => removeUiBlock('info_acces_general')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
-                              </div>
-                              <select value={saisonConfig.acces_general || ''} onChange={(e) => updateSaisonConfig({ acces_general: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option>{SAISON_ACCES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-                            </div>
                           </div>
                           {renderDetailTabFeatures()}
                         </div>
@@ -6949,6 +6953,16 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                                 <button type="button" onClick={() => removeUiBlock('loc_ville')} className="rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
                               </div>
                               <p className="font-semibold text-gray-900 mt-0.5">{selectedZone?.region || selectedZone?.nom || '-'}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.loc_acces_general ? 'none' : undefined }}>
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label className="block text-xs text-gray-600">Acces general</label>
+                                <button type="button" onClick={() => removeUiBlock('loc_acces_general')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                              </div>
+                              <select value={saisonConfig.acces_general || ''} onChange={(e) => updateSaisonConfig({ acces_general: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2">
+                                <option value="">--</option>
+                                {SAISON_ACCES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                              </select>
                             </div>
                           </div>
                           <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
@@ -7056,6 +7070,23 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                               <button type="button" onClick={() => removeUiBlock('securite_alcool')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
                             </div>
                             <select value={saisonConfig.alcool || ''} onChange={(e) => updateSaisonConfig({ alcool: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_ALCOOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.securite_fetes ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Fetes</label>
+                              <button type="button" onClick={() => removeUiBlock('securite_fetes')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={String((saisonConfig as any).fetes || '')} onChange={(e) => updateSaisonConfig({ fetes: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white"><option value="">--</option>{SAISON_FETES_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.securite_heures_silence ? 'none' : undefined }}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="block text-xs text-gray-600">Heures silence</label>
+                              <button type="button" onClick={() => removeUiBlock('securite_heures_silence')} className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] text-red-600">Supprimer</button>
+                            </div>
+                            <select value={String((saisonConfig as any).heures_silence || '')} onChange={(e) => updateSaisonConfig({ heures_silence: (e.target.value || null) as any })} className="block w-full rounded-lg border-gray-300 border p-2 bg-white">
+                              <option value="">--</option>
+                              {SAISON_HEURES_SILENCE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                            </select>
                           </div>
                           <div className="md:col-span-2 rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm" style={{ display: removedUiBlocks.securite_animaux ? 'none' : undefined }}>
                             <div className="mb-1 flex items-center justify-between gap-2">

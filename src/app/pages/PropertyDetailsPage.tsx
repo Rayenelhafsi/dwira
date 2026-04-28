@@ -1108,6 +1108,8 @@ out body 40;
   const typeCautionLabel = seasonalConfig?.typeCaution ? ({ cash: 'Cash', preautorisation: 'Pre-autorisation', virement: 'Virement', aucune: 'Aucune' } as const)[seasonalConfig.typeCaution] : null;
   const fumeursLabel = seasonalConfig?.fumeurs ? ({ autorise: 'Autorise', interdit: 'Interdit', balcon_terrasse: 'Autorise sur balcon/terrasse' } as const)[seasonalConfig.fumeurs] : null;
   const alcoolLabel = seasonalConfig?.alcool ? ({ autorise: 'Autorise', interdit: 'Interdit' } as const)[seasonalConfig.alcool] : null;
+  const fetesLabel = seasonalConfig?.fetes ? ({ autorise: 'Autorise', interdit: 'Interdit' } as const)[seasonalConfig.fetes] : null;
+  const heuresSilenceLabel = seasonalConfig?.heuresSilence ? String(seasonalConfig.heuresSilence).toUpperCase() : null;
   const animauxLabel = seasonalConfig?.animaux ? ({ autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' } as const)[seasonalConfig.animaux] : null;
   const currentDisplayPricing = useMemo(
     () => resolveCurrentPricing({
@@ -1174,6 +1176,8 @@ out body 40;
   const reglesResume = [
     `Fumeurs: ${fumeursLabel || 'Non precise'}`,
     `Alcool: ${alcoolLabel || 'Non precise'}`,
+    `Fetes: ${fetesLabel || 'Non precise'}`,
+    `Heures silence: ${heuresSilenceLabel || 'Non precise'}`,
     `Animaux: ${animauxLabel || 'Non precise'}`,
   ].join(' | ');
   const formatRating = (value: number) =>
@@ -4306,8 +4310,3 @@ out body 40;
     </div>
   );
 }
-
-
-
-
-
