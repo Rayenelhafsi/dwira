@@ -118,6 +118,9 @@ export default function HomePage() {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [showSeasideDropdown, setShowSeasideDropdown] = useState(false);
   const [showComfortDropdown, setShowComfortDropdown] = useState(false);
+  const [typeSelectionStep, setTypeSelectionStep] = useState<"main" | "sub">("main");
+  const [draftMainType, setDraftMainType] = useState<PropertyMainType | "">("");
+  const [draftCategories, setDraftCategories] = useState<string[]>([]);
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [hasSearched, setHasSearched] = useState(false);
@@ -271,7 +274,7 @@ export default function HomePage() {
   const confirmCalendarSelection = () => {
     setShowLocationDropdown(false);
     setShowCalendar(false);
-    setShowCategoryDropdown(true);
+    openCategoryDropdown();
     setShowSeasideDropdown(false);
     setShowComfortDropdown(false);
   };
@@ -381,6 +384,11 @@ export default function HomePage() {
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === selectedMainType);
     return selectedGroup?.subTypes || [];
   }, [availableTypeOptions, groupedTypeOptions, selectedMainType]);
+  const draftSecondaryTypeOptions = useMemo(() => {
+    if (!draftMainType) return availableTypeOptions;
+    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
+    return selectedGroup?.subTypes || [];
+  }, [availableTypeOptions, groupedTypeOptions, draftMainType]);
   const selectedMainTypeLabel = selectedMainType ? MAIN_TYPE_LABELS[selectedMainType] : "";
   const selectedTypeSummaryText = selectedMainTypeLabel
     ? (selectedCategories.length > 0 ? `${selectedMainTypeLabel} • ${selectedCategories.join(", ")}` : selectedMainTypeLabel)
@@ -480,8 +488,23 @@ export default function HomePage() {
   const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
-  const toggleCategory = (cat: string) => {
-    setSelectedCategories((prev) => (prev.includes(cat) ? [] : [cat]));
+  const openCategoryDropdown = () => {
+    setDraftMainType(selectedMainType);
+    setDraftCategories(selectedCategories);
+    setTypeSelectionStep(selectedMainType ? "sub" : "main");
+    setShowCategoryDropdown(true);
+  };
+  const chooseDraftMainType = (mainType: PropertyMainType) => {
+    setDraftMainType(mainType);
+    setDraftCategories([]);
+    setTypeSelectionStep("sub");
+  };
+  const toggleDraftCategory = (cat: string) => {
+    setDraftCategories((prev) => (prev.includes(cat) ? [] : [cat]));
+  };
+  const confirmTypeSelection = () => {
+    setSelectedMainType(draftMainType);
+    setSelectedCategories(draftCategories);
     setShowCategoryDropdown(false);
     setShowSeasideDropdown(true);
     setShowComfortDropdown(false);
@@ -1000,7 +1023,8 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showCategoryDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
-                      setShowCategoryDropdown(!showCategoryDropdown);
+                      if (showCategoryDropdown) setShowCategoryDropdown(false);
+                      else openCategoryDropdown();
                       setShowLocationDropdown(false);
                       setShowCalendar(false);
                     }}
@@ -1026,49 +1050,56 @@ export default function HomePage() {
                     <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
                       <div className="p-2">
                         <button
-                          className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                          onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setShowCategoryDropdown(false); }}
+                          className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && !draftMainType ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                          onClick={() => { setDraftMainType(""); setDraftCategories([]); setTypeSelectionStep("main"); }}
                         >
                           Tous les types
                         </button>
-                        <div className="mt-3 space-y-3">
-                          <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Type principal</p>
-                          <div className="grid grid-cols-2 gap-2">
+                        <div className="relative mt-3 overflow-hidden min-h-[230px]">
+                          <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</div>
+                          <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
+                            <div className="grid grid-cols-2 gap-2">
                             {groupedTypeOptions.map((group) => (
                               <button
                                 key={`home-main-${group.mainType}`}
                                 type="button"
-                                onClick={() => {
-                                  setSelectedMainType(group.mainType);
-                                  setSelectedCategories([]);
-                                }}
-                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                onClick={() => chooseDraftMainType(group.mainType)}
+                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
                                 <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
                                 <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
                               </button>
                             ))}
+                            </div>
                           </div>
-                          <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sous-type</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {secondaryTypeOptions.map((cat) => (
+                          <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "sub" ? "translate-x-0 opacity-100" : "translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
+                            <button
+                              type="button"
+                              onClick={() => setTypeSelectionStep("main")}
+                              className="mb-3 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                            >
+                              <ChevronLeft size={14} /> Retour types principaux
+                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                            {draftSecondaryTypeOptions.map((cat) => (
                               <button
                                 key={`home-sub-${cat.label}`}
                                 type="button"
-                                onClick={() => toggleCategory(cat.label)}
-                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                onClick={() => toggleDraftCategory(cat.label)}
+                                className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
                                 <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
                                 <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                                {selectedCategories.includes(cat.label) && (
+                                {draftCategories.includes(cat.label) && (
                                   <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
                                     <Check size={12} />
                                   </span>
                                 )}
                               </button>
                             ))}
+                            </div>
                           </div>
                         </div>
                         {groupedTypeOptions.length === 0 && (
@@ -1076,7 +1107,7 @@ export default function HomePage() {
                         )}
                         <button
                           type="button"
-                          onClick={() => setShowCategoryDropdown(false)}
+                          onClick={confirmTypeSelection}
                           className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
                         >
                           Confirmer le type de bien
@@ -1235,7 +1266,7 @@ export default function HomePage() {
                       <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
                         {cat}
-                        <button onClick={() => toggleCategory(cat)} className="ml-1 hover:text-emerald-200">
+                        <button onClick={() => setSelectedCategories((prev) => prev.filter((item) => item !== cat))} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
@@ -1424,49 +1455,56 @@ export default function HomePage() {
             <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowCategoryDropdown(false)} />
             <div ref={categoryMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
               <button
-                className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${selectedCategories.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => { setSelectedMainType(""); setSelectedCategories([]); setShowCategoryDropdown(false); }}
+                className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && !draftMainType ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setDraftMainType(""); setDraftCategories([]); setTypeSelectionStep("main"); }}
               >
                 Tous les types
               </button>
-              <div className="mt-3 space-y-3">
-                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Type principal</p>
-                <div className="grid grid-cols-2 gap-2">
+              <div className="relative mt-3 overflow-hidden min-h-[230px]">
+                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</p>
+                <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
+                  <div className="grid grid-cols-2 gap-2">
                   {groupedTypeOptions.map((group) => (
                     <button
                       key={`mobile-main-${group.mainType}`}
                       type="button"
-                      onClick={() => {
-                        setSelectedMainType(group.mainType);
-                        setSelectedCategories([]);
-                      }}
-                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      onClick={() => chooseDraftMainType(group.mainType)}
+                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
                       <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
                       <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
                     </button>
                   ))}
+                  </div>
                 </div>
-                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sous-type</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {secondaryTypeOptions.map((cat) => (
+                <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "sub" ? "translate-x-0 opacity-100" : "translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setTypeSelectionStep("main")}
+                    className="mb-3 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                  >
+                    <ChevronLeft size={14} /> Retour types principaux
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                  {draftSecondaryTypeOptions.map((cat) => (
                     <button
                       key={`mobile-sub-${cat.label}`}
                       type="button"
-                      onClick={() => toggleCategory(cat.label)}
-                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${selectedCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      onClick={() => toggleDraftCategory(cat.label)}
+                      className={`relative h-20 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
                       <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
                       <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                      {selectedCategories.includes(cat.label) && (
+                      {draftCategories.includes(cat.label) && (
                         <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
                           <Check size={12} />
                         </span>
                       )}
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
               {groupedTypeOptions.length === 0 && (
@@ -1474,7 +1512,7 @@ export default function HomePage() {
               )}
               <button
                 type="button"
-                onClick={() => setShowCategoryDropdown(false)}
+                onClick={confirmTypeSelection}
                 className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
               >
                 Confirmer le type de bien
