@@ -11704,6 +11704,30 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'request_type'))) {
     await pool.query("ALTER TABLE reservation_demands ADD COLUMN request_type VARCHAR(20) NOT NULL DEFAULT 'reservation' AFTER bien_id");
   }
+  if (!(await columnExists('reservation_demands', 'unavailable_date_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN unavailable_date_id VARCHAR(100) NULL AFTER request_type');
+  }
+  if (!(await columnExists('reservation_demands', 'client_user_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_user_id VARCHAR(100) NULL AFTER unavailable_date_id');
+  }
+  if (!(await columnExists('reservation_demands', 'client_email'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_email VARCHAR(255) NULL AFTER client_user_id');
+  }
+  if (!(await columnExists('reservation_demands', 'client_name'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_name VARCHAR(255) NULL AFTER client_email');
+  }
+  if (!(await columnExists('reservation_demands', 'proprietaire_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN proprietaire_id VARCHAR(100) NULL AFTER client_name');
+  }
+  if (!(await columnExists('reservation_demands', 'owner_user_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN owner_user_id VARCHAR(100) NULL AFTER proprietaire_id');
+  }
+  if (!(await columnExists('reservation_demands', 'owner_notified_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN owner_notified_at DATETIME NULL AFTER status');
+  }
+  if (!(await columnExists('reservation_demands', 'owner_response_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN owner_response_at DATETIME NULL AFTER owner_notified_at');
+  }
   if (!(await columnExists('reservation_demands', 'client_confirmation_clicked_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_confirmation_clicked_at DATETIME NULL AFTER owner_response_at');
   }
@@ -11784,6 +11808,27 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'contract_generated_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN contract_generated_at DATETIME NULL AFTER identity_submitted_at');
+  }
+  if (!(await columnExists('reservation_demands', 'admin_note'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN admin_note TEXT NULL AFTER contract_generated_at');
+  }
+  if (!(await columnExists('reservation_demands', 'client_note'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_note TEXT NULL AFTER admin_note');
+  }
+  if (!(await columnExists('reservation_demands', 'finalization_due_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN finalization_due_at DATETIME NULL AFTER client_note');
+  }
+  if (!(await columnExists('reservation_demands', 'contract_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN contract_id VARCHAR(100) NULL AFTER finalization_due_at');
+  }
+  if (!(await columnExists('reservation_demands', 'payment_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_id VARCHAR(100) NULL AFTER contract_id');
+  }
+  if (!(await columnExists('reservation_demands', 'created_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER payment_receipt_note');
+  }
+  if (!(await columnExists('reservation_demands', 'updated_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   }
 }
 
