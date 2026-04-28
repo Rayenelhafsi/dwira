@@ -5892,32 +5892,32 @@ async function generateReservationClientContractHtml({
   const page1 = pdf.getPage(0);
   drawPdfLineValue(page1, font, fullName, 306.1, 514.15, 220);
   drawPdfLineValue(page1, font, identityRef, 306.1, 494.05, 220);
-  drawPdfLineValue(page1, font, String(demand?.client_address || demand?.address || '-'), 306.1, 473.95, 220);
-  drawPdfLineValue(page1, font, phoneCandidate || '-', 306.1, 453.85, 220);
-  drawPdfLineValue(page1, font, String(bien?.type || '-'), 160, 347.75, 220);
-  drawPdfLineValue(page1, font, String(bien?.adresse || bien?.address || '-'), 223, 332.85, 280);
+  drawPdfLineValue(page1, font, String(demand?.client_address || demand?.address || ''), 306.1, 473.95, 220);
+  drawPdfLineValue(page1, font, phoneCandidate || '', 306.1, 453.85, 220);
+  drawPdfLineValue(page1, font, String(bien?.type || ''), 160, 347.75, 220);
+  drawPdfLineValue(page1, font, String(bien?.adresse || bien?.address || ''), 223, 332.85, 280);
   drawPdfLineValue(page1, font, String(totalGuests), 195, 317.95, 52);
-  const equipSplit = splitPdfTextByWidth(font, equipements || '-', 10.5, 360);
-  drawPdfLineValue(page1, font, equipSplit.line || '-', 170, 303.05, 360);
+  const equipSplit = splitPdfTextByWidth(font, equipements || '', 10.5, 360);
+  drawPdfLineValue(page1, font, equipSplit.line || '', 170, 303.05, 360);
   if (equipSplit.remainder) {
     drawPdfLineValue(page1, font, equipSplit.remainder, 51.1, 284.15, 500);
   }
-  drawPdfLineValue(page1, font, `Du ${start.dd || '--'} / ${start.mm || '--'} / ${start.yyyy || '----'} au ${end.dd || '--'} / ${end.mm || '--'} / ${end.yyyy || '----'}`, 70, 232.1, 430);
-  drawPdfLineValue(page1, font, String(demand?.arrival_time || '-'), 150, 217.2, 95);
-  drawPdfLineValue(page1, font, String(demand?.departure_time || '-'), 145, 202.3, 95);
+  drawPdfLineValue(page1, font, `Du ${start.dd || ''} / ${start.mm || ''} / ${start.yyyy || ''} au ${end.dd || ''} / ${end.mm || ''} / ${end.yyyy || ''}`, 70, 232.1, 430);
+  drawPdfLineValue(page1, font, String(demand?.arrival_time || ''), 150, 217.2, 95);
+  drawPdfLineValue(page1, font, String(demand?.departure_time || ''), 145, 202.3, 95);
 
   const page2 = pdf.getPage(1);
   drawPdfLineValue(page2, font, formatAmountTndRaw(reservationTotal), 306.1, 716.35, 175, 11);
   drawPdfLineValue(page2, font, formatAmountTndRaw(amountNow), 306.1, 695.2, 175, 11);
-  drawPdfLineValue(page2, font, `${finalization.date.dd || '--'} / ${finalization.date.mm || '--'} / ${finalization.date.yyyy || '----'} a ${finalization.hh || '--'} h ${finalization.min || '--'}`, 306.1, 674.05, 250, 11);
-  drawPdfLineValue(page2, font, String(demand?.payment_id || demand?.reservation_payment_id || '-'), 306.1, 652.9, 250, 11);
+  drawPdfLineValue(page2, font, `${finalization.date.dd || ''} / ${finalization.date.mm || ''} / ${finalization.date.yyyy || ''} a ${finalization.hh || ''} h ${finalization.min || ''}`, 306.1, 674.05, 250, 11);
+  drawPdfLineValue(page2, font, String(demand?.payment_id || demand?.reservation_payment_id || ''), 306.1, 652.9, 250, 11);
   drawPdfLineValue(page2, font, formatAmountTndRaw(balance), 306.1, 631.75, 175, 11);
   drawPdfLineValue(page2, font, modePaiement, 306.1, 604.3, 250, 11);
   drawPdfLineValue(page2, font, formatAmountTndRaw(caution), 182, 334.1, 130);
 
   let serviceY = 421;
   for (const service of services) {
-    const label = String(service?.label || service?.name || service?.service || '-').trim();
+    const label = String(service?.label || service?.name || service?.service || '').trim();
     const amount = Number.isFinite(Number(service?.prix ?? service?.price ?? service?.montant))
       ? formatAmountTndRaw(Number(service.prix ?? service.price ?? service.montant))
       : '';
@@ -5930,7 +5930,7 @@ async function generateReservationClientContractHtml({
 
   const page3 = pdf.getPage(2);
   drawPdfLineValue(page3, font, String(bien?.ville || 'Kelibia'), 85, 597.55, 165);
-  drawPdfLineValue(page3, font, `${signatureDate.dd || '--'} / ${signatureDate.mm || '--'} / ${signatureDate.yyyy || '----'}`, 330, 597.55, 140);
+  drawPdfLineValue(page3, font, `${signatureDate.dd || ''} / ${signatureDate.mm || ''} / ${signatureDate.yyyy || ''}`, 330, 597.55, 140);
 
   const outputBytes = await pdf.save();
   await fs.promises.writeFile(filePath, outputBytes);
