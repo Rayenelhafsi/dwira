@@ -1083,17 +1083,17 @@ export default function HomePage() {
                         <div className="relative mt-3 overflow-hidden min-h-[230px]">
                           <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</div>
                           <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 gap-3">
                             {groupedTypeOptions.map((group) => (
                               <button
                                 key={`home-main-${group.mainType}`}
                                 type="button"
                                 onClick={() => chooseDraftMainType(group.mainType)}
-                                className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
                                 <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                                    <span className="relative z-10 px-4 text-lg font-bold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
                               </button>
                             ))}
                             </div>
@@ -1112,11 +1112,11 @@ export default function HomePage() {
                                 key={`home-sub-${cat.label}`}
                                 type="button"
                                 onClick={() => toggleDraftCategory(cat.label)}
-                                className={`relative h-24 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
                                 <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
+                                    <span className="relative z-10 px-3 text-base font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
                                 {draftCategories.includes(cat.label) && (
                                   <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
                                     <Check size={12} />
@@ -1494,11 +1494,11 @@ export default function HomePage() {
                       key={`mobile-main-${group.mainType}`}
                       type="button"
                       onClick={() => chooseDraftMainType(group.mainType)}
-                      className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
                       <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                      <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                      <span className="relative z-10 px-4 text-lg font-bold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
                     </button>
                   ))}
                   </div>
@@ -1517,11 +1517,11 @@ export default function HomePage() {
                       key={`mobile-sub-${cat.label}`}
                       type="button"
                       onClick={() => toggleDraftCategory(cat.label)}
-                      className={`relative h-24 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
                       <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                      <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
+                      <span className="relative z-10 px-3 text-base font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
                       {draftCategories.includes(cat.label) && (
                         <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
                           <Check size={12} />
