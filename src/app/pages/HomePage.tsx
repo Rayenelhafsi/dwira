@@ -82,6 +82,7 @@ const POOL_OPTION_KEYS: HomeComfortOptionKey[] = ["piscine_privee", "piscine_par
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
+  if (normalized.includes("appartement")) return "appartement";
   if (normalized.startsWith("s+")) return "appartement";
   if (normalized.includes("villa")) return "villa_maison";
   if (normalized.includes("studio")) return "studio";
@@ -811,7 +812,7 @@ export default function HomePage() {
           <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
-              <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-6 gap-4">
+              <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-7 gap-4">
                 
                 {/* Location Dropdown */}
                 <div className={`relative pointer-events-auto ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
@@ -1043,7 +1044,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Property Type Dropdown */}
-                <div className={`relative pointer-events-auto ${showCategoryDropdown ? 'z-[120]' : 'z-10'}`}>
+                <div className={`relative pointer-events-auto md:col-span-2 ${showCategoryDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showCategoryDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
