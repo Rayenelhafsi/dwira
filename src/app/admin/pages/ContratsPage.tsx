@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2, Plus, ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import AvailabilityCalendar from '../../components/AvailabilityCalendar';
+import { calculateAccommodationPricing, type SeasonalPricingPeriod } from '../../utils/seasonalPricing';
+import { computeGuestLimits } from '../../utils/guestLimits';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -44,6 +46,27 @@ type BienApi = {
   prix_nuitee?: number;
   prix_semaine?: number | null;
   caution?: number | null;
+  guests?: number;
+  pricing_periods?: Array<{
+    id?: string;
+    start?: string;
+    end?: string;
+    start_date?: string;
+    end_date?: string;
+    prix_nuitee?: number;
+    prix_semaine?: number | null;
+  }>;
+  location_saisonniere_config?: {
+    limite_personnes_nuit?: number;
+    limitePersonnesNuit?: number;
+    limite_personne_nuit?: number;
+    max_adultes?: number;
+    max_enfants?: number;
+    avance_pourcentage?: number;
+    avancePourcentage?: number;
+    montant_caution?: number;
+    montantCaution?: number;
+  };
   image_url?: string;
   image?: string;
 };
@@ -324,20 +347,24 @@ export default function ContratsPage() {
     const id = String(selectedBienId || '').trim();
     return id ? (bienById.get(id) || null) : null;
   }, [bienById, selectedBienId]);
-  const guestCaps = useMemo(() => {
+  const selectedSeasonalConfig = useMemo(() => {
     const cfg = (selectedBien as any)?.location_saisonniere_config || {};
-    const totalRaw = Number(cfg?.limite_personnes_nuit ?? cfg?.limitePersonnesNuit ?? cfg?.limite_personne_nuit);
-    const adultsRaw = Number(cfg?.max_adultes);
-    const childrenRaw = Number(cfg?.max_enfants);
-    const hasTotal = Number.isFinite(totalRaw) && totalRaw > 0;
-    const hasAdults = Number.isFinite(adultsRaw) && adultsRaw > 0;
-    const hasChildren = Number.isFinite(childrenRaw) && childrenRaw >= 0;
-    const maxAdults = hasAdults ? Math.max(1, Math.floor(adultsRaw)) : 10;
-    const maxChildren = hasChildren ? Math.max(0, Math.floor(childrenRaw)) : 10;
-    const splitTotal = Math.max(1, maxAdults + maxChildren);
-    const maxGuests = hasTotal ? Math.max(1, Math.floor(totalRaw)) : splitTotal;
-    return { maxGuests, maxAdults, maxChildren };
+    return cfg && typeof cfg === 'object' ? cfg : {};
   }, [selectedBien]);
+  const guestCaps = useMemo(() => {
+    const fallbackGuests = Math.max(1, Number((selectedBien as any)?.guests || 1));
+    const limits = computeGuestLimits({
+      fallbackGuests,
+      maxGuestsCap: Number(selectedSeasonalConfig?.limite_personnes_nuit ?? selectedSeasonalConfig?.limitePersonnesNuit ?? selectedSeasonalConfig?.limite_personne_nuit),
+      maxAdultsCap: Number(selectedSeasonalConfig?.max_adultes),
+      maxChildrenCap: Number(selectedSeasonalConfig?.max_enfants),
+    });
+    return {
+      maxGuests: limits.maxGuests,
+      maxAdults: limits.maxAdultGuests,
+      maxChildren: limits.maxChildGuests,
+    };
+  }, [selectedBien, selectedSeasonalConfig]);
 
   const filteredAndSorted = useMemo(() => {
     const locataireQuery = searchLocataire.trim().toLowerCase();
@@ -398,24 +425,56 @@ export default function ContratsPage() {
   const manualNights = useMemo(() => computeNights(selectedStart, selectedEnd), [selectedStart, selectedEnd]);
   const manualStartDateSql = useMemo(() => toSqlDate(selectedStart), [selectedStart]);
   const manualEndDateSql = useMemo(() => toSqlDate(selectedEnd), [selectedEnd]);
+  const manualPeriodReady = !!manualStartDateSql && !!manualEndDateSql && manualEndDateSql >= manualStartDateSql;
 
   const baseNightly = Math.max(0, Number(selectedBien?.prix_nuitee || 0));
-  const baseCaution = Math.max(0, Number(selectedBien?.caution || 0));
+  const baseWeekly = Number(selectedBien?.prix_semaine || 0) > 0 ? Number(selectedBien?.prix_semaine || 0) : null;
+  const normalizedPricingPeriods = useMemo<SeasonalPricingPeriod[]>(() => (
+    (Array.isArray(selectedBien?.pricing_periods) ? selectedBien?.pricing_periods : [])
+      .map((period, index) => {
+        const start = String(period?.start || period?.start_date || '').slice(0, 10);
+        const end = String(period?.end || period?.end_date || '').slice(0, 10);
+        const nightly = Number(period?.prix_nuitee || 0);
+        const weekly = period?.prix_semaine === null || period?.prix_semaine === undefined ? null : Number(period?.prix_semaine || 0);
+        if (!start || !end || !Number.isFinite(nightly) || nightly <= 0) return null;
+        return {
+          id: String(period?.id || `manual-${index}`),
+          start,
+          end,
+          prix_nuitee: nightly,
+          prix_semaine: Number.isFinite(Number(weekly)) && Number(weekly) > 0 ? Number(weekly) : null,
+        } as SeasonalPricingPeriod;
+      })
+      .filter(Boolean) as SeasonalPricingPeriod[]
+  ), [selectedBien?.pricing_periods]);
+  const pricingSummary = useMemo(() => {
+    if (!manualPeriodReady) {
+      return { nights: 0, total: 0, averageNightlyPrice: 0, hasPeriodOverride: false };
+    }
+    return calculateAccommodationPricing({
+      startDate: manualStartDateSql,
+      endDate: manualEndDateSql,
+      defaultNightlyPrice: baseNightly,
+      defaultWeeklyPrice: baseWeekly,
+      pricingPeriods: normalizedPricingPeriods,
+    });
+  }, [manualPeriodReady, manualStartDateSql, manualEndDateSql, baseNightly, baseWeekly, normalizedPricingPeriods]);
+  const baseCaution = Math.max(
+    0,
+    Number((selectedSeasonalConfig?.montant_caution ?? selectedSeasonalConfig?.montantCaution ?? selectedBien?.caution) || 0)
+  );
+  const advancePercent = Math.min(
+    100,
+    Math.max(1, Number((selectedSeasonalConfig?.avance_pourcentage ?? selectedSeasonalConfig?.avancePourcentage) || 30))
+  );
   const manualAdultGuests = Math.max(1, Number(manualDraft.adult_guests || 1));
   const manualChildGuests = Math.max(0, Number(manualDraft.child_guests || 0));
   const manualGuestsTotal = Math.max(1, manualAdultGuests + manualChildGuests);
-  const resolvedManualCaution = Number.isFinite(Number(manualDraft.caution_amount)) && Number(manualDraft.caution_amount) >= 0
-    ? Number(manualDraft.caution_amount)
-    : baseCaution;
-  const computedTotalFallback = manualNights > 0 ? Math.round((baseNightly * manualNights) * 100) / 100 : 0;
-  const resolvedManualTotal = Number.isFinite(Number(manualDraft.total_amount)) && Number(manualDraft.total_amount) > 0
-    ? Number(manualDraft.total_amount)
-    : computedTotalFallback;
-  const resolvedManualDueNow = Number.isFinite(Number(manualDraft.amount_due_now)) && Number(manualDraft.amount_due_now) >= 0
-    ? Number(manualDraft.amount_due_now)
-    : (manualDraft.payment_mode === 'totalite'
-      ? resolvedManualTotal
-      : Math.round((resolvedManualTotal * 0.3) * 100) / 100);
+  const resolvedManualCaution = baseCaution;
+  const resolvedManualTotal = pricingSummary.total;
+  const resolvedManualDueNow = manualDraft.payment_mode === 'totalite'
+    ? resolvedManualTotal
+    : Math.round((resolvedManualTotal * advancePercent) / 100);
 
   const getPdfUrl = (url?: string) => {
     if (!url) return '';
@@ -665,13 +724,6 @@ export default function ContratsPage() {
                 <input type="date" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Date limite paiement" value={manualDraft.payment_deadline_date} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_date: e.target.value }))} />
                 <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure limite paiement" value={manualDraft.payment_deadline_time} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_time: e.target.value }))} />
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Ville signature (optionnel)" value={manualDraft.signature_city} onChange={(e) => setManualDraft((p) => ({ ...p, signature_city: e.target.value }))} />
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_mode} onChange={(e) => setManualDraft((p) => ({ ...p, payment_mode: e.target.value as ManualReservationDraft['payment_mode'] }))}>
-                  <option value="avance">Avance</option>
-                  <option value="totalite">Totalite</option>
-                </select>
-                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder={`Caution (defaut bien: ${baseCaution} DT)`} value={manualDraft.caution_amount} onChange={(e) => setManualDraft((p) => ({ ...p, caution_amount: e.target.value }))} />
-                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Montant global (optionnel)" value={manualDraft.total_amount} onChange={(e) => setManualDraft((p) => ({ ...p, total_amount: e.target.value }))} />
-                <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="A payer maintenant (optionnel)" value={manualDraft.amount_due_now} onChange={(e) => setManualDraft((p) => ({ ...p, amount_due_now: e.target.value }))} />
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 1 (optionnel)" value={manualDraft.service_1} onChange={(e) => setManualDraft((p) => ({ ...p, service_1: e.target.value }))} />
                 <input type="number" min={0} step="0.01" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prix service 1" value={manualDraft.prix_service_1} onChange={(e) => setManualDraft((p) => ({ ...p, prix_service_1: e.target.value }))} />
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Service 2 (optionnel)" value={manualDraft.service_2} onChange={(e) => setManualDraft((p) => ({ ...p, service_2: e.target.value }))} />
@@ -772,6 +824,7 @@ export default function ContratsPage() {
               <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
                 <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
                 <p><strong>Nuits:</strong> {manualNights || 0}</p>
+                <p><strong>Tarif applique:</strong> {pricingSummary.hasPeriodOverride ? 'Periode tarifaire' : 'Tarif standard'} ({baseNightly} DT/nuit{baseWeekly ? `, ${baseWeekly} DT/semaine` : ''})</p>
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input
                     type="number"
@@ -800,9 +853,26 @@ export default function ContratsPage() {
                   />
                   <input type="text" readOnly className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm" value={`Voyageurs total: ${manualGuestsTotal} / ${guestCaps.maxGuests}`} />
                 </div>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={manualDraft.payment_mode}
+                    disabled={!manualPeriodReady}
+                    onChange={(e) => setManualDraft((p) => ({ ...p, payment_mode: e.target.value as ManualReservationDraft['payment_mode'] }))}
+                  >
+                    <option value="avance">Avance ({advancePercent}%)</option>
+                    <option value="totalite">Totalite</option>
+                  </select>
+                  <input
+                    type="number"
+                    readOnly
+                    className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm"
+                    value={resolvedManualCaution}
+                  />
+                </div>
                 <p><strong>Voyageurs:</strong> {manualGuestsTotal} (Adultes: {manualAdultGuests}, Enfants: {manualChildGuests})</p>
                 <p><strong>Total:</strong> {resolvedManualTotal} DT</p>
-                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT</p>
+                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT ({manualDraft.payment_mode === 'totalite' ? 'Totalite' : `Avance ${advancePercent}%`})</p>
                 <p><strong>Caution:</strong> {resolvedManualCaution} DT</p>
               </div>
               <div className="flex items-center justify-between">
