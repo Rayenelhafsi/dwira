@@ -10,6 +10,22 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+@keyframes dwira-title-scroll {
+  0%,
+  18% {
+    transform: translateY(0);
+  }
+  82%,
+  100% {
+    transform: translateY(var(--dwira-title-shift, 0));
+  }
+}
+
+.dwira-title-scroll {
+  animation: dwira-title-scroll var(--dwira-title-duration, 8s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+
 @keyframes dwira-soft-ribbon-flow-a {
   0% {
     transform: translate3d(-2%, 0, 0) rotate(-8deg) scale(1);
@@ -128,6 +144,10 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dwira-title-scroll {
+    animation: none;
+  }
+
   .dwira-soft-aurora::before,
   .dwira-soft-aurora::after,
   .dwira-soft-aurora > .dwira-soft-aurora-ribbon {

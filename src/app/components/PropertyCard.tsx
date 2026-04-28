@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
 import { SmartImage } from "./SmartImage";
@@ -68,6 +69,11 @@ const buildDisplayTitle = (reference: string | undefined, title: string) => {
 };
 
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
+  const titleViewportRef = useRef<HTMLDivElement | null>(null);
+  const titleContentRef = useRef<HTMLSpanElement | null>(null);
+  const [titleOverflow, setTitleOverflow] = useState(false);
+  const [titleShiftPx, setTitleShiftPx] = useState(0);
+  const [titleDurationSec, setTitleDurationSec] = useState(8);
   const baseDetailPath = property.detailPath || `/properties/${property.slug}`;
   const linkTo = searchParams 
     ? `${baseDetailPath}?${searchParams}`
@@ -92,6 +98,29 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const subTypeLabel = resolveSubTypeLabel(property.category || "", mainTypeLabel);
   const typeWidgetLabel = subTypeLabel ? `${mainTypeLabel} ${subTypeLabel}` : mainTypeLabel;
   const displayTitle = buildDisplayTitle(property.reference, property.title);
+
+  useEffect(() => {
+    const measureTitle = () => {
+      const viewport = titleViewportRef.current;
+      const content = titleContentRef.current;
+      if (!viewport || !content) return;
+      const overflow = Math.ceil(content.scrollHeight - viewport.clientHeight);
+      if (overflow > 2) {
+        setTitleOverflow(true);
+        setTitleShiftPx(overflow);
+        setTitleDurationSec(Math.min(14, Math.max(8, Math.round(overflow / 10) + 8)));
+      } else {
+        setTitleOverflow(false);
+        setTitleShiftPx(0);
+        setTitleDurationSec(8);
+      }
+    };
+
+    measureTitle();
+    window.addEventListener("resize", measureTitle);
+    return () => window.removeEventListener("resize", measureTitle);
+  }, [displayTitle]);
+
   const handleMessengerClick = () => {
     void openMessengerPropertyConversation({
       page: contactConfig.messengerPage,
@@ -147,9 +176,15 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
 
         <div className="space-y-4 p-5">
           <div className="flex items-start justify-between gap-3">
-            <h3 className="line-clamp-3 text-[1.45rem] font-semibold leading-[1.2] tracking-[-0.005em] text-slate-900 transition-colors group-hover:text-emerald-700 sm:text-[1.5rem] md:text-[1.55rem] lg:text-[1.65rem]">
-              {displayTitle}
-            </h3>
+            <div ref={titleViewportRef} className="relative min-w-0 flex-1 overflow-hidden max-h-[3.6em]">
+              <span
+                ref={titleContentRef}
+                className={`block text-[1.45rem] font-semibold leading-[1.2] tracking-[-0.005em] text-slate-900 transition-colors group-hover:text-emerald-700 sm:text-[1.5rem] md:text-[1.55rem] lg:text-[1.65rem] ${titleOverflow ? "dwira-title-scroll" : "line-clamp-3"}`}
+                style={titleOverflow ? ({ ["--dwira-title-shift" as string]: `-${titleShiftPx}px`, ["--dwira-title-duration" as string]: `${titleDurationSec}s` } as CSSProperties) : undefined}
+              >
+                {displayTitle}
+              </span>
+            </div>
             {property.isFeatured && (
               <span className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
                 Bien vedette
