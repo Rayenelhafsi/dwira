@@ -215,6 +215,7 @@ export default function ContratsPage() {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [loadingManualCalendar, setLoadingManualCalendar] = useState(false);
   const [selectedManualServiceIds, setSelectedManualServiceIds] = useState<string[]>([]);
+  const [selectedManualServiceCategory, setSelectedManualServiceCategory] = useState<string>('all');
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -580,6 +581,7 @@ export default function ContratsPage() {
     setSelectedEnd(null);
     setSelectedBienUnavailableDates([]);
     setSelectedManualServiceIds([]);
+    setSelectedManualServiceCategory('all');
   };
 
   const goToManualStep2 = () => {
@@ -624,6 +626,26 @@ export default function ContratsPage() {
     () => seasonalServices.filter((service) => selectedManualServiceIds.includes(String(service.id))),
     [seasonalServices, selectedManualServiceIds]
   );
+  const seasonalServiceCategories = useMemo(() => {
+    const grouped = new Map<string, { id: string; label: string; count: number }>();
+    for (const service of seasonalServices) {
+      const label = String(service.categorie || 'Services').trim() || 'Services';
+      const id = label.toLowerCase().replace(/\s+/g, '_');
+      const current = grouped.get(id);
+      if (current) {
+        current.count += 1;
+      } else {
+        grouped.set(id, { id, label, count: 1 });
+      }
+    }
+    return Array.from(grouped.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [seasonalServices]);
+  const visibleSeasonalServices = useMemo(() => {
+    if (selectedManualServiceCategory === 'all') return seasonalServices;
+    const selected = seasonalServiceCategories.find((item) => item.id === selectedManualServiceCategory);
+    if (!selected) return seasonalServices;
+    return seasonalServices.filter((service) => String(service.categorie || 'Services').trim() === selected.label);
+  }, [seasonalServices, seasonalServiceCategories, selectedManualServiceCategory]);
 
   const fixedSeasonalServicesTotal = useMemo(
     () => selectedSeasonalServices
@@ -769,7 +791,6 @@ export default function ContratsPage() {
                 </select>
                 <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure arrivee" value={manualDraft.arrival_time} onChange={(e) => setManualDraft((p) => ({ ...p, arrival_time: e.target.value }))} />
                 <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure depart" value={manualDraft.departure_time} onChange={(e) => setManualDraft((p) => ({ ...p, departure_time: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="ID paiement (VIR-..., CASH-...)" value={manualDraft.payment_id} onChange={(e) => setManualDraft((p) => ({ ...p, payment_id: e.target.value }))} />
                 <input type="date" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Date limite paiement" value={manualDraft.payment_deadline_date} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_date: e.target.value }))} />
                 <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure limite paiement" value={manualDraft.payment_deadline_time} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_time: e.target.value }))} />
                 <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Ville signature (optionnel)" value={manualDraft.signature_city} onChange={(e) => setManualDraft((p) => ({ ...p, signature_city: e.target.value }))} />
@@ -903,6 +924,12 @@ export default function ContratsPage() {
                   <input type="text" readOnly className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm" value={`Voyageurs total: ${manualGuestsTotal} / ${guestCaps.maxGuests}`} />
                 </div>
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    placeholder="ID paiement (VIR-..., CASH-...)"
+                    value={manualDraft.payment_id}
+                    onChange={(e) => setManualDraft((p) => ({ ...p, payment_id: e.target.value }))}
+                  />
                   <select
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                     value={manualDraft.payment_mode}
@@ -921,10 +948,38 @@ export default function ContratsPage() {
                 </div>
                 <p><strong>Voyageurs:</strong> {manualGuestsTotal} (Adultes: {manualAdultGuests}, Enfants: {manualChildGuests})</p>
                 {seasonalServices.length > 0 && (
-                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="mb-2 text-xs font-bold uppercase text-gray-600">Services supplementaires</p>
+                  <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">Services payants</p>
+                        <p className="text-sm font-semibold text-gray-900">Services additionnels disponibles</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-700"
+                        onClick={() => setSelectedManualServiceCategory('all')}
+                      >
+                        Voir les {seasonalServices.length} services
+                      </button>
+                    </div>
+                    <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {seasonalServiceCategories.slice(0, 4).map((category) => {
+                        const isActive = selectedManualServiceCategory === category.id;
+                        return (
+                          <button
+                            key={category.id}
+                            type="button"
+                            onClick={() => setSelectedManualServiceCategory(category.id)}
+                            className={`rounded-2xl border px-3 py-3 text-left transition ${isActive ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 bg-white'}`}
+                          >
+                            <p className="text-sm font-semibold text-gray-900">{category.label}</p>
+                            <p className="text-xs text-gray-500">{category.count} services</p>
+                          </button>
+                        );
+                      })}
+                    </div>
                     <div className="space-y-2 max-h-44 overflow-auto pr-1">
-                      {seasonalServices.map((service) => {
+                      {visibleSeasonalServices.map((service) => {
                         const checked = selectedManualServiceIds.includes(String(service.id));
                         return (
                           <label key={service.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
