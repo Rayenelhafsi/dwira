@@ -835,7 +835,7 @@ export default function HomePage() {
           <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
-              <div ref={filterControlsRef} className="grid grid-cols-1 gap-4 md:grid-cols-12">
+              <div ref={filterControlsRef} className="grid grid-cols-1 gap-4 md:grid-cols-10">
                 
                 {/* Location Dropdown */}
                 <div className={`relative pointer-events-auto md:col-span-2 ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
@@ -1268,7 +1268,7 @@ export default function HomePage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-stretch gap-2 md:col-span-2">
+                <div className="flex items-stretch gap-2 md:col-span-10">
                   <button
                     onClick={handleSearch}
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-2xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 duration-200 flex items-center justify-center gap-2"
