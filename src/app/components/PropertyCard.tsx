@@ -83,7 +83,14 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const ratingDisplay = Number.isFinite(property.rating)
     ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(property.rating)
     : "0,0";
+  const pricingAnchorDate = useMemo(() => {
+    const params = new URLSearchParams(String(searchParams || ""));
+    const checkInRaw = String(params.get("checkIn") || params.get("checkin") || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkInRaw)) return undefined;
+    return `${checkInRaw}T00:00:00`;
+  }, [searchParams]);
   const currentPricing = resolveCurrentPricing({
+    today: pricingAnchorDate,
     defaultNightlyPrice: Number(property.pricePerNight || 0),
     defaultWeeklyPrice: Number(property.pricePerWeek || 0),
     pricingPeriods: property.pricingPeriods || [],

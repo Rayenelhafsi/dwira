@@ -1113,11 +1113,12 @@ out body 40;
   const animauxLabel = seasonalConfig?.animaux ? ({ autorises: 'Autorises', interdits: 'Interdits', sous_conditions: 'Autorises sous conditions' } as const)[seasonalConfig.animaux] : null;
   const currentDisplayPricing = useMemo(
     () => resolveCurrentPricing({
+      today: selectedStart || searchParams.get("checkIn") || undefined,
       defaultNightlyPrice: Number(property?.pricePerNight || 0),
       defaultWeeklyPrice: Number(property?.pricePerWeek || 0),
       pricingPeriods: property?.pricingPeriods || [],
     }),
-    [property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods]
+    [property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
   );
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
