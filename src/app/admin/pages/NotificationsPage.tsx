@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, CheckCircle2, History, MessageSquareShare, RefreshCw } from 'lucide-react';
+import { Bell, CheckCircle2, ChevronDown, ChevronUp, History, MessageSquareShare, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Notification, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
 import { getServiceDisplayPrice } from '../../utils/servicePayants';
@@ -72,6 +72,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [serviceQuoteDrafts, setServiceQuoteDrafts] = useState<Record<string, Record<string, number>>>({});
+  const [expandedDemandIds, setExpandedDemandIds] = useState<Record<string, boolean>>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -101,6 +102,16 @@ export default function NotificationsPage() {
     () => demands.filter((demand) => openStatuses.has(demand.status)),
     [demands]
   );
+  const unreadNotificationsCount = useMemo(
+    () => notifications.filter((item) => !item.lu).length,
+    [notifications]
+  );
+  const demandCounters = useMemo(() => {
+    const awaitingOwner = pendingDemands.filter((d) => d.status === 'en_attente_reponse_proprietaire').length;
+    const awaitingClient = pendingDemands.filter((d) => d.status === 'reponse_positive_attente_confirmation_client').length;
+    const paymentFlow = pendingDemands.filter((d) => d.status === 'demande_recu_paiement' || d.status === 'recu_paiement_envoye').length;
+    return { awaitingOwner, awaitingClient, paymentFlow };
+  }, [pendingDemands]);
 
   const chatOwners = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; demandId?: string }>();
@@ -307,6 +318,9 @@ export default function NotificationsPage() {
       history_note: quoteRows.length > 0 ? `Devis services envoye (${quoteTotal} TND)` : 'Aucun devis services a envoyer',
     });
   };
+  const toggleDemandExpanded = (demandId: string) => {
+    setExpandedDemandIds((prev) => ({ ...prev, [demandId]: !prev[demandId] }));
+  };
 
   if (loading) {
     return (
@@ -333,6 +347,25 @@ export default function NotificationsPage() {
         </button>
       </div>
 
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Demandes en attente</p>
+          <p className="mt-1 text-2xl font-bold text-emerald-900">{pendingDemands.length}</p>
+        </div>
+        <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Attente proprietaire</p>
+          <p className="mt-1 text-2xl font-bold text-sky-900">{demandCounters.awaitingOwner}</p>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Attente client</p>
+          <p className="mt-1 text-2xl font-bold text-amber-900">{demandCounters.awaitingClient}</p>
+        </div>
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Notifications non lues</p>
+          <p className="mt-1 text-2xl font-bold text-violet-900">{unreadNotificationsCount}</p>
+        </div>
+      </section>
+
       <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
         <button
           type="button"
@@ -358,21 +391,31 @@ export default function NotificationsPage() {
         </div>
         <div className="space-y-3">
           {pendingDemands.length === 0 && <p className="text-sm text-gray-500">Aucune demande client en attente.</p>}
-          {pendingDemands.map((demand) => (
+          {pendingDemands.map((demand) => {
+            const isExpanded = Boolean(expandedDemandIds[demand.id]);
+            return (
             <div key={demand.id} className="rounded-xl border border-gray-200 p-4">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="text-base font-semibold text-gray-900">
                     {demand.bien_reference || demand.bien_id} - {demand.bien_titre || 'Bien'}
                   </p>
                   <p className="mt-1 text-sm text-gray-600">
-                    Client: {demand.client_name || demand.client_email || 'Client non identifie'} | Periode: {demand.start_date} au {demand.end_date} | Voyageurs: {demand.guests} (Adultes: {Number(demand.adult_guests || demand.guests || 1)}, Enfants: {Number(demand.child_guests || 0)})
+                    {demand.client_name || demand.client_email || 'Client non identifie'} · {demand.start_date} {'->'} {demand.end_date} · {demand.guests} voyageurs
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
-                    Proprietaire: {demand.proprietaire_nom || '-'} | Cree le {formatDateTime(demand.created_at)}
+                    Proprietaire: {demand.proprietaire_nom || '-'} · Cree le {formatDateTime(demand.created_at)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleDemandExpanded(demand.id)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    {isExpanded ? 'Masquer details' : 'Voir details'}
+                  </button>
                   <select
                     value={demand.status}
                     onChange={(event) => void handleDemandUpdate(demand, { status: event.target.value as ReservationDemandStatus, history_note: `Etat change par admin: ${statusLabels[event.target.value as ReservationDemandStatus]}` })}
@@ -435,6 +478,11 @@ export default function NotificationsPage() {
                 <div>Notif proprietaire: <span className="font-medium text-gray-700">{demand.owner_notified_at ? formatDateTime(demand.owner_notified_at) : 'Non envoyee'}</span></div>
                 <div>Reponse proprietaire: <span className="font-medium text-gray-700">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</span></div>
                 <div>Consultation client: <span className="font-medium text-gray-700">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</span></div>
+              </div>
+              {isExpanded && (
+                <>
+              <div className="mt-2 text-xs text-gray-500">
+                Repartition voyageurs: <span className="font-medium text-gray-700">Adultes {Number(demand.adult_guests || demand.guests || 1)} / Enfants {Number(demand.child_guests || 0)}</span>
               </div>
               {(demand.selected_fixed_services?.length || demand.selected_variable_services?.length) ? (
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -521,8 +569,10 @@ export default function NotificationsPage() {
                   ) : null}
                 </div>
               )}
+                </>
+              )}
             </div>
-          ))}
+          )})}
         </div>
       </section>
       )}
@@ -626,6 +676,11 @@ export default function NotificationsPage() {
         <div className="mb-4 flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-emerald-600" />
           <h2 className="text-lg font-semibold text-gray-900">Notifications systeme</h2>
+          {unreadNotificationsCount > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+              {unreadNotificationsCount} non lue(s)
+            </span>
+          )}
         </div>
         <div className="space-y-3">
           {notifications.length === 0 && <p className="text-sm text-gray-500">Aucune notification.</p>}
@@ -633,7 +688,7 @@ export default function NotificationsPage() {
             <div key={notification.id} className={`rounded-lg border p-3 ${notification.lu ? 'border-gray-200 bg-white' : 'border-amber-200 bg-amber-50'}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm text-gray-800">{notification.message}</p>
+                  <p className="text-sm text-gray-800 line-clamp-2">{notification.message}</p>
                   <p className="mt-1 text-xs text-gray-500">{formatDateTime(notification.created_at)}</p>
                 </div>
                 {!notification.lu && (
