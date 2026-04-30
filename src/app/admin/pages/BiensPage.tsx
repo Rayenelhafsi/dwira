@@ -810,12 +810,16 @@ export default function BiensPage() {
     vue_sur_mer: 'Vue sur mer',
     pres_plage: 'Pres de la plage',
     climatise: 'Climatise',
+    toutes_pieces_climatisees: 'Toutes les pieces climatisees',
+    rdc: 'RDC',
+    jardin_gazon: 'Jardin / Gazon',
+    terrasse: 'Terrasse',
     piscine_privee: 'Piscine privee',
     piscine_partagee: 'Piscine partagee',
   };
   const homeFilterOptionsByGroup: Record<'seaside' | 'comfort', string[]> = {
     seaside: ['pied_dans_eau', 'vue_sur_mer', 'pres_plage'],
-    comfort: ['climatise', 'piscine_privee', 'piscine_partagee'],
+    comfort: ['climatise', 'toutes_pieces_climatisees', 'rdc', 'jardin_gazon', 'terrasse', 'piscine_privee', 'piscine_partagee'],
   };
   const currentHomeFilterOptions = homeFilterOptionsByGroup[homeFilterImageGroup];
 

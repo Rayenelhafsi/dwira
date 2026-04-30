@@ -835,10 +835,10 @@ export default function HomePage() {
           <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
-              <div ref={filterControlsRef} className="grid grid-cols-1 md:grid-cols-7 gap-4">
+              <div ref={filterControlsRef} className="grid grid-cols-1 gap-4 md:grid-cols-12">
                 
                 {/* Location Dropdown */}
-                <div className={`relative pointer-events-auto ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
+                <div className={`relative pointer-events-auto md:col-span-2 ${showLocationDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
                     className={`relative w-full flex items-center gap-3 overflow-hidden px-4 py-3 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showLocationDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 bg-gray-50 hover:border-emerald-400"}`}
@@ -989,7 +989,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Date Range Picker */}
-                <div className={`relative pointer-events-auto ${showCalendar ? 'z-[120]' : 'z-10'}`}>
+                <div className={`relative pointer-events-auto md:col-span-2 ${showCalendar ? 'z-[120]' : 'z-10'}`}>
                   <button 
                     type="button"
                     className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showCalendar ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
@@ -1167,7 +1167,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Search Button */}
-                <div className={`relative pointer-events-auto ${showSeasideDropdown ? 'z-[120]' : 'z-10'}`}>
+                <div className={`relative pointer-events-auto md:col-span-2 ${showSeasideDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showSeasideDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
@@ -1221,7 +1221,7 @@ export default function HomePage() {
                     </div>
                   )}
                 </div>
-                <div className={`relative pointer-events-auto ${showComfortDropdown ? 'z-[120]' : 'z-10'}`}>
+                <div className={`relative pointer-events-auto md:col-span-2 ${showComfortDropdown ? 'z-[120]' : 'z-10'}`}>
                   <button
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showComfortDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
@@ -1268,7 +1268,7 @@ export default function HomePage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-stretch gap-2">
+                <div className="flex items-stretch gap-2 md:col-span-2">
                   <button
                     onClick={handleSearch}
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-2xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 duration-200 flex items-center justify-center gap-2"
