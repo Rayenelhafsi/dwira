@@ -25,13 +25,12 @@ const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
   { value: "location_annuelle", label: "Location annuelle" },
 ];
 
-const STANDING_OPTIONS = [
-  { value: "", label: "Tous standings" },
-  { value: "economique", label: "Economique" },
-  { value: "confort", label: "Confort" },
-  { value: "premium", label: "Premium" },
-  { value: "luxe", label: "Luxe" },
-];
+const STANDING_LABELS: Record<string, string> = {
+  economique: "Economique",
+  confort: "Confort",
+  premium: "Premium",
+  luxe: "Luxe",
+};
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const SEASIDE_OPTION_LABELS: Record<HomeSeasideOptionKey, string> = {
   pied_dans_eau: "Pied dans l'eau",
@@ -68,38 +67,6 @@ const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
   studio: "Studio",
   immeuble: "Immeuble",
   autre: "Autre",
-};
-const MAIN_TYPE_TO_CATEGORIES: Record<PropertyMainType, string[]> = {
-  appartement: ["S+1", "S+2", "S+3", "S+4"],
-  villa_maison: ["Villa"],
-  studio: ["Studio"],
-  immeuble: ["S+4"],
-  autre: [],
-};
-const ADVANCED_FIXED_TAB_OPTIONS: Record<string, string[]> = {
-  "Accessibilite": ["RDC", "Acces PMR"],
-  "Capacite & configuration": ["Gazon", "Jardin partage", "Jardin prive", "Terrasse"],
-  "Confort & equipements interieurs": [
-    "acces & check-in special",
-    "balcon / terasse & exterieur",
-    "climatisation",
-    "Wifi",
-    "parking",
-    "garage",
-  ],
-  "Exterieur & Loisirs": [
-    "Acces direct plage",
-    "Espace de Jeux",
-    "Barbecue",
-    "Materiel plage",
-    "Douche exterieure",
-    "Mobilier exterieur",
-    "Parasol",
-    "Piscine",
-    "Terrasse amenagee",
-  ],
-  "Securite & reglement": ["alcool", "animaux", "cameras", "fetes", "fumeurs"],
-  "Tech & divertissement": ["SmartTv", "Netflix"],
 };
 
 type FeatureApiRow = {
@@ -170,6 +137,57 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
   if (normalized.includes("studio")) return "studio";
   if (normalized.includes("immeuble")) return "immeuble";
   return "autre";
+};
+
+const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKey) => {
+  const textBlob = normalizeFeatureName(
+    [
+      property?.title,
+      property?.description,
+      property?.location,
+      property?.category,
+      ...(Array.isArray(property?.amenities) ? property.amenities : []),
+    ]
+      .map((v) => String(v || "").trim())
+      .filter(Boolean)
+      .join(" ")
+  );
+  const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeFeatureName(token)));
+  if (option === "pied_dans_eau") return hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
+  if (option === "vue_sur_mer") return property?.seasonalConfig?.vue === "mer" || hasAny("vue sur mer", "vue mer");
+  if (option === "pres_plage") return hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
+  return false;
+};
+
+const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKey) => {
+  const textBlob = normalizeFeatureName(
+    [
+      property?.title,
+      property?.description,
+      property?.location,
+      property?.category,
+      ...(Array.isArray(property?.amenities) ? property.amenities : []),
+    ]
+      .map((v) => String(v || "").trim())
+      .filter(Boolean)
+      .join(" ")
+  );
+  const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeFeatureName(token)));
+  if (option === "climatise") return hasAny("climatise", "climatisation");
+  if (option === "toutes_pieces_climatisees") {
+    return hasAny(
+      "toutes les pieces climatisees",
+      "toutes pieces climatisees",
+      "climatisation complete",
+      "climatisation dans toutes les pieces"
+    );
+  }
+  if (option === "piscine_privee") return hasAny("piscine privee");
+  if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
+  if (option === "rdc") return property?.seasonalConfig?.etage === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  if (option === "jardin_gazon") return hasAny("jardin", "gazon", "pelouse", "espace vert");
+  if (option === "terrasse") return hasAny("terrasse");
+  return false;
 };
 
 export default function PropertiesPage() {
@@ -274,10 +292,7 @@ export default function PropertiesPage() {
   useEffect(() => {
     const mainType = String(searchParams.get("mainType") || "").trim() as PropertyMainType;
     if (!mainType) return;
-    const nextCategories = MAIN_TYPE_TO_CATEGORIES[mainType] || [];
-    if (nextCategories.length > 0) {
-      setSelectedCategories((prev) => (prev.length > 0 ? prev : nextCategories));
-    }
+    setSelectedMainType(mainType);
   }, [searchParams]);
   useEffect(() => {
     let cancelled = false;
@@ -466,6 +481,27 @@ export default function PropertiesPage() {
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === selectedMainType);
     return selectedGroup?.subTypes || [];
   }, [availableTypeOptions, groupedTypeOptions, selectedMainType]);
+  const availableStandingOptions = useMemo(() => {
+    const standingSet = new Set<string>();
+    modeProperties.forEach((property) => {
+      const key = String(property.seasonalConfig?.categorieStanding || "").trim();
+      if (key) standingSet.add(key);
+    });
+    return [
+      { value: "", label: "Tous standings" },
+      ...Array.from(standingSet)
+        .sort((a, b) => a.localeCompare(b, "fr"))
+        .map((value) => ({ value, label: STANDING_LABELS[value] || value })),
+    ];
+  }, [modeProperties]);
+  const availableSeasideOptions = useMemo(
+    () => SEASIDE_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesSeasideOption(property, key))),
+    [modeProperties]
+  );
+  const availableComfortOptions = useMemo(
+    () => COMFORT_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesComfortOption(property, key))),
+    [modeProperties]
+  );
 
   const amenitiesList = useMemo(
     () => {
@@ -535,7 +571,6 @@ export default function PropertiesPage() {
 
     return next;
   }, [modeProperties, bienById, modeFeaturesByType]);
-  const featureTabsList = useMemo(() => Object.keys(ADVANCED_FIXED_TAB_OPTIONS), []);
   const propertyFeatureTabMap = useMemo(() => {
     const next = new Map<string, string[]>();
     modeProperties.forEach((property) => {
@@ -615,15 +650,41 @@ export default function PropertiesPage() {
     });
     return next;
   }, [modeProperties]);
-  const tabFeatureOptionsMap = useMemo(
-    () =>
-      new Map(
-        Object.entries(ADVANCED_FIXED_TAB_OPTIONS).map(([tab, values]) => [
-          tab,
-          values.slice().sort((a, b) => a.localeCompare(b, "fr")),
-        ])
-      ),
-    []
+  const tabFeatureOptionsMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    modeProperties.forEach((property) => {
+      const sourceBien = bienById.get(String(property.id));
+      const type = String(sourceBien?.type || "").trim();
+      const typeFeatures = modeFeaturesByType[type] || [];
+      const selectedFeatureIds = new Set(
+        (Array.isArray(sourceBien?.caracteristique_ids) ? sourceBien.caracteristique_ids : []).map((item) => String(item))
+      );
+      const selectedFeatureNames = new Set(
+        (Array.isArray(sourceBien?.caracteristiques) ? sourceBien.caracteristiques : []).map((item) => normalizeFeatureName(String(item)))
+      );
+
+      typeFeatures.forEach((feature) => {
+        if (Number(feature?.visibilite_client) === 0) return;
+        const tab = cleanFeatureTabName(String(feature.onglet_nom || "")).trim();
+        if (!tab || isCharacteristicsTabName(tab)) return;
+        const byId = selectedFeatureIds.has(String(feature.id || ""));
+        const byName = selectedFeatureNames.has(normalizeFeatureName(String(feature.nom || "")));
+        if (!byId && !byName) return;
+        const featureName = String(feature.nom || "").trim();
+        if (!featureName) return;
+        if (!map.has(tab)) map.set(tab, new Set<string>());
+        map.get(tab)?.add(featureName);
+      });
+    });
+    return new Map(
+      Array.from(map.entries())
+        .sort(([a], [b]) => a.localeCompare(b, "fr"))
+        .map(([tab, values]) => [tab, Array.from(values).sort((a, b) => a.localeCompare(b, "fr"))])
+    );
+  }, [modeProperties, bienById, modeFeaturesByType]);
+  const featureTabsList = useMemo(
+    () => Array.from(tabFeatureOptionsMap.keys()).sort((a, b) => a.localeCompare(b, "fr")),
+    [tabFeatureOptionsMap]
   );
 
   useEffect(() => {
@@ -635,6 +696,22 @@ export default function PropertiesPage() {
     const allowedSecondary = new Set(secondaryTypeOptions.map((item) => item.label));
     setSelectedCategories((prev) => prev.filter((cat) => allowedSecondary.has(cat)));
   }, [selectedMainType, secondaryTypeOptions]);
+  useEffect(() => {
+    const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
+    setSelectedFeatureNames((prev) => prev.filter((item) => allowedFeatures.has(item)));
+  }, [tabFeatureOptionsMap]);
+  useEffect(() => {
+    const allowedSeaside = new Set(availableSeasideOptions);
+    const allowedComfort = new Set(availableComfortOptions);
+    setSelectedSeasideOptions((prev) => prev.filter((item) => allowedSeaside.has(item)));
+    setSelectedComfortOptions((prev) => prev.filter((item) => allowedComfort.has(item)));
+  }, [availableSeasideOptions, availableComfortOptions]);
+  useEffect(() => {
+    const allowedStanding = new Set(availableStandingOptions.map((item) => item.value).filter(Boolean));
+    if (selectedStanding && !allowedStanding.has(selectedStanding)) {
+      setSelectedStanding("");
+    }
+  }, [availableStandingOptions, selectedStanding]);
 
   const maxGuestsAvailable = useMemo(
     () => Math.max(2, ...modeProperties.map((p) => Math.max(1, Number(p.guests || 1)))),
@@ -1006,37 +1083,14 @@ export default function PropertiesPage() {
           else missing.push("Type proche mais different");
         }
 
-        const matchSeaside = selectedSeasideOptions.every((option) => {
-          if (option === "pied_dans_eau") return hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
-          if (option === "vue_sur_mer") return property.seasonalConfig?.vue === "mer" || hasAny("vue sur mer", "vue mer");
-          if (option === "pres_plage") return hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
-          return true;
-        });
+        const matchSeaside = selectedSeasideOptions.every((option) => propertyMatchesSeasideOption(property, option));
         if (selectedSeasideOptions.length > 0) {
           maxScore += 10;
           if (matchSeaside) score += 10;
           else missing.push("Critere bord de mer incomplet");
         }
 
-        const matchComfort = selectedComfortOptions.every((option) => {
-          if (option === "climatise") return hasAny("climatise", "climatisation");
-          if (option === "toutes_pieces_climatisees") {
-            return hasAny(
-              "toutes les pieces climatisees",
-              "toutes pieces climatisees",
-              "climatisation complete",
-              "climatisation dans toutes les pieces"
-            );
-          }
-          if (option === "piscine_privee") return hasAny("piscine privee");
-          if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
-          if (option === "rdc") {
-            return property.seasonalConfig?.etage === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
-          }
-          if (option === "jardin_gazon") return hasAny("jardin", "gazon", "pelouse", "espace vert");
-          if (option === "terrasse") return hasAny("terrasse");
-          return true;
-        });
+        const matchComfort = selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
         if (selectedComfortOptions.length > 0) {
           maxScore += 10;
           if (matchComfort) score += 10;
@@ -1587,7 +1641,7 @@ export default function PropertiesPage() {
                         onChange={(e) => setSelectedStanding(e.target.value)}
                         className="w-full rounded-lg border border-gray-200 bg-white p-2.5 text-sm outline-none focus:border-emerald-500"
                       >
-                        {STANDING_OPTIONS.map((opt) => (
+                        {availableStandingOptions.map((opt) => (
                           <option key={opt.value || "all"} value={opt.value}>
                             {opt.label}
                           </option>
@@ -1617,7 +1671,7 @@ export default function PropertiesPage() {
                           Bord de mer
                         </label>
                         <div className="grid grid-cols-1 gap-2">
-                          {SEASIDE_OPTION_KEYS.map((key) => (
+                          {availableSeasideOptions.map((key) => (
                             <button
                               key={`adv-seaside-${key}`}
                               type="button"
@@ -1631,6 +1685,9 @@ export default function PropertiesPage() {
                               <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{SEASIDE_OPTION_LABELS[key]}</span>
                             </button>
                           ))}
+                          {availableSeasideOptions.length === 0 && (
+                            <p className="text-xs text-gray-500">Aucune option disponible pour les biens actuels.</p>
+                          )}
                         </div>
                       </div>
                       <div className="space-y-2 rounded-xl p-1">
@@ -1639,7 +1696,7 @@ export default function PropertiesPage() {
                           Confort
                         </label>
                         <div className="grid grid-cols-1 gap-2">
-                          {COMFORT_OPTION_KEYS.map((key) => (
+                          {availableComfortOptions.map((key) => (
                             <button
                               key={`adv-comfort-${key}`}
                               type="button"
@@ -1653,6 +1710,9 @@ export default function PropertiesPage() {
                               <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{COMFORT_OPTION_LABELS[key]}</span>
                             </button>
                           ))}
+                          {availableComfortOptions.length === 0 && (
+                            <p className="text-xs text-gray-500">Aucune option disponible pour les biens actuels.</p>
+                          )}
                         </div>
                       </div>
                     </>

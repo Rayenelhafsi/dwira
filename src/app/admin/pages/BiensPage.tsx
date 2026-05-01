@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
-import { mockZones, mockProprietaires } from '../data/mockData';
+import { mockZones } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
@@ -739,7 +739,7 @@ function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) 
 export default function BiensPage() {
   const { biens, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, refreshData, isLoading } = useProperties();
   const zoneOptions = zones.length > 0 ? zones : mockZones;
-  const proprietaireOptions = proprietaires.length > 0 ? proprietaires : mockProprietaires;
+  const proprietaireOptions = proprietaires;
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<BienStatut | 'all'>('all');
   const [modeFilter, setModeFilter] = useState<BienMode | 'all'>('all');
@@ -5822,7 +5822,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                 </div>
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Propriétaire</label>
-                  <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{proprietaireOptions.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}</select>
+                  <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                    <option value="">-- Choisir un propriétaire --</option>
+                    {proprietaireOptions.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+                  </select>
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriétaire</button>
                     <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propriétaire sélectionné</button>

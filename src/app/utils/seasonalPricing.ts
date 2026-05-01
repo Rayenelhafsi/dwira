@@ -88,7 +88,7 @@ export function resolveCurrentPricing(params: {
   }
 
   const nightly = normalizePrice(activePeriod.prix_nuitee) || defaultNightly;
-  const weekly = normalizePrice(activePeriod.prix_semaine) || (nightly * 7);
+  const weekly = normalizePrice(activePeriod.prix_semaine) || fallbackWeekly || (nightly * 7);
   return {
     nightlyPrice: nightly,
     weeklyPrice: weekly,
@@ -146,7 +146,7 @@ export function calculateAccommodationPricing(params: {
     const day = addDays(rangeStart, offset);
     const period = findPeriodForNight(sortedPeriods, day);
     const nightlyPrice = normalizePrice(period?.prix_nuitee) || defaultNightly;
-    const weeklyPrice = normalizePrice(period?.prix_semaine) || (nightlyPrice * 7);
+    const weeklyPrice = normalizePrice(period?.prix_semaine) || defaultWeekly || (nightlyPrice * 7);
     const key = period?.id
       ? `period:${period.id}`
       : period

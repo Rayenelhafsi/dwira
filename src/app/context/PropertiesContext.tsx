@@ -38,18 +38,6 @@ const DEFAULT_MODE_PRIORITIES: Record<BienMode, number> = {
   location_annuelle: 3,
 };
 
-function isAdminSessionCached(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    const raw = window.localStorage.getItem('dwira_user');
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    return String(parsed?.role || '').trim().toLowerCase() === 'admin';
-  } catch {
-    return false;
-  }
-}
-
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -727,17 +715,16 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
     setError(null);
     try {
-      const canFetchAdminData = isAdminSessionCached();
       const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
         fetch(`${API_URL}/biens`, { credentials: 'include' }),
         fetch(`${API_URL}/zones`, { credentials: 'include' }),
         fetch(`${API_URL}/site-mode-priorities`, { credentials: 'include' }),
-        canFetchAdminData ? fetch(`${API_URL}/proprietaires`, { credentials: 'include' }) : Promise.resolve(null),
+        fetch(`${API_URL}/proprietaires`, { credentials: 'include' }),
       ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
       const zonesData = zonesResponse.ok ? await zonesResponse.json() : [];
-      const propsData = propsResponse && propsResponse.ok ? await propsResponse.json() : [];
+      const propsData = propsResponse.ok ? await propsResponse.json() : [];
       const modePrioritiesData = modePrioritiesResponse.ok ? await modePrioritiesResponse.json() : null;
 
       const bienIds = Array.isArray(biensData) ? biensData.map((bien: any) => String(bien?.id || '').trim()).filter(Boolean) : [];

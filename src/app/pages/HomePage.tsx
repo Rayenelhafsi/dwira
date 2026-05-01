@@ -103,6 +103,65 @@ const getCanonicalSubTypeKey = (value?: string | null) => {
   if (sPlusMatch?.[0]) return sPlusMatch[0];
   return raw.replace(/\s+/g, " ");
 };
+const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKey) => {
+  const normalizeToken = (value?: string | null) =>
+    String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const textBlob = normalizeToken(
+    [
+      property?.title,
+      property?.description,
+      property?.location,
+      property?.category,
+      ...(Array.isArray(property?.amenities) ? property.amenities : []),
+    ].join(" ")
+  );
+  const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeToken(token)));
+  if (option === "pied_dans_eau") return hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
+  if (option === "vue_sur_mer") return property?.seasonalConfig?.vue === "mer" || hasAny("vue sur mer", "vue mer");
+  if (option === "pres_plage") return hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
+  return false;
+};
+const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKey) => {
+  const normalizeToken = (value?: string | null) =>
+    String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const textBlob = normalizeToken(
+    [
+      property?.title,
+      property?.description,
+      property?.location,
+      property?.category,
+      ...(Array.isArray(property?.amenities) ? property.amenities : []),
+    ].join(" ")
+  );
+  const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeToken(token)));
+  if (option === "climatise") return hasAny("climatise", "climatisation");
+  if (option === "toutes_pieces_climatisees") {
+    return hasAny(
+      "toutes les pieces climatisees",
+      "toutes pieces climatisees",
+      "climatisation complete",
+      "climatisation dans toutes les pieces"
+    );
+  }
+  if (option === "piscine_privee") return hasAny("piscine privee");
+  if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
+  if (option === "rdc") return property?.seasonalConfig?.etage === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  if (option === "jardin_gazon") return hasAny("jardin", "gazon", "pelouse", "espace vert");
+  if (option === "terrasse") return hasAny("terrasse");
+  return false;
+};
 
 export default function HomePage() {
   // Use shared context for properties
@@ -350,8 +409,55 @@ export default function HomePage() {
       ),
     };
   }, [normalizedZones, locationPays, locationGouvernerat, locationRegion, locationZone]);
+  const getLocationOptionImage = (
+    level: "pays" | "gouvernerat" | "region" | "zone",
+    value: string
+  ) => {
+    const rows = normalizedZones.filter((zone) => {
+      const pays = String(zone.pays || "").trim();
+      const gouv = String(zone.gouvernerat || "").trim();
+      const region = String(zone.region || "").trim();
+      const zoneName = String(zone.quartier || zone.nom || "").trim();
+      if (level === "pays") return pays === value;
+      if (level === "gouvernerat") return (!locationPays || pays === locationPays) && gouv === value;
+      if (level === "region") {
+        return (!locationPays || pays === locationPays)
+          && (!locationGouvernerat || gouv === locationGouvernerat)
+          && region === value;
+      }
+      return (!locationPays || pays === locationPays)
+        && (!locationGouvernerat || gouv === locationGouvernerat)
+        && (!locationRegion || region === locationRegion)
+        && zoneName === value;
+    });
+    const first = rows[0];
+    if (!first) return ZONE_FALLBACK_IMAGE;
+    const preferred =
+      (level === "pays" ? first.pays_image_url : null)
+      || (level === "gouvernerat" ? first.gouvernerat_image_url : null)
+      || (level === "region" ? first.region_image_url : null)
+      || (level === "zone" ? first.quartier_image_url : null)
+      || first.image_url
+      || first.quartier_image_url
+      || first.region_image_url
+      || first.gouvernerat_image_url
+      || first.pays_image_url
+      || "";
+    return resolveZoneImageUrl(preferred);
+  };
+  const modeProperties = useMemo(
+    () => properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode),
+    [properties, selectedMode]
+  );
+  const availableSeasideOptions = useMemo(
+    () => SEASIDE_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesSeasideOption(property, key))),
+    [modeProperties]
+  );
+  const availableComfortOptions = useMemo(
+    () => COMFORT_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesComfortOption(property, key))),
+    [modeProperties]
+  );
   const availableTypeOptions = useMemo(() => {
-    const modeProperties = properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode);
     const byCategory = new Map<string, { label: string; imageUrl: string }>();
     for (const property of modeProperties) {
       const category = String(property.category || '').trim();
@@ -369,7 +475,7 @@ export default function HomePage() {
       }
     }
     return Array.from(byCategory.values()).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
-  }, [properties, selectedMode, typeFilterImageRows]);
+  }, [modeProperties, selectedMode, typeFilterImageRows]);
   const groupedTypeOptions = useMemo(() => {
     const groups = new Map<PropertyMainType, { mainType: PropertyMainType; label: string; imageUrl: string; subTypes: Array<{ label: string; imageUrl: string }> }>();
     const modeRows = typeFilterImageRows.filter((row) => String(row.mode_bien || "").trim() === selectedMode);
@@ -502,6 +608,12 @@ export default function HomePage() {
       return prev && mainTypeAllowed.has(prev) ? prev : "";
     });
   }, [availableTypeOptions, groupedTypeOptions]);
+  useEffect(() => {
+    const allowedSeaside = new Set(availableSeasideOptions);
+    const allowedComfort = new Set(availableComfortOptions);
+    setSelectedSeasideOptions((prev) => prev.filter((item) => allowedSeaside.has(item)));
+    setSelectedComfortOptions((prev) => prev.filter((item) => allowedComfort.has(item)));
+  }, [availableSeasideOptions, availableComfortOptions]);
 
   useEffect(() => {
     if (!selectedMainType) return;
@@ -638,48 +750,14 @@ export default function HomePage() {
   };
 
   const filteredProperties = useMemo(() => {
-    const modeProperties = properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode);
     const baseProperties = hasSearched
       ? modeProperties.filter((property) => {
           const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
           const propertyMainType = getMainTypeFromCategory(String(property.category || ""));
           const matchMainType = !selectedMainType || propertyMainType === selectedMainType;
           const matchSubType = selectedCategories.length === 0 || selectedCategories.includes(property.category);
-          const textBlob = normalizeSearchToken(
-            [
-              property.title,
-              property.description,
-              property.location,
-              property.category,
-              ...(Array.isArray(property.amenities) ? property.amenities : []),
-            ].join(" ")
-          );
-          const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeSearchToken(token)));
-          const matchSeaside = selectedSeasideOptions.every((option) => {
-            if (option === "pied_dans_eau") return hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
-            if (option === "vue_sur_mer") return property.seasonalConfig?.vue === "mer" || hasAny("vue sur mer", "vue mer");
-            if (option === "pres_plage") return hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
-            return true;
-          });
-          const matchComfort = selectedComfortOptions.every((option) => {
-            if (option === "climatise") return hasAny("climatise", "climatisation");
-            if (option === "toutes_pieces_climatisees") {
-              return hasAny(
-                "toutes les pieces climatisees",
-                "toutes pieces climatisees",
-                "climatisation complete",
-                "climatisation dans toutes les pieces"
-              );
-            }
-            if (option === "piscine_privee") return hasAny("piscine privee");
-            if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
-            if (option === "rdc") {
-              return property.seasonalConfig?.etage === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
-            }
-            if (option === "jardin_gazon") return hasAny("jardin", "gazon", "pelouse", "espace vert");
-            if (option === "terrasse") return hasAny("terrasse");
-            return true;
-          });
+          const matchSeaside = selectedSeasideOptions.every((option) => propertyMatchesSeasideOption(property, option));
+          const matchComfort = selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
           return matchLocation && matchMainType && matchSubType && matchSeaside && matchComfort;
         })
       : modeProperties;
@@ -688,7 +766,7 @@ export default function HomePage() {
       if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
       return b.rating - a.rating;
     });
-  }, [hasSearched, location, selectedMainType, selectedCategories, selectedSeasideOptions, selectedComfortOptions, properties, selectedMode]);
+  }, [hasSearched, location, selectedMainType, selectedCategories, selectedSeasideOptions, selectedComfortOptions, modeProperties]);
 
   const dateRangeText = () => {
     if (checkIn && checkOut) {
@@ -868,104 +946,86 @@ export default function HomePage() {
                   {showLocationDropdown && (
                     <div ref={locationDesktopPopupRef} className="absolute top-full left-0 mt-2 z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block md:w-[760px]">
                       <div className="p-4 space-y-4">
-                        <div className="grid grid-cols-12 gap-3">
-                          <div className="col-span-4 space-y-1.5">
+                        <div className="grid grid-cols-4 gap-3">
+                          <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
-                            <div className="relative overflow-hidden rounded-xl">
-                            {selectedLocationImages.pays && (
-                              <img
-                                src={resolveZoneImageUrl(selectedLocationImages.pays)}
-                                alt={locationPays || "Pays"}
-                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                              />
-                            )}
-                            {selectedLocationImages.pays && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                            <select
-                              value={locationPays}
-                              onChange={(e) => {
-                                setLocationPays(e.target.value);
-                                setLocationGouvernerat("");
-                                setLocationRegion("");
-                                setLocationZone("");
-                              }}
-                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.pays ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
-                            >
-                              <option value="">Tous pays</option>
-                              {cascadePaysOptions.map((item) => <option key={`home-pays-${item}`} value={item}>{item}</option>)}
-                            </select>
+                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                              {[{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = locationPays === item.value;
+                                return (
+                                  <button
+                                    key={`home-pays-card-${item.label}`}
+                                    type="button"
+                                    onClick={() => { setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); }}
+                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                  >
+                                    <img src={getLocationOptionImage("pays", item.value || cascadePaysOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                          </div>
-                          <div className="col-span-8 grid grid-cols-3 gap-3">
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
-                            <div className="relative overflow-hidden rounded-xl">
-                            {selectedLocationImages.gouvernerat && (
-                              <img
-                                src={resolveZoneImageUrl(selectedLocationImages.gouvernerat)}
-                                alt={locationGouvernerat || "Gouvernorat"}
-                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                              />
-                            )}
-                            {selectedLocationImages.gouvernerat && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                            <select
-                              value={locationGouvernerat}
-                              onChange={(e) => {
-                                setLocationGouvernerat(e.target.value);
-                                setLocationRegion("");
-                                setLocationZone("");
-                              }}
-                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.gouvernerat ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
-                            >
-                              <option value="">Tous gouvernorats</option>
-                              {cascadeGouverneratOptions.map((item) => <option key={`home-gouv-${item}`} value={item}>{item}</option>)}
-                            </select>
-                          </div>
+                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                              {[{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = locationGouvernerat === item.value;
+                                return (
+                                  <button
+                                    key={`home-gouv-card-${item.label}`}
+                                    type="button"
+                                    onClick={() => { setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); }}
+                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                  >
+                                    <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
-                            <div className="relative overflow-hidden rounded-xl">
-                            {selectedLocationImages.region && (
-                              <img
-                                src={resolveZoneImageUrl(selectedLocationImages.region)}
-                                alt={locationRegion || "Region"}
-                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                              />
-                            )}
-                            {selectedLocationImages.region && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                            <select
-                              value={locationRegion}
-                              onChange={(e) => {
-                                setLocationRegion(e.target.value);
-                                setLocationZone("");
-                              }}
-                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.region ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
-                            >
-                              <option value="">Toutes regions</option>
-                              {cascadeRegionOptions.map((item) => <option key={`home-region-${item}`} value={item}>{item}</option>)}
-                            </select>
-                          </div>
+                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                              {[{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = locationRegion === item.value;
+                                return (
+                                  <button
+                                    key={`home-region-card-${item.label}`}
+                                    type="button"
+                                    onClick={() => { setLocationRegion(item.value); setLocationZone(""); }}
+                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                  >
+                                    <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
-                            <div className="relative overflow-hidden rounded-xl">
-                            {selectedLocationImages.zone && (
-                              <img
-                                src={resolveZoneImageUrl(selectedLocationImages.zone)}
-                                alt={locationZone || "Zone"}
-                                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                              />
-                            )}
-                            {selectedLocationImages.zone && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                            <select
-                              value={locationZone}
-                              onChange={(e) => setLocationZone(e.target.value)}
-                              className={`relative z-10 h-16 w-full rounded-xl border border-gray-200 px-3 text-sm ${selectedLocationImages.zone ? 'bg-transparent text-white border-white/70 font-semibold [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]' : 'bg-gray-50 text-gray-700'}`}
-                            >
-                              <option value="">Toutes zones</option>
-                              {cascadeZoneOptions.map((item) => <option key={`home-zone-${item}`} value={item}>{item}</option>)}
-                            </select>
-                          </div>
-                          </div>
+                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                              {[{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = locationZone === item.value;
+                                return (
+                                  <button
+                                    key={`home-zone-card-${item.label}`}
+                                    type="button"
+                                    onClick={() => setLocationZone(item.value)}
+                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                  >
+                                    <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -1191,7 +1251,7 @@ export default function HomePage() {
                   </button>
                   {showSeasideDropdown && (
                     <div ref={seasideDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
-                      {SEASIDE_OPTION_KEYS.map((key) => {
+                      {availableSeasideOptions.map((key) => {
                         const image = getHomeFilterOptionImage("seaside", key);
                         const selected = selectedSeasideOptions.includes(key);
                         return (
@@ -1245,7 +1305,7 @@ export default function HomePage() {
                   </button>
                   {showComfortDropdown && (
                     <div ref={comfortDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
-                      {COMFORT_OPTION_KEYS.map((key) => {
+                      {availableComfortOptions.map((key) => {
                         const image = getHomeFilterOptionImage("comfort", key);
                         const selected = selectedComfortOptions.includes(key);
                         return (
@@ -1358,90 +1418,54 @@ export default function HomePage() {
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowLocationDropdown(false)} />
             <div ref={locationMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-3 space-y-3">
-              <div className="grid grid-cols-1 gap-2">
-                <div className="relative overflow-hidden rounded-xl">
-                  {selectedLocationImages.pays && (
-                    <img
-                      src={resolveZoneImageUrl(selectedLocationImages.pays)}
-                      alt={locationPays || "Pays"}
-                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                    />
-                  )}
-                  {selectedLocationImages.pays && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                  <select
-                    value={locationPays}
-                    onChange={(e) => {
-                      setLocationPays(e.target.value);
-                      setLocationGouvernerat("");
-                      setLocationRegion("");
-                      setLocationZone("");
-                    }}
-                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.pays ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
-                  >
-                    <option value="">Tous pays</option>
-                    {cascadePaysOptions.map((item) => <option key={`mobile-pays-${item}`} value={item}>{item}</option>)}
-                  </select>
+              <div className="space-y-3">
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {[{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].map((item) => (
+                      <button key={`mobile-pays-card-${item.label}`} type="button" onClick={() => { setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); }} className={`relative h-24 min-w-[140px] overflow-hidden rounded-xl border ${locationPays === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                        <img src={getLocationOptionImage("pays", item.value || cascadePaysOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="relative overflow-hidden rounded-xl">
-                  {selectedLocationImages.gouvernerat && (
-                    <img
-                      src={resolveZoneImageUrl(selectedLocationImages.gouvernerat)}
-                      alt={locationGouvernerat || "Gouvernorat"}
-                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                    />
-                  )}
-                  {selectedLocationImages.gouvernerat && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                  <select
-                    value={locationGouvernerat}
-                    onChange={(e) => {
-                      setLocationGouvernerat(e.target.value);
-                      setLocationRegion("");
-                      setLocationZone("");
-                    }}
-                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.gouvernerat ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
-                  >
-                    <option value="">Tous gouvernorats</option>
-                    {cascadeGouverneratOptions.map((item) => <option key={`mobile-gouv-${item}`} value={item}>{item}</option>)}
-                  </select>
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {[{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].map((item) => (
+                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${locationGouvernerat === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                        <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="relative overflow-hidden rounded-xl">
-                  {selectedLocationImages.region && (
-                    <img
-                      src={resolveZoneImageUrl(selectedLocationImages.region)}
-                      alt={locationRegion || "Region"}
-                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                    />
-                  )}
-                  {selectedLocationImages.region && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                  <select
-                    value={locationRegion}
-                    onChange={(e) => {
-                      setLocationRegion(e.target.value);
-                      setLocationZone("");
-                    }}
-                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.region ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
-                  >
-                    <option value="">Toutes regions</option>
-                    {cascadeRegionOptions.map((item) => <option key={`mobile-region-${item}`} value={item}>{item}</option>)}
-                  </select>
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {[{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].map((item) => (
+                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { setLocationRegion(item.value); setLocationZone(""); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${locationRegion === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                        <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="relative overflow-hidden rounded-xl">
-                  {selectedLocationImages.zone && (
-                    <img
-                      src={resolveZoneImageUrl(selectedLocationImages.zone)}
-                      alt={locationZone || "Zone"}
-                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                    />
-                  )}
-                  {selectedLocationImages.zone && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                  <select
-                    value={locationZone}
-                    onChange={(e) => setLocationZone(e.target.value)}
-                    className={`relative z-10 h-24 w-full rounded-xl border border-gray-200 px-3 text-xs ${selectedLocationImages.zone ? 'bg-transparent text-white border-white/70 font-semibold' : ''}`}
-                  >
-                    <option value="">Toutes zones</option>
-                    {cascadeZoneOptions.map((item) => <option key={`mobile-zone-${item}`} value={item}>{item}</option>)}
-                  </select>
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {[{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].map((item) => (
+                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => setLocationZone(item.value)} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${locationZone === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                        <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <button
@@ -1573,7 +1597,7 @@ export default function HomePage() {
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowSeasideDropdown(false)} />
             <div ref={seasideMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
-              {SEASIDE_OPTION_KEYS.map((key) => {
+              {availableSeasideOptions.map((key) => {
                 const image = getHomeFilterOptionImage("seaside", key);
                 const selected = selectedSeasideOptions.includes(key);
                 return (
@@ -1607,7 +1631,7 @@ export default function HomePage() {
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowComfortDropdown(false)} />
             <div ref={comfortMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
-              {COMFORT_OPTION_KEYS.map((key) => {
+              {availableComfortOptions.map((key) => {
                 const image = getHomeFilterOptionImage("comfort", key);
                 const selected = selectedComfortOptions.includes(key);
                 return (
