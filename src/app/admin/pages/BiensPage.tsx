@@ -1826,6 +1826,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const [selectedZoneImagePreview, setSelectedZoneImagePreview] = useState('');
   const [selectedZoneImageUploading, setSelectedZoneImageUploading] = useState(false);
   const [selectedZoneImageTarget, setSelectedZoneImageTarget] = useState<'quartier' | 'region' | 'gouvernerat' | 'pays'>('pays');
+  const [newOwnerFirstName, setNewOwnerFirstName] = useState('');
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newOwnerPhone, setNewOwnerPhone] = useState('');
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
@@ -4078,61 +4079,75 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   };
 
   const handleAddProprietaire = async () => {
-    if (!newOwnerName.trim()) return toast.error('Nom du propriÃ©taire requis');
-    if (!newOwnerEmail.trim()) return toast.error('Email du propriÃ©taire requis');
+    const firstName = newOwnerFirstName.trim();
+    const lastName = newOwnerName.trim();
+    if (!firstName) return toast.error('Prénom du propriétaire requis');
+    if (!lastName) return toast.error('Nom du propriétaire requis');
+    const fullName = `${firstName} ${lastName}`.replace(/\s+/g, ' ').trim();
+    const ownerEmail = newOwnerEmail.trim();
+    const ownerPhone = newOwnerPhone.trim();
+    const ownerCin = newOwnerCin.trim();
     try {
-      const payload = { nom: newOwnerName.trim(), telephone: newOwnerPhone.trim(), email: newOwnerEmail.trim(), cin: newOwnerCin.trim() };
+      const payload = {
+        nom: fullName,
+        telephone: ownerPhone,
+        email: ownerEmail,
+        cin: ownerCin,
+      };
       const response = await fetch(`${API_URL}/proprietaires`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create owner');
       const createdOwner = await response.json();
 
-      const utilisateursResponse = await fetch(`${API_URL}/utilisateurs`);
-      const utilisateurs = utilisateursResponse.ok ? await utilisateursResponse.json() : [];
-      const existingUser = Array.isArray(utilisateurs)
-        ? utilisateurs.find((item) => String(item?.email || '').trim().toLowerCase() === newOwnerEmail.trim().toLowerCase())
-        : null;
+      if (ownerEmail) {
+        const utilisateursResponse = await fetch(`${API_URL}/utilisateurs`);
+        const utilisateurs = utilisateursResponse.ok ? await utilisateursResponse.json() : [];
+        const existingUser = Array.isArray(utilisateurs)
+          ? utilisateurs.find((item) => String(item?.email || '').trim().toLowerCase() === ownerEmail.toLowerCase())
+          : null;
 
-      const utilisateurPayload = {
-        nom: newOwnerName.trim(),
-        email: newOwnerEmail.trim(),
-        role: 'user',
-        telephone: newOwnerPhone.trim() || null,
-        client_type: 'proprietaire',
-        cin: newOwnerCin.trim() || null,
-        cin_image_url: existingUser?.cin_image_url || null,
-        avatar: existingUser?.avatar || null,
-      };
+        const utilisateurPayload = {
+          nom: fullName,
+          email: ownerEmail,
+          role: 'user',
+          telephone: ownerPhone || null,
+          client_type: 'proprietaire',
+          cin: ownerCin || null,
+          cin_image_url: existingUser?.cin_image_url || null,
+          avatar: existingUser?.avatar || null,
+        };
 
-      if (existingUser?.id) {
-        const syncResponse = await fetch(`${API_URL}/utilisateurs/${encodeURIComponent(existingUser.id)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(utilisateurPayload),
-        });
-        if (!syncResponse.ok) {
-          throw new Error('Failed to sync owner user');
-        }
-      } else {
-        const createUserResponse = await fetch(`${API_URL}/utilisateurs`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(utilisateurPayload),
-        });
-        if (!createUserResponse.ok) {
-          throw new Error('Failed to create owner user');
+        if (existingUser?.id) {
+          const syncResponse = await fetch(`${API_URL}/utilisateurs/${encodeURIComponent(existingUser.id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(utilisateurPayload),
+          });
+          if (!syncResponse.ok) {
+            throw new Error('Failed to sync owner user');
+          }
+        } else {
+          const createUserResponse = await fetch(`${API_URL}/utilisateurs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(utilisateurPayload),
+          });
+          if (!createUserResponse.ok) {
+            throw new Error('Failed to create owner user');
+          }
         }
       }
 
       setProprietaireOptions([...proprietaireOptions, createdOwner]);
       setFormData(prev => ({ ...prev, proprietaire_id: createdOwner.id }));
+      setNewOwnerFirstName('');
       setNewOwnerName('');
       setNewOwnerPhone('');
       setNewOwnerEmail('');
       setNewOwnerCin('');
       setShowAddProprietaire(false);
-      toast.success('PropriÃ©taire ajoutÃ©');
+      toast.success('Propriétaire ajouté');
     } catch {
-      toast.error('Erreur ajout propriÃ©taire');
+      toast.error('Erreur ajout propriétaire');
     }
   };
 
@@ -5806,24 +5821,25 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   )}
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">PropriÃ©taire</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Propriétaire</label>
                   <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{proprietaireOptions.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}</select>
                   <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriÃ©taire</button>
-                    <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propriÃ©taire sÃ©lectionnÃ©</button>
+                    <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriétaire</button>
+                    <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propriétaire sélectionné</button>
                   </div>
                   {showAddProprietaire && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                      <input type="text" value={newOwnerFirstName} onChange={(e) => setNewOwnerFirstName(e.target.value)} placeholder="Prénom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="text" value={newOwnerName} onChange={(e) => setNewOwnerName(e.target.value)} placeholder="Nom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newOwnerPhone} onChange={(e) => setNewOwnerPhone(e.target.value)} placeholder="TÃ©lÃ©phone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="email" value={newOwnerEmail} onChange={(e) => setNewOwnerEmail(e.target.value)} placeholder="Email" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newOwnerCin} onChange={(e) => setNewOwnerCin(e.target.value)} placeholder="CIN" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <button type="button" onClick={handleAddProprietaire} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer propriÃ©taire</button>
+                      <input type="text" value={newOwnerPhone} onChange={(e) => setNewOwnerPhone(e.target.value)} placeholder="Téléphone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="email" value={newOwnerEmail} onChange={(e) => setNewOwnerEmail(e.target.value)} placeholder="Email (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newOwnerCin} onChange={(e) => setNewOwnerCin(e.target.value)} placeholder="CIN (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <button type="button" onClick={handleAddProprietaire} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer propriétaire</button>
                     </div>
                   )}
                 </div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propriÃ©taire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">NumÃ©ro propriÃ©taire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propriétaire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Numéro propriétaire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
               </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
               <div className="flex justify-end"><button type="button" onClick={() => validateStepBeforeContinue(1, 2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
