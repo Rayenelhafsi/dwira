@@ -568,6 +568,11 @@ export interface ReservationDemand {
   reservation_payment_paid_at?: string | null;
   services_payment_id?: string | null;
   services_payment_paid_at?: string | null;
+  flouci_checkout_id?: string | null;
+  flouci_scope?: 'reservation' | 'services' | 'combined' | null;
+  flouci_status?: string | null;
+  flouci_checkout_url?: string | null;
+  flouci_verified_at?: string | null;
   payment_receipt_image_url?: string | null;
   payment_receipt_uploaded_at?: string | null;
   payment_receipt_note?: string | null;

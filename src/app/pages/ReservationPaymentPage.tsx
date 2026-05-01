@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { ArrowLeft, BadgeCheck, ReceiptText, TimerReset, Upload } from "lucide-react";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
+import { ArrowLeft, BadgeCheck, ExternalLink, ReceiptText, TimerReset, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
@@ -41,6 +41,7 @@ function resolveAssetUrl(url?: string | null) {
 export default function ReservationPaymentPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [demand, setDemand] = useState<ReservationDemand | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,6 +50,8 @@ export default function ReservationPaymentPage() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptNote, setReceiptNote] = useState("");
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const [startingFlouciScope, setStartingFlouciScope] = useState<PaymentScope | null>(null);
+  const [confirmingFlouci, setConfirmingFlouci] = useState(false);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -73,6 +76,52 @@ export default function ReservationPaymentPage() {
   useEffect(() => {
     void fetchDemand();
   }, [fetchDemand]);
+
+  useEffect(() => {
+    if (!demand?.id || confirmingFlouci) return;
+    const paymentId = String(searchParams.get("flouci_payment_id") || "").trim();
+    const flow = String(searchParams.get("flouci_flow") || "").trim().toLowerCase();
+    if (!paymentId && !flow) return;
+    if (flow === "fail") {
+      toast.error("Paiement Flouci annule ou echoue.");
+      const next = new URLSearchParams(searchParams);
+      next.delete("flouci_payment_id");
+      next.delete("flouci_flow");
+      next.delete("scope");
+      next.delete("demand_id");
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    if (!paymentId) return;
+    const scope = String(searchParams.get("scope") || demand.flouci_scope || "reservation").trim().toLowerCase();
+    if (!["reservation", "services", "combined"].includes(scope)) return;
+
+    setConfirmingFlouci(true);
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/flouci/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ payment_id: paymentId, scope }),
+        });
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, "Confirmation Flouci impossible"));
+        const updated = await response.json();
+        setDemand(updated);
+        toast.success("Paiement Flouci confirme.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Confirmation Flouci impossible");
+      } finally {
+        const next = new URLSearchParams(searchParams);
+        next.delete("flouci_payment_id");
+        next.delete("flouci_flow");
+        next.delete("scope");
+        next.delete("demand_id");
+        setSearchParams(next, { replace: true });
+        setConfirmingFlouci(false);
+      }
+    })();
+  }, [confirmingFlouci, demand?.flouci_scope, demand?.id, searchParams, setSearchParams]);
 
   const paymentSummary = useMemo(() => {
     if (!demand) return null;
@@ -121,6 +170,28 @@ export default function ReservationPaymentPage() {
       toast.error(error instanceof Error ? error.message : "Paiement impossible");
     } finally {
       setSubmittingScope(null);
+    }
+  };
+
+  const handleStartFlouci = async (scope: PaymentScope) => {
+    if (!demand) return;
+    setStartingFlouciScope(scope);
+    try {
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/flouci/create-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ scope }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Creation session Flouci impossible"));
+      const payload = await response.json();
+      const checkoutUrl = String(payload?.checkout_url || "").trim();
+      if (!checkoutUrl) throw new Error("Lien checkout Flouci manquant");
+      window.location.assign(checkoutUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Creation session Flouci impossible");
+    } finally {
+      setStartingFlouciScope(null);
     }
   };
 
@@ -213,6 +284,42 @@ export default function ReservationPaymentPage() {
               <InfoCard label="Bien" value={demand.bien_titre || "Bien"} />
               <InfoCard label="Paiement reservation" value={summary?.reservationPaid ? `Regle le ${formatDateTime(demand.reservation_payment_paid_at)}` : formatMoney(summary?.reservationAmount)} />
               <InfoCard label="Paiement services" value={summary?.servicesPayable ? (summary?.servicesPaid ? `Regle le ${formatDateTime(demand.services_payment_paid_at)}` : formatMoney(summary?.servicesAmount)) : "Aucun devis a regler"} />
+            </div>
+
+            <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
+              <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Flouci (Sandbox)</p>
+              <p className="mt-1 text-sm text-emerald-700">
+                Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement.
+              </p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  disabled={!summary?.canPayReservation || !!startingFlouciScope || confirmingFlouci}
+                  onClick={() => void handleStartFlouci("reservation")}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  {startingFlouciScope === "reservation" ? "Ouverture..." : "Payer reservation"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!summary?.canPayServices || !!startingFlouciScope || confirmingFlouci}
+                  onClick={() => void handleStartFlouci("services")}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  {startingFlouciScope === "services" ? "Ouverture..." : "Payer services"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!summary?.canPayCombined || !!startingFlouciScope || confirmingFlouci}
+                  onClick={() => void handleStartFlouci("combined")}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  {startingFlouciScope === "combined" ? "Ouverture..." : "Payer combine"}
+                </button>
+              </div>
             </div>
 
             <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">

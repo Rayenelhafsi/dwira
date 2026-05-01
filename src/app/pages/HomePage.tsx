@@ -194,6 +194,7 @@ export default function HomePage() {
   const comfortDesktopPopupRef = useRef<HTMLDivElement>(null);
   const seasideMobilePopupRef = useRef<HTMLDivElement>(null);
   const comfortMobilePopupRef = useRef<HTMLDivElement>(null);
+  const suppressFilterOpenUntilRef = useRef(0);
   
   // Filter states
   const [location, setLocation] = useState("");
@@ -802,6 +803,10 @@ export default function HomePage() {
     setShowSeasideDropdown(false);
     setShowComfortDropdown(false);
   };
+  const closeAllFiltersAndSuppress = () => {
+    closeAllFilters();
+    suppressFilterOpenUntilRef.current = Date.now() + 280;
+  };
   const anyFilterOpen =
     showLocationDropdown || showCalendar || showCategoryDropdown || showSeasideDropdown || showComfortDropdown;
   const handleOpenAdvancedFilters = () => {
@@ -838,7 +843,7 @@ export default function HomePage() {
       const isInsideMobileSeaside = Boolean(seasideMobilePopupRef.current && target && seasideMobilePopupRef.current.contains(target));
       const isInsideMobileComfort = Boolean(comfortMobilePopupRef.current && target && comfortMobilePopupRef.current.contains(target));
       if (!isInsideControls && !isInsideDesktopLocation && !isInsideMobileLocation && !isInsideMobileCalendar && !isInsideMobileCategory && !isInsideDesktopSeaside && !isInsideDesktopComfort && !isInsideMobileSeaside && !isInsideMobileComfort) {
-        closeAllFilters();
+        closeAllFiltersAndSuppress();
       }
     };
     document.addEventListener("mousedown", handleOutside);
@@ -939,8 +944,9 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 overflow-hidden px-4 py-3 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showLocationDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 bg-gray-50 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (Date.now() < suppressFilterOpenUntilRef.current) return;
                       if (anyFilterOpen && !showLocationDropdown) {
-                        closeAllFilters();
+                        closeAllFiltersAndSuppress();
                         setOpenLocationLevel(null);
                         return;
                       }
@@ -1124,8 +1130,9 @@ export default function HomePage() {
                     type="button"
                     className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showCalendar ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (Date.now() < suppressFilterOpenUntilRef.current) return;
                       if (anyFilterOpen && !showCalendar) {
-                        closeAllFilters();
+                        closeAllFiltersAndSuppress();
                         setOpenLocationLevel(null);
                         return;
                       }
@@ -1207,8 +1214,9 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showCategoryDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (Date.now() < suppressFilterOpenUntilRef.current) return;
                       if (anyFilterOpen && !showCategoryDropdown) {
-                        closeAllFilters();
+                        closeAllFiltersAndSuppress();
                         setOpenLocationLevel(null);
                         return;
                       }
@@ -1312,8 +1320,9 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showSeasideDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (Date.now() < suppressFilterOpenUntilRef.current) return;
                       if (anyFilterOpen && !showSeasideDropdown) {
-                        closeAllFilters();
+                        closeAllFiltersAndSuppress();
                         setOpenLocationLevel(null);
                         return;
                       }
@@ -1371,8 +1380,9 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showComfortDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (Date.now() < suppressFilterOpenUntilRef.current) return;
                       if (anyFilterOpen && !showComfortDropdown) {
-                        closeAllFilters();
+                        closeAllFiltersAndSuppress();
                         setOpenLocationLevel(null);
                         return;
                       }
@@ -1506,7 +1516,7 @@ export default function HomePage() {
 
         {showLocationDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
-            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowLocationDropdown(false)} />
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={locationMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-3 space-y-3">
               <div className="space-y-3">
                 <div>
@@ -1577,7 +1587,7 @@ export default function HomePage() {
 
         {showCalendar && (
           <div className="fixed inset-0 z-[220] md:hidden">
-            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowCalendar(false)} />
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={calendarMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-4">
                 <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
@@ -1615,7 +1625,7 @@ export default function HomePage() {
 
         {showCategoryDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
-            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowCategoryDropdown(false)} />
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={categoryMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
               <button
                 className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && !draftMainType ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
@@ -1685,7 +1695,7 @@ export default function HomePage() {
         )}
         {showSeasideDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
-            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowSeasideDropdown(false)} />
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={seasideMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
               {availableSeasideOptions.map((key) => {
                 const image = getHomeFilterOptionImage("seaside", key);
@@ -1719,7 +1729,7 @@ export default function HomePage() {
         )}
         {showComfortDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
-            <button type="button" className="absolute inset-0 bg-black/35" onClick={() => setShowComfortDropdown(false)} />
+            <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={comfortMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
               {availableComfortOptions.map((key) => {
                 const image = getHomeFilterOptionImage("comfort", key);

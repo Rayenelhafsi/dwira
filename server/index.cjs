@@ -30,6 +30,17 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const CANONICAL_FRONTEND_URL = String(FRONTEND_URL || '').trim().replace('https://dwiraimmobilier.com', 'https://www.dwiraimmobilier.com');
+const API_BASE_URL = String(process.env.API_BASE_URL || '').trim().replace(/\/+$/, '') || '';
+const FLOUCI_API_BASE_URL = String(process.env.FLOUCI_API_BASE_URL || 'https://developers.flouci.com/api/v2').trim().replace(/\/+$/, '');
+const FLOUCI_PUBLIC_KEY = String(process.env.FLOUCI_PUBLIC_KEY || '').trim();
+const FLOUCI_PRIVATE_KEY = String(process.env.FLOUCI_PRIVATE_KEY || '').trim();
+const FLOUCI_WEBHOOK_SECRET = String(process.env.FLOUCI_WEBHOOK_SECRET || '').trim();
+const FLOUCI_AMOUNT_MULTIPLIER = Number.isFinite(Number(process.env.FLOUCI_AMOUNT_MULTIPLIER))
+  ? Math.max(1, Number(process.env.FLOUCI_AMOUNT_MULTIPLIER))
+  : 1000;
+const FLOUCI_SESSION_TIMEOUT_SECS = Number.isFinite(Number(process.env.FLOUCI_SESSION_TIMEOUT_SECS))
+  ? Math.max(300, Number(process.env.FLOUCI_SESSION_TIMEOUT_SECS))
+  : 1800;
 const MESSENGER_VERIFY_TOKEN = String(process.env.MESSENGER_VERIFY_TOKEN || '').trim();
 const MESSENGER_PAGE_ACCESS_TOKEN = String(process.env.MESSENGER_PAGE_ACCESS_TOKEN || '').trim();
 const MESSENGER_PAGE_ACCESS_TOKEN_LOCATION = String(process.env.MESSENGER_PAGE_ACCESS_TOKEN_LOCATION || '').trim();
@@ -51,6 +62,7 @@ const WEBAUTHN_RP_NAME = String(process.env.WEBAUTHN_RP_NAME || 'Dwira Immobilie
 const WEBAUTHN_RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim().toLowerCase();
 const TURNSTILE_SECRET_KEY = String(process.env.TURNSTILE_SECRET_KEY || '').trim();
 const TURNSTILE_SITE_KEY = String(process.env.TURNSTILE_SITE_KEY || '').trim();
+const FLOUCI_ENABLED = Boolean(FLOUCI_PUBLIC_KEY && FLOUCI_PRIVATE_KEY);
 if (!String(process.env.SESSION_SECRET || '').trim()) {
   console.warn('[Auth] SESSION_SECRET missing. Using ephemeral in-memory secret; sessions reset on server restart.');
 }
@@ -84,6 +96,52 @@ function safeParseJson(value, fallbackValue = null) {
   } catch {
     return fallbackValue;
   }
+}
+
+function buildFlouciAuthHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    apptoken: FLOUCI_PUBLIC_KEY,
+    appsecret: FLOUCI_PRIVATE_KEY,
+  };
+}
+
+function normalizeFlouciAmount(amountTnd) {
+  const numeric = Number(amountTnd || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.round(numeric * FLOUCI_AMOUNT_MULTIPLIER);
+}
+
+function isFlouciSuccessStatus(status) {
+  const normalized = String(status || '').trim().toUpperCase();
+  return ['SUCCESS', 'SUCCEEDED', 'PAID', 'COMPLETED', 'DONE'].includes(normalized);
+}
+
+async function flouciGeneratePayment(payload) {
+  const response = await fetch(`${FLOUCI_API_BASE_URL}/generate_payment`, {
+    method: 'POST',
+    headers: buildFlouciAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = String(data?.message || data?.error || `HTTP ${response.status}`).trim();
+    throw new Error(message || 'Echec creation paiement Flouci');
+  }
+  return data;
+}
+
+async function flouciVerifyPayment(paymentId) {
+  const response = await fetch(`${FLOUCI_API_BASE_URL}/verify_payment/${encodeURIComponent(String(paymentId || '').trim())}`, {
+    method: 'GET',
+    headers: buildFlouciAuthHeaders(),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = String(data?.message || data?.error || `HTTP ${response.status}`).trim();
+    throw new Error(message || 'Echec verification paiement Flouci');
+  }
+  return data;
 }
 
 const FIREBASE_SERVICE_ACCOUNT = readFirebaseServiceAccount();
@@ -5039,6 +5097,11 @@ function formatReservationDemandRow(row) {
     reservation_payment_paid_at: row.reservation_payment_paid_at || null,
     services_payment_id: row.services_payment_id || null,
     services_payment_paid_at: row.services_payment_paid_at || null,
+    flouci_checkout_id: row.flouci_checkout_id || null,
+    flouci_scope: row.flouci_scope || null,
+    flouci_status: row.flouci_status || null,
+    flouci_checkout_url: row.flouci_checkout_url || null,
+    flouci_verified_at: row.flouci_verified_at || null,
     payment_receipt_image_url: row.payment_receipt_image_url || null,
     payment_receipt_uploaded_at: row.payment_receipt_uploaded_at || null,
     payment_receipt_note: row.payment_receipt_note || null,
@@ -11004,6 +11067,109 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
   }
 });
 
+async function applyReservationDemandPayment({ current, demandId, scope, method, actorType, actorId, explicitPaymentIdPrefix = 'pay' }) {
+  const reservationAmount = Number.isFinite(Number(current.amount_due_now))
+    ? Number(current.amount_due_now)
+    : Number(current.total_amount || 0);
+  const servicesAmount = Number.isFinite(Number(current.variable_services_quote_total))
+    ? Number(current.variable_services_quote_total)
+    : 0;
+  const servicesQuoteIsPayable = String(current.variable_services_quote_status || '') === 'devis_envoye' && servicesAmount > 0;
+  const reservationAlreadyPaid = !!String(current.reservation_payment_id || '').trim();
+  const servicesAlreadyPaid = !!String(current.services_payment_id || '').trim()
+    || (servicesQuoteIsPayable && String(current.variable_services_quote_status || '') === 'paye');
+
+  if (scope === 'reservation' && (reservationAmount <= 0 || reservationAlreadyPaid)) {
+    throw new Error(reservationAlreadyPaid ? 'La reservation a deja ete reglee' : 'Aucun montant de reservation a regler');
+  }
+  if (scope === 'services' && (!servicesQuoteIsPayable || servicesAlreadyPaid)) {
+    throw new Error(servicesAlreadyPaid ? 'Les services ont deja ete regles' : 'Aucun devis services payable pour le moment');
+  }
+  if (scope === 'combined') {
+    if (reservationAlreadyPaid && (!servicesQuoteIsPayable || servicesAlreadyPaid)) {
+      throw new Error('Cette demande est deja entierement reglee');
+    }
+    if (!reservationAlreadyPaid && reservationAmount <= 0) {
+      throw new Error('Aucun montant de reservation a regler');
+    }
+  }
+
+  const now = getAgencySqlDateTime();
+  let reservationPaymentId = String(current.reservation_payment_id || '').trim() || null;
+  let servicesPaymentId = String(current.services_payment_id || '').trim() || null;
+  let reservationPaidAt = current.reservation_payment_paid_at || null;
+  let servicesPaidAt = current.services_payment_paid_at || null;
+  let variableServicesQuoteStatus = current.variable_services_quote_status || null;
+
+  if ((scope === 'reservation' || scope === 'combined') && !reservationAlreadyPaid && reservationAmount > 0) {
+    reservationPaymentId = `${explicitPaymentIdPrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    await pool.query(
+      'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
+      [reservationPaymentId, current.contract_id, reservationAmount, now, 'paye', method]
+    );
+    reservationPaidAt = now;
+  }
+
+  if ((scope === 'services' || scope === 'combined') && servicesQuoteIsPayable && !servicesAlreadyPaid) {
+    servicesPaymentId = `${explicitPaymentIdPrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    await pool.query(
+      'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
+      [servicesPaymentId, current.contract_id, servicesAmount, now, 'paye', method]
+    );
+    servicesPaidAt = now;
+    variableServicesQuoteStatus = 'paye';
+  }
+
+  const reservationIsPaidAfterUpdate = !!reservationPaymentId;
+  const servicesIsPaidAfterUpdate = !servicesQuoteIsPayable || !!servicesPaymentId;
+  const nextStatus = reservationIsPaidAfterUpdate && servicesIsPaidAfterUpdate ? 'succes_paiement' : 'contrat_realise';
+  const primaryPaymentId = reservationPaymentId || servicesPaymentId || current.payment_id || null;
+
+  await pool.query(
+    `UPDATE reservation_demands
+     SET status = ?,
+         payment_id = ?,
+         reservation_payment_id = ?,
+         reservation_payment_paid_at = ?,
+         services_payment_id = ?,
+         services_payment_paid_at = ?,
+         variable_services_quote_status = ?,
+         updated_at = ?
+     WHERE id = ?`,
+    [
+      nextStatus,
+      primaryPaymentId,
+      reservationPaymentId,
+      reservationPaidAt,
+      servicesPaymentId,
+      servicesPaidAt,
+      variableServicesQuoteStatus,
+      now,
+      demandId,
+    ]
+  );
+
+  const paidParts = [];
+  if (scope === 'combined') {
+    if (reservationPaymentId && !reservationAlreadyPaid) paidParts.push('reservation');
+    if (servicesPaymentId && !servicesAlreadyPaid) paidParts.push('services');
+  } else {
+    paidParts.push(scope);
+  }
+  await appendReservationDemandHistory(
+    demandId,
+    nextStatus,
+    actorType,
+    actorId,
+    `Paiement ${method} enregistre pour: ${paidParts.join(' + ')}`
+  );
+  await createAdminNotification(
+    'success',
+    `Paiement ${method} recu pour la demande ${demandId}: ${paidParts.join(' + ')}`,
+    now
+  );
+}
+
 app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
@@ -11036,106 +11202,18 @@ app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymen
     }
     if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
 
-    const reservationAmount = Number.isFinite(Number(current.amount_due_now))
-      ? Number(current.amount_due_now)
-      : Number(current.total_amount || 0);
-    const servicesAmount = Number.isFinite(Number(current.variable_services_quote_total))
-      ? Number(current.variable_services_quote_total)
-      : 0;
-    const servicesQuoteIsPayable = String(current.variable_services_quote_status || '') === 'devis_envoye' && servicesAmount > 0;
-    const reservationAlreadyPaid = !!String(current.reservation_payment_id || '').trim();
-    const servicesAlreadyPaid = !!String(current.services_payment_id || '').trim()
-      || (servicesQuoteIsPayable && String(current.variable_services_quote_status || '') === 'paye');
-
-    if (scope === 'reservation' && (reservationAmount <= 0 || reservationAlreadyPaid)) {
-      return res.status(400).json({ error: reservationAlreadyPaid ? 'La reservation a deja ete reglee' : 'Aucun montant de reservation a regler' });
-    }
-    if (scope === 'services' && (!servicesQuoteIsPayable || servicesAlreadyPaid)) {
-      return res.status(400).json({ error: servicesAlreadyPaid ? 'Les services ont deja ete regles' : 'Aucun devis services payable pour le moment' });
-    }
-    if (scope === 'combined') {
-      if (reservationAlreadyPaid && (!servicesQuoteIsPayable || servicesAlreadyPaid)) {
-        return res.status(400).json({ error: 'Cette demande est deja entierement reglee' });
-      }
-      if (!reservationAlreadyPaid && reservationAmount <= 0) {
-        return res.status(400).json({ error: 'Aucun montant de reservation a regler' });
-      }
-    }
-
-    const now = getAgencySqlDateTime();
-    let reservationPaymentId = String(current.reservation_payment_id || '').trim() || null;
-    let servicesPaymentId = String(current.services_payment_id || '').trim() || null;
-    let reservationPaidAt = current.reservation_payment_paid_at || null;
-    let servicesPaidAt = current.services_payment_paid_at || null;
-    let variableServicesQuoteStatus = current.variable_services_quote_status || null;
-
-    if ((scope === 'reservation' || scope === 'combined') && !reservationAlreadyPaid && reservationAmount > 0) {
-      reservationPaymentId = `pay${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-      await pool.query(
-        'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
-        [reservationPaymentId, current.contract_id, reservationAmount, now, 'paye', method]
-      );
-      reservationPaidAt = now;
-    }
-
-    if ((scope === 'services' || scope === 'combined') && servicesQuoteIsPayable && !servicesAlreadyPaid) {
-      servicesPaymentId = `pay${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-      await pool.query(
-        'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
-        [servicesPaymentId, current.contract_id, servicesAmount, now, 'paye', method]
-      );
-      servicesPaidAt = now;
-      variableServicesQuoteStatus = 'paye';
-    }
-
-    const reservationIsPaidAfterUpdate = !!reservationPaymentId;
-    const servicesIsPaidAfterUpdate = !servicesQuoteIsPayable || !!servicesPaymentId;
-    const nextStatus = reservationIsPaidAfterUpdate && servicesIsPaidAfterUpdate ? 'succes_paiement' : 'contrat_realise';
-    const primaryPaymentId = reservationPaymentId || servicesPaymentId || current.payment_id || null;
-
-    await pool.query(
-      `UPDATE reservation_demands
-       SET status = ?,
-           payment_id = ?,
-           reservation_payment_id = ?,
-           reservation_payment_paid_at = ?,
-           services_payment_id = ?,
-           services_payment_paid_at = ?,
-           variable_services_quote_status = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      [
-        nextStatus,
-        primaryPaymentId,
-        reservationPaymentId,
-        reservationPaidAt,
-        servicesPaymentId,
-        servicesPaidAt,
-        variableServicesQuoteStatus,
-        now,
+    try {
+      await applyReservationDemandPayment({
+        current,
         demandId,
-      ]
-    );
-
-    const paidParts = [];
-    if (scope === 'combined') {
-      if (reservationPaymentId && !reservationAlreadyPaid) paidParts.push('reservation');
-      if (servicesPaymentId && !servicesAlreadyPaid) paidParts.push('services');
-    } else {
-      paidParts.push(scope);
+        scope,
+        method,
+        actorType: 'client',
+        actorId,
+      });
+    } catch (paymentError) {
+      return res.status(400).json({ error: paymentError instanceof Error ? paymentError.message : 'Paiement impossible' });
     }
-    await appendReservationDemandHistory(
-      demandId,
-      nextStatus,
-      'client',
-      actorId,
-      `Paiement client enregistre pour: ${paidParts.join(' + ')}`
-    );
-    await createAdminNotification(
-      'success',
-      `Paiement client recu pour la demande ${demandId}: ${paidParts.join(' + ')}`,
-      now
-    );
 
     const [updatedRows] = await pool.query(
       `SELECT
@@ -11165,6 +11243,237 @@ app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymen
   } catch (error) {
     console.error('Error creating reservation demand payment:', error);
     res.status(500).json({ error: 'Impossible de traiter le paiement de cette demande' });
+  }
+});
+
+app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    if (!FLOUCI_ENABLED) {
+      return res.status(501).json({ error: 'Flouci non configure. Ajoutez FLOUCI_PUBLIC_KEY et FLOUCI_PRIVATE_KEY.' });
+    }
+    const demandId = String(req.params.id || '').trim();
+    const scope = String(req.body?.scope || 'reservation').trim().toLowerCase();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    if (!['reservation', 'services', 'combined'].includes(scope)) {
+      return res.status(400).json({ error: 'Scope de paiement invalide' });
+    }
+
+    const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows[0];
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(req.authUser, current)) return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
+
+    const reservationAmount = Number.isFinite(Number(current.amount_due_now))
+      ? Number(current.amount_due_now)
+      : Number(current.total_amount || 0);
+    const servicesAmount = Number.isFinite(Number(current.variable_services_quote_total))
+      ? Number(current.variable_services_quote_total)
+      : 0;
+    const servicesQuoteIsPayable = String(current.variable_services_quote_status || '') === 'devis_envoye' && servicesAmount > 0;
+    const reservationAlreadyPaid = !!String(current.reservation_payment_id || '').trim();
+    const servicesAlreadyPaid = !!String(current.services_payment_id || '').trim()
+      || (servicesQuoteIsPayable && String(current.variable_services_quote_status || '') === 'paye');
+
+    let amountTnd = 0;
+    if (scope === 'reservation') {
+      if (reservationAlreadyPaid || reservationAmount <= 0) {
+        return res.status(400).json({ error: reservationAlreadyPaid ? 'La reservation a deja ete reglee' : 'Aucun montant de reservation a regler' });
+      }
+      amountTnd = reservationAmount;
+    } else if (scope === 'services') {
+      if (!servicesQuoteIsPayable || servicesAlreadyPaid) {
+        return res.status(400).json({ error: servicesAlreadyPaid ? 'Les services ont deja ete regles' : 'Aucun devis services payable pour le moment' });
+      }
+      amountTnd = servicesAmount;
+    } else {
+      amountTnd = (reservationAlreadyPaid ? 0 : reservationAmount) + ((servicesQuoteIsPayable && !servicesAlreadyPaid) ? servicesAmount : 0);
+      if (amountTnd <= 0) return res.status(400).json({ error: 'Cette demande est deja entierement reglee' });
+    }
+
+    const amountForFlouci = normalizeFlouciAmount(amountTnd);
+    if (amountForFlouci <= 0) return res.status(400).json({ error: 'Montant Flouci invalide' });
+    const frontendBase = CANONICAL_FRONTEND_URL.replace(/\/+$/, '');
+    const backendBase = API_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const callbackBase = `${backendBase.replace(/\/+$/, '')}/api/payments/flouci/callback`;
+    const successLink = `${callbackBase}?demand_id=${encodeURIComponent(demandId)}&scope=${encodeURIComponent(scope)}&flow=success&return_to=${encodeURIComponent(`${frontendBase}/mes-reservations/${encodeURIComponent(demandId)}/paiement`)}`;
+    const failLink = `${callbackBase}?demand_id=${encodeURIComponent(demandId)}&scope=${encodeURIComponent(scope)}&flow=fail&return_to=${encodeURIComponent(`${frontendBase}/mes-reservations/${encodeURIComponent(demandId)}/paiement`)}`;
+    const trackingId = `demand:${demandId}|scope:${scope}|ts:${Date.now()}`;
+
+    const payload = {
+      amount: amountForFlouci,
+      accept_card: true,
+      session_timeout_secs: FLOUCI_SESSION_TIMEOUT_SECS,
+      success_link: successLink,
+      fail_link: failLink,
+      developer_tracking_id: trackingId,
+      metadata: {
+        demand_id: demandId,
+        scope,
+        amount_tnd: amountTnd,
+        amount_flouci: amountForFlouci,
+      },
+    };
+    const generated = await flouciGeneratePayment(payload);
+    const checkoutUrl = String(generated?.result?.link || generated?.link || '').trim();
+    const checkoutId = String(generated?.result?.payment_id || generated?.payment_id || '').trim();
+    if (!checkoutUrl || !checkoutId) {
+      return res.status(502).json({ error: 'Reponse Flouci incomplete (link/payment_id manquant)' });
+    }
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET flouci_checkout_id = ?,
+           flouci_scope = ?,
+           flouci_status = ?,
+           flouci_checkout_url = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [checkoutId, scope, 'PENDING', checkoutUrl, getAgencySqlDateTime(), demandId]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      String(current.status || 'contrat_realise'),
+      'client',
+      String(req.authUser?.id || req.authUser?.email || 'client'),
+      `Checkout Flouci cree (scope=${scope}, amount=${amountTnd} TND, id=${checkoutId})`
+    );
+    return res.json({
+      provider: 'flouci',
+      checkout_url: checkoutUrl,
+      checkout_id: checkoutId,
+      amount_tnd: amountTnd,
+      amount_flouci: amountForFlouci,
+      scope,
+    });
+  } catch (error) {
+    console.error('Error creating Flouci checkout:', error);
+    return res.status(500).json({ error: 'Impossible de creer la session Flouci' });
+  }
+});
+
+app.post('/api/reservation-demands/:id/flouci/confirm', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    if (!FLOUCI_ENABLED) return res.status(501).json({ error: 'Flouci non configure' });
+    const demandId = String(req.params.id || '').trim();
+    const incomingPaymentId = String(req.body?.payment_id || req.body?.paymentId || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows[0];
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessReservationDemand(req.authUser, current)) return res.status(403).json({ error: 'Acces refuse a cette demande' });
+
+    const paymentId = incomingPaymentId || String(current.flouci_checkout_id || '').trim();
+    if (!paymentId) return res.status(400).json({ error: 'Aucun payment_id Flouci a verifier' });
+    const scope = String(req.body?.scope || current.flouci_scope || 'reservation').trim().toLowerCase();
+    if (!['reservation', 'services', 'combined'].includes(scope)) {
+      return res.status(400).json({ error: 'Scope de paiement invalide' });
+    }
+
+    const verification = await flouciVerifyPayment(paymentId);
+    const status = String(
+      verification?.result?.status
+      || verification?.status
+      || verification?.payment_status
+      || ''
+    ).trim();
+    const paid = isFlouciSuccessStatus(status);
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE reservation_demands
+       SET flouci_checkout_id = ?,
+           flouci_scope = ?,
+           flouci_status = ?,
+           flouci_verified_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [paymentId, scope, status || 'UNKNOWN', now, now, demandId]
+    );
+
+    if (!paid) {
+      return res.status(409).json({ error: `Paiement Flouci non confirme (status=${status || 'inconnu'})`, flouci_status: status || null });
+    }
+
+    await applyReservationDemandPayment({
+      current: { ...current },
+      demandId,
+      scope,
+      method: 'flouci',
+      actorType: 'client',
+      actorId: String(req.authUser?.id || req.authUser?.email || 'client'),
+      explicitPaymentIdPrefix: 'flouci_',
+    });
+
+    const [updatedRows] = await pool.query(
+      `SELECT d.*, b.titre AS bien_titre, b.reference AS bien_reference, p.nom AS proprietaire_nom,
+              DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+              DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+              DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+              DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+       WHERE d.id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+    return res.json(formatReservationDemandRow(updatedRows[0]));
+  } catch (error) {
+    console.error('Error confirming Flouci payment:', error);
+    return res.status(500).json({ error: 'Impossible de confirmer le paiement Flouci' });
+  }
+});
+
+app.get('/api/payments/flouci/callback', async (req, res) => {
+  try {
+    const demandId = String(req.query?.demand_id || '').trim();
+    const scope = String(req.query?.scope || 'reservation').trim().toLowerCase();
+    const paymentId = String(req.query?.payment_id || req.query?.paymentId || req.query?.id || '').trim();
+    const flow = String(req.query?.flow || '').trim().toLowerCase();
+    const returnTo = String(req.query?.return_to || `${CANONICAL_FRONTEND_URL}/mes-reservations`).trim();
+    const targetUrl = new URL(returnTo, CANONICAL_FRONTEND_URL);
+    if (demandId) targetUrl.searchParams.set('demand_id', demandId);
+    if (scope) targetUrl.searchParams.set('scope', scope);
+    if (paymentId) targetUrl.searchParams.set('flouci_payment_id', paymentId);
+    if (flow) targetUrl.searchParams.set('flouci_flow', flow);
+    return res.redirect(targetUrl.toString());
+  } catch (error) {
+    console.error('Flouci callback redirect error:', error);
+    return res.redirect(`${CANONICAL_FRONTEND_URL}/mes-reservations`);
+  }
+});
+
+app.post('/api/payments/flouci/webhook', async (req, res) => {
+  try {
+    if (FLOUCI_WEBHOOK_SECRET) {
+      const provided = String(req.headers['x-webhook-secret'] || req.headers['x-flouci-secret'] || '').trim();
+      if (!provided || provided !== FLOUCI_WEBHOOK_SECRET) {
+        return res.status(401).json({ error: 'Webhook secret invalide' });
+      }
+    }
+    await ensureReservationDemandSchema();
+    const paymentId = String(req.body?.payment_id || req.body?.paymentId || req.body?.id || '').trim();
+    if (!paymentId || !FLOUCI_ENABLED) return res.json({ ok: true, ignored: true });
+    const [rows] = await pool.query(
+      'SELECT * FROM reservation_demands WHERE flouci_checkout_id = ? ORDER BY updated_at DESC LIMIT 1',
+      [paymentId]
+    );
+    const current = rows[0];
+    if (!current) return res.json({ ok: true, ignored: true });
+    const verification = await flouciVerifyPayment(paymentId);
+    const status = String(verification?.result?.status || verification?.status || '').trim();
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      'UPDATE reservation_demands SET flouci_status = ?, flouci_verified_at = ?, updated_at = ? WHERE id = ?',
+      [status || 'UNKNOWN', now, now, current.id]
+    );
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('Flouci webhook error:', error);
+    return res.status(500).json({ error: 'Webhook Flouci error' });
   }
 });
 
@@ -11750,6 +12059,11 @@ async function ensureReservationDemandSchema() {
       reservation_payment_paid_at DATETIME NULL,
       services_payment_id VARCHAR(100) NULL,
       services_payment_paid_at DATETIME NULL,
+      flouci_checkout_id VARCHAR(120) NULL,
+      flouci_scope VARCHAR(20) NULL,
+      flouci_status VARCHAR(40) NULL,
+      flouci_checkout_url VARCHAR(700) NULL,
+      flouci_verified_at DATETIME NULL,
       payment_receipt_image_url VARCHAR(500) NULL,
       payment_receipt_uploaded_at DATETIME NULL,
       payment_receipt_note TEXT NULL,
@@ -11852,6 +12166,21 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'services_payment_paid_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN services_payment_paid_at DATETIME NULL AFTER services_payment_id');
+  }
+  if (!(await columnExists('reservation_demands', 'flouci_checkout_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN flouci_checkout_id VARCHAR(120) NULL AFTER services_payment_paid_at');
+  }
+  if (!(await columnExists('reservation_demands', 'flouci_scope'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN flouci_scope VARCHAR(20) NULL AFTER flouci_checkout_id');
+  }
+  if (!(await columnExists('reservation_demands', 'flouci_status'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN flouci_status VARCHAR(40) NULL AFTER flouci_scope');
+  }
+  if (!(await columnExists('reservation_demands', 'flouci_checkout_url'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN flouci_checkout_url VARCHAR(700) NULL AFTER flouci_status');
+  }
+  if (!(await columnExists('reservation_demands', 'flouci_verified_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN flouci_verified_at DATETIME NULL AFTER flouci_checkout_url');
   }
   if (!(await columnExists('reservation_demands', 'payment_receipt_image_url'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_image_url VARCHAR(500) NULL AFTER services_payment_paid_at');
