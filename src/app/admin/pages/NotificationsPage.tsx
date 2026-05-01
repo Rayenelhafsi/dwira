@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, CheckCircle2, ChevronDown, ChevronUp, History, MessageSquareShare, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Notification, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
@@ -29,6 +29,19 @@ const statusLabels: Record<ReservationDemandStatus, string> = {
   recu_paiement_envoye: 'Recu de paiement envoye',
   contrat_realise: 'Contrat realise',
   succes_paiement: 'Succes paiement',
+};
+const statusToneClasses: Record<ReservationDemandStatus, string> = {
+  en_attente_reponse_proprietaire: 'bg-sky-100 text-sky-800 border-sky-200',
+  pas_de_reponse_proprietaire: 'bg-orange-100 text-orange-800 border-orange-200',
+  reponse_positive_attente_confirmation_client: 'bg-amber-100 text-amber-800 border-amber-200',
+  reponse_negative_autre_proposition_meme_bien: 'bg-violet-100 text-violet-800 border-violet-200',
+  reponse_negative_autre_proposition_bien_similaire: 'bg-violet-100 text-violet-800 border-violet-200',
+  demande_rejetee_admin: 'bg-rose-100 text-rose-800 border-rose-200',
+  attente_envoi_coordonnees_contrat: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  demande_recu_paiement: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  recu_paiement_envoye: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  contrat_realise: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  succes_paiement: 'bg-emerald-100 text-emerald-800 border-emerald-200',
 };
 
 async function getApiErrorMessage(response: Response, fallback: string) {
@@ -394,20 +407,28 @@ export default function NotificationsPage() {
           {pendingDemands.map((demand) => {
             const isExpanded = Boolean(expandedDemandIds[demand.id]);
             return (
-            <div key={demand.id} className="rounded-xl border border-gray-200 p-4">
+            <div key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClasses[demand.status]}`}>
+                      {statusLabels[demand.status]}
+                    </span>
+                    <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
+                      Cree le {formatDateTime(demand.created_at)}
+                    </span>
+                  </div>
                   <p className="text-base font-semibold text-gray-900">
                     {demand.bien_reference || demand.bien_id} - {demand.bien_titre || 'Bien'}
                   </p>
-                  <p className="mt-1 text-sm text-gray-600">
-                    {demand.client_name || demand.client_email || 'Client non identifie'} · {demand.start_date} {'->'} {demand.end_date} · {demand.guests} voyageurs
+                  <p className="text-sm text-gray-700">
+                    {demand.client_name || demand.client_email || 'Client non identifie'} - {demand.start_date} {'->'} {demand.end_date} - {demand.guests} voyageurs
                   </p>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Proprietaire: {demand.proprietaire_nom || '-'} · Cree le {formatDateTime(demand.created_at)}
+                  <p className="text-xs text-gray-500">
+                    Proprietaire: <span className="font-medium text-gray-700">{demand.proprietaire_nom || '-'}</span>
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 xl:justify-end">
                   <button
                     type="button"
                     onClick={() => toggleDemandExpanded(demand.id)}
@@ -416,16 +437,19 @@ export default function NotificationsPage() {
                     {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     {isExpanded ? 'Masquer details' : 'Voir details'}
                   </button>
-                  <select
-                    value={demand.status}
-                    onChange={(event) => void handleDemandUpdate(demand, { status: event.target.value as ReservationDemandStatus, history_note: `Etat change par admin: ${statusLabels[event.target.value as ReservationDemandStatus]}` })}
-                    disabled={savingId === demand.id}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  >
-                    {Object.entries(statusLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-medium text-gray-600">
+                    Etat
+                    <select
+                      value={demand.status}
+                      onChange={(event) => void handleDemandUpdate(demand, { status: event.target.value as ReservationDemandStatus, history_note: `Etat change par admin: ${statusLabels[event.target.value as ReservationDemandStatus]}` })}
+                      disabled={savingId === demand.id}
+                      className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700"
+                    >
+                      {Object.entries(statusLabels).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -433,16 +457,16 @@ export default function NotificationsPage() {
                       openOwnerChat(demand);
                     }}
                     disabled={savingId === demand.id}
-                    className="inline-flex items-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
                   >
                     <MessageSquareShare className="h-4 w-4" />
-                    Communiquer au proprietaire
+                    Contacter proprietaire
                   </button>
                   <button
                     type="button"
                     onClick={() => void requestOwnerAvailability(demand)}
                     disabled={savingId === demand.id}
-                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                   >
                     <Bell className="h-4 w-4" />
                     Demander disponibilite
@@ -473,11 +497,11 @@ export default function NotificationsPage() {
                   </button>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4 text-xs text-gray-500">
-                <div>Etat: <span className="font-medium text-gray-700">{statusLabels[demand.status]}</span></div>
-                <div>Notif proprietaire: <span className="font-medium text-gray-700">{demand.owner_notified_at ? formatDateTime(demand.owner_notified_at) : 'Non envoyee'}</span></div>
-                <div>Reponse proprietaire: <span className="font-medium text-gray-700">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</span></div>
-                <div>Consultation client: <span className="font-medium text-gray-700">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</span></div>
+              <div className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600 md:grid-cols-2 xl:grid-cols-4">
+                <div>Notif proprietaire: <span className="font-semibold text-gray-800">{demand.owner_notified_at ? formatDateTime(demand.owner_notified_at) : 'Non envoyee'}</span></div>
+                <div>Reponse proprietaire: <span className="font-semibold text-gray-800">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</span></div>
+                <div>Consultation client: <span className="font-semibold text-gray-800">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</span></div>
+                <div>Derniere MAJ: <span className="font-semibold text-gray-800">{demand.updated_at ? formatDateTime(demand.updated_at) : formatDateTime(demand.created_at)}</span></div>
               </div>
               {isExpanded && (
                 <>
