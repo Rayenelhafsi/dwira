@@ -76,6 +76,11 @@ type FeatureApiRow = {
   onglet_nom?: string | null;
   visibilite_client?: number | null;
 };
+type FeatureTabApiRow = {
+  id: string;
+  nom: string;
+  ordre?: number | null;
+};
 
 const normalizeFeatureName = (value: string) =>
   String(value || "")
@@ -215,6 +220,7 @@ export default function PropertiesPage() {
   const resultsAnchorRef = useRef<HTMLDivElement | null>(null);
   const filtersAnchorRef = useRef<HTMLDivElement | null>(null);
   const [modeFeaturesByType, setModeFeaturesByType] = useState<Record<string, FeatureApiRow[]>>({});
+  const [modeFeatureTabsByType, setModeFeatureTabsByType] = useState<Record<string, FeatureTabApiRow[]>>({});
   const [advancedPanel, setAdvancedPanel] = useState<"tabs" | "services">("tabs");
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
@@ -392,12 +398,33 @@ export default function PropertiesPage() {
           const rows = response?.ok ? await response.json() : [];
           return [type, Array.isArray(rows) ? rows : []] as const;
         }));
+        const tabEntries = await Promise.all(uniqueTypes.map(async (type) => {
+          const currentMode = encodeURIComponent(selectedMode);
+          const currentType = encodeURIComponent(type);
+          const urls = [
+            `${base}/caracteristique-onglets?mode_bien=${currentMode}&type_bien=${currentType}`,
+            `${normalizedBase}/api/caracteristique-onglets?mode_bien=${currentMode}&type_bien=${currentType}`,
+          ];
+
+          let response: Response | null = null;
+          for (const url of Array.from(new Set(urls))) {
+            const next = await fetch(url);
+            response = next;
+            if (next.ok || next.status !== 404) break;
+          }
+          const rows = response?.ok ? await response.json() : [];
+          return [type, Array.isArray(rows) ? rows : []] as const;
+        }));
 
         if (!disposed) {
           setModeFeaturesByType(Object.fromEntries(entries));
+          setModeFeatureTabsByType(Object.fromEntries(tabEntries));
         }
       } catch {
-        if (!disposed) setModeFeaturesByType({});
+        if (!disposed) {
+          setModeFeaturesByType({});
+          setModeFeatureTabsByType({});
+        }
       }
     };
 
@@ -667,11 +694,13 @@ export default function PropertiesPage() {
     return next;
   }, [modeProperties]);
   const tabFeatureOptionsMap = useMemo(() => {
-    const map = new Map<string, Set<string>>();
+    const tabBuckets = new Map<string, { label: string; order: number; features: Set<string> }>();
     modeProperties.forEach((property) => {
       const sourceBien = bienById.get(String(property.id));
       const type = String(sourceBien?.type || "").trim();
       const typeFeatures = modeFeaturesByType[type] || [];
+      const typeTabs = modeFeatureTabsByType[type] || [];
+      const tabById = new Map(typeTabs.map((tab) => [String(tab.id || "").trim(), tab]));
       const selectedFeatureIds = new Set(
         (Array.isArray(sourceBien?.caracteristique_ids) ? sourceBien.caracteristique_ids : []).map((item) => String(item))
       );
@@ -681,25 +710,35 @@ export default function PropertiesPage() {
 
       typeFeatures.forEach((feature) => {
         if (Number(feature?.visibilite_client) === 0) return;
-        const tab = cleanFeatureTabName(String(feature.onglet_nom || "")).trim();
-        if (!tab || isCharacteristicsTabName(tab)) return;
+        const tabId = String(feature.onglet_id || "").trim();
+        const resolvedTab = tabById.get(tabId);
+        const tabLabel = cleanFeatureTabName(String(resolvedTab?.nom || feature.onglet_nom || "")).trim();
+        if (!tabLabel || isCharacteristicsTabName(tabLabel)) return;
         const byId = selectedFeatureIds.has(String(feature.id || ""));
         const byName = selectedFeatureNames.has(normalizeFeatureName(String(feature.nom || "")));
         if (!byId && !byName) return;
         const featureName = String(feature.nom || "").trim();
         if (!featureName) return;
-        if (!map.has(tab)) map.set(tab, new Set<string>());
-        map.get(tab)?.add(featureName);
+        const tabKey = normalizeFeatureName(tabLabel);
+        const orderValue = Number.isFinite(Number(resolvedTab?.ordre))
+          ? Number(resolvedTab?.ordre)
+          : 999;
+        if (!tabBuckets.has(tabKey)) {
+          tabBuckets.set(tabKey, { label: tabLabel, order: orderValue, features: new Set<string>() });
+        } else {
+          const current = tabBuckets.get(tabKey)!;
+          if (orderValue < current.order) current.order = orderValue;
+        }
+        tabBuckets.get(tabKey)?.features.add(featureName);
       });
     });
-    return new Map(
-      Array.from(map.entries())
-        .sort(([a], [b]) => a.localeCompare(b, "fr"))
-        .map(([tab, values]) => [tab, Array.from(values).sort((a, b) => a.localeCompare(b, "fr"))])
-    );
-  }, [modeProperties, bienById, modeFeaturesByType]);
+    const ordered = Array.from(tabBuckets.values())
+      .sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label, "fr"))
+      .map((bucket) => [bucket.label, Array.from(bucket.features).sort((a, b) => a.localeCompare(b, "fr"))] as const);
+    return new Map(ordered);
+  }, [modeProperties, bienById, modeFeaturesByType, modeFeatureTabsByType]);
   const featureTabsList = useMemo(
-    () => Array.from(tabFeatureOptionsMap.keys()).sort((a, b) => a.localeCompare(b, "fr")),
+    () => Array.from(tabFeatureOptionsMap.keys()),
     [tabFeatureOptionsMap]
   );
 
