@@ -796,7 +796,10 @@ function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) 
 export default function BiensPage() {
   const { biens, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, refreshData, isLoading } = useProperties();
   const zoneOptions = zones.length > 0 ? zones : mockZones;
-  const proprietaireOptions = proprietaires;
+  const [fallbackProprietaires, setFallbackProprietaires] = useState<Proprietaire[]>([]);
+  const proprietaireOptions = (Array.isArray(proprietaires) && proprietaires.length > 0)
+    ? proprietaires
+    : fallbackProprietaires;
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<BienStatut | 'all'>('all');
   const [modeFilter, setModeFilter] = useState<BienMode | 'all'>('all');
@@ -823,6 +826,32 @@ export default function BiensPage() {
   const [homeFilterImagePreview, setHomeFilterImagePreview] = useState<string>('');
   const [homeFilterImageRows, setHomeFilterImageRows] = useState<Array<{ id: string; mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [isSavingHomeFilterImage, setIsSavingHomeFilterImage] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (Array.isArray(proprietaires) && proprietaires.length > 0) {
+      setFallbackProprietaires([]);
+      return () => {
+        isMounted = false;
+      };
+    }
+    const loadFallbackProprietaires = async () => {
+      try {
+        const response = await fetch(`${API_URL}/proprietaires`, { credentials: 'include' });
+        if (!response.ok) return;
+        const rows = await response.json();
+        if (!isMounted) return;
+        setFallbackProprietaires(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!isMounted) return;
+        setFallbackProprietaires([]);
+      }
+    };
+    void loadFallbackProprietaires();
+    return () => {
+      isMounted = false;
+    };
+  }, [proprietaires]);
 
   useEffect(() => {
     setPriorityDraft(modePriorities);
