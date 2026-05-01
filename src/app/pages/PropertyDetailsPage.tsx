@@ -2502,7 +2502,7 @@ out body 40;
         setLoginPromptStep("choices");
         clearAuthPendingLogin();
         setIsAwaitingLogin(false);
-        navigate(returnTo, { replace: true });
+        window.location.assign(returnTo);
         return;
       }
 
@@ -2510,7 +2510,7 @@ out body 40;
         setShowLoginPrompt(false);
         setLoginPromptStep("choices");
         setIsAwaitingLogin(false);
-        navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true });
+        window.location.assign(`/login?returnTo=${encodeURIComponent(returnTo)}`);
       }
     };
 

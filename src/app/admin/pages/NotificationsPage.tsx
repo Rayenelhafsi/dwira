@@ -406,6 +406,8 @@ export default function NotificationsPage() {
           {pendingDemands.length === 0 && <p className="text-sm text-gray-500">Aucune demande client en attente.</p>}
           {pendingDemands.map((demand) => {
             const isExpanded = Boolean(expandedDemandIds[demand.id]);
+            const receiptUrl = demand.payment_receipt_image_url ? resolveAssetUrl(demand.payment_receipt_image_url) : '';
+            const hasReceipt = Boolean(receiptUrl);
             return (
             <div key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -462,6 +464,23 @@ export default function NotificationsPage() {
                     <MessageSquareShare className="h-4 w-4" />
                     Contacter proprietaire
                   </button>
+                  <a
+                    href={hasReceipt ? receiptUrl : undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-disabled={!hasReceipt}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                      hasReceipt
+                        ? 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100'
+                        : 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
+                    }`}
+                    onClick={(event) => {
+                      if (hasReceipt) return;
+                      event.preventDefault();
+                    }}
+                  >
+                    Voir recu
+                  </a>
                   <button
                     type="button"
                     onClick={() => void requestOwnerAvailability(demand)}
