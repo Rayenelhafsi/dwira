@@ -407,15 +407,16 @@ export default function ClientelesPage() {
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
+      const authFetchOptions: RequestInit = { credentials: 'include' };
       const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult, paiementsResult, maintenancesResult, profilesResult] = await Promise.allSettled([
-        fetch(`${API_URL}/locataires`),
-        fetch(`${API_URL}/proprietaires`),
-        fetch(`${API_URL}/utilisateurs`),
-        fetch(`${API_URL}/contrats`),
-        fetch(`${API_URL}/biens`),
-        fetch(`${API_URL}/paiements`),
-        fetch(`${API_URL}/maintenance`),
-        fetch(`${API_URL}/clienteles/profiles`),
+        fetch(`${API_URL}/locataires`, authFetchOptions),
+        fetch(`${API_URL}/proprietaires`, authFetchOptions),
+        fetch(`${API_URL}/utilisateurs`, authFetchOptions),
+        fetch(`${API_URL}/contrats`, authFetchOptions),
+        fetch(`${API_URL}/biens`, authFetchOptions),
+        fetch(`${API_URL}/paiements`, authFetchOptions),
+        fetch(`${API_URL}/maintenance`, authFetchOptions),
+        fetch(`${API_URL}/clienteles/profiles`, authFetchOptions),
       ]);
 
       if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {

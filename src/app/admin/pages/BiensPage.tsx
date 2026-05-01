@@ -4151,12 +4151,17 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         email: ownerEmail,
         cin: ownerCin,
       };
-      const response = await fetch(`${API_URL}/proprietaires`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch(`${API_URL}/proprietaires`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
       if (!response.ok) throw new Error('Failed to create owner');
       const createdOwner = await response.json();
 
       if (ownerEmail) {
-        const utilisateursResponse = await fetch(`${API_URL}/utilisateurs`);
+        const utilisateursResponse = await fetch(`${API_URL}/utilisateurs`, { credentials: 'include' });
         const utilisateurs = utilisateursResponse.ok ? await utilisateursResponse.json() : [];
         const existingUser = Array.isArray(utilisateurs)
           ? utilisateurs.find((item) => String(item?.email || '').trim().toLowerCase() === ownerEmail.toLowerCase())
@@ -4176,6 +4181,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         if (existingUser?.id) {
           const syncResponse = await fetch(`${API_URL}/utilisateurs/${encodeURIComponent(existingUser.id)}`, {
             method: 'PUT',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(utilisateurPayload),
           });
@@ -4185,6 +4191,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         } else {
           const createUserResponse = await fetch(`${API_URL}/utilisateurs`, {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(utilisateurPayload),
           });
@@ -5611,7 +5618,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         loading: true,
         submitting: false,
       });
-      const response = await fetch(`${API_URL}/proprietaires/${encodeURIComponent(ownerId)}/linked-biens`);
+      const response = await fetch(`${API_URL}/proprietaires/${encodeURIComponent(ownerId)}/linked-biens`, {
+        credentials: 'include',
+      });
       const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : [];
       if (!response.ok) throw new Error(payload?.error || 'Chargement des biens liÃ©s impossible');
       setOwnerDeleteDialog((prev) => ({
@@ -5665,6 +5674,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setOwnerDeleteDialog((prev) => ({ ...prev, submitting: true }));
       const response = await fetch(`${API_URL}/proprietaires/${encodeURIComponent(ownerDeleteDialog.sourceId)}/reassign-and-delete`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_proprietaire_id: ownerDeleteDialog.targetId || null }),
       });
