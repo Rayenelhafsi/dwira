@@ -715,16 +715,17 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
     setError(null);
     try {
+      const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
       const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
         fetch(`${API_URL}/biens`, { credentials: 'include' }),
         fetch(`${API_URL}/zones`, { credentials: 'include' }),
         fetch(`${API_URL}/site-mode-priorities`, { credentials: 'include' }),
-        fetch(`${API_URL}/proprietaires`, { credentials: 'include' }),
+        isAdminRoute ? fetch(`${API_URL}/proprietaires`, { credentials: 'include' }) : Promise.resolve(null),
       ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
       const zonesData = zonesResponse.ok ? await zonesResponse.json() : [];
-      const propsData = propsResponse.ok ? await propsResponse.json() : [];
+      const propsData = propsResponse?.ok ? await propsResponse.json() : [];
       const modePrioritiesData = modePrioritiesResponse.ok ? await modePrioritiesResponse.json() : null;
 
       const bienIds = Array.isArray(biensData) ? biensData.map((bien: any) => String(bien?.id || '').trim()).filter(Boolean) : [];

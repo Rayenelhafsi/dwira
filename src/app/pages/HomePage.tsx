@@ -203,6 +203,7 @@ export default function HomePage() {
   const [locationGouvernerat, setLocationGouvernerat] = useState("");
   const [locationRegion, setLocationRegion] = useState("");
   const [locationZone, setLocationZone] = useState("");
+  const [openLocationLevel, setOpenLocationLevel] = useState<null | "pays" | "gouvernerat" | "region" | "zone">(null);
   const [selectedSeasideOptions, setSelectedSeasideOptions] = useState<HomeSeasideOptionKey[]>([]);
   const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
 
@@ -922,6 +923,7 @@ export default function HomePage() {
                     className={`relative w-full flex items-center gap-3 overflow-hidden px-4 py-3 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showLocationDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 bg-gray-50 hover:border-emerald-400"}`}
                     onClick={() => {
                       setShowLocationDropdown(!showLocationDropdown);
+                      setOpenLocationLevel(null);
                       setShowCategoryDropdown(false);
                       setShowCalendar(false);
                     }}
@@ -950,13 +952,26 @@ export default function HomePage() {
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {[{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                              {(openLocationLevel === "pays"
+                                ? [{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))]
+                                : [([{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationPays) || { label: "Tous pays", value: "" })]
+                              ).map((item) => {
                                 const selected = locationPays === item.value;
                                 return (
                                   <button
                                     key={`home-pays-card-${item.label}`}
                                     type="button"
-                                    onClick={() => { setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); }}
+                                    onClick={() => {
+                                      if (openLocationLevel !== "pays") {
+                                        setOpenLocationLevel("pays");
+                                        return;
+                                      }
+                                      setLocationPays(item.value);
+                                      setLocationGouvernerat("");
+                                      setLocationRegion("");
+                                      setLocationZone("");
+                                      setOpenLocationLevel(null);
+                                    }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
                                     <img src={getLocationOptionImage("pays", item.value || cascadePaysOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -970,13 +985,25 @@ export default function HomePage() {
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {[{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                              {(openLocationLevel === "gouvernerat"
+                                ? [{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))]
+                                : [([{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationGouvernerat) || { label: "Tous gouvernorats", value: "" })]
+                              ).map((item) => {
                                 const selected = locationGouvernerat === item.value;
                                 return (
                                   <button
                                     key={`home-gouv-card-${item.label}`}
                                     type="button"
-                                    onClick={() => { setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); }}
+                                    onClick={() => {
+                                      if (openLocationLevel !== "gouvernerat") {
+                                        setOpenLocationLevel("gouvernerat");
+                                        return;
+                                      }
+                                      setLocationGouvernerat(item.value);
+                                      setLocationRegion("");
+                                      setLocationZone("");
+                                      setOpenLocationLevel(null);
+                                    }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
                                     <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -990,13 +1017,24 @@ export default function HomePage() {
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {[{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                              {(openLocationLevel === "region"
+                                ? [{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))]
+                                : [([{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationRegion) || { label: "Toutes regions", value: "" })]
+                              ).map((item) => {
                                 const selected = locationRegion === item.value;
                                 return (
                                   <button
                                     key={`home-region-card-${item.label}`}
                                     type="button"
-                                    onClick={() => { setLocationRegion(item.value); setLocationZone(""); }}
+                                    onClick={() => {
+                                      if (openLocationLevel !== "region") {
+                                        setOpenLocationLevel("region");
+                                        return;
+                                      }
+                                      setLocationRegion(item.value);
+                                      setLocationZone("");
+                                      setOpenLocationLevel(null);
+                                    }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
                                     <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -1010,13 +1048,23 @@ export default function HomePage() {
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {[{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                              {(openLocationLevel === "zone"
+                                ? [{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))]
+                                : [([{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationZone) || { label: "Toutes zones", value: "" })]
+                              ).map((item) => {
                                 const selected = locationZone === item.value;
                                 return (
                                   <button
                                     key={`home-zone-card-${item.label}`}
                                     type="button"
-                                    onClick={() => setLocationZone(item.value)}
+                                    onClick={() => {
+                                      if (openLocationLevel !== "zone") {
+                                        setOpenLocationLevel("zone");
+                                        return;
+                                      }
+                                      setLocationZone(item.value);
+                                      setOpenLocationLevel(null);
+                                    }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
                                     <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />

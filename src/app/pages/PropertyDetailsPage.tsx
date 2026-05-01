@@ -2490,6 +2490,35 @@ out body 40;
   }, [isAwaitingLogin, navigate, openProfileSetupStep, property, user]);
 
   useEffect(() => {
+    const onAuthMessage = (event: MessageEvent) => {
+      const payload = event?.data;
+      if (!payload || typeof payload !== 'object') return;
+      const type = String((payload as any).type || '').trim();
+      const returnTo = String((payload as any).returnTo || '').trim();
+      if (!returnTo || !returnTo.startsWith('/')) return;
+
+      if (type === 'DWIRA_AUTH_SUCCESS') {
+        setShowLoginPrompt(false);
+        setLoginPromptStep("choices");
+        clearAuthPendingLogin();
+        setIsAwaitingLogin(false);
+        navigate(returnTo, { replace: true });
+        return;
+      }
+
+      if (type === 'DWIRA_AUTH_PROFILE_REQUIRED') {
+        setShowLoginPrompt(false);
+        setLoginPromptStep("choices");
+        setIsAwaitingLogin(false);
+        navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true });
+      }
+    };
+
+    window.addEventListener('message', onAuthMessage);
+    return () => window.removeEventListener('message', onAuthMessage);
+  }, [navigate]);
+
+  useEffect(() => {
     setAdultGuests((prev) => Math.min(Math.max(prev, 1), Math.min(maxAdultGuests, maxGuests)));
     setChildGuests((prev) => Math.min(Math.max(prev, 0), Math.min(maxChildGuests, Math.max(0, maxGuests - 1))));
     setExtraMattresses((prev) => Math.min(Math.max(prev, 0), extraMattressMax));

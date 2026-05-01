@@ -102,6 +102,18 @@ export default function LoginPage() {
     return true;
   };
 
+  const notifyOpenerAndClose = (payload: { type: string; returnTo?: string }) => {
+    const hasOpener = typeof window !== 'undefined' && !!window.opener && !window.opener.closed;
+    if (!hasOpener) return false;
+    try {
+      window.opener.postMessage(payload, '*');
+      window.close();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     const loadProviders = async () => {
       const availableProviders = await getAuthProviders();
@@ -181,6 +193,9 @@ export default function LoginPage() {
           }
           navigate('/', { replace: true });
         } else {
+          if (finalReturnTo && notifyOpenerAndClose({ type: 'DWIRA_AUTH_PROFILE_REQUIRED', returnTo: finalReturnTo })) {
+            return;
+          }
           const fallbackNames = splitHumanName(socialUser.name);
           setProfileForm({
             firstName: socialUser.firstName || fallbackNames.firstName,
