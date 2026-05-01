@@ -101,9 +101,10 @@ function segmentCost(nights: number, nightlyPrice: number, weeklyPrice: number):
   if (nights <= 0) return 0;
   const normalizedNightly = normalizePrice(nightlyPrice);
   const normalizedWeekly = normalizePrice(weeklyPrice) || (normalizedNightly * 7);
-  const weeks = Math.floor(nights / 7);
-  const remainingNights = nights % 7;
-  return (weeks * normalizedWeekly) + (remainingNights * normalizedNightly);
+  if (nights >= 7) {
+    return (normalizedWeekly * nights) / 7;
+  }
+  return nights * normalizedNightly;
 }
 
 function findPeriodForNight(periods: SeasonalPricingPeriod[], day: Date): SeasonalPricingPeriod | null {

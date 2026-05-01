@@ -577,6 +577,28 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
       servicesPayants: Array.isArray(bien.location_saisonniere_config?.services_payants) ? bien.location_saisonniere_config?.services_payants : [],
       produitsAccueilGratuits: bien.location_saisonniere_config?.produits_accueil_gratuits ?? true,
       fraisProduitsAccueil: bien.location_saisonniere_config?.frais_produits_accueil ?? null,
+      climatisation:
+        Boolean(bien.climatisation)
+        || Boolean((bien.location_saisonniere_config as any)?.climatisation),
+      terrasse:
+        Boolean(bien.terrasse)
+        || Boolean((bien.location_saisonniere_config as any)?.terrasse),
+      vueMer:
+        Boolean(bien.vue_mer)
+        || Boolean((bien.location_saisonniere_config as any)?.vue_mer)
+        || String((bien.location_saisonniere_config as any)?.vue || '').toLowerCase() === 'mer',
+      prochePlage:
+        Boolean(bien.proche_plage)
+        || Boolean((bien.location_saisonniere_config as any)?.proche_plage),
+      distancePlageM:
+        bien.distance_plage_m
+        ?? ((bien.location_saisonniere_config as any)?.distance_plage_m ?? null),
+      exterieurJardin: Array.isArray((bien.location_saisonniere_config as any)?.exterieur_jardin)
+        ? (bien.location_saisonniere_config as any).exterieur_jardin.map((item: any) => String(item || '').trim()).filter(Boolean)
+        : [],
+      confortEquipementsInterieurs: Array.isArray((bien.location_saisonniere_config as any)?.confort_equipements_interieurs)
+        ? (bien.location_saisonniere_config as any).confort_equipements_interieurs.map((item: any) => String(item || '').trim()).filter(Boolean)
+        : [],
     },
     proprietaire_id: bien.proprietaire_id || ''
   };

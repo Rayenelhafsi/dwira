@@ -272,6 +272,13 @@ export type LocationSaisonniereConfig = {
   frais_service?: number | null;
   services_payants?: ServicePayantBien[];
   google_maps_embed_url?: string | null;
+  exterieur_jardin?: string[];
+  confort_equipements_interieurs?: string[];
+  climatisation?: boolean;
+  terrasse?: boolean;
+  vue_mer?: boolean;
+  proche_plage?: boolean;
+  distance_plage_m?: number | null;
 };
 
 export interface Bien {

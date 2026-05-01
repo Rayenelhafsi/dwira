@@ -1,0 +1,162 @@
+RAPPORT AUDIT FILTRES - DWIRA
+Date: 2026-05-01
+Projet: c:\tmp\dwira-953
+
+==================================================
+1) OBJECTIF
+==================================================
+Verifier que les filtres (page d'accueil + filtres avances) sont relies aux variables reelles des biens
+et non a des valeurs statiques, puis identifier les manques restants.
+
+==================================================
+2) CE QUI EST DEJA CORRIGE
+==================================================
+- Type principal:
+  - "Appartement" est correctement classe dans le filtre avance (plus de bascule incorrecte vers "autre").
+
+- Matching confort / bord de mer:
+  - Le matching utilise en priorite les variables structurees du bien (seasonalConfig),
+    puis fallback texte si necessaire.
+  - Champs utilises:
+    - climatisation
+    - terrasse
+    - vueMer / vue=mer
+    - prochePlage
+    - distancePlageM
+    - exterieurJardin
+    - confortEquipementsInterieurs
+    - etage (RDC)
+
+- Lien onglets admin -> variables filtres:
+  - Lors de la sauvegarde du bien, les selections de caracteristiques alimentent automatiquement
+    les signaux filtres (exterieur/interieur, climatise, terrasse, vue mer, proche plage, etc.).
+
+- Donnees de test injectees:
+  - Seed de couverture avec biens TEST-COV-* (9 biens) et zones dediees.
+  - Cas neutres inclus (sans mots-cles texte) pour valider le matching par variables structurees.
+
+- Build:
+  - Build frontend OK apres modifications.
+
+==================================================
+3) RESULTATS TESTS AUTOMATIQUES
+==================================================
+Script de validation:
+- scripts/test-filter-coverage.cjs
+
+Verification effectuee:
+- Bord de mer:
+  - pied_dans_eau
+  - vue_sur_mer
+  - pres_plage
+- Confort:
+  - climatise
+  - toutes_pieces_climatisees
+  - rdc
+  - jardin_gazon
+  - terrasse
+  - piscine_privee
+  - piscine_partagee
+- Standing:
+  - economique
+  - confort
+  - premium
+  - luxe
+- Emplacement:
+  - pays / gouvernerat / region / zone
+- Prix:
+  - min/max nuit + presence prix semaine
+- Voyageurs:
+  - bornes min/max
+
+Statut actuel:
+- Couverture de test: OK (attendu vs obtenu conforme sur TEST-COV-*).
+
+==================================================
+4) MANQUES / POINTS A VERIFIER DEMAIN
+==================================================
+IMPORTANT: ces points sont a verifier en UI reelle (clic utilisateur), pas seulement par script.
+
+[A] Priorite image des filtres
+- Verifier pour chaque filtre que l'image affichee suit bien la priorite attendue:
+  - sous-type > type principal (pour type de bien)
+  - image option admin (pour confort / bord de mer / emplacement)
+- Verifier fallback visuel si image absente.
+
+[B] Coherence Accueil vs Logements
+- Verifier que les options visibles dans les menus sont identiques entre:
+  - popup filtres page d'accueil
+  - panneau filtres avances page logements
+- Verifier qu'une option selectionnee en accueil est bien repercutee dans logements.
+
+[C] Cascade emplacement (par defaut fermee)
+- Verifier comportement exact desktop + mobile:
+  - options fermees par defaut
+  - ouverture au clic
+  - reset propre quand on change pays/gouvernerat/region
+- Verifier que toutes les zones existantes en DB apparaissent une seule fois (pas de doublons semantiques).
+
+[D] Qualite des donnees existantes (hors TEST-COV)
+- Certains biens historiques peuvent ne pas avoir toutes les variables structurees completees.
+- Consequence: matching potentiellement moins precis sur anciens biens.
+- Action recommandee:
+  - migration/backfill des anciens biens via script admin pour remplir:
+    - exterieur_jardin
+    - confort_equipements_interieurs
+    - vue/proche_plage/distance_plage_m
+    - etage / standing
+
+[E] Sensibilite au texte legacy
+- Le fallback texte est volontairement conserve pour retro-compatibilite.
+- Risque:
+  - un mot dans description peut matcher une option non voulue si variable structuree manque.
+- Action recommandee:
+  - une fois backfill termine, reduire le poids du fallback texte (ou le desactiver pour certaines options).
+
+[F] Verification prix dynamique apres selection de periode
+- Le calcul est corrige (logique hebdo prorata >= 7 nuits).
+- A valider manuellement:
+  - cartes listing
+  - page detail bien
+  - coherence avec periodes personnalisees admin
+
+==================================================
+5) CHECKLIST TEST MANUEL (DEMAIN)
+==================================================
+1. Ouvrir accueil mode location saisonniere.
+2. Tester emplacement:
+   - pays -> gouvernerat -> region -> zone.
+   - verifier image + resultat biens.
+3. Tester type principal + sous-type:
+   - verifier affichage complet des options.
+   - verifier filtrage reel sur resultats.
+4. Tester bord de mer (3 options) une par une.
+5. Tester confort (7 options) une par une.
+6. Combiner plusieurs options (ET logique):
+   - exemple: Vue sur mer + Climatisé + S+2.
+7. Cliquer Rechercher -> verifier page logements.
+8. Ouvrir filtres avances -> verifier valeurs pre-remplies.
+9. Tester reset filtres + nouveau scenario.
+10. Verifier prix selon periode (7, 9, 14, 16 nuits).
+
+==================================================
+6) COMMANDES UTILES
+==================================================
+Reseed data couverture:
+  node scripts/seed-filter-coverage.cjs
+
+Test couverture filtres:
+  node scripts/test-filter-coverage.cjs
+
+Build:
+  npm run build
+
+==================================================
+7) CONCLUSION
+==================================================
+Le socle est en bon etat: les filtres sont maintenant relies aux variables structurees des biens,
+et les tests de couverture passent.
+
+Le principal risque restant est la qualite/completeur des donnees anciennes (legacy),
+donc la priorite demain est la verification UI complete + eventuel backfill.
+

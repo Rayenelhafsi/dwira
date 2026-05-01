@@ -122,9 +122,18 @@ const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKe
     ].join(" ")
   );
   const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeToken(token)));
-  if (option === "pied_dans_eau") return hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
-  if (option === "vue_sur_mer") return property?.seasonalConfig?.vue === "mer" || hasAny("vue sur mer", "vue mer");
-  if (option === "pres_plage") return hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
+  const sc = property?.seasonalConfig || {};
+  const distancePlage = Number(sc?.distancePlageM ?? Number.NaN);
+  const hasDistance = Number.isFinite(distancePlage);
+  if (option === "pied_dans_eau") {
+    return Boolean(sc?.vueMer) && hasDistance && distancePlage <= 50
+      || hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
+  }
+  if (option === "vue_sur_mer") return sc?.vue === "mer" || Boolean(sc?.vueMer) || hasAny("vue sur mer", "vue mer");
+  if (option === "pres_plage") {
+    return Boolean(sc?.prochePlage) || (hasDistance && distancePlage <= 300)
+      || hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
+  }
   return false;
 };
 const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKey) => {
@@ -146,20 +155,26 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
     ].join(" ")
   );
   const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeToken(token)));
-  if (option === "climatise") return hasAny("climatise", "climatisation");
+  const sc = property?.seasonalConfig || {};
+  const exterieur = Array.isArray(sc?.exterieurJardin) ? sc.exterieurJardin.map((item: string) => normalizeToken(item)) : [];
+  const interieur = Array.isArray(sc?.confortEquipementsInterieurs) ? sc.confortEquipementsInterieurs.map((item: string) => normalizeToken(item)) : [];
+  const hasExteriorAny = (...tokens: string[]) => tokens.some((token) => exterieur.some((value: string) => value.includes(normalizeToken(token))));
+  const hasInteriorAny = (...tokens: string[]) => tokens.some((token) => interieur.some((value: string) => value.includes(normalizeToken(token))));
+  if (option === "climatise") return Boolean(sc?.climatisation) || hasInteriorAny("climatise", "climatisation") || hasAny("climatise", "climatisation");
   if (option === "toutes_pieces_climatisees") {
-    return hasAny(
+    return hasInteriorAny("toutes les pieces climatisees", "toutes pieces climatisees")
+      || hasAny(
       "toutes les pieces climatisees",
       "toutes pieces climatisees",
       "climatisation complete",
       "climatisation dans toutes les pieces"
     );
   }
-  if (option === "piscine_privee") return hasAny("piscine privee");
-  if (option === "piscine_partagee") return hasAny("piscine partagee", "piscine commune", "piscine collective");
-  if (option === "rdc") return property?.seasonalConfig?.etage === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
-  if (option === "jardin_gazon") return hasAny("jardin", "gazon", "pelouse", "espace vert");
-  if (option === "terrasse") return hasAny("terrasse");
+  if (option === "piscine_privee") return hasExteriorAny("piscine privee") || hasAny("piscine privee");
+  if (option === "piscine_partagee") return hasExteriorAny("piscine partagee", "piscine commune", "piscine collective") || hasAny("piscine partagee", "piscine commune", "piscine collective");
+  if (option === "rdc") return String(property?.seasonalConfig?.etage || "").toLowerCase() === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  if (option === "jardin_gazon") return hasExteriorAny("jardin", "gazon", "pelouse", "espace vert") || hasAny("jardin", "gazon", "pelouse", "espace vert");
+  if (option === "terrasse") return Boolean(sc?.terrasse) || hasExteriorAny("terrasse") || hasAny("terrasse");
   return false;
 };
 
@@ -787,6 +802,8 @@ export default function HomePage() {
     setShowSeasideDropdown(false);
     setShowComfortDropdown(false);
   };
+  const anyFilterOpen =
+    showLocationDropdown || showCalendar || showCategoryDropdown || showSeasideDropdown || showComfortDropdown;
   const handleOpenAdvancedFilters = () => {
     const params = new URLSearchParams();
     const logementsMode = selectedMode === "location_annuelle" ? "location_annuelle" : "location_saisonniere";
@@ -922,6 +939,11 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 overflow-hidden px-4 py-3 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showLocationDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 bg-gray-50 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (anyFilterOpen && !showLocationDropdown) {
+                        closeAllFilters();
+                        setOpenLocationLevel(null);
+                        return;
+                      }
                       setShowLocationDropdown(!showLocationDropdown);
                       setOpenLocationLevel(null);
                       setShowCategoryDropdown(false);
@@ -1102,6 +1124,11 @@ export default function HomePage() {
                     type="button"
                     className={`w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto ${showCalendar ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (anyFilterOpen && !showCalendar) {
+                        closeAllFilters();
+                        setOpenLocationLevel(null);
+                        return;
+                      }
                       setShowCalendar(!showCalendar);
                       setShowLocationDropdown(false);
                       setShowCategoryDropdown(false);
@@ -1180,6 +1207,11 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showCategoryDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (anyFilterOpen && !showCategoryDropdown) {
+                        closeAllFilters();
+                        setOpenLocationLevel(null);
+                        return;
+                      }
                       if (showCategoryDropdown) setShowCategoryDropdown(false);
                       else openCategoryDropdown();
                       setShowLocationDropdown(false);
@@ -1280,6 +1312,11 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showSeasideDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (anyFilterOpen && !showSeasideDropdown) {
+                        closeAllFilters();
+                        setOpenLocationLevel(null);
+                        return;
+                      }
                       setShowSeasideDropdown(!showSeasideDropdown);
                       setShowLocationDropdown(false);
                       setShowCalendar(false);
@@ -1334,6 +1371,11 @@ export default function HomePage() {
                     type="button"
                     className={`relative w-full flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border cursor-pointer transition-colors h-full text-left pointer-events-auto overflow-hidden ${showComfortDropdown ? "border-emerald-500 ring-2 ring-emerald-100 bg-white" : "border-gray-200 hover:border-emerald-400"}`}
                     onClick={() => {
+                      if (anyFilterOpen && !showComfortDropdown) {
+                        closeAllFilters();
+                        setOpenLocationLevel(null);
+                        return;
+                      }
                       setShowComfortDropdown(!showComfortDropdown);
                       setShowLocationDropdown(false);
                       setShowCalendar(false);

@@ -72,6 +72,13 @@ export interface Property {
     servicesPayants?: Array<{ id: string; label: string; prix: number; enabled: boolean }>;
     produitsAccueilGratuits?: boolean;
     fraisProduitsAccueil?: number | null;
+    climatisation?: boolean;
+    terrasse?: boolean;
+    vueMer?: boolean;
+    prochePlage?: boolean;
+    distancePlageM?: number | null;
+    exterieurJardin?: string[];
+    confortEquipementsInterieurs?: string[];
   };
   // Owner information
   proprietaire_id: string;

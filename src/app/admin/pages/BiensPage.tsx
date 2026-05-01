@@ -525,6 +525,63 @@ const normalizeFeatureType = (value?: string | null): 'simple' | 'choix_multiple
   if (value === 'texte') return 'texte';
   return 'simple';
 };
+type SelectedFeatureEntry = {
+  name: string;
+  value: string | number | null;
+  tabLabel?: string;
+};
+const splitFeatureFragments = (entry: SelectedFeatureEntry) =>
+  Array.from(
+    new Set(
+      [
+        String(entry.name || '').trim(),
+        ...String(entry.value || '')
+          .split(',')
+          .map((item) => String(item || '').trim())
+          .filter(Boolean),
+      ].filter(Boolean)
+    )
+  );
+const deriveSeasonFilterSignalsFromFeatures = (entries: SelectedFeatureEntry[]) => {
+  const exteriorValues: string[] = [];
+  const interiorValues: string[] = [];
+  const tokenBag = new Set<string>();
+  const exteriorHints = ['exterieur', 'jardin', 'caracteristique'];
+  const interiorHints = ['confort', 'equipement', 'interieur'];
+
+  for (const entry of entries) {
+    const tabNorm = normalizeFeatureName(String(entry.tabLabel || ''));
+    const fragments = splitFeatureFragments(entry);
+    fragments.forEach((fragment) => tokenBag.add(normalizeFeatureName(fragment)));
+    const isExterior = exteriorHints.some((hint) => tabNorm.includes(hint));
+    const isInterior = interiorHints.some((hint) => tabNorm.includes(hint));
+    if (isExterior) exteriorValues.push(...fragments);
+    if (isInterior) interiorValues.push(...fragments);
+  }
+
+  const hasToken = (...tokens: string[]) => {
+    const normalizedTokens = tokens.map((token) => normalizeFeatureName(token));
+    return Array.from(tokenBag).some((candidate) =>
+      normalizedTokens.some((token) => candidate.includes(token))
+    );
+  };
+
+  const hasPiedDansEau = hasToken('pied dans l eau', 'front de mer', 'bord de mer', 'acces direct plage');
+  const hasVueMer = hasToken('vue mer', 'vue sur mer') || hasPiedDansEau;
+  const hasProchePlage = hasToken('proche plage', 'pres de la plage', 'a quelques pas de la plage', 'plage') || hasPiedDansEau;
+  const derivedDistance = hasPiedDansEau ? 0 : (hasProchePlage ? 150 : null);
+
+  return {
+    exterieurJardin: Array.from(new Set(exteriorValues)),
+    confortEquipementsInterieurs: Array.from(new Set(interiorValues)),
+    climatisation: hasToken('climatise', 'climatisation'),
+    terrasse: hasToken('terrasse'),
+    vueMer: hasVueMer,
+    prochePlage: hasProchePlage,
+    distancePlageM: derivedDistance,
+    rdc: hasToken('rdc', 'rez de chaussee', 'rez-de-chaussee', 'ground floor'),
+  };
+};
 const stringifyFeatureChoices = (value?: string | null) => {
   try {
     const parsed = JSON.parse(String(value || '[]'));
@@ -4198,8 +4255,14 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         return {
           name: String(feature.nom || '').trim(),
           value,
+          tabLabel: String(
+            featureTabs.find((tab) => String(tab.id || '') === String(feature.onglet_id || ''))?.nom
+            || feature.onglet_id
+            || ''
+          ),
         };
       });
+    const derivedSeasonSignals = deriveSeasonFilterSignalsFromFeatures(selectedFeatureEntries);
     const derivedCapacity = extractCapacityFromEntries(selectedFeatureEntries);
     const resolvedConfiguration =
       String(formData.configuration || '').trim()
@@ -4526,8 +4589,38 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       ...terrainVenteData,
       ...lotissementVenteData,
       ...immeubleVenteData,
+      climatisation: selectedMode === 'location_saisonniere'
+        ? (!!formData.climatisation || derivedSeasonSignals.climatisation)
+        : !!(appartementVenteData as any).climatisation,
+      terrasse: selectedMode === 'location_saisonniere'
+        ? (!!formData.terrasse || derivedSeasonSignals.terrasse)
+        : !!(appartementVenteData as any).terrasse,
+      vue_mer: selectedMode === 'location_saisonniere'
+        ? (!!formData.vue_mer || derivedSeasonSignals.vueMer)
+        : !!(appartementVenteData as any).vue_mer,
+      proche_plage: selectedMode === 'location_saisonniere'
+        ? (!!formData.proche_plage || derivedSeasonSignals.prochePlage)
+        : !!(appartementVenteData as any).proche_plage,
+      distance_plage_m: selectedMode === 'location_saisonniere'
+        ? ((formData.distance_plage_m ?? derivedSeasonSignals.distancePlageM) ?? null)
+        : ((appartementVenteData as any).distance_plage_m ?? null),
       location_saisonniere_config: selectedMode === 'location_saisonniere'
-        ? saisonConfig
+        ? {
+            ...saisonConfig,
+            etage: saisonConfig.etage || (derivedSeasonSignals.rdc ? 'rdc' : saisonConfig.etage),
+            vue: saisonConfig.vue === 'sans_vue' && derivedSeasonSignals.vueMer ? 'mer' : saisonConfig.vue,
+            exterieur_jardin: derivedSeasonSignals.exterieurJardin.length > 0
+              ? derivedSeasonSignals.exterieurJardin
+              : ((saisonConfig as any).exterieur_jardin || []),
+            confort_equipements_interieurs: derivedSeasonSignals.confortEquipementsInterieurs.length > 0
+              ? derivedSeasonSignals.confortEquipementsInterieurs
+              : ((saisonConfig as any).confort_equipements_interieurs || []),
+            climatisation: !!formData.climatisation || derivedSeasonSignals.climatisation,
+            terrasse: !!formData.terrasse || derivedSeasonSignals.terrasse,
+            vue_mer: !!formData.vue_mer || derivedSeasonSignals.vueMer,
+            proche_plage: !!formData.proche_plage || derivedSeasonSignals.prochePlage,
+            distance_plage_m: (formData.distance_plage_m ?? derivedSeasonSignals.distancePlageM) ?? null,
+          }
         : null,
       description: buildDescriptionWithCharacteristics(formData.description || '', characteristicDisplayLines),
       caracteristiques: characteristicDisplayLines,
