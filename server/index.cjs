@@ -3582,6 +3582,35 @@ async function ensureZonesSchema() {
   }
 }
 
+async function ensureProprietairesSchema() {
+  const columnExistsLocal = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+      `,
+      [tableName, columnName]
+    );
+    return rows.length > 0;
+  };
+
+  if (!(await columnExistsLocal('proprietaires', 'email'))) {
+    await pool.query('ALTER TABLE proprietaires ADD COLUMN email VARCHAR(100) NULL');
+  } else {
+    await pool.query('ALTER TABLE proprietaires MODIFY COLUMN email VARCHAR(100) NULL');
+  }
+
+  if (!(await columnExistsLocal('proprietaires', 'cin'))) {
+    await pool.query('ALTER TABLE proprietaires ADD COLUMN cin VARCHAR(20) NULL');
+  } else {
+    await pool.query('ALTER TABLE proprietaires MODIFY COLUMN cin VARCHAR(20) NULL');
+  }
+}
+
 async function ensurePasskeySchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_devices (
@@ -6622,6 +6651,7 @@ async function initializeDatabaseSchema() {
       ['ensureReservationDemandSchema', ensureReservationDemandSchema],
       ['ensureContractsSchema', ensureContractsSchema],
       ['ensureZonesSchema', ensureZonesSchema],
+      ['ensureProprietairesSchema', ensureProprietairesSchema],
       ['ensureMessengerSchema', ensureMessengerSchema],
       ['ensureBiensWorkflowSchema', ensureBiensWorkflowSchema],
       ['ensurePaidServicesSchema', ensurePaidServicesSchema],
@@ -7707,6 +7737,7 @@ app.post('/api/zones', requireAdminSession, async (req, res) => {
 
 app.get('/api/proprietaires', requireAdminSession, async (req, res) => {
   try {
+    await ensureProprietairesSchema();
     const [rows] = await pool.query('SELECT * FROM proprietaires ORDER BY nom');
     res.json(rows);
   } catch (error) {
@@ -7718,9 +7749,20 @@ app.get('/api/proprietaires', requireAdminSession, async (req, res) => {
 app.post('/api/proprietaires', requireAdminSession, async (req, res) => {
   try {
     const { id, nom, telephone, email, cin } = req.body;
+    await ensureProprietairesSchema();
     const newId = id || 'p' + Date.now();
+    const normalizedNom = String(nom || '').trim();
+    const normalizedTelephone = String(telephone || '').trim();
+    const normalizedEmail = String(email || '').trim().toLowerCase() || null;
+    const normalizedCin = String(cin || '').trim() || null;
+    if (!normalizedNom) {
+      return res.status(400).json({ error: 'Nom proprietaire requis' });
+    }
+    if (!normalizedTelephone) {
+      return res.status(400).json({ error: 'Telephone proprietaire requis' });
+    }
     await pool.query('INSERT INTO proprietaires (id, nom, telephone, email, cin) VALUES (?, ?, ?, ?, ?)', 
-      [newId, nom, telephone, email, cin]);
+      [newId, normalizedNom, normalizedTelephone, normalizedEmail, normalizedCin]);
     const [newProp] = await pool.query('SELECT * FROM proprietaires WHERE id = ?', [newId]);
     res.status(201).json(newProp[0]);
   } catch (error) {
@@ -7732,8 +7774,19 @@ app.post('/api/proprietaires', requireAdminSession, async (req, res) => {
 app.put('/api/proprietaires/:id', requireAdminSession, async (req, res) => {
   try {
     const { nom, telephone, email, cin } = req.body;
+    await ensureProprietairesSchema();
+    const normalizedNom = String(nom || '').trim();
+    const normalizedTelephone = String(telephone || '').trim();
+    const normalizedEmail = String(email || '').trim().toLowerCase() || null;
+    const normalizedCin = String(cin || '').trim() || null;
+    if (!normalizedNom) {
+      return res.status(400).json({ error: 'Nom proprietaire requis' });
+    }
+    if (!normalizedTelephone) {
+      return res.status(400).json({ error: 'Telephone proprietaire requis' });
+    }
     await pool.query('UPDATE proprietaires SET nom = ?, telephone = ?, email = ?, cin = ? WHERE id = ?',
-      [nom, telephone, email, cin, req.params.id]);
+      [normalizedNom, normalizedTelephone, normalizedEmail, normalizedCin, req.params.id]);
     const [updated] = await pool.query('SELECT * FROM proprietaires WHERE id = ?', [req.params.id]);
     res.json(updated[0]);
   } catch (error) {
