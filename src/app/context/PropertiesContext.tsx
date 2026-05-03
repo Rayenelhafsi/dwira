@@ -765,7 +765,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     try {
       const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
       const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
-        fetchWithTimeout(`${API_URL}/biens`, { credentials: 'include' }, 10000),
+        fetchWithTimeout(`${API_URL}/biens`, { credentials: 'include' }, 20000),
         fetchWithTimeout(`${API_URL}/zones`, { credentials: 'include' }, 8000),
         fetchWithTimeout(`${API_URL}/site-mode-priorities`, { credentials: 'include' }, 8000),
         isAdminRoute ? fetchWithTimeout(`${API_URL}/proprietaires`, { credentials: 'include' }, 10000) : Promise.resolve(null),
@@ -844,6 +844,16 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       return;
     } catch (err: any) {
       console.warn('API unavailable:', err?.message || err);
+      if (!silent) {
+        setLoading(false);
+      }
+      if (initialCache?.biens?.length) {
+        setBiens(initialCache.biens);
+        setProperties(mapBiensToProperties(initialCache.biens, initialCache.zones || []));
+        setZones(initialCache.zones || []);
+        setProprietaires(initialCache.proprietaires || []);
+        setModePriorities(initialCache.modePriorities || DEFAULT_MODE_PRIORITIES);
+      }
       // In production, do not replace DB-backed data with mock content.
       if (!isDevMode) {
         setError('Impossible de charger les biens depuis la base pour le moment.');
