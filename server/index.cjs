@@ -10477,16 +10477,16 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     const body = requester?.role === 'admin'
       ? rawBody
       : {
-          status: 'attente_envoi_coordonnees_contrat',
+          status: current.status,
           actor_type: 'client',
           actor_id: String(requester?.id || requester?.email || 'client').trim(),
-          history_note: String(rawBody?.history_note || '').trim() || 'Client a confirme et passe a l etape des coordonnees',
+          history_note: String(rawBody?.history_note || '').trim() || 'Client a confirme la poursuite vers la finalisation du contrat',
           client_note: rawBody?.client_note,
         };
 
     const nextStatus = normalizeReservationDemandStatus(body.status || current.status);
     if (requester?.role !== 'admin') {
-      const allowedCurrentStatuses = ['reponse_positive_attente_confirmation_client', 'attente_envoi_coordonnees_contrat'];
+      const allowedCurrentStatuses = ['reponse_positive_attente_confirmation_client'];
       if (!allowedCurrentStatuses.includes(String(current.status || ''))) {
         void logSecurityEvent({
           req,
@@ -10499,17 +10499,17 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         });
         return res.status(403).json({ error: 'Transition de statut non autorisee pour ce client' });
       }
-      if (nextStatus !== 'attente_envoi_coordonnees_contrat') {
+      if (nextStatus !== String(current.status || '')) {
         void logSecurityEvent({
           req,
           eventType: 'reservation_demand_transition_denied',
           severity: 'warning',
           success: false,
           statusCode: 403,
-          message: 'Client transition denied due to forbidden target status',
+          message: 'Client transition denied due to forbidden target status (status mutation no longer allowed)',
           metadata: { demandId, requestedStatus: nextStatus },
         });
-        return res.status(403).json({ error: 'Seule la transition vers attente_envoi_coordonnees_contrat est autorisee' });
+        return res.status(403).json({ error: 'La modification de statut par le client n est plus autorisee sur cette etape' });
       }
     }
     const ownerNotifiedAt = body.communicateToOwner
@@ -10528,7 +10528,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
       ? body.client_confirmation_clicked_at
       : (
           current.client_confirmation_clicked_at ||
-          (body.actor_type === 'client' && nextStatus === 'attente_envoi_coordonnees_contrat'
+          (body.actor_type === 'client' && nextStatus === 'reponse_positive_attente_confirmation_client'
             ? getAgencySqlDateTime()
             : null)
         );
