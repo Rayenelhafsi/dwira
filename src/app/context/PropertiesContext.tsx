@@ -692,6 +692,7 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
 // ============================================
 
 export function PropertiesProvider({ children }: { children: ReactNode }) {
+  const isDevMode = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
   const initialCache = readPropertiesCache();
   const [biens, setBiens] = useState<Bien[]>(initialCache?.biens || []);
   const [properties, setProperties] = useState<Property[]>(() => {
@@ -827,12 +828,16 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       })();
       return;
     } catch (err: any) {
-      console.warn('API unavailable, using local mock data:', err.message);
-      // Fall back to local mock data when API is unavailable
+      console.warn('API unavailable:', err?.message || err);
+      // In production, do not replace DB-backed data with mock content.
+      if (!isDevMode) {
+        setError('Impossible de charger les biens depuis la base pour le moment.');
+        return;
+      }
+
+      console.warn('DEV mode fallback: using local mock data');
       const localModule = await import('../data/properties');
       const localProperties = localModule.properties;
-      
-      // Convert local properties to bienes format
       const localBiens: Bien[] = localProperties.map((p: Property) => ({
         id: p.id,
         reference: p.id,
