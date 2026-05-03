@@ -119,25 +119,7 @@ export default function ContractIdentityPage() {
 
   const proceedFromPositive = async () => {
     if (!demand) return;
-    try {
-      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          status: "attente_envoi_coordonnees_contrat",
-          actor_type: "client",
-          actor_id: user?.id || user?.email || "client",
-          history_note: "Client a consulte la reponse positive et a clique pour fournir ses coordonnees",
-        }),
-      });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Mise a jour de la demande impossible"));
-      const updated = await response.json();
-      setDemand(updated);
-      toast.success("Vous pouvez maintenant valider vos coordonnees.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
-    }
+    toast.success("Verification des coordonnees en cours.");
   };
 
   const extractFromOcr = async () => {

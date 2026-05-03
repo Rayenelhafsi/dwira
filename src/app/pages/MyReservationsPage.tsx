@@ -204,27 +204,9 @@ export default function MyReservationsPage() {
   };
 
   const proceedToIdentity = async (demand: ReservationDemand) => {
-    try {
-      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          status: "attente_envoi_coordonnees_contrat",
-          actor_type: "client",
-          actor_id: user?.id || user?.email || "client",
-          history_note: "Client a consulte la reponse positive et a clique pour fournir ses coordonnees",
-        }),
-      });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Mise a jour de la demande impossible"));
-      const updated = await response.json();
-      updateReservationInState(updated);
-      setActivePositiveDemandId(null);
-      navigate(`/mes-reservations/${encodeURIComponent(updated.id)}/coordonnees`);
-      toast.success("Merci. Veuillez maintenant valider vos coordonnees.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Mise a jour de la demande impossible");
-    }
+    setActivePositiveDemandId(null);
+    navigate(`/mes-reservations/${encodeURIComponent(demand.id)}/coordonnees`);
+    toast.success("Verification des coordonnees en cours.");
   };
 
   const openContract = async (demand: ReservationDemand) => {

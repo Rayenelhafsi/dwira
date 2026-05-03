@@ -201,21 +201,8 @@ export function Header() {
     try {
       const api = import.meta.env.VITE_API_URL || "/api";
       if (actionableDemand.status === "reponse_positive_attente_confirmation_client") {
-        const response = await fetch(`${api}/reservation-demands/${encodeURIComponent(actionableDemand.id)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            status: "attente_envoi_coordonnees_contrat",
-            actor_type: "client",
-            actor_id: user?.id || user?.email || "client",
-            history_note: "Client notifie depuis l'accueil puis redirige vers la page coordonnees",
-          }),
-        });
-        const updated = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(String(updated?.error || "Mise a jour impossible"));
         setShowActionableNotice(false);
-        navigate(`/mes-reservations/${encodeURIComponent(updated.id)}/coordonnees`);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/coordonnees`);
         return;
       }
       if (actionableDemand.status === "demande_recu_paiement") {
