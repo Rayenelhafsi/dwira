@@ -677,6 +677,16 @@ function writePropertiesCache(payload: PropertiesCachePayload) {
   }
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ============================================
 // CONTEXT PROVIDER
 // ============================================
@@ -739,10 +749,10 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     try {
       const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
       const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
-        fetch(`${API_URL}/biens`, { credentials: 'include' }),
-        fetch(`${API_URL}/zones`, { credentials: 'include' }),
-        fetch(`${API_URL}/site-mode-priorities`, { credentials: 'include' }),
-        isAdminRoute ? fetch(`${API_URL}/proprietaires`, { credentials: 'include' }) : Promise.resolve(null),
+        fetchWithTimeout(`${API_URL}/biens`, { credentials: 'include' }, 10000),
+        fetchWithTimeout(`${API_URL}/zones`, { credentials: 'include' }, 8000),
+        fetchWithTimeout(`${API_URL}/site-mode-priorities`, { credentials: 'include' }, 8000),
+        isAdminRoute ? fetchWithTimeout(`${API_URL}/proprietaires`, { credentials: 'include' }, 10000) : Promise.resolve(null),
       ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
@@ -753,7 +763,11 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       const bienIds = Array.isArray(biensData) ? biensData.map((bien: any) => String(bien?.id || '').trim()).filter(Boolean) : [];
       let allMedia: any[] = [];
       try {
-        const bulkMediaResponse = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`, { credentials: 'include' });
+        const bulkMediaResponse = await fetchWithTimeout(
+          `${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`,
+          { credentials: 'include' },
+          7000
+        );
         if (bulkMediaResponse.ok) {
           allMedia = await bulkMediaResponse.json();
         }
@@ -791,7 +805,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         await Promise.all(
           eagerUnavailableDateIds.map(async (bienId) => {
             try {
-              const datesResponse = await fetch(`${API_URL}/unavailable-dates/${bienId}`, { credentials: 'include' });
+              const datesResponse = await fetchWithTimeout(`${API_URL}/unavailable-dates/${bienId}`, { credentials: 'include' }, 5000);
               if (!datesResponse.ok) return;
               const rows = await datesResponse.json();
               datesByBienId.set(bienId, Array.isArray(rows) ? rows : []);
