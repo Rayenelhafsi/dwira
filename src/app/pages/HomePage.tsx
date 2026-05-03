@@ -179,6 +179,7 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
 };
 
 export default function HomePage() {
+  const INITIAL_VISIBLE_PROPERTIES = 10;
   // Use shared context for properties
   const { properties, zones, modePriorities, loading } = useProperties();
   
@@ -222,6 +223,8 @@ export default function HomePage() {
   const [openLocationLevel, setOpenLocationLevel] = useState<null | "pays" | "gouvernerat" | "region" | "zone">(null);
   const [selectedSeasideOptions, setSelectedSeasideOptions] = useState<HomeSeasideOptionKey[]>([]);
   const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
+  const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
+  const [showAllProperties, setShowAllProperties] = useState(false);
 
   const today = startOfDay(new Date());
   const orderedModeTabs = useMemo(
@@ -784,6 +787,26 @@ export default function HomePage() {
       return b.rating - a.rating;
     });
   }, [hasSearched, location, selectedMainType, selectedCategories, selectedSeasideOptions, selectedComfortOptions, modeProperties]);
+  const visibleFilteredProperties = useMemo(
+    () => (showAllProperties ? filteredProperties : filteredProperties.slice(0, visiblePropertiesCount)),
+    [filteredProperties, showAllProperties, visiblePropertiesCount]
+  );
+  const hasMoreFilteredProperties = !showAllProperties && filteredProperties.length > visiblePropertiesCount;
+
+  useEffect(() => {
+    setVisiblePropertiesCount(INITIAL_VISIBLE_PROPERTIES);
+    setShowAllProperties(false);
+  }, [
+    selectedMode,
+    hasSearched,
+    location,
+    selectedMainType,
+    selectedCategories,
+    selectedSeasideOptions,
+    selectedComfortOptions,
+    checkIn,
+    checkOut,
+  ]);
 
   const dateRangeText = () => {
     if (checkIn && checkOut) {
@@ -1789,7 +1812,7 @@ export default function HomePage() {
 
           {!isSelectedModeComingSoon && (<div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-              {filteredProperties.map((property) => (
+              {visibleFilteredProperties.map((property) => (
                 <PropertyCard
                   key={property.id}
                   property={property}
@@ -1823,6 +1846,28 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
+            {filteredProperties.length > INITIAL_VISIBLE_PROPERTIES && (
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                {hasMoreFilteredProperties && (
+                  <button
+                    type="button"
+                    onClick={() => setVisiblePropertiesCount((prev) => prev + INITIAL_VISIBLE_PROPERTIES)}
+                    className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+                  >
+                    Suivant
+                  </button>
+                )}
+                {!showAllProperties && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllProperties(true)}
+                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                  >
+                    Voir tout le catalogue
+                  </button>
+                )}
+              </div>
+            )}
           </div>)}
           
           {filteredProperties.length === 0 && hasSearched && !isSelectedModeComingSoon && (

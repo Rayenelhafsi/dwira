@@ -212,6 +212,7 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
 };
 
 export default function PropertiesPage() {
+  const PAGE_SIZE = 10;
   const { properties, biens, zones, modePriorities, loading } = useProperties();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -296,6 +297,8 @@ export default function PropertiesPage() {
   const [sortMode, setSortMode] = useState<"matching" | "price" | "featured">(
     (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured")
   );
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showAllResults, setShowAllResults] = useState(false);
   const isAnnualComingSoon = PUBLIC_COMING_SOON.locationAnnuelle && selectedMode === "location_annuelle";
 
   useEffect(() => {
@@ -1396,6 +1399,39 @@ export default function PropertiesPage() {
     }
     return list.sort((a, b) => b.score - a.score);
   }, [scoredResults, sortMode]);
+  const visibleSortedScoredResults = useMemo(
+    () => (showAllResults ? sortedScoredResults : sortedScoredResults.slice(0, visibleCount)),
+    [showAllResults, sortedScoredResults, visibleCount]
+  );
+  const hasMoreResults = !showAllResults && sortedScoredResults.length > visibleCount;
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+    setShowAllResults(false);
+  }, [
+    selectedMode,
+    query,
+    location,
+    selectedCategories,
+    selectedMainType,
+    selectedFeatureNames,
+    minDoubleRooms,
+    minParentRooms,
+    minSimpleRooms,
+    minBathroomsCount,
+    minClimatizedRooms,
+    selectedPaidServices,
+    selectedSeasideOptions,
+    selectedComfortOptions,
+    selectedStanding,
+    minGuests,
+    isFeaturedOnly,
+    checkIn,
+    checkOut,
+    priceMax,
+    smartTolerance,
+    sortMode,
+  ]);
   const handleQuickSearch = () => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       setIsFilterOpen(false);
@@ -2033,7 +2069,7 @@ export default function PropertiesPage() {
 
             {sortedScoredResults.length > 0 ? (
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-                {sortedScoredResults.map((row) => (
+                {visibleSortedScoredResults.map((row) => (
                   <div key={row.property.id} className="space-y-2">
                     <PropertyCard property={row.property} searchParams={searchParams.toString()} />
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
@@ -2080,6 +2116,28 @@ export default function PropertiesPage() {
                 >
                   Tout effacer
                 </button>
+              </div>
+            )}
+            {sortedScoredResults.length > PAGE_SIZE && (
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                {hasMoreResults && (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+                    className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+                  >
+                    Suivant
+                  </button>
+                )}
+                {!showAllResults && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllResults(true)}
+                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                  >
+                    Voir tout le catalogue
+                  </button>
+                )}
               </div>
             )}
           </div>

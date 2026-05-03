@@ -780,10 +780,16 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       }
 
       // Fetch unavailable dates after the homepage and lists are already usable.
+      // Limit eager prefetch to reduce initial network pressure.
       void (async () => {
         const datesByBienId = new Map<string, any[]>();
+        const eagerUnavailableDateIds = mappedBiens
+          .filter((bien) => bien.visible_sur_site !== false)
+          .slice(0, 10)
+          .map((bien) => String(bien.id || '').trim())
+          .filter(Boolean);
         await Promise.all(
-          bienIds.map(async (bienId) => {
+          eagerUnavailableDateIds.map(async (bienId) => {
             try {
               const datesResponse = await fetch(`${API_URL}/unavailable-dates/${bienId}`, { credentials: 'include' });
               if (!datesResponse.ok) return;
