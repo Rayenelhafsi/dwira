@@ -702,6 +702,21 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
   }
 }
 
+async function fetchBiensResilient(apiUrl: string): Promise<Response> {
+  const endpoint = `${apiUrl}/biens`;
+  const requestInit: RequestInit = { credentials: 'include' };
+  try {
+    return await fetchWithTimeout(endpoint, requestInit, 20000);
+  } catch (firstError) {
+    try {
+      // Safari iOS can be sensitive to aborted signals on slower networks.
+      return await fetch(endpoint, requestInit);
+    } catch {
+      return await fetchWithTimeout(endpoint, requestInit, 35000);
+    }
+  }
+}
+
 // ============================================
 // CONTEXT PROVIDER
 // ============================================
@@ -765,7 +780,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     try {
       const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
       const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
-        fetchWithTimeout(`${API_URL}/biens`, { credentials: 'include' }, 20000),
+        fetchBiensResilient(API_URL),
         fetchWithTimeout(`${API_URL}/zones`, { credentials: 'include' }, 8000),
         fetchWithTimeout(`${API_URL}/site-mode-priorities`, { credentials: 'include' }, 8000),
         isAdminRoute ? fetchWithTimeout(`${API_URL}/proprietaires`, { credentials: 'include' }, 10000) : Promise.resolve(null),
