@@ -2773,19 +2773,19 @@ setInterval(() => {
   }
 }, 60 * 1000).unref?.();
 
-async function ensureAuthSchema() {
-  const columnExists = async (tableName, columnName) => {
-    const [rows] = await pool.query(
-      `SELECT COUNT(*) AS total
-       FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = ?
-         AND COLUMN_NAME = ?`,
-      [tableName, columnName]
-    );
-    return Number(rows[0]?.total || 0) > 0;
-  };
+async function columnExists(tableName, columnName) {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [tableName, columnName]
+  );
+  return Number(rows?.[0]?.total || 0) > 0;
+}
 
+async function ensureAuthSchema() {
   const indexExists = async (tableName, indexName) => {
     const [rows] = await pool.query(
       `SELECT COUNT(*) AS total
