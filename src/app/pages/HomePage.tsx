@@ -86,6 +86,10 @@ const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = [
   "piscine_partagee",
 ];
 const POOL_OPTION_KEYS: HomeComfortOptionKey[] = ["piscine_privee", "piscine_partagee"];
+const HERO_IMAGE_URL =
+  "https://images.unsplash.com/photo-1690549392404-de10519e6adb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUdW5pc2lhJTIwS2VsaWJpYSUyMGJlYWNoJTIwdmlsbGElMjBtZWRpdGVycmFuZWFuJTIwY29hc3R8ZW58MXx8fHwxNzcxNDEyOTU5fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
+const HERO_IMAGE_URL_MOBILE =
+  "https://images.unsplash.com/photo-1690549392404-de10519e6adb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUdW5pc2lhJTIwS2VsaWJpYSUyMGJlYWNoJTIwdmlsbGElMjBtZWRpdGVycmFuZWFuJTIwY29hc3R8ZW58MXx8fHwxNzcxNDEyOTU5fDA&ixlib=rb-4.1.0&q=70&w=640&utm_source=figma&utm_medium=referral";
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
@@ -876,6 +880,19 @@ export default function HomePage() {
       document.removeEventListener("touchstart", handleOutside);
     };
   }, [showLocationDropdown, showCalendar, showCategoryDropdown, showSeasideDropdown, showComfortDropdown]);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const preload = document.createElement("link");
+    preload.rel = "preload";
+    preload.as = "image";
+    preload.href = HERO_IMAGE_URL_MOBILE;
+    preload.setAttribute("imagesrcset", `${HERO_IMAGE_URL_MOBILE} 640w, ${HERO_IMAGE_URL} 1080w`);
+    preload.setAttribute("imagesizes", "(max-width: 768px) 100vw, 1080px");
+    document.head.appendChild(preload);
+    return () => {
+      if (preload.parentNode) preload.parentNode.removeChild(preload);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -883,9 +900,14 @@ export default function HomePage() {
       <section className="relative min-h-[90vh] flex items-center justify-center py-20">
         <div className="absolute inset-0 overflow-hidden">
           <img
-            src="https://images.unsplash.com/photo-1690549392404-de10519e6adb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUdW5pc2lhJTIwS2VsaWJpYSUyMGJlYWNoJTIwdmlsbGElMjBtZWRpdGVycmFuZWFuJTIwY29hc3R8ZW58MXx8fHwxNzcxNDEyOTU5fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+            src={HERO_IMAGE_URL}
+            srcSet={`${HERO_IMAGE_URL_MOBILE} 640w, ${HERO_IMAGE_URL} 1080w`}
+            sizes="(max-width: 768px) 100vw, 1080px"
             alt="Kelibia Beach"
             className="w-full h-full object-cover brightness-75"
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
           />
           <div className="absolute inset-0 bg-emerald-950/40 mix-blend-multiply pointer-events-none" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
@@ -1901,7 +1923,7 @@ export default function HomePage() {
       </section>
 
       {/* Why Choose Us */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-white" style={{ contentVisibility: "auto", containIntrinsicSize: "1000px" }}>
         <div className="container mx-auto px-4 md:px-6">
            <div className="text-center max-w-3xl mx-auto mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Pourquoi Choisir Dwira Immobilier ?</h2>
@@ -1937,7 +1959,7 @@ export default function HomePage() {
       </section>
       
       {/* Call to Action */}
-      <section className="py-20 bg-emerald-700 text-white text-center relative overflow-hidden">
+      <section className="py-20 bg-emerald-700 text-white text-center relative overflow-hidden" style={{ contentVisibility: "auto", containIntrinsicSize: "900px" }}>
         <div className="absolute inset-0 opacity-10 pattern-dots"></div>
         <div className="container mx-auto px-4 md:px-6 relative z-10">
           <h2 className="text-3xl md:text-5xl font-bold mb-6">Confiez-nous votre projet</h2>
