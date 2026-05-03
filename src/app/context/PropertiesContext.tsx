@@ -704,15 +704,20 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
 
 async function fetchBiensResilient(apiUrl: string): Promise<Response> {
   const endpoint = `${apiUrl}/biens`;
-  const requestInit: RequestInit = { credentials: 'include' };
+  const requestInit: RequestInit = { credentials: 'include', cache: 'no-store' };
   try {
     return await fetchWithTimeout(endpoint, requestInit, 20000);
-  } catch (firstError) {
+  } catch {
     try {
       // Safari iOS can be sensitive to aborted signals on slower networks.
-      return await fetch(endpoint, requestInit);
+      return await fetch(endpoint, { credentials: 'include', cache: 'reload' });
     } catch {
-      return await fetchWithTimeout(endpoint, requestInit, 35000);
+      try {
+        // Last fallback for iOS privacy/network edge-cases.
+        return await fetchWithTimeout(endpoint, { credentials: 'omit', cache: 'no-store' }, 25000);
+      } catch {
+        return await fetchWithTimeout(endpoint, requestInit, 35000);
+      }
     }
   }
 }
