@@ -1742,6 +1742,9 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
           end: String(period.end || ''),
           prix_nuitee: Number(period.prix_nuitee || 0),
           prix_semaine: period.prix_semaine === null || period.prix_semaine === undefined ? null : Number(period.prix_semaine || 0),
+          minimum_nuitees: period.minimum_nuitees === null || period.minimum_nuitees === undefined ? null : Number(period.minimum_nuitees || 0),
+          checkin_jour: period.checkin_jour || null,
+          checkout_jour: period.checkout_jour || null,
         }))
       : [],
   });
@@ -1825,7 +1828,7 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
 function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; seedData?: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || seedData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, prix_semaine: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || seedData || { reference: '', titre: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, prix_semaine: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const saisonConfig: LocationSaisonniereConfig = {
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
@@ -2697,7 +2700,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setFormData((prev) => ({ ...prev, reference: value }));
       return;
     }
-    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'terrain_route_acces_largeur_m', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'prix_semaine', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
+    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'terrain_route_acces_largeur_m', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'prix_proprietaire', 'prix_semaine', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
     if (name === 'mode') {
       const nextMode = value as BienMode;
       const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
@@ -4600,6 +4603,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       nb_salle_bain: resolvedNbSalleBain,
       prix_nuitee: selectedMode === 'vente' ? venteTarification.prixAfficheClient : Number(formData.prix_nuitee || 0),
       prix_semaine: selectedMode === 'vente' ? null : (formData.prix_semaine === null || formData.prix_semaine === undefined ? null : Number(formData.prix_semaine || 0)),
+      prix_proprietaire: formData.prix_proprietaire === null || formData.prix_proprietaire === undefined ? null : Number(formData.prix_proprietaire || 0),
       tarification_methode: selectedMode === 'vente' ? tarificationMethode : null,
       prix_affiche_client: selectedMode === 'vente' ? venteTarification.prixAfficheClient : null,
       prix_fixe_proprietaire: selectedMode === 'vente' ? venteTarification.prixFixeProprietaire : null,
@@ -7362,6 +7366,13 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                       </div>
                     )}
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix proprietaire (DT)</label>
+                      <input type="number" min={0} step="0.01" name="prix_proprietaire" value={formData.prix_proprietaire ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      <p className="mt-1 text-xs text-gray-500">Champ interne admin, non visible cote client.</p>
+                    </div>
+                  </div>
                   {currentTarificationMethode === 'avec_commission' ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
@@ -7393,12 +7404,14 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                 </>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / nuit (DT)</label><input type="number" name="prix_nuitee" value={formData.prix_nuitee || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix / semaine (DT)</label><input type="number" min={0} step="0.01" name="prix_semaine" value={formData.prix_semaine ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Avance (DT)</label><input type="number" name="avance" value={formData.avance || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Caution (DT)</label><input type="number" name="caution" value={formData.caution || 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix proprietaire (DT)</label><input type="number" min={0} step="0.01" name="prix_proprietaire" value={formData.prix_proprietaire ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                   </div>
+                  <p className="text-xs text-gray-500">Prix proprietaire: champ interne admin, non visible cote client.</p>
                   {(formData.mode === 'location_saisonniere') && (
                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
                       <div className="flex items-center justify-between gap-3">
@@ -8200,6 +8213,18 @@ function AdminCalendar({
   const [selectedStatus, setSelectedStatus] = useState<'blocked' | 'booked' | 'pending'>('blocked');
   const [periodNightlyPrice, setPeriodNightlyPrice] = useState<number>(Math.max(0, Number(defaultNightlyPrice || 0)));
   const [periodWeeklyPrice, setPeriodWeeklyPrice] = useState<number>(Math.max(0, Number(defaultWeeklyPrice || 0)));
+  const [periodMinimumNights, setPeriodMinimumNights] = useState<number>(1);
+  const [periodCheckinDay, setPeriodCheckinDay] = useState<string>('');
+  const [periodCheckoutDay, setPeriodCheckoutDay] = useState<string>('');
+  const weekdayOptions = [
+    { value: 'lundi', label: 'Lundi' },
+    { value: 'mardi', label: 'Mardi' },
+    { value: 'mercredi', label: 'Mercredi' },
+    { value: 'jeudi', label: 'Jeudi' },
+    { value: 'vendredi', label: 'Vendredi' },
+    { value: 'samedi', label: 'Samedi' },
+    { value: 'dimanche', label: 'Dimanche' },
+  ];
   const monthStart = startOfMonth(currentMonth), monthEnd = endOfMonth(currentMonth), calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 }), calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 }), days = eachDayOfInterval({ start: calendarStart, end: calendarEnd }), today = startOfDay(new Date());
   const parseDateSafe = (value?: string | null): Date | null => {
     const raw = String(value || '').slice(0, 10);
@@ -8241,6 +8266,9 @@ function AdminCalendar({
       end,
       prix_nuitee: nightly,
       prix_semaine: weekly > 0 ? weekly : null,
+      minimum_nuitees: Math.max(1, Math.floor(Number(periodMinimumNights || 1))),
+      checkin_jour: periodCheckinDay || null,
+      checkout_jour: periodCheckoutDay || null,
     };
     onPricingPeriodsChange([...(Array.isArray(pricingPeriods) ? pricingPeriods : []), newPeriod]);
     toast.success('Periode tarifaire ajoutee');
@@ -8262,7 +8290,7 @@ function AdminCalendar({
     <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
       <h3 className="text-lg font-semibold mb-4"><CalendarIcon className="h-5 w-5 inline text-emerald-600 mr-2" />Calendrier</h3>
       <div className="bg-gray-50 rounded-lg p-4 mb-6 space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-7">
           <div className="sm:col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">Statut calendrier</label>
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value as 'blocked' | 'booked' | 'pending')} className="w-full rounded-lg border-gray-300 border p-2">
@@ -8278,6 +8306,28 @@ function AdminCalendar({
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Prix semaine periode (DT)</label>
             <input type="number" min={0} step="0.01" value={periodWeeklyPrice} onChange={(e) => setPeriodWeeklyPrice(Number(e.target.value || 0))} className="w-full rounded-lg border-gray-300 border p-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Minimum nuitees periode</label>
+            <input type="number" min={1} step={1} value={periodMinimumNights} onChange={(e) => setPeriodMinimumNights(Math.max(1, Math.floor(Number(e.target.value || 1))))} className="w-full rounded-lg border-gray-300 border p-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Jour check-in</label>
+            <select value={periodCheckinDay} onChange={(e) => setPeriodCheckinDay(e.target.value)} className="w-full rounded-lg border-gray-300 border p-2 text-sm">
+              <option value="">Aucune regle</option>
+              {weekdayOptions.map((day) => (
+                <option key={day.value} value={day.value}>{day.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Jour check-out</label>
+            <select value={periodCheckoutDay} onChange={(e) => setPeriodCheckoutDay(e.target.value)} className="w-full rounded-lg border-gray-300 border p-2 text-sm">
+              <option value="">Aucune regle</option>
+              {weekdayOptions.map((day) => (
+                <option key={day.value} value={day.value}>{day.label}</option>
+              ))}
+            </select>
           </div>
           <div className="text-xs text-gray-600 rounded-lg border border-gray-200 bg-white p-3">
             <p>Base actuelle:</p>
@@ -8295,7 +8345,7 @@ function AdminCalendar({
       <div className="grid grid-cols-7 gap-1 mb-2">{["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map(day => <div key={day} className="text-center text-xs font-semibold text-gray-500 py-2">{day}</div>)}</div>
       <div className="grid grid-cols-7 gap-1">{days.map((day, idx) => <div key={idx} onClick={() => handleDateClick(day)}><div className={getDayClassName(day)} style={{ backgroundColor: getDayBackground(day) || undefined }}><span>{format(day, "d")}</span></div></div>)}</div>
       {dates.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes indisponibles</h5><div className="space-y-2">{dates.map((date, index) => <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div className="flex items-center gap-3"><div className="w-4 h-4 rounded" style={{ backgroundColor: date.color || '#111827' }}></div><span className="text-sm">{formatDateSafe(date.start)} - {formatDateSafe(date.end)}</span></div><button type="button" onClick={() => handleRemovePeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
-      {pricingPeriods.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes tarifaires</h5><div className="space-y-2">{pricingPeriods.map((period, index) => <div key={period.id || `${period.start}-${period.end}-${index}`} className="flex items-center justify-between p-3 bg-sky-50 rounded-lg border border-sky-100"><div className="space-y-1"><p className="text-sm font-medium text-gray-900">{formatDateSafe(period.start)} - {formatDateSafe(period.end)}</p><p className="text-xs text-gray-600">Nuit: <span className="font-semibold text-gray-900">{Number(period.prix_nuitee || 0)} DT</span> | Semaine: <span className="font-semibold text-gray-900">{Number(period.prix_semaine || 0)} DT</span></p></div><button type="button" onClick={() => handleRemovePricingPeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
+      {pricingPeriods.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes tarifaires</h5><div className="space-y-2">{pricingPeriods.map((period, index) => <div key={period.id || `${period.start}-${period.end}-${index}`} className="flex items-center justify-between p-3 bg-sky-50 rounded-lg border border-sky-100"><div className="space-y-1"><p className="text-sm font-medium text-gray-900">{formatDateSafe(period.start)} - {formatDateSafe(period.end)}</p><p className="text-xs text-gray-600">Nuit: <span className="font-semibold text-gray-900">{Number(period.prix_nuitee || 0)} DT</span> | Semaine: <span className="font-semibold text-gray-900">{Number(period.prix_semaine || 0)} DT</span></p><p className="text-xs text-gray-600">Minimum sejour: <span className="font-semibold text-gray-900">{Math.max(1, Number(period.minimum_nuitees || 1))} nuit(s)</span></p><p className="text-xs text-gray-600">Check-in: <span className="font-semibold text-gray-900">{period.checkin_jour || 'Libre'}</span> | Check-out: <span className="font-semibold text-gray-900">{period.checkout_jour || 'Libre'}</span></p></div><button type="button" onClick={() => handleRemovePricingPeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
     </div>
   );
 }

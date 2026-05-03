@@ -19,7 +19,7 @@ import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailu
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
-import { calculateAccommodationPricing, resolveCurrentPricing } from "../utils/seasonalPricing";
+import { calculateAccommodationPricing, getPeriodMinStayForDate, getReservationMinStayRequirement, getReservationWeekdayRule, validateReservationWeekdayRule, resolveCurrentPricing } from "../utils/seasonalPricing";
 import { computeGuestLimits } from "../utils/guestLimits";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
@@ -1096,6 +1096,21 @@ out body 40;
   });
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
   const maxStay = Math.max(minStay, seasonalConfig?.dureeMaxSejourNuits || 365);
+  const periodMinStay = useMemo(() => {
+    if (!selectedStart) return null;
+    return getPeriodMinStayForDate(property?.pricingPeriods || [], selectedStart);
+  }, [property?.pricingPeriods, selectedStart]);
+  const displayedMinStay = Math.max(minStay, periodMinStay || 0);
+  const activeWeekdayRule = useMemo(() => {
+    if (!selectedStart || !selectedEnd) return { requiredCheckinDay: null, requiredCheckoutDay: null };
+    const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
+    const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
+    return getReservationWeekdayRule({
+      startDate: start,
+      endDate: end,
+      periods: property?.pricingPeriods || [],
+    });
+  }, [property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -2192,12 +2207,30 @@ out body 40;
       return;
     }
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
-    if (!isSaleProperty && nights < minStay) {
-      toast.error(`Sejour minimum: ${minStay} nuit(s)`);
+    const minStayForSelection = getReservationMinStayRequirement({
+      startDate,
+      endDate,
+      periods: property?.pricingPeriods || [],
+      fallbackMinStay: minStay,
+    });
+    if (!isSaleProperty && nights < minStayForSelection) {
+      toast.error(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s)`);
       return;
     }
     if (!isSaleProperty && nights > maxStay) {
       toast.error(`Sejour maximum: ${maxStay} nuit(s)`);
+      return;
+    }
+    const weekdayRuleCheck = validateReservationWeekdayRule({
+      startDate,
+      endDate,
+      periods: property?.pricingPeriods || [],
+    });
+    if (!isSaleProperty && !weekdayRuleCheck.ok) {
+      const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
+      const checkoutMessage = weekdayRuleCheck.requiredCheckoutDay ? `check-out: ${weekdayRuleCheck.requiredCheckoutDay}` : null;
+      const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(' | ');
+      toast.error(`Regle de periode non respectee (${detail})`);
       return;
     }
 
@@ -3421,8 +3454,13 @@ out body 40;
                 Sélectionnez vos dates pour voir les disponibilités et réserver votre séjour.
               </p>
               {!isSaleProperty && (
+                <p className="text-sm text-emerald-700 mb-2">
+                  Duree autorisee: minimum {displayedMinStay} nuit(s), maximum {maxStay} nuit(s).
+                </p>
+              )}
+              {!isSaleProperty && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
                 <p className="text-sm text-emerald-700 mb-4">
-                  Duree autorisee: minimum {minStay} nuit(s), maximum {maxStay} nuit(s).
+                  Regle periode: check-in {activeWeekdayRule.requiredCheckinDay || 'libre'} | check-out {activeWeekdayRule.requiredCheckoutDay || 'libre'}.
                 </p>
               )}
               <AvailabilityCalendar
@@ -3889,8 +3927,13 @@ out body 40;
           </DialogHeader>
           <div className="max-h-[calc(86vh-92px)] overflow-y-auto px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6 sm:pt-4">
             {!isSaleProperty && (
+              <p className="mb-2 text-xs text-emerald-700 sm:mb-3 sm:text-sm">
+                Duree autorisee: minimum {displayedMinStay} nuit(s), maximum {maxStay} nuit(s).
+              </p>
+            )}
+            {!isSaleProperty && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
               <p className="mb-3 text-xs text-emerald-700 sm:mb-4 sm:text-sm">
-                Duree autorisee: minimum {minStay} nuit(s), maximum {maxStay} nuit(s).
+                Regle periode: check-in {activeWeekdayRule.requiredCheckinDay || 'libre'} | check-out {activeWeekdayRule.requiredCheckoutDay || 'libre'}.
               </p>
             )}
             <AvailabilityCalendar

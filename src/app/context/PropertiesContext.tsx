@@ -55,6 +55,14 @@ function normalizeBienType(type: string): BienType {
   return (LEGACY_TYPE_MAP[type] || type || 'appartement') as BienType;
 }
 
+function normalizePricingWeekday(value: unknown): 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi' | 'samedi' | 'dimanche' | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'lundi' || normalized === 'mardi' || normalized === 'mercredi' || normalized === 'jeudi' || normalized === 'vendredi' || normalized === 'samedi' || normalized === 'dimanche') {
+    return normalized;
+  }
+  return null;
+}
+
 function parseDescriptionAndCharacteristics(rawDescription?: string | null): { description: string; caracteristiques: string[] } {
   const descriptionText = rawDescription || '';
   const markerIndex = descriptionText.indexOf(CHARACTERISTICS_MARKER);
@@ -147,6 +155,9 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
             end: String(item?.end || item?.end_date || '').slice(0, 10),
             prix_nuitee: Number(item?.prix_nuitee || 0),
             prix_semaine: item?.prix_semaine === null || item?.prix_semaine === undefined ? null : Number(item.prix_semaine || 0),
+            minimum_nuitees: item?.minimum_nuitees === null || item?.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(item.minimum_nuitees || 0))),
+            checkin_jour: normalizePricingWeekday(item?.checkin_jour),
+            checkout_jour: normalizePricingWeekday(item?.checkout_jour),
           }))
           .filter((item) =>
             item.start
@@ -168,6 +179,9 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
         end: String(item?.end || item?.end_date || '').slice(0, 10),
         prix_nuitee: Number(item?.prix_nuitee || 0),
         prix_semaine: item?.prix_semaine === null || item?.prix_semaine === undefined ? null : Number(item.prix_semaine || 0),
+        minimum_nuitees: item?.minimum_nuitees === null || item?.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(item.minimum_nuitees || 0))),
+        checkin_jour: normalizePricingWeekday(item?.checkin_jour),
+        checkout_jour: normalizePricingWeekday(item?.checkout_jour),
       }))
       .filter((item) =>
         item.start
@@ -236,6 +250,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     tarification_methode: ((row as any).tarification_methode || null) as any,
     prix_affiche_client: toNullableNumber((row as any).prix_affiche_client),
     prix_fixe_proprietaire: toNullableNumber((row as any).prix_fixe_proprietaire),
+    prix_proprietaire: toNullableNumber((row as any).prix_proprietaire),
     prix_final: toNullableNumber((row as any).prix_final),
     revenu_agence: toNullableNumber((row as any).revenu_agence),
     commission_pourcentage_proprietaire: toNullableNumber((row as any).commission_pourcentage_proprietaire),
@@ -852,6 +867,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         tarification_methode: null,
         prix_affiche_client: null,
         prix_fixe_proprietaire: null,
+        prix_proprietaire: null,
         prix_final: null,
         revenu_agence: null,
         commission_pourcentage_proprietaire: 3,

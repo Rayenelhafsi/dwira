@@ -2996,8 +2996,11 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'prix_fixe_proprietaire'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN prix_fixe_proprietaire DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_affiche_client');
   }
+  if (!(await columnExists('biens', 'prix_proprietaire'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN prix_proprietaire DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_fixe_proprietaire');
+  }
   if (!(await columnExists('biens', 'prix_final'))) {
-    await pool.query('ALTER TABLE biens ADD COLUMN prix_final DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_fixe_proprietaire');
+    await pool.query('ALTER TABLE biens ADD COLUMN prix_final DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_proprietaire');
   }
   if (!(await columnExists('biens', 'revenu_agence'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN revenu_agence DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_final');
@@ -4995,8 +4998,16 @@ function normalizeSeasonalPricingPeriod(period, index = 0) {
   const isValidIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && !Number.isNaN(new Date(`${String(value).slice(0, 10)}T00:00:00`).getTime());
   const nightlyRaw = Number(period?.prix_nuitee);
   const weeklyRaw = period?.prix_semaine === null || period?.prix_semaine === undefined ? null : Number(period?.prix_semaine);
+  const minimumNightsRaw = period?.minimum_nuitees === null || period?.minimum_nuitees === undefined ? null : Number(period?.minimum_nuitees);
+  const normalizeWeekday = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'].includes(normalized) ? normalized : null;
+  };
   const nightly = Number.isFinite(nightlyRaw) && nightlyRaw > 0 ? nightlyRaw : 0;
   const weekly = weeklyRaw === null ? null : (Number.isFinite(weeklyRaw) && weeklyRaw > 0 ? weeklyRaw : null);
+  const minimumNights = minimumNightsRaw === null ? null : (Number.isFinite(minimumNightsRaw) && minimumNightsRaw > 0 ? Math.max(1, Math.floor(minimumNightsRaw)) : null);
+  const checkinDay = normalizeWeekday(period?.checkin_jour);
+  const checkoutDay = normalizeWeekday(period?.checkout_jour);
   if (!start || !end || !isValidIsoDate(start) || !isValidIsoDate(end) || end < start || nightly <= 0) return null;
   return {
     id: String(period?.id || `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`),
@@ -5004,6 +5015,9 @@ function normalizeSeasonalPricingPeriod(period, index = 0) {
     end,
     prix_nuitee: nightly,
     prix_semaine: weekly,
+    minimum_nuitees: minimumNights,
+    checkin_jour: checkinDay,
+    checkout_jour: checkoutDay,
   };
 }
 
@@ -5042,6 +5056,9 @@ async function ensureSeasonalPricingSchema() {
       end_date DATE NOT NULL,
       prix_nuitee DECIMAL(12,2) NOT NULL,
       prix_semaine DECIMAL(12,2) NULL,
+      minimum_nuitees INT NULL,
+      checkin_jour VARCHAR(20) NULL,
+      checkout_jour VARCHAR(20) NULL,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       KEY idx_bien_pricing_periods_bien (bien_id),
@@ -5058,6 +5075,15 @@ async function ensureSeasonalPricingSchema() {
   if (Number(columnRows?.[0]?.total || 0) === 0) {
     await pool.query('ALTER TABLE biens ADD COLUMN prix_semaine DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_nuitee');
   }
+  if (!(await columnExists('bien_pricing_periods', 'minimum_nuitees'))) {
+    await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN minimum_nuitees INT NULL DEFAULT NULL AFTER prix_semaine');
+  }
+  if (!(await columnExists('bien_pricing_periods', 'checkin_jour'))) {
+    await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkin_jour VARCHAR(20) NULL DEFAULT NULL AFTER minimum_nuitees');
+  }
+  if (!(await columnExists('bien_pricing_periods', 'checkout_jour'))) {
+    await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkout_jour VARCHAR(20) NULL DEFAULT NULL AFTER checkin_jour');
+  }
 }
 
 async function listPricingPeriodsForBienIds(bienIds) {
@@ -5067,7 +5093,7 @@ async function listPricingPeriodsForBienIds(bienIds) {
   if (ids.length === 0) return byBienId;
   const placeholders = ids.map(() => '?').join(', ');
   const [rows] = await pool.query(
-    `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine
+    `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
      FROM bien_pricing_periods
      WHERE bien_id IN (${placeholders})
      ORDER BY start_date ASC, end_date ASC`,
@@ -5080,6 +5106,9 @@ async function listPricingPeriodsForBienIds(bienIds) {
       end: toSqlDateOnly(row.end_date),
       prix_nuitee: Number(row.prix_nuitee || 0),
       prix_semaine: row.prix_semaine === null || row.prix_semaine === undefined ? null : Number(row.prix_semaine || 0),
+      minimum_nuitees: row.minimum_nuitees === null || row.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
+      checkin_jour: row.checkin_jour ? String(row.checkin_jour).toLowerCase() : null,
+      checkout_jour: row.checkout_jour ? String(row.checkout_jour).toLowerCase() : null,
     };
     if (!byBienId.has(row.bien_id)) byBienId.set(row.bien_id, []);
     byBienId.get(row.bien_id).push(item);
@@ -5099,9 +5128,9 @@ async function syncBienPricingPeriods(bienId, periods) {
   for (const period of normalized) {
     await pool.query(
       `INSERT INTO bien_pricing_periods (
-         id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [period.id, normalizedBienId, period.start, period.end, period.prix_nuitee, period.prix_semaine, now, now]
+         id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [period.id, normalizedBienId, period.start, period.end, period.prix_nuitee, period.prix_semaine, period.minimum_nuitees, period.checkin_jour, period.checkout_jour, now, now]
     );
   }
 }
@@ -5195,6 +5224,20 @@ function computeNights(startDate, endDate) {
   const end = new Date(`${endSql}T00:00:00`);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
   return Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function getWeekdayFrFromSqlDate(value) {
+  const sql = toSqlDateOnly(value);
+  const parsed = new Date(`${sql}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const day = parsed.getDay(); // 0=dimanche
+  if (day === 0) return 'dimanche';
+  if (day === 1) return 'lundi';
+  if (day === 2) return 'mardi';
+  if (day === 3) return 'mercredi';
+  if (day === 4) return 'jeudi';
+  if (day === 5) return 'vendredi';
+  return 'samedi';
 }
 
 function formatStayPeriodFr(startDate, endDate) {
@@ -7118,7 +7161,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
       id,
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
       prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
-      tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
+      tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
@@ -7296,7 +7339,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
 
     await pool.query(
       `UPDATE biens
-       SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_final = ?, revenu_agence = ?,
+       SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_proprietaire = ?, prix_final = ?, revenu_agence = ?,
            commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
            nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
@@ -7307,6 +7350,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         venteTarification.tarificationMethode,
         venteTarification.prixAfficheClient,
         venteTarification.prixFixeProprietaire,
+        toNullableNumber(prix_proprietaire),
         venteTarification.prixFinal,
         venteTarification.revenuAgence,
         venteTarification.commissionPourcentageProprietaire,
@@ -7363,7 +7407,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
     const {
       reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
       prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
-      tarification_methode, prix_affiche_client, prix_fixe_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
+      tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
@@ -7541,7 +7585,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
 
     await pool.query(
       `UPDATE biens
-       SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_final = ?, revenu_agence = ?,
+       SET tarification_methode = ?, prix_affiche_client = ?, prix_fixe_proprietaire = ?, prix_proprietaire = ?, prix_final = ?, revenu_agence = ?,
            commission_pourcentage_proprietaire = ?, commission_pourcentage_client = ?, montant_max_reduction_negociation = ?, prix_minimum_accepte = ?,
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
            nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
@@ -7552,6 +7596,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
         venteTarification.tarificationMethode,
         venteTarification.prixAfficheClient,
         venteTarification.prixFixeProprietaire,
+        toNullableNumber(prix_proprietaire),
         venteTarification.prixFinal,
         venteTarification.revenuAgence,
         venteTarification.commissionPourcentageProprietaire,
@@ -10049,6 +10094,7 @@ app.get('/api/reservation-demands/:id/history', requireAuthenticatedSession, asy
 app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMutationRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    await ensureSeasonalPricingSchema();
     const requester = req.authUser || null;
     const {
       bien_id,
@@ -10168,6 +10214,46 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       return res.status(400).json({ error: 'Bien deja indisponible ou deja en attente sur cette periode' });
     }
 
+    const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
+    const requestedNights = computeNights(start_date, end_date);
+    const cfgMinStayRaw = Number(
+      saisonCfg?.duree_min_sejour_nuits
+      ?? saisonCfg?.dureeMinSejourNuits
+    );
+    const cfgMinStay = Number.isFinite(cfgMinStayRaw) && cfgMinStayRaw > 0
+      ? Math.max(1, Math.floor(cfgMinStayRaw))
+      : 1;
+    const [periodRules] = await pool.query(
+      `SELECT minimum_nuitees, checkin_jour, checkout_jour
+       FROM bien_pricing_periods
+       WHERE bien_id = ?
+         AND start_date <= ?
+         AND end_date >= ?`,
+      [bien_id, end_date, start_date]
+    );
+    let requiredMinNights = cfgMinStay;
+    for (const rule of periodRules || []) {
+      const value = Number(rule?.minimum_nuitees || 0);
+      if (Number.isFinite(value) && value > requiredMinNights) {
+        requiredMinNights = Math.max(1, Math.floor(value));
+      }
+    }
+    if (requestType === 'reservation' && requestedNights < requiredMinNights) {
+      return res.status(400).json({ error: `Sejour minimum pour cette periode: ${requiredMinNights} nuit(s)` });
+    }
+    const startWeekday = getWeekdayFrFromSqlDate(start_date);
+    const endWeekday = getWeekdayFrFromSqlDate(end_date);
+    for (const rule of periodRules || []) {
+      const checkinDay = String(rule?.checkin_jour || '').trim().toLowerCase();
+      const checkoutDay = String(rule?.checkout_jour || '').trim().toLowerCase();
+      if (requestType === 'reservation' && checkinDay && startWeekday && checkinDay !== startWeekday) {
+        return res.status(400).json({ error: `Check-in autorise uniquement le ${checkinDay} pour cette periode` });
+      }
+      if (requestType === 'reservation' && checkoutDay && endWeekday && checkoutDay !== endWeekday) {
+        return res.status(400).json({ error: `Check-out autorise uniquement le ${checkoutDay} pour cette periode` });
+      }
+    }
+
     const now = getAgencySqlDateTime();
     const demandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const unavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -10176,7 +10262,6 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       ? (await fetchClienteleProfileBySource('proprietaires', bien.proprietaire_id))?.linkedUserId || null
       : null;
 
-    const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
     const cfgMaxGuestsRaw = Number(
       saisonCfg?.limite_personnes_nuit
       ?? saisonCfg?.limitePersonnesNuit
@@ -12808,7 +12893,7 @@ app.get('/api/pricing-periods/:bien_id', async (req, res) => {
     const bienId = String(req.params.bien_id || '').trim();
     if (!bienId) return res.status(400).json({ error: 'bien_id requis' });
     const [rows] = await pool.query(
-      `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine
+      `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
        FROM bien_pricing_periods
        WHERE bien_id = ?
        ORDER BY start_date ASC, end_date ASC`,
@@ -12821,6 +12906,9 @@ app.get('/api/pricing-periods/:bien_id', async (req, res) => {
       end: toSqlDateOnly(row.end_date),
       prix_nuitee: Number(row.prix_nuitee || 0),
       prix_semaine: row.prix_semaine === null || row.prix_semaine === undefined ? null : Number(row.prix_semaine || 0),
+      minimum_nuitees: row.minimum_nuitees === null || row.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
+      checkin_jour: row.checkin_jour ? String(row.checkin_jour).toLowerCase() : null,
+      checkout_jour: row.checkout_jour ? String(row.checkout_jour).toLowerCase() : null,
     }));
     res.json(data);
   } catch (error) {

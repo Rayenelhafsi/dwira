@@ -161,6 +161,9 @@ export interface SeasonalPricingPeriod {
   end: string;
   prix_nuitee: number;
   prix_semaine?: number | null;
+  minimum_nuitees?: number | null;
+  checkin_jour?: 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi' | 'samedi' | 'dimanche' | null;
+  checkout_jour?: 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi' | 'samedi' | 'dimanche' | null;
 }
 
 export interface ImmeubleAppartementDetail {
@@ -296,6 +299,7 @@ export interface Bien {
   tarification_methode?: TarificationMethodeVente | null;
   prix_affiche_client?: number | null;
   prix_fixe_proprietaire?: number | null;
+  prix_proprietaire?: number | null;
   prix_final?: number | null;
   revenu_agence?: number | null;
   commission_pourcentage_proprietaire?: number | null;

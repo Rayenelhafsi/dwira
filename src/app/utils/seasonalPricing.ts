@@ -6,6 +6,9 @@ export type SeasonalPricingPeriod = {
   end: string;
   prix_nuitee: number;
   prix_semaine?: number | null;
+  minimum_nuitees?: number | null;
+  checkin_jour?: string | null;
+  checkout_jour?: string | null;
 };
 
 type PricingContext = {
@@ -116,6 +119,104 @@ function findPeriodForNight(periods: SeasonalPricingPeriod[], day: Date): Season
     if (target >= start && target <= end) return period;
   }
   return null;
+}
+
+function normalizeMinNights(value: number | null | undefined): number | null {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return Math.max(1, Math.floor(numeric));
+}
+
+const WEEKDAY_VALUES = new Set(['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']);
+
+export function normalizeWeekday(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  return WEEKDAY_VALUES.has(normalized) ? normalized : null;
+}
+
+function getWeekdayFr(date: Date): string {
+  const day = date.getDay(); // 0=dimanche ... 6=samedi
+  if (day === 0) return 'dimanche';
+  if (day === 1) return 'lundi';
+  if (day === 2) return 'mardi';
+  if (day === 3) return 'mercredi';
+  if (day === 4) return 'jeudi';
+  if (day === 5) return 'vendredi';
+  return 'samedi';
+}
+
+export function getPeriodMinStayForDate(periods: SeasonalPricingPeriod[], date: Date | string): number | null {
+  const day = toDateAtMidnight(date);
+  if (!day) return null;
+  const period = findPeriodForNight(Array.isArray(periods) ? periods : [], day);
+  return normalizeMinNights(period?.minimum_nuitees);
+}
+
+export function getReservationMinStayRequirement(params: {
+  startDate: Date | string;
+  endDate: Date | string;
+  periods?: SeasonalPricingPeriod[];
+  fallbackMinStay?: number;
+}): number {
+  const start = toDateAtMidnight(params.startDate);
+  const end = toDateAtMidnight(params.endDate);
+  const fallback = Math.max(1, Math.floor(Number(params.fallbackMinStay || 1)));
+  if (!start || !end) return fallback;
+  const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
+  if (nights <= 0) return fallback;
+
+  const rangeStart = start <= end ? start : end;
+  let required = fallback;
+  const periods = Array.isArray(params.periods) ? params.periods : [];
+  for (let offset = 0; offset < nights; offset += 1) {
+    const day = addDays(rangeStart, offset);
+    const period = findPeriodForNight(periods, day);
+    const periodMin = normalizeMinNights(period?.minimum_nuitees);
+    if (periodMin && periodMin > required) required = periodMin;
+  }
+  return required;
+}
+
+export function getReservationWeekdayRule(params: {
+  startDate: Date | string;
+  endDate: Date | string;
+  periods?: SeasonalPricingPeriod[];
+}): { requiredCheckinDay: string | null; requiredCheckoutDay: string | null } {
+  const start = toDateAtMidnight(params.startDate);
+  const end = toDateAtMidnight(params.endDate);
+  if (!start || !end) return { requiredCheckinDay: null, requiredCheckoutDay: null };
+  const periods = Array.isArray(params.periods) ? params.periods : [];
+  const rangeStart = start <= end ? start : end;
+  const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
+  if (nights <= 0) return { requiredCheckinDay: null, requiredCheckoutDay: null };
+
+  let requiredCheckinDay: string | null = null;
+  let requiredCheckoutDay: string | null = null;
+  for (let offset = 0; offset < nights; offset += 1) {
+    const day = addDays(rangeStart, offset);
+    const period = findPeriodForNight(periods, day);
+    const checkin = normalizeWeekday(period?.checkin_jour);
+    const checkout = normalizeWeekday(period?.checkout_jour);
+    if (!requiredCheckinDay && checkin) requiredCheckinDay = checkin;
+    if (!requiredCheckoutDay && checkout) requiredCheckoutDay = checkout;
+  }
+  return { requiredCheckinDay, requiredCheckoutDay };
+}
+
+export function validateReservationWeekdayRule(params: {
+  startDate: Date | string;
+  endDate: Date | string;
+  periods?: SeasonalPricingPeriod[];
+}): { ok: boolean; requiredCheckinDay: string | null; requiredCheckoutDay: string | null; startDay: string | null; endDay: string | null } {
+  const start = toDateAtMidnight(params.startDate);
+  const end = toDateAtMidnight(params.endDate);
+  if (!start || !end) return { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null, startDay: null, endDay: null };
+  const { requiredCheckinDay, requiredCheckoutDay } = getReservationWeekdayRule(params);
+  const startDay = getWeekdayFr(start);
+  const endDay = getWeekdayFr(end);
+  const checkinOk = !requiredCheckinDay || requiredCheckinDay === startDay;
+  const checkoutOk = !requiredCheckoutDay || requiredCheckoutDay === endDay;
+  return { ok: checkinOk && checkoutOk, requiredCheckinDay, requiredCheckoutDay, startDay, endDay };
 }
 
 export function calculateAccommodationPricing(params: {
