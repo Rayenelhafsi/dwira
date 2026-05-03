@@ -703,20 +703,22 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
 }
 
 async function fetchBiensResilient(apiUrl: string): Promise<Response> {
-  const endpoint = `${apiUrl}/biens`;
+  const isIphone = typeof navigator !== 'undefined' && /iPhone/i.test(String(navigator.userAgent || ''));
+  const endpointPrimary = `${apiUrl}/${isIphone ? 'biens-lite' : 'biens'}`;
+  const endpointFallback = `${apiUrl}/biens`;
   const requestInit: RequestInit = { credentials: 'include', cache: 'no-store' };
   try {
-    return await fetchWithTimeout(endpoint, requestInit, 20000);
+    return await fetchWithTimeout(endpointPrimary, requestInit, 20000);
   } catch {
     try {
       // Safari iOS can be sensitive to aborted signals on slower networks.
-      return await fetch(endpoint, { credentials: 'include', cache: 'reload' });
+      return await fetch(endpointFallback, { credentials: 'include', cache: 'reload' });
     } catch {
       try {
         // Last fallback for iOS privacy/network edge-cases.
-        return await fetchWithTimeout(endpoint, { credentials: 'omit', cache: 'no-store' }, 25000);
+        return await fetchWithTimeout(endpointFallback, { credentials: 'omit', cache: 'no-store' }, 25000);
       } catch {
-        return await fetchWithTimeout(endpoint, requestInit, 35000);
+        return await fetchWithTimeout(endpointFallback, requestInit, 35000);
       }
     }
   }

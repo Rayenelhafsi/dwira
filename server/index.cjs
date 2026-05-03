@@ -7716,6 +7716,48 @@ app.get('/api/zones', async (req, res) => {
   }
 });
 
+// GET light biens payload (optimized for constrained mobile browsers)
+app.get('/api/biens-lite', async (req, res) => {
+  try {
+    await ensurePaidServicesSchema();
+    await ensureSeasonalPricingSchema();
+    const [rows] = await pool.query(`
+      SELECT
+        id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain,
+        prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured,
+        ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id,
+        date_ajout, created_at, updated_at, admin_last_saved_at,
+        tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, prix_final, revenu_agence
+      FROM biens
+      ORDER BY date_ajout DESC
+    `);
+    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rows || []).map((row) => row.id));
+    const servicesByBienId = await listPaidServicesForBienIds((rows || []).map((row) => row.id));
+    const enrichedRows = (rows || []).map((row) => {
+      let config = null;
+      try {
+        config = row.location_saisonniere_config_json
+          ? (typeof row.location_saisonniere_config_json === 'string'
+            ? JSON.parse(row.location_saisonniere_config_json)
+            : row.location_saisonniere_config_json)
+          : null;
+      } catch {
+        config = null;
+      }
+      const nextConfig = injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || []);
+      return {
+        ...row,
+        location_saisonniere_config_json: JSON.stringify(nextConfig),
+        pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
+      };
+    });
+    res.json(enrichedRows);
+  } catch (error) {
+    console.error('Error fetching biens-lite:', error);
+    res.status(500).json({ error: 'Failed to fetch biens-lite' });
+  }
+});
+
 app.post('/api/zones', requireAdminSession, async (req, res) => {
   try {
     await ensureZonesSchema();
