@@ -4748,8 +4748,12 @@ function normalizePaidServiceRecord(service, defaults = {}) {
   };
 }
 
+let ensurePaidServicesSchemaPromise = null;
+
 async function ensurePaidServicesSchema() {
-  await pool.query(`
+  if (!ensurePaidServicesSchemaPromise) {
+    ensurePaidServicesSchemaPromise = (async () => {
+      await pool.query(`
     CREATE TABLE IF NOT EXISTS services_payants_catalogue (
       id VARCHAR(120) NOT NULL PRIMARY KEY,
       categorie VARCHAR(255) NOT NULL,
@@ -4764,7 +4768,7 @@ async function ensurePaidServicesSchema() {
     )
   `);
 
-  await pool.query(`
+      await pool.query(`
     CREATE TABLE IF NOT EXISTS bien_services_payants (
       id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
       bien_id VARCHAR(120) NOT NULL,
@@ -4785,46 +4789,46 @@ async function ensurePaidServicesSchema() {
     )
   `);
 
-  const now = getAgencySqlDateTime();
-  const seededServices = readSeededPaidServicesCatalogue().map((service) => normalizePaidServiceRecord(service));
-  for (const service of seededServices) {
-    await pool.query(
+      const now = getAgencySqlDateTime();
+      const seededServices = readSeededPaidServicesCatalogue().map((service) => normalizePaidServiceRecord(service));
+      for (const service of seededServices) {
+        await pool.query(
       `INSERT INTO services_payants_catalogue (
          id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE id = id`,
       [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
     );
-  }
+      }
 
-  const [bienRows] = await pool.query(
+      const [bienRows] = await pool.query(
     `SELECT id, location_saisonniere_config_json
      FROM biens
      WHERE mode = 'location_saisonniere'`
   );
-  for (const row of bienRows || []) {
-    let config = null;
-    try {
-      config = row.location_saisonniere_config_json
-        ? (typeof row.location_saisonniere_config_json === 'string'
-          ? JSON.parse(row.location_saisonniere_config_json)
-          : row.location_saisonniere_config_json)
-        : null;
-    } catch {
-      config = null;
-    }
-    const services = Array.isArray(config?.services_payants) ? config.services_payants : [];
-    if (services.length === 0) continue;
-    for (let index = 0; index < services.length; index += 1) {
-      const service = normalizePaidServiceRecord(services[index]);
-      await pool.query(
+      for (const row of bienRows || []) {
+        let config = null;
+        try {
+          config = row.location_saisonniere_config_json
+            ? (typeof row.location_saisonniere_config_json === 'string'
+              ? JSON.parse(row.location_saisonniere_config_json)
+              : row.location_saisonniere_config_json)
+            : null;
+        } catch {
+          config = null;
+        }
+        const services = Array.isArray(config?.services_payants) ? config.services_payants : [];
+        if (services.length === 0) continue;
+        for (let index = 0; index < services.length; index += 1) {
+          const service = normalizePaidServiceRecord(services[index]);
+          await pool.query(
         `INSERT INTO services_payants_catalogue (
            id, categorie, label, description_courte, prix_affiche, prix_base, type_tarification, enabled, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE id = id`,
         [service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, now, now]
       );
-      await pool.query(
+          await pool.query(
         `INSERT INTO bien_services_payants (
            bien_id, service_catalogue_id, categorie_override, label_override, description_courte_override,
            prix_affiche_override, prix_override, type_tarification_override, enabled, ordre_affichage, created_at, updated_at
@@ -4841,8 +4845,64 @@ async function ensurePaidServicesSchema() {
            updated_at = VALUES(updated_at)`,
         [row.id, service.id, service.categorie, service.label, service.description_courte || null, service.prix_affiche || null, service.prix, service.type_tarification, service.enabled ? 1 : 0, index, now, now]
       );
-    }
+        }
+      }
+    })().catch((error) => {
+      ensurePaidServicesSchemaPromise = null;
+      throw error;
+    });
   }
+  await ensurePaidServicesSchemaPromise;
+}
+
+let ensureSeasonalPricingSchemaPromise = null;
+
+async function ensureSeasonalPricingSchema() {
+  if (!ensureSeasonalPricingSchemaPromise) {
+    ensureSeasonalPricingSchemaPromise = (async () => {
+      await ensureBiensWorkflowSchema();
+      await pool.query(`
+    CREATE TABLE IF NOT EXISTS bien_pricing_periods (
+      id VARCHAR(120) NOT NULL PRIMARY KEY,
+      bien_id VARCHAR(120) NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      prix_nuitee DECIMAL(12,2) NOT NULL,
+      prix_semaine DECIMAL(12,2) NULL,
+      minimum_nuitees INT NULL,
+      checkin_jour VARCHAR(20) NULL,
+      checkout_jour VARCHAR(20) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_bien_pricing_periods_bien (bien_id),
+      KEY idx_bien_pricing_periods_dates (start_date, end_date)
+    )
+  `);
+      const [columnRows] = await pool.query(
+        `SELECT COUNT(*) AS total
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'biens'
+       AND COLUMN_NAME = 'prix_semaine'`
+      );
+      if (Number(columnRows?.[0]?.total || 0) === 0) {
+        await pool.query('ALTER TABLE biens ADD COLUMN prix_semaine DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_nuitee');
+      }
+      if (!(await columnExists('bien_pricing_periods', 'minimum_nuitees'))) {
+        await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN minimum_nuitees INT NULL DEFAULT NULL AFTER prix_semaine');
+      }
+      if (!(await columnExists('bien_pricing_periods', 'checkin_jour'))) {
+        await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkin_jour VARCHAR(20) NULL DEFAULT NULL AFTER minimum_nuitees');
+      }
+      if (!(await columnExists('bien_pricing_periods', 'checkout_jour'))) {
+        await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkout_jour VARCHAR(20) NULL DEFAULT NULL AFTER checkin_jour');
+      }
+    })().catch((error) => {
+      ensureSeasonalPricingSchemaPromise = null;
+      throw error;
+    });
+  }
+  await ensureSeasonalPricingSchemaPromise;
 }
 
 async function ensureTypeFilterImagesSchema() {
@@ -5046,45 +5106,6 @@ function readEffectivePricingPeriods(payload, locationSaisonniereConfig) {
   };
 }
 
-async function ensureSeasonalPricingSchema() {
-  await ensureBiensWorkflowSchema();
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS bien_pricing_periods (
-      id VARCHAR(120) NOT NULL PRIMARY KEY,
-      bien_id VARCHAR(120) NOT NULL,
-      start_date DATE NOT NULL,
-      end_date DATE NOT NULL,
-      prix_nuitee DECIMAL(12,2) NOT NULL,
-      prix_semaine DECIMAL(12,2) NULL,
-      minimum_nuitees INT NULL,
-      checkin_jour VARCHAR(20) NULL,
-      checkout_jour VARCHAR(20) NULL,
-      created_at DATETIME NOT NULL,
-      updated_at DATETIME NOT NULL,
-      KEY idx_bien_pricing_periods_bien (bien_id),
-      KEY idx_bien_pricing_periods_dates (start_date, end_date)
-    )
-  `);
-  const [columnRows] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'biens'
-       AND COLUMN_NAME = 'prix_semaine'`
-  );
-  if (Number(columnRows?.[0]?.total || 0) === 0) {
-    await pool.query('ALTER TABLE biens ADD COLUMN prix_semaine DECIMAL(12,2) NULL DEFAULT NULL AFTER prix_nuitee');
-  }
-  if (!(await columnExists('bien_pricing_periods', 'minimum_nuitees'))) {
-    await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN minimum_nuitees INT NULL DEFAULT NULL AFTER prix_semaine');
-  }
-  if (!(await columnExists('bien_pricing_periods', 'checkin_jour'))) {
-    await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkin_jour VARCHAR(20) NULL DEFAULT NULL AFTER minimum_nuitees');
-  }
-  if (!(await columnExists('bien_pricing_periods', 'checkout_jour'))) {
-    await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkout_jour VARCHAR(20) NULL DEFAULT NULL AFTER checkin_jour');
-  }
-}
 
 async function listPricingPeriodsForBienIds(bienIds) {
   await ensureSeasonalPricingSchema();
