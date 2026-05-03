@@ -4,7 +4,6 @@ import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, Chevro
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
-import { motion } from "framer-motion";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
@@ -880,20 +879,6 @@ export default function HomePage() {
       document.removeEventListener("touchstart", handleOutside);
     };
   }, [showLocationDropdown, showCalendar, showCategoryDropdown, showSeasideDropdown, showComfortDropdown]);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const preload = document.createElement("link");
-    preload.rel = "preload";
-    preload.as = "image";
-    preload.href = HERO_IMAGE_URL_MOBILE;
-    preload.setAttribute("imagesrcset", `${HERO_IMAGE_URL_MOBILE} 640w, ${HERO_IMAGE_URL} 1080w`);
-    preload.setAttribute("imagesizes", "(max-width: 768px) 100vw, 1080px");
-    document.head.appendChild(preload);
-    return () => {
-      if (preload.parentNode) preload.parentNode.removeChild(preload);
-    };
-  }, []);
-
   return (
     <div className="flex flex-col min-h-screen">
       {/* Hero Section */}
@@ -904,22 +889,18 @@ export default function HomePage() {
             srcSet={`${HERO_IMAGE_URL_MOBILE} 640w, ${HERO_IMAGE_URL} 1080w`}
             sizes="(max-width: 768px) 100vw, 1080px"
             alt="Kelibia Beach"
-            className="w-full h-full object-cover brightness-75"
+            className="hidden md:block w-full h-full object-cover brightness-75"
             loading="eager"
             fetchPriority="high"
             decoding="async"
           />
+          <div className="md:hidden absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(16,185,129,0.35),transparent_45%),linear-gradient(160deg,#0f172a_0%,#134e4a_55%,#064e3b_100%)]" />
           <div className="absolute inset-0 bg-emerald-950/40 mix-blend-multiply pointer-events-none" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
         </div>
 
         <div className="relative z-10 container mx-auto px-4 md:px-6 text-center text-white w-full max-w-6xl">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="mb-6"
-          >
+          <div className="mb-6">
              <div className="mb-5 flex justify-center">
                <div className="h-24 w-24 overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-28 md:w-28">
                  <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
@@ -931,25 +912,15 @@ export default function HomePage() {
              <p className="text-xl md:text-2xl font-light tracking-wide text-emerald-50">
                Votre partenaire de confiance à Kélibia
              </p>
-          </motion.div>
+          </div>
           
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-lg md:text-xl mb-8 max-w-2xl mx-auto drop-shadow-md text-gray-100"
-          >
+          <p className="text-lg md:text-xl mb-8 max-w-2xl mx-auto drop-shadow-md text-gray-100">
             Achat • Vente • Location • Gestion personnalisée
-          </motion.p>
+          </p>
 
           {/* Filter Bar */}
           <div className="relative z-10 -mb-3 px-4 pb-0 md:px-6">
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: loading ? 0 : 1, y: loading ? 8 : 0 }}
-              transition={{ duration: 0.35, ease: "easeOut" }}
-              className="grid grid-cols-3 gap-2"
-            >
+            <div className="grid grid-cols-3 gap-2">
             {orderedModeTabs.map((tab) => (
               <button
                 key={tab.value}
@@ -975,7 +946,7 @@ export default function HomePage() {
                 {tab.comingSoon && <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-amber-200">Bientot</span>}
               </button>
             ))}
-            </motion.div>
+            </div>
           </div>
 
           <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
