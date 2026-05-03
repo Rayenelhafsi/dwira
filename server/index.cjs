@@ -2785,6 +2785,12 @@ async function columnExists(tableName, columnName) {
   return Number(rows?.[0]?.total || 0) > 0;
 }
 
+function toNullableNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 async function ensureAuthSchema() {
   const indexExists = async (tableName, indexName) => {
     const [rows] = await pool.query(
