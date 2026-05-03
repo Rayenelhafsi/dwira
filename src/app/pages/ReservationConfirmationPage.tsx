@@ -242,6 +242,16 @@ export default function ReservationConfirmationPage() {
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
+  const hasIdentityProfile =
+    Boolean(String(user.firstName || "").trim())
+    && Boolean(String(user.lastName || "").trim())
+    && Boolean(String(user.telephone || "").trim())
+    && Boolean(String(user.cin || "").trim());
+  if (!hasIdentityProfile) {
+    const returnTo = slug ? `/reservation/confirmation/${slug}` : "/logements";
+    return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
+  }
+
   if (!property || !draft || draft.propertySlug !== slug) {
     return <Navigate to={property ? `/properties/${property.slug}` : "/logements"} replace />;
   }

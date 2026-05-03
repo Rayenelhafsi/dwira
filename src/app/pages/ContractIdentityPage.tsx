@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 import { ArrowLeft, FileText, Printer, TimerReset } from "lucide-react";
 import { toast } from "sonner";
@@ -55,6 +55,17 @@ function resolveAssetUrl(url?: string) {
   return `${window.location.origin}${url}`;
 }
 
+function splitHumanName(fullName?: string | null) {
+  const normalized = String(fullName || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return { firstName: "", lastName: "" };
+  const parts = normalized.split(" ");
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return {
+    firstName: parts.slice(0, -1).join(" "),
+    lastName: parts.slice(-1).join(""),
+  };
+}
+
 export default function ContractIdentityPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -71,6 +82,7 @@ export default function ContractIdentityPage() {
   const [extracting, setExtracting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loadingContract, setLoadingContract] = useState(false);
+  const autoFilledFromProfileRef = useRef(false);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -201,6 +213,59 @@ export default function ContractIdentityPage() {
       setSubmitting(false);
     }
   };
+
+  const submitIdentityFromProfile = useCallback(async () => {
+    if (!demand || !user) return;
+    const fallbackNames = splitHumanName(user.name);
+    const profileCin = String(user.cin || "").trim();
+    const profileFirstName = String(user.firstName || fallbackNames.firstName || "").trim();
+    const profileLastName = String(user.lastName || fallbackNames.lastName || "").trim();
+    if (!profileCin || !profileFirstName || !profileLastName) return;
+
+    setSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append("document_type", "cin_tn");
+      formData.append("document_country", "tunisie");
+      formData.append("manual_document_number", profileCin);
+      formData.append("manual_first_name", profileFirstName);
+      formData.append("manual_last_name", profileLastName);
+      formData.append("actor_id", user?.id || user?.email || "client");
+
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/submit-identity`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Soumission des coordonnees impossible"));
+      const updated = await response.json();
+      setDemand(updated);
+      setManualDocumentNumber(profileCin);
+      setFirstName(profileFirstName);
+      setLastName(profileLastName);
+      setIdentityFile(null);
+      toast.success("Coordonnees du profil utilisees automatiquement.");
+    } catch (error) {
+      autoFilledFromProfileRef.current = false;
+      toast.error(error instanceof Error ? error.message : "Soumission des coordonnees impossible");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [demand, user]);
+
+  useEffect(() => {
+    if (!demand || !user) return;
+    if (autoFilledFromProfileRef.current) return;
+    const canCollectIdentity = demand.status === "attente_envoi_coordonnees_contrat";
+    if (!canCollectIdentity) return;
+    if (String(demand.identity_document_number || "").trim()) return;
+    const fallbackNames = splitHumanName(user.name);
+    if (!String(user.cin || "").trim()) return;
+    if (!String(user.firstName || fallbackNames.firstName || "").trim()) return;
+    if (!String(user.lastName || fallbackNames.lastName || "").trim()) return;
+    autoFilledFromProfileRef.current = true;
+    void submitIdentityFromProfile();
+  }, [demand, user, submitIdentityFromProfile]);
 
   const openContract = async () => {
     if (!demand?.contract_id) return;
