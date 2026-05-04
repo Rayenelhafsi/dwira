@@ -2037,6 +2037,20 @@ out body 40;
       const endDate = format(orderedEnd, 'yyyy-MM-dd');
       const unavailableRows = liveUnavailableDates
         ?? (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []);
+      const isArrivalBlockedOrBooked = unavailableRows.some((row) => {
+        const status = String(row?.status || '').toLowerCase();
+        if (status !== 'blocked' && status !== 'booked') return false;
+        const rowStart = String(row?.start || '').slice(0, 10);
+        const rowEnd = String(row?.end || '').slice(0, 10);
+        if (!rowStart || !rowEnd) return false;
+        return rowStart <= startDate && rowEnd >= startDate;
+      });
+      if (isArrivalBlockedOrBooked) {
+        toast.error("Date d'arrivee invalide: ce jour est bloque ou reserve.");
+        setSelectedStart(null);
+        setSelectedEnd(null);
+        return;
+      }
       const hasBlockedOrBookedOverlap = unavailableRows.some((row) => {
         const status = String(row?.status || '').toLowerCase();
         if (status !== 'blocked' && status !== 'booked') return false;

@@ -107,12 +107,8 @@ export default function AvailabilityCalendar({
     if (isDateUnavailable(date)) {
       // Allow selecting a blocked/booked day as departure boundary
       // when it is exactly the first day of another occupied range.
-      if (selectedStart && !selectedEnd && canUseAsCheckoutBoundary(date)) {
-        if (date < selectedStart) {
-          onDateRangeSelect(date, selectedStart);
-        } else {
-          onDateRangeSelect(selectedStart, date);
-        }
+      if (selectedStart && !selectedEnd && date >= selectedStart && canUseAsCheckoutBoundary(date)) {
+        onDateRangeSelect(selectedStart, date);
       }
       return;
     }
