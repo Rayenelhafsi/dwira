@@ -2046,13 +2046,13 @@ out body 40;
       if (nights < minStayForSelection) {
         toast.error(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s)`);
         setSelectedStart(orderedStart);
-        setSelectedEnd(null);
+        setSelectedEnd(orderedEnd);
         return;
       }
       if (nights > maxStay) {
         toast.error(`Sejour maximum: ${maxStay} nuit(s)`);
         setSelectedStart(orderedStart);
-        setSelectedEnd(null);
+        setSelectedEnd(orderedEnd);
         return;
       }
 
@@ -2067,7 +2067,7 @@ out body 40;
         const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(' | ');
         toast.error(`Regle de periode non respectee (${detail})`);
         setSelectedStart(orderedStart);
-        setSelectedEnd(null);
+        setSelectedEnd(orderedEnd);
         return;
       }
     }
