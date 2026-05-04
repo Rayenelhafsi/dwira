@@ -262,6 +262,18 @@ export default function AvailabilityCalendar({
     return null;
   };
 
+  const getDayLabelClassName = (date: Date, splitEnabled: boolean) => {
+    const isStart = !!selectedStart && isSameDay(date, selectedStart);
+    const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
+    if (!isStart && !isEnd) return "hidden";
+    const base = "absolute bottom-1 z-20 rounded-full px-1.5 py-[2px] text-[8px] font-semibold uppercase tracking-[0.04em] leading-none shadow-sm";
+    if (splitEnabled) {
+      if (isStart) return `${base} right-1 bg-emerald-700 text-white`;
+      return `${base} left-1 bg-emerald-700 text-white`;
+    }
+    return `${base} left-1/2 -translate-x-1/2 bg-emerald-700 text-white`;
+  };
+
   const weekDays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
   return (
@@ -311,12 +323,12 @@ export default function AvailabilityCalendar({
                     <span className={`pointer-events-none absolute inset-y-0 right-0 w-1/2 rounded-r-lg ${splitVisual.rightClass}`} />
                   </>
                 )}
-                <div className={`relative z-10 flex flex-col items-center justify-center ${splitVisual.enabled ? "text-gray-900" : ""}`}>
+                <div className={`relative z-10 flex h-full w-full flex-col items-center justify-center ${splitVisual.enabled ? "text-gray-900" : ""}`}>
                   <span className={splitVisual.enabled ? "rounded-full bg-white/90 px-1.5 text-[13px] font-semibold text-gray-900" : ""}>
                     {format(day, "d")}
                   </span>
                   {label && (
-                    <span className="absolute bottom-1 rounded bg-black/70 px-1 py-[1px] text-[9px] leading-tight text-white">
+                    <span className={getDayLabelClassName(day, splitVisual.enabled)}>
                       {label}
                     </span>
                   )}
