@@ -163,7 +163,11 @@ export default function AvailabilityCalendar({
       const rangeEnd = selectedStart < date ? date : selectedStart;
       const datesInRange = eachDayOfInterval({ start: rangeStart, end: rangeEnd });
       
-      const hasUnavailableDates = datesInRange.some(d => isDateUnavailable(d) && !isSameDay(d, date));
+      const hasUnavailableDates = datesInRange.some((d) => (
+        isDateUnavailable(d)
+        && !isSameDay(d, date)
+        && !(selectedStart && isSameDay(d, selectedStart))
+      ));
       
       if (hasUnavailableDates) {
         // If there are unavailable dates in between, start new selection
