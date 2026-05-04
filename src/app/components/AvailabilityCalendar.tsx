@@ -224,6 +224,17 @@ export default function AvailabilityCalendar({
   };
 
   const getSplitDayVisual = (date: Date): { enabled: boolean; leftClass: string; rightClass: string } => {
+    const isStart = !!selectedStart && isSameDay(date, selectedStart);
+    const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
+    const selectedClass = "bg-emerald-600";
+    const availableClass = "bg-green-100";
+    if (isEnd) {
+      return { enabled: true, leftClass: selectedClass, rightClass: availableClass };
+    }
+    if (isStart) {
+      return { enabled: true, leftClass: availableClass, rightClass: selectedClass };
+    }
+
     const blocking = getBlockingStatusForDay(date);
     const canCheckoutOnThisDay = !!blocking && canUseAsCheckoutBoundary(date);
     const canCheckinOnThisDay = !!blocking && canUseAsCheckinBoundary(date);
@@ -232,16 +243,6 @@ export default function AvailabilityCalendar({
       return { enabled: false, leftClass: "", rightClass: "" };
     }
     const blockedClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
-    const availableClass = "bg-green-100";
-    const isStart = !!selectedStart && isSameDay(date, selectedStart);
-    const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
-    const selectedClass = "bg-emerald-600";
-    if (isEnd) {
-      return { enabled: true, leftClass: selectedClass, rightClass: blockedClass };
-    }
-    if (isStart) {
-      return { enabled: true, leftClass: blockedClass, rightClass: selectedClass };
-    }
     // left = morning(departure side), right = evening(arrival side)
     if (canCheckinOnThisDay && !canCheckoutOnThisDay) {
       return { enabled: true, leftClass: blockedClass, rightClass: availableClass };
