@@ -15,7 +15,8 @@ import {
   parseISO,
   isBefore,
   startOfDay,
-  isAfter
+  isAfter,
+  addDays
 } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -48,6 +49,23 @@ export default function AvailabilityCalendar({
   
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
+  const toDayKey = (date: Date) => format(date, "yyyy-MM-dd");
+  const normalizeKey = (value: string) => String(value || "").slice(0, 10);
+
+  const getBlockingStatusForDay = (day: Date): 'blocked' | 'booked' | null => {
+    const key = toDayKey(day);
+    const blocking = unavailableDates.find((range) => {
+      const status = String(range.status || '').toLowerCase();
+      if (status !== 'blocked' && status !== 'booked') return false;
+      const startKey = normalizeKey(range.start);
+      const endKey = normalizeKey(range.end);
+      if (!startKey || !endKey) return false;
+      return startKey <= key && key <= endKey;
+    });
+    if (!blocking) return null;
+    return String(blocking.status).toLowerCase() === 'booked' ? 'booked' : 'blocked';
+  };
+
   const getDateStatus = (date: Date): 'available' | 'blocked' | 'pending' | 'booked' | 'past' => {
     // Check if date is in the past
     if (isBefore(date, today)) {
@@ -69,8 +87,9 @@ export default function AvailabilityCalendar({
   };
 
   const isDateUnavailable = (date: Date) => {
-    const status = getDateStatus(date);
-    return status === 'blocked' || status === 'booked' || status === 'past';
+    if (isBefore(date, today)) return true;
+    const blockingStatus = getBlockingStatusForDay(date);
+    return blockingStatus === 'blocked' || blockingStatus === 'booked';
   };
 
   const canUseAsCheckoutBoundary = (date: Date) => {
@@ -86,15 +105,15 @@ export default function AvailabilityCalendar({
     const matchesBoundaryEnd = unavailableDates.some((range) => {
       const status = String(range.status || '').toLowerCase();
       if (status !== 'blocked' && status !== 'booked') return false;
-      const end = parseISO(range.end);
-      return isSameDay(end, date);
+      const endKey = normalizeKey(range.end);
+      return endKey === toDayKey(date);
     });
     if (matchesBoundaryEnd) return true;
 
     // Business rule requested: allow check-in on blocked/booked day
     // when the next day is available.
-    const nextDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
-    return getDateStatus(nextDay) === 'available';
+    const nextDay = addDays(date, 1);
+    return getBlockingStatusForDay(nextDay) === null;
   };
 
   const isDatePending = (date: Date) => {
