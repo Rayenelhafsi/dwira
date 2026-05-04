@@ -236,13 +236,17 @@ export default function AvailabilityCalendar({
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
     const selectedClass = "bg-emerald-600";
+    if (isEnd) {
+      return { enabled: true, leftClass: selectedClass, rightClass: blockedClass };
+    }
+    if (isStart) {
+      return { enabled: true, leftClass: blockedClass, rightClass: selectedClass };
+    }
     // left = morning(departure side), right = evening(arrival side)
     if (canCheckinOnThisDay && !canCheckoutOnThisDay) {
-      if (isStart) return { enabled: true, leftClass: blockedClass, rightClass: selectedClass };
       return { enabled: true, leftClass: blockedClass, rightClass: availableClass };
     }
     if (canCheckoutOnThisDay && !canCheckinOnThisDay) {
-      if (isEnd) return { enabled: true, leftClass: selectedClass, rightClass: blockedClass };
       return { enabled: true, leftClass: availableClass, rightClass: blockedClass };
     }
     return {
