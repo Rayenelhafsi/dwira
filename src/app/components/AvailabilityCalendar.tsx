@@ -83,12 +83,18 @@ export default function AvailabilityCalendar({
   };
 
   const canUseAsCheckinBoundary = (date: Date) => {
-    return unavailableDates.some((range) => {
+    const matchesBoundaryEnd = unavailableDates.some((range) => {
       const status = String(range.status || '').toLowerCase();
       if (status !== 'blocked' && status !== 'booked') return false;
       const end = parseISO(range.end);
       return isSameDay(end, date);
     });
+    if (matchesBoundaryEnd) return true;
+
+    // Business rule requested: allow check-in on blocked/booked day
+    // when the next day is available.
+    const nextDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+    return getDateStatus(nextDay) === 'available';
   };
 
   const isDatePending = (date: Date) => {

@@ -2030,6 +2030,23 @@ out body 40;
   }, [nextImage, prevImage]);
 
   const handleDateRangeSelect = (start: Date | null, end: Date | null) => {
+    if (!isSaleProperty && start && !end) {
+      const startDate = format(start, 'yyyy-MM-dd');
+      const weekdayRuleCheck = validateReservationWeekdayRule({
+        startDate,
+        endDate: format(new Date(start.getTime() + (24 * 60 * 60 * 1000)), 'yyyy-MM-dd'),
+        periods: property?.pricingPeriods || [],
+      });
+      if (!weekdayRuleCheck.ok) {
+        const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
+        const detail = [checkinMessage].filter(Boolean).join(' | ');
+        toast.error(`Arrivee non autorisee pour cette periode (${detail})`);
+        setSelectedStart(null);
+        setSelectedEnd(null);
+        return;
+      }
+    }
+
     if (!isSaleProperty && start && end) {
       const orderedStart = start < end ? start : end;
       const orderedEnd = start < end ? end : start;
@@ -2037,6 +2054,15 @@ out body 40;
       const endDate = format(orderedEnd, 'yyyy-MM-dd');
       const unavailableRows = liveUnavailableDates
         ?? (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []);
+      const nextDayDate = format(new Date(orderedStart.getTime() + (24 * 60 * 60 * 1000)), 'yyyy-MM-dd');
+      const isBlockedOrBookedDay = (day: string) => unavailableRows.some((row) => {
+        const status = String(row?.status || '').toLowerCase();
+        if (status !== 'blocked' && status !== 'booked') return false;
+        const rowStart = String(row?.start || '').slice(0, 10);
+        const rowEnd = String(row?.end || '').slice(0, 10);
+        if (!rowStart || !rowEnd) return false;
+        return rowStart <= day && day <= rowEnd;
+      });
       const isArrivalInsideOccupiedNight = unavailableRows.some((row) => {
         const status = String(row?.status || '').toLowerCase();
         if (status !== 'blocked' && status !== 'booked') return false;
@@ -2046,7 +2072,7 @@ out body 40;
         // Occupied nights are [rowStart, rowEnd). Arrival on rowEnd is allowed (boundary).
         return rowStart <= startDate && startDate < rowEnd;
       });
-      if (isArrivalInsideOccupiedNight) {
+      if (isArrivalInsideOccupiedNight && isBlockedOrBookedDay(nextDayDate)) {
         toast.error("Date d'arrivee invalide: ce jour est bloque ou reserve.");
         setSelectedStart(null);
         setSelectedEnd(null);
