@@ -233,11 +233,16 @@ export default function AvailabilityCalendar({
     }
     const blockedClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
     const availableClass = "bg-green-100";
+    const isStart = !!selectedStart && isSameDay(date, selectedStart);
+    const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
+    const selectedClass = "bg-emerald-600";
     // left = morning(departure side), right = evening(arrival side)
     if (canCheckinOnThisDay && !canCheckoutOnThisDay) {
+      if (isStart) return { enabled: true, leftClass: blockedClass, rightClass: selectedClass };
       return { enabled: true, leftClass: blockedClass, rightClass: availableClass };
     }
     if (canCheckoutOnThisDay && !canCheckinOnThisDay) {
+      if (isEnd) return { enabled: true, leftClass: selectedClass, rightClass: blockedClass };
       return { enabled: true, leftClass: availableClass, rightClass: blockedClass };
     }
     return {
@@ -307,9 +312,13 @@ export default function AvailabilityCalendar({
                   </>
                 )}
                 <div className={`relative z-10 flex flex-col items-center justify-center ${splitVisual.enabled ? "text-gray-900" : ""}`}>
-                  <span>{format(day, "d")}</span>
+                  <span className={splitVisual.enabled ? "rounded-full bg-white/90 px-1.5 text-[13px] font-semibold text-gray-900" : ""}>
+                    {format(day, "d")}
+                  </span>
                   {label && (
-                    <span className="text-[8px] font-normal leading-tight">{label}</span>
+                    <span className="absolute bottom-1 rounded bg-black/70 px-1 py-[1px] text-[9px] leading-tight text-white">
+                      {label}
+                    </span>
                   )}
                 </div>
               </div>
