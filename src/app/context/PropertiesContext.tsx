@@ -3,6 +3,7 @@ import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, Bien
 import { Property } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
 import { extractGuestLimitsFromCharacteristicLines, resolveBienCapacity } from '../utils/bienCapacity';
+import { buildPropertyDetailsPath } from '../utils/propertyRouting';
 
 // API Base URL
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -459,11 +460,16 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     local_commercial: 'Local commercial',
   };
 
-  const detailPath = bien.mode === 'vente' && bien.type === 'immeuble'
+  const venteDetailPath = bien.mode === 'vente' && bien.type === 'immeuble'
     ? `/vente/immeuble/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`
     : bien.mode === 'vente' && bien.type === 'lotissement'
       ? `/vente/lotissement/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`
-      : `/properties/${encodeURIComponent((bien.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`;
+      : '';
+  const detailPath = venteDetailPath || buildPropertyDetailsPath({
+    reference: bien.reference,
+    slug: bien.titre.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    id: bien.id,
+  });
   const imageUrls = bien.media && bien.media.length > 0
     ? bien.media.filter((m: any) => {
       if (m.type === 'video') return false;

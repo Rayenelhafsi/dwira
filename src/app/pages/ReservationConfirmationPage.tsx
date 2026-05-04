@@ -11,6 +11,7 @@ import { calculateAccommodationPricing } from "../utils/seasonalPricing";
 import { computeGuestLimits } from "../utils/guestLimits";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 import { getAntiBotConfig } from "../services/auth";
+import { buildPropertyDetailsPath, propertyMatchesRouteToken } from "../utils/propertyRouting";
 
 type LocationState = {
   draft?: PendingReservationDraft;
@@ -45,7 +46,7 @@ export default function ReservationConfirmationPage() {
   const draftFromState = (location.state as LocationState | null)?.draft || null;
   const draftFromStorage = useMemo(() => readPendingReservationDraft(), []);
   const draft = draftFromState || draftFromStorage || null;
-  const property = properties.find((item) => item.slug === slug);
+  const property = properties.find((item) => propertyMatchesRouteToken(item, slug));
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
   const seasonalConfig = property?.seasonalConfig;
@@ -252,13 +253,13 @@ export default function ReservationConfirmationPage() {
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
-  if (!property || !draft || draft.propertySlug !== slug) {
-    return <Navigate to={property ? `/properties/${property.slug}` : "/logements"} replace />;
+  if (!property || !draft || !propertyMatchesRouteToken(property, draft.propertySlug)) {
+    return <Navigate to={property ? buildPropertyDetailsPath(property) : "/logements"} replace />;
   }
 
   const handleEditReservation = () => {
     savePendingReservationDraft(draft);
-    const propertyPath = property.detailPath || `/properties/${property.slug}`;
+    const propertyPath = buildPropertyDetailsPath(property);
     navigate(propertyPath, {
       state: { draft, restoreDraft: true },
     });

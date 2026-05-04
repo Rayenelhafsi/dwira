@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { useProperties } from "../context/PropertiesContext";
 import type { ReservationDemand } from "../admin/types";
 import { getReservationsFromCache } from "../utils/reservations";
+import { buildPropertyDetailsPath } from "../utils/propertyRouting";
 import {
   Dialog,
   DialogContent,
@@ -193,7 +194,7 @@ export default function MyReservationsPage() {
       return {
         ...reservation,
         image: property?.images?.[0] || "",
-        path: property?.detailPath || (property?.slug ? `/properties/${property.slug}` : "/logements"),
+        path: property ? buildPropertyDetailsPath(property) : "/logements",
       };
     }),
     [properties, reservations]

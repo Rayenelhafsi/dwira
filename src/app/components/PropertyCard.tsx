@@ -5,6 +5,7 @@ import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
 import { SmartImage } from "./SmartImage";
 import { resolveCurrentPricing } from "../utils/seasonalPricing";
+import { buildPropertyDetailsPath } from "../utils/propertyRouting";
 
 interface PropertyCardProps {
   property: Property;
@@ -74,7 +75,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const [titleOverflow, setTitleOverflow] = useState(false);
   const [titleShiftPx, setTitleShiftPx] = useState(0);
   const [titleDurationSec, setTitleDurationSec] = useState(8);
-  const baseDetailPath = property.detailPath || `/properties/${property.slug}`;
+  const baseDetailPath = buildPropertyDetailsPath(property);
   const linkTo = searchParams 
     ? `${baseDetailPath}?${searchParams}`
     : baseDetailPath;

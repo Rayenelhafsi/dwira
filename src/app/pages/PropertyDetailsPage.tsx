@@ -24,6 +24,7 @@ import { computeGuestLimits } from "../utils/guestLimits";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
+import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import {
   clearAuthPendingLogin,
   isAuthPendingLogin,
@@ -556,7 +557,8 @@ export default function PropertyDetailsPage() {
   
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
-  const property = properties.find((p) => p.slug === slug);
+  const property = properties.find((p) => propertyMatchesRouteToken(p, slug));
+  const propertyRouteToken = property ? getPropertyRouteToken(property) : "";
   const propertyDisplayTitle = buildReferenceTitle(property?.reference, property?.title);
   const propertyVideos = property?.videos || [];
   const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
@@ -2008,7 +2010,7 @@ out body 40;
     const stateDraft = (location.state as { draft?: PendingReservationDraft; restoreDraft?: boolean } | null)?.draft || null;
     const storedDraft = readPendingReservationDraft();
     const candidate = stateDraft || storedDraft;
-    if (!candidate || candidate.propertySlug !== property.slug) return;
+    if (!candidate || !propertyMatchesRouteToken(property, candidate.propertySlug)) return;
     const parsedStart = candidate.startDate ? new Date(candidate.startDate) : null;
     const parsedEnd = candidate.endDate ? new Date(candidate.endDate) : null;
     if (!parsedStart || !parsedEnd || Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) return;
@@ -2236,7 +2238,7 @@ out body 40;
 
     const draft = {
       propertyId: String(property.id),
-      propertySlug: property.slug,
+      propertySlug: propertyRouteToken,
       requestType: isSaleProperty ? 'visite' : 'reservation',
       startDate,
       endDate,
@@ -2267,7 +2269,7 @@ out body 40;
       return;
     }
 
-    navigate(`/reservation/confirmation/${property.slug}`, {
+    navigate(buildReservationConfirmationPath(property), {
       state: {
         draft,
       },
@@ -2290,7 +2292,7 @@ out body 40;
       startSocialLogin(provider);
       return;
     }
-    const confirmationPath = `/reservation/confirmation/${property.slug}`;
+    const confirmationPath = buildReservationConfirmationPath(property);
     saveAuthReturnTo(confirmationPath);
     markAuthPendingLogin();
     setIsAwaitingLogin(true);
@@ -2322,12 +2324,12 @@ out body 40;
     const navigateToReservationIfDraft = (closePrompt = true) => {
       if (pendingDraft) savePendingReservationDraft(pendingDraft as PendingReservationDraft);
       const draft = (pendingDraft as PendingReservationDraft | null) || readPendingReservationDraft();
-      if (property && draft && draft.propertySlug === property.slug) {
+      if (property && draft && propertyMatchesRouteToken(property, draft.propertySlug)) {
         if (closePrompt) {
           setShowLoginPrompt(false);
           setLoginPromptStep("choices");
         }
-        navigate(`/reservation/confirmation/${property.slug}`, { state: { draft } });
+        navigate(buildReservationConfirmationPath(property), { state: { draft } });
         return true;
       }
       return false;
@@ -2418,8 +2420,8 @@ out body 40;
       }
       setShowLoginPrompt(false);
       setLoginPromptStep("choices");
-      if (property && draft && draft.propertySlug === property.slug) {
-        navigate(`/reservation/confirmation/${property.slug}`, { state: { draft } });
+      if (property && draft && propertyMatchesRouteToken(property, draft.propertySlug)) {
+        navigate(buildReservationConfirmationPath(property), { state: { draft } });
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Creation Passkey echouee');
@@ -2472,8 +2474,8 @@ out body 40;
       const draft = (pendingDraft as PendingReservationDraft | null) || readPendingReservationDraft();
       setShowLoginPrompt(false);
       setLoginPromptStep("choices");
-      if (property && draft && draft.propertySlug === property.slug) {
-        navigate(`/reservation/confirmation/${property.slug}`, { state: { draft } });
+      if (property && draft && propertyMatchesRouteToken(property, draft.propertySlug)) {
+        navigate(buildReservationConfirmationPath(property), { state: { draft } });
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Impossible de sauvegarder le profil");
@@ -2503,7 +2505,7 @@ out body 40;
     if (!isAwaitingLogin && !isAuthPendingLogin()) return;
     if (!user || user.role !== 'user' || !user.email) return;
     const draft = readPendingReservationDraft();
-    if (!draft || draft.propertySlug !== property.slug) return;
+    if (!draft || !propertyMatchesRouteToken(property, draft.propertySlug)) return;
     if (!user.profileCompleted) {
       clearAuthPendingLogin();
       setIsAwaitingLogin(false);
@@ -2517,7 +2519,7 @@ out body 40;
     try {
       if (authPopupRef.current && !authPopupRef.current.closed) authPopupRef.current.close();
     } catch {}
-    navigate(`/reservation/confirmation/${property.slug}`, {
+    navigate(buildReservationConfirmationPath(property), {
       state: { draft },
     });
   }, [isAwaitingLogin, navigate, openProfileSetupStep, property, user]);
@@ -4023,7 +4025,7 @@ out body 40;
                     className="flex-[0_0_280px] min-w-0 sm:flex-[0_0_320px]"
                   >
                     <Link 
-                      to={`${otherProperty.detailPath || `/properties/${otherProperty.slug}`}${filterQueryString ? `?${filterQueryString}` : ''}`}
+                      to={`${buildPropertyDetailsPath(otherProperty)}${filterQueryString ? `?${filterQueryString}` : ''}`}
                       className="block bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group/card"
                     >
                       <div className="relative h-48 overflow-hidden">
