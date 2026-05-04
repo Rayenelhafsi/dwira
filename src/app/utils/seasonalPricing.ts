@@ -187,19 +187,18 @@ export function getReservationWeekdayRule(params: {
   if (!start || !end) return { requiredCheckinDay: null, requiredCheckoutDay: null };
   const periods = Array.isArray(params.periods) ? params.periods : [];
   const rangeStart = start <= end ? start : end;
+  const rangeEnd = start <= end ? end : start;
   const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
   if (nights <= 0) return { requiredCheckinDay: null, requiredCheckoutDay: null };
 
-  let requiredCheckinDay: string | null = null;
-  let requiredCheckoutDay: string | null = null;
-  for (let offset = 0; offset < nights; offset += 1) {
-    const day = addDays(rangeStart, offset);
-    const period = findPeriodForNight(periods, day);
-    const checkin = normalizeWeekday(period?.checkin_jour);
-    const checkout = normalizeWeekday(period?.checkout_jour);
-    if (!requiredCheckinDay && checkin) requiredCheckinDay = checkin;
-    if (!requiredCheckoutDay && checkout) requiredCheckoutDay = checkout;
-  }
+  // Rules are period-based:
+  // - check-in day comes from the arrival period
+  // - check-out day comes from the period of the last stayed night
+  const arrivalPeriod = findPeriodForNight(periods, rangeStart);
+  const lastNightDate = addDays(rangeEnd, -1);
+  const departurePeriod = findPeriodForNight(periods, lastNightDate);
+  const requiredCheckinDay = normalizeWeekday(arrivalPeriod?.checkin_jour);
+  const requiredCheckoutDay = normalizeWeekday(departurePeriod?.checkout_jour);
   return { requiredCheckinDay, requiredCheckoutDay };
 }
 

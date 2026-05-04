@@ -1113,6 +1113,47 @@ out body 40;
       periods: property?.pricingPeriods || [],
     });
   }, [property?.pricingPeriods, selectedEnd, selectedStart]);
+  const reservationValidation = useMemo(() => {
+    if (isSaleProperty) return { valid: true, message: "" };
+    if (!selectedStart || !selectedEnd) return { valid: false, message: "Selectionnez vos dates d'arrivee et de depart." };
+
+    const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
+    const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
+    const startDate = format(start, 'yyyy-MM-dd');
+    const endDate = format(end, 'yyyy-MM-dd');
+
+    if (startDate === endDate) {
+      return { valid: false, message: "Choisissez au moins une nuit." };
+    }
+
+    const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
+    const minStayForSelection = getReservationMinStayRequirement({
+      startDate,
+      endDate,
+      periods: property?.pricingPeriods || [],
+      fallbackMinStay: minStay,
+    });
+    if (nights < minStayForSelection) {
+      return { valid: false, message: `Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).` };
+    }
+    if (nights > maxStay) {
+      return { valid: false, message: `Sejour maximum autorise: ${maxStay} nuit(s).` };
+    }
+
+    const weekdayRuleCheck = validateReservationWeekdayRule({
+      startDate,
+      endDate,
+      periods: property?.pricingPeriods || [],
+    });
+    if (!weekdayRuleCheck.ok) {
+      const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in ${weekdayRuleCheck.requiredCheckinDay}` : null;
+      const checkoutMessage = weekdayRuleCheck.requiredCheckoutDay ? `check-out ${weekdayRuleCheck.requiredCheckoutDay}` : null;
+      const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(" | ");
+      return { valid: false, message: `Regle de periode non respectee: ${detail}.` };
+    }
+
+    return { valid: true, message: "" };
+  }, [isSaleProperty, maxStay, minStay, property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -1989,6 +2030,48 @@ out body 40;
   }, [nextImage, prevImage]);
 
   const handleDateRangeSelect = (start: Date | null, end: Date | null) => {
+    if (!isSaleProperty && start && end) {
+      const orderedStart = start < end ? start : end;
+      const orderedEnd = start < end ? end : start;
+      const startDate = format(orderedStart, 'yyyy-MM-dd');
+      const endDate = format(orderedEnd, 'yyyy-MM-dd');
+      const nights = Math.max(0, Math.abs(differenceInDays(orderedEnd, orderedStart)));
+
+      const minStayForSelection = getReservationMinStayRequirement({
+        startDate,
+        endDate,
+        periods: property?.pricingPeriods || [],
+        fallbackMinStay: minStay,
+      });
+      if (nights < minStayForSelection) {
+        toast.error(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s)`);
+        setSelectedStart(orderedStart);
+        setSelectedEnd(null);
+        return;
+      }
+      if (nights > maxStay) {
+        toast.error(`Sejour maximum: ${maxStay} nuit(s)`);
+        setSelectedStart(orderedStart);
+        setSelectedEnd(null);
+        return;
+      }
+
+      const weekdayRuleCheck = validateReservationWeekdayRule({
+        startDate,
+        endDate,
+        periods: property?.pricingPeriods || [],
+      });
+      if (!weekdayRuleCheck.ok) {
+        const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
+        const checkoutMessage = weekdayRuleCheck.requiredCheckoutDay ? `check-out: ${weekdayRuleCheck.requiredCheckoutDay}` : null;
+        const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(' | ');
+        toast.error(`Regle de periode non respectee (${detail})`);
+        setSelectedStart(orderedStart);
+        setSelectedEnd(null);
+        return;
+      }
+    }
+
     setSelectedStart(start);
     setSelectedEnd(end);
   };
@@ -3838,10 +3921,14 @@ out body 40;
                 <button 
                   type="button"
                   onClick={() => void handleReservationRequest()}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-colors shadow-md mt-4"
+                  disabled={!reservationValidation.valid}
+                  className="mt-4 w-full rounded-lg bg-emerald-600 py-3 font-bold text-white shadow-md transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
                 >
                   {isSaleProperty ? 'Demander une visite' : 'Reserver'}
                 </button>
+                {!isSaleProperty && !reservationValidation.valid && (
+                  <p className="mt-2 text-sm font-medium text-red-600">{reservationValidation.message}</p>
+                )}
                 <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite" : "Aucun montant ne vous sera debite pour le moment"}</p>
 
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
