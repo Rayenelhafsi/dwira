@@ -8281,6 +8281,59 @@ function AdminCalendar({
     addPricingPeriod(start, end);
   };
 
+  const upsertPricingPeriodForSelection = (options: { applyPricing?: boolean; applyMinimumNights?: boolean; applyCheckRules?: boolean }) => {
+    if (!selectionStart || !selectionEnd) {
+      toast.error('Selectionnez une periode');
+      return false;
+    }
+    const start = format(selectionStart < selectionEnd ? selectionStart : selectionEnd, 'yyyy-MM-dd');
+    const end = format(selectionStart < selectionEnd ? selectionEnd : selectionStart, 'yyyy-MM-dd');
+    const list = Array.isArray(pricingPeriods) ? pricingPeriods : [];
+    const index = list.findIndex((period) => String(period.start || '') === start && String(period.end || '') === end);
+    const current = index >= 0 ? list[index] : null;
+
+    const nightlyPrice = Math.max(0, Number(periodNightlyPrice || defaultNightlyPrice || 0));
+    const weeklyPrice = Math.max(0, Number(periodWeeklyPrice || defaultWeeklyPrice || 0));
+    if ((options.applyPricing || !current) && nightlyPrice <= 0) {
+      toast.error('Prix nuitee requis');
+      return false;
+    }
+
+    const nextPeriod: SeasonalPricingPeriod = {
+      id: current?.id || `pp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      start,
+      end,
+      prix_nuitee: options.applyPricing || !current ? nightlyPrice : Number(current?.prix_nuitee || nightlyPrice),
+      prix_semaine: options.applyPricing || !current
+        ? (weeklyPrice > 0 ? weeklyPrice : null)
+        : (current?.prix_semaine ?? null),
+      minimum_nuitees: options.applyMinimumNights
+        ? Math.max(1, Math.floor(Number(periodMinimumNights || 1)))
+        : Math.max(1, Number(current?.minimum_nuitees || 1)),
+      checkin_jour: options.applyCheckRules ? (periodCheckinDay || null) : (current?.checkin_jour || null),
+      checkout_jour: options.applyCheckRules ? (periodCheckoutDay || null) : (current?.checkout_jour || null),
+    };
+
+    if (index >= 0) {
+      const copy = [...list];
+      copy[index] = nextPeriod;
+      onPricingPeriodsChange(copy);
+    } else {
+      onPricingPeriodsChange([...list, nextPeriod]);
+    }
+    return true;
+  };
+
+  const handleConfirmMinimumNightsRule = () => {
+    const ok = upsertPricingPeriodForSelection({ applyMinimumNights: true });
+    if (ok) toast.success('Regle minimum nuitees enregistree pour la periode');
+  };
+
+  const handleConfirmCheckinCheckoutRule = () => {
+    const ok = upsertPricingPeriodForSelection({ applyCheckRules: true });
+    if (ok) toast.success('Regle check-in / check-out enregistree pour la periode');
+  };
+
   const handleRemovePricingPeriod = (index: number) => {
     onPricingPeriodsChange(pricingPeriods.filter((_, i) => i !== index));
     toast.success('Periode tarifaire supprimee');
@@ -8338,6 +8391,8 @@ function AdminCalendar({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-600">Selection calendrier: {selectionStart ? format(selectionStart, 'dd/MM/yyyy') : '...'}{selectionEnd ? ` - ${format(selectionEnd, 'dd/MM/yyyy')}` : ''}</span>
           <button type="button" onClick={handleAddPeriod} disabled={!selectionStart || !selectionEnd} className="ml-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Ajouter indisponibilite</button>
+          <button type="button" onClick={handleConfirmMinimumNightsRule} disabled={!selectionStart || !selectionEnd} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Confirmer min nuitees</button>
+          <button type="button" onClick={handleConfirmCheckinCheckoutRule} disabled={!selectionStart || !selectionEnd} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Confirmer check-in/out</button>
           <button type="button" onClick={handleAddPricingFromSelection} disabled={!selectionStart || !selectionEnd} className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium">Ajouter tarif periode</button>
         </div>
       </div>
