@@ -73,6 +73,15 @@ export default function AvailabilityCalendar({
     return status === 'blocked' || status === 'booked' || status === 'past';
   };
 
+  const canUseAsCheckoutBoundary = (date: Date) => {
+    return unavailableDates.some((range) => {
+      const status = String(range.status || '').toLowerCase();
+      if (status !== 'blocked' && status !== 'booked') return false;
+      const start = parseISO(range.start);
+      return isSameDay(start, date);
+    });
+  };
+
   const isDatePending = (date: Date) => {
     return getDateStatus(date) === 'pending';
   };
@@ -96,6 +105,15 @@ export default function AvailabilityCalendar({
     // Don't allow selection of unavailable dates (blocked, booked, past)
     // But allow pending dates to be selected
     if (isDateUnavailable(date)) {
+      // Allow selecting a blocked/booked day as departure boundary
+      // when it is exactly the first day of another occupied range.
+      if (selectedStart && !selectedEnd && canUseAsCheckoutBoundary(date)) {
+        if (date < selectedStart) {
+          onDateRangeSelect(date, selectedStart);
+        } else {
+          onDateRangeSelect(selectedStart, date);
+        }
+      }
       return;
     }
 

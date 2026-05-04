@@ -2035,6 +2035,25 @@ out body 40;
       const orderedEnd = start < end ? end : start;
       const startDate = format(orderedStart, 'yyyy-MM-dd');
       const endDate = format(orderedEnd, 'yyyy-MM-dd');
+      const unavailableRows = liveUnavailableDates
+        ?? (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []);
+      const hasBlockedOrBookedOverlap = unavailableRows.some((row) => {
+        const status = String(row?.status || '').toLowerCase();
+        if (status !== 'blocked' && status !== 'booked') return false;
+        const rowStart = String(row?.start || '').slice(0, 10);
+        const rowEnd = String(row?.end || '').slice(0, 10);
+        if (!rowStart || !rowEnd) return false;
+        // Night-overlap check with end-exclusive intervals:
+        // guest stay [startDate, endDate), occupied range [rowStart, rowEnd)
+        // This allows checkout exactly on rowStart (boundary handoff day).
+        return rowStart < endDate && rowEnd > startDate;
+      });
+      if (hasBlockedOrBookedOverlap) {
+        toast.error("Periode invalide: un ou plusieurs jours sont bloques ou reserves.");
+        setSelectedStart(orderedStart);
+        setSelectedEnd(null);
+        return;
+      }
       const nights = Math.max(0, Math.abs(differenceInDays(orderedEnd, orderedStart)));
 
       const minStayForSelection = getReservationMinStayRequirement({
