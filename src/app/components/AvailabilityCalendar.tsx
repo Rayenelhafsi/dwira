@@ -141,7 +141,7 @@ export default function AvailabilityCalendar({
     if (isDateUnavailable(date)) {
       // Allow selecting a blocked/booked day as arrival boundary
       // when it is exactly the end day of an occupied range.
-      if (!selectedStart && canUseAsCheckinBoundary(date)) {
+      if ((!selectedStart || (selectedStart && selectedEnd)) && canUseAsCheckinBoundary(date)) {
         onDateRangeSelect(date, null);
       }
       // Allow selecting a blocked/booked day as departure boundary
