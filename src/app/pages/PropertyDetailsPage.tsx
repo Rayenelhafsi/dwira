@@ -756,6 +756,8 @@ export default function PropertyDetailsPage() {
   const [selectedPaidServiceCategoryId, setSelectedPaidServiceCategoryId] = useState<string>("");
   const [selectedPaidServiceTypeFilter, setSelectedPaidServiceTypeFilter] = useState<"all" | PaidServiceItem["type_tarification"]>("all");
   const [showBookingCalendarDialog, setShowBookingCalendarDialog] = useState(false);
+  const [showRuleDialog, setShowRuleDialog] = useState(false);
+  const [ruleDialogMessage, setRuleDialogMessage] = useState("");
   const [seasonalDetailsTabId, setSeasonalDetailsTabId] = useState<string>('');
   const [allFeatures, setAllFeatures] = useState<FeatureApiRow[]>([]);
   const [featureTabs, setFeatureTabs] = useState<FeatureTabRow[]>([]);
@@ -2030,6 +2032,13 @@ out body 40;
   }, [nextImage, prevImage]);
 
   const handleDateRangeSelect = (start: Date | null, end: Date | null) => {
+    const failRule = (message: string) => {
+      setRuleDialogMessage(message);
+      setShowRuleDialog(true);
+      setSelectedStart(null);
+      setSelectedEnd(null);
+    };
+
     if (!isSaleProperty && start && !end) {
       const startDate = format(start, 'yyyy-MM-dd');
       const weekdayRuleCheck = validateReservationWeekdayRule({
@@ -2040,9 +2049,7 @@ out body 40;
       if (!weekdayRuleCheck.ok) {
         const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
         const detail = [checkinMessage].filter(Boolean).join(' | ');
-        toast.error(`Arrivee non autorisee pour cette periode (${detail})`);
-        setSelectedStart(null);
-        setSelectedEnd(null);
+        failRule(`Arrivee non autorisee pour cette periode (${detail}).`);
         return;
       }
     }
@@ -2073,9 +2080,7 @@ out body 40;
         return rowStart <= startDate && startDate < rowEnd;
       });
       if (isArrivalInsideOccupiedNight && isBlockedOrBookedDay(nextDayDate)) {
-        toast.error("Date d'arrivee invalide: ce jour est bloque ou reserve.");
-        setSelectedStart(null);
-        setSelectedEnd(null);
+        failRule("Date d'arrivee invalide: ce jour est bloque ou reserve.");
         return;
       }
       const hasBlockedOrBookedOverlap = unavailableRows.some((row) => {
@@ -2090,9 +2095,7 @@ out body 40;
         return rowStart < endDate && rowEnd > startDate;
       });
       if (hasBlockedOrBookedOverlap) {
-        toast.error("Periode invalide: un ou plusieurs jours sont bloques ou reserves.");
-        setSelectedStart(orderedStart);
-        setSelectedEnd(null);
+        failRule("Periode invalide: un ou plusieurs jours sont bloques ou reserves.");
         return;
       }
       const nights = Math.max(0, Math.abs(differenceInDays(orderedEnd, orderedStart)));
@@ -2104,15 +2107,11 @@ out body 40;
         fallbackMinStay: minStay,
       });
       if (nights < minStayForSelection) {
-        toast.error(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s)`);
-        setSelectedStart(orderedStart);
-        setSelectedEnd(orderedEnd);
+        failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
         return;
       }
       if (nights > maxStay) {
-        toast.error(`Sejour maximum: ${maxStay} nuit(s)`);
-        setSelectedStart(orderedStart);
-        setSelectedEnd(orderedEnd);
+        failRule(`Sejour maximum: ${maxStay} nuit(s).`);
         return;
       }
 
@@ -2125,9 +2124,7 @@ out body 40;
         const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
         const checkoutMessage = weekdayRuleCheck.requiredCheckoutDay ? `check-out: ${weekdayRuleCheck.requiredCheckoutDay}` : null;
         const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(' | ');
-        toast.error(`Regle de periode non respectee (${detail})`);
-        setSelectedStart(orderedStart);
-        setSelectedEnd(orderedEnd);
+        failRule(`Regle de periode non respectee (${detail}).`);
         return;
       }
     }
@@ -2337,9 +2334,16 @@ out body 40;
   };
 
   const handleReservationRequest = async () => {
+    const failRule = (message: string) => {
+      setRuleDialogMessage(message);
+      setShowRuleDialog(true);
+      setSelectedStart(null);
+      setSelectedEnd(null);
+    };
+
     if (!property) return;
     if (!selectedStart || !selectedEnd) {
-      toast.error('Selectionnez une periode');
+      failRule('Selectionnez une periode valide.');
       return;
     }
 
@@ -2348,7 +2352,7 @@ out body 40;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
     if (startDate === endDate) {
-      toast.error('Choisissez au moins une nuit');
+      failRule('Choisissez au moins une nuit.');
       return;
     }
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
@@ -2359,11 +2363,11 @@ out body 40;
       fallbackMinStay: minStay,
     });
     if (!isSaleProperty && nights < minStayForSelection) {
-      toast.error(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s)`);
+      failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
       return;
     }
     if (!isSaleProperty && nights > maxStay) {
-      toast.error(`Sejour maximum: ${maxStay} nuit(s)`);
+      failRule(`Sejour maximum: ${maxStay} nuit(s).`);
       return;
     }
     const weekdayRuleCheck = validateReservationWeekdayRule({
@@ -2375,7 +2379,7 @@ out body 40;
       const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
       const checkoutMessage = weekdayRuleCheck.requiredCheckoutDay ? `check-out: ${weekdayRuleCheck.requiredCheckoutDay}` : null;
       const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(' | ');
-      toast.error(`Regle de periode non respectee (${detail})`);
+      failRule(`Regle de periode non respectee (${detail}).`);
       return;
     }
 
@@ -4124,6 +4128,26 @@ out body 40;
                 setShowVariablePaidServiceNotice(false);
               }}
               className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            >
+              Compris
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showRuleDialog} onOpenChange={setShowRuleDialog}>
+        <DialogContent className="max-w-md rounded-2xl border-0 p-0 shadow-2xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Regle de reservation</DialogTitle>
+            <DialogDescription>Information sur les regles de reservation.</DialogDescription>
+          </DialogHeader>
+          <div className="p-6">
+            <h3 className="text-xl font-bold text-gray-900">Regle de reservation</h3>
+            <p className="mt-3 text-sm leading-6 text-gray-700">{ruleDialogMessage}</p>
+            <button
+              type="button"
+              onClick={() => setShowRuleDialog(false)}
+              className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
             >
               Compris
             </button>
