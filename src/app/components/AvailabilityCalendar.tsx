@@ -223,6 +223,20 @@ export default function AvailabilityCalendar({
     return className;
   };
 
+  const getSplitDayVisual = (date: Date): { enabled: boolean; leftClass: string; rightClass: string } => {
+    const blocking = getBlockingStatusForDay(date);
+    const isTransition = !!blocking && canUseAsCheckoutBoundary(date);
+    if (!isTransition) {
+      return { enabled: false, leftClass: "", rightClass: "" };
+    }
+    const rightClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
+    return {
+      enabled: true,
+      leftClass: "bg-emerald-600",
+      rightClass,
+    };
+  };
+
   const getDayLabel = (date: Date): string | null => {
     if (selectedStart && isSameDay(date, selectedStart)) {
       return "Arrivée";
@@ -272,9 +286,16 @@ export default function AvailabilityCalendar({
       <div className="grid grid-cols-7 gap-2">
         {days.map((day, idx) => {
           const label = getDayLabel(day);
+          const splitVisual = getSplitDayVisual(day);
           return (
             <div key={idx} onClick={() => handleDateClick(day)}>
               <div className={getDayClassName(day)}>
+                {splitVisual.enabled && (
+                  <>
+                    <span className={`absolute inset-y-0 left-0 w-1/2 rounded-l-lg ${splitVisual.leftClass}`} />
+                    <span className={`absolute inset-y-0 right-0 w-1/2 rounded-r-lg ${splitVisual.rightClass}`} />
+                  </>
+                )}
                 <div className="flex flex-col items-center justify-center">
                   <span>{format(day, "d")}</span>
                   {label && (
