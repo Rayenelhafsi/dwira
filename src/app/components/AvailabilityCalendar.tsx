@@ -191,7 +191,7 @@ export default function AvailabilityCalendar({
     const isInSelectedRange = isDateInSelectedRange(date);
     const isPending = dateStatus === 'pending';
 
-    let className = "w-full aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative ";
+    let className = "w-full aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative overflow-hidden ";
     
     if (!isCurrentMonth) {
       className += "text-gray-300 ";
@@ -225,15 +225,25 @@ export default function AvailabilityCalendar({
 
   const getSplitDayVisual = (date: Date): { enabled: boolean; leftClass: string; rightClass: string } => {
     const blocking = getBlockingStatusForDay(date);
-    const isTransition = !!blocking && canUseAsCheckoutBoundary(date);
+    const canCheckoutOnThisDay = !!blocking && canUseAsCheckoutBoundary(date);
+    const canCheckinOnThisDay = !!blocking && canUseAsCheckinBoundary(date);
+    const isTransition = !!blocking && (canCheckoutOnThisDay || canCheckinOnThisDay);
     if (!isTransition) {
       return { enabled: false, leftClass: "", rightClass: "" };
     }
-    const rightClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
+    const blockedClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
+    const availableClass = "bg-green-100";
+    // left = morning(departure side), right = evening(arrival side)
+    if (canCheckinOnThisDay && !canCheckoutOnThisDay) {
+      return { enabled: true, leftClass: blockedClass, rightClass: availableClass };
+    }
+    if (canCheckoutOnThisDay && !canCheckinOnThisDay) {
+      return { enabled: true, leftClass: availableClass, rightClass: blockedClass };
+    }
     return {
       enabled: true,
-      leftClass: "bg-emerald-600",
-      rightClass,
+      leftClass: blockedClass,
+      rightClass: blockedClass,
     };
   };
 
@@ -292,11 +302,11 @@ export default function AvailabilityCalendar({
               <div className={getDayClassName(day)}>
                 {splitVisual.enabled && (
                   <>
-                    <span className={`absolute inset-y-0 left-0 w-1/2 rounded-l-lg ${splitVisual.leftClass}`} />
-                    <span className={`absolute inset-y-0 right-0 w-1/2 rounded-r-lg ${splitVisual.rightClass}`} />
+                    <span className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 rounded-l-lg ${splitVisual.leftClass}`} />
+                    <span className={`pointer-events-none absolute inset-y-0 right-0 w-1/2 rounded-r-lg ${splitVisual.rightClass}`} />
                   </>
                 )}
-                <div className="flex flex-col items-center justify-center">
+                <div className={`relative z-10 flex flex-col items-center justify-center ${splitVisual.enabled ? "text-gray-900" : ""}`}>
                   <span>{format(day, "d")}</span>
                   {label && (
                     <span className="text-[8px] font-normal leading-tight">{label}</span>
