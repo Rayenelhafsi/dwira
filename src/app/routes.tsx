@@ -5,9 +5,32 @@ import { VentesLayout } from "./ventes/VentesLayout";
 import { AdminLayout } from "./admin/AdminLayout";
 import { PUBLIC_COMING_SOON } from "./config/publicAvailability";
 
+const CHUNK_RELOAD_KEY = "dwira_chunk_reload_once";
+
+function isChunkLoadError(error: unknown) {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return message.includes("failed to fetch dynamically imported module") || message.includes("importing a module script failed");
+}
+
 const lazyPage = (loader: () => Promise<{ default: React.ComponentType<any> }>) => async () => {
-  const module = await loader();
-  return { Component: module.default };
+  try {
+    const module = await loader();
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+    }
+    return { Component: module.default };
+  } catch (error) {
+    if (typeof window !== "undefined" && isChunkLoadError(error)) {
+      const alreadyReloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === "1";
+      if (!alreadyReloaded) {
+        sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
+        window.location.reload();
+        return { Component: () => null };
+      }
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+    }
+    throw error;
+  }
 };
 
 const ventesRoutes = PUBLIC_COMING_SOON.ventes
@@ -33,6 +56,7 @@ export const router = createBrowserRouter([
   {
     path: "/",
     Component: Layout,
+    HydrateFallback: () => <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>,
     children: [
       { index: true, Component: HomePage },
       { path: "logements", lazy: lazyPage(() => import("./pages/PropertiesPage")) },
@@ -52,6 +76,7 @@ export const router = createBrowserRouter([
   {
     path: "/admin",
     Component: AdminLayout,
+    HydrateFallback: () => <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>,
     children: [
       { index: true, lazy: lazyPage(() => import("./admin/pages/DashboardHome")) },
       { path: "biens", lazy: lazyPage(() => import("./admin/pages/BiensPage")) },
