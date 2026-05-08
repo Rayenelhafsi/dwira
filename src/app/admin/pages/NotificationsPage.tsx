@@ -42,6 +42,11 @@ const statusToneClasses: Record<ReservationDemandStatus, string> = {
   contrat_realise: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   succes_paiement: 'bg-emerald-100 text-emerald-800 border-emerald-200',
 };
+const hiddenStatusOptions = new Set<ReservationDemandStatus>([
+  'attente_envoi_coordonnees_contrat',
+  'demande_recu_paiement',
+  'contrat_realise',
+]);
 
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get('content-type') || '';
@@ -446,7 +451,9 @@ export default function NotificationsPage() {
                       disabled={savingId === demand.id}
                       className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700"
                     >
-                      {Object.entries(statusLabels).map(([value, label]) => (
+                      {Object.entries(statusLabels)
+                        .filter(([value]) => !hiddenStatusOptions.has(value as ReservationDemandStatus))
+                        .map(([value, label]) => (
                         <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
