@@ -187,11 +187,7 @@ export function Header() {
       setShowActionableNotice(false);
       return;
     }
-    if (!hasCompletedClientProfile(user)) {
-      setActionableDemand(null);
-      setShowActionableNotice(false);
-      return;
-    }
+    const profileCompleted = hasCompletedClientProfile(user);
     const query = new URLSearchParams();
     if (user.id) query.set("client_user_id", user.id);
     query.set("client_email", user.email);
@@ -208,6 +204,13 @@ export function Header() {
           item.status === "demande_rejetee_admin"
         ) || null;
         if (!nextDemand) return;
+        const shouldShowForCurrentUser =
+          profileCompleted || nextDemand.status === "reponse_positive_attente_confirmation_client";
+        if (!shouldShowForCurrentUser) {
+          setActionableDemand(null);
+          setShowActionableNotice(false);
+          return;
+        }
         const serviceQuoteKeyPart = nextDemand.variable_services_quote_status === "devis_envoye"
           ? `${nextDemand.variable_services_quote_total || 0}_${nextDemand.updated_at || ""}`
           : "no_quote";
