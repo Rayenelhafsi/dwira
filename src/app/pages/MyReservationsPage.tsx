@@ -25,6 +25,7 @@ const statusLabels: Record<ReservationDemand["status"], string> = {
   reponse_negative_autre_proposition_meme_bien: "Reponse negative, autre proposition pour ce bien",
   reponse_negative_autre_proposition_bien_similaire: "Reponse negative, autre proposition pour un bien similaire",
   demande_rejetee_admin: "Demande rejetee par administration",
+  demande_annulee_client: "Demande annulee",
   attente_envoi_coordonnees_contrat: "Attente d'envoi de coordonnees pour contrat",
   demande_recu_paiement: "Demande de recu de paiement",
   recu_paiement_envoye: "Recu de paiement envoye",
@@ -96,7 +97,7 @@ type ContractApi = {
 export default function MyReservationsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { properties } = useProperties();
+  const { properties, refreshData } = useProperties();
   const [reservations, setReservations] = useState<ReservationDemand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activePositiveDemandId, setActivePositiveDemandId] = useState<string | null>(null);
@@ -213,7 +214,7 @@ export default function MyReservationsPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          status: "demande_rejetee_admin",
+          status: "demande_annulee_client",
           actor_type: "client",
           actor_id: user?.id || user?.email || "client",
           client_note: "Reservation annulee par le client.",
@@ -223,6 +224,7 @@ export default function MyReservationsPage() {
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Annulation impossible"));
       const updated = await response.json();
       updateReservationInState(updated);
+      await refreshData();
       setActivePositiveDemandId(null);
       toast.success("Reservation annulee.");
     } catch (error) {

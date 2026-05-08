@@ -214,7 +214,8 @@ export function Header() {
         const serviceQuoteKeyPart = nextDemand.variable_services_quote_status === "devis_envoye"
           ? `${nextDemand.variable_services_quote_total || 0}_${nextDemand.updated_at || ""}`
           : "no_quote";
-        const key = `dwira_action_notice_${nextDemand.id}_${nextDemand.status}_${serviceQuoteKeyPart}`;
+        const demandVersion = String(nextDemand.updated_at || nextDemand.created_at || "");
+        const key = `dwira_action_notice_${nextDemand.id}_${nextDemand.status}_${demandVersion}_${serviceQuoteKeyPart}`;
         if (!localStorage.getItem(key)) {
           localStorage.setItem(key, "1");
           setActionableDemand(nextDemand);

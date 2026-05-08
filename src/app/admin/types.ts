@@ -537,6 +537,7 @@ export type ReservationDemandStatus =
   | 'reponse_negative_autre_proposition_meme_bien'
   | 'reponse_negative_autre_proposition_bien_similaire'
   | 'demande_rejetee_admin'
+  | 'demande_annulee_client'
   | 'attente_envoi_coordonnees_contrat'
   | 'demande_recu_paiement'
   | 'recu_paiement_envoye'

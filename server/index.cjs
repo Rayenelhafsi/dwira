@@ -4504,6 +4504,7 @@ const RESERVATION_DEMAND_STATUSES = new Set([
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
   'demande_rejetee_admin',
+  'demande_annulee_client',
   'attente_envoi_coordonnees_contrat',
   'demande_recu_paiement',
   'recu_paiement_envoye',
@@ -10631,7 +10632,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     const body = requester?.role === 'admin'
       ? rawBody
       : {
-          status: current.status,
+          status: rawBody?.status ?? current.status,
           actor_type: 'client',
           actor_id: String(requester?.id || requester?.email || 'client').trim(),
           history_note: String(rawBody?.history_note || '').trim() || 'Client a confirme la poursuite vers la finalisation du contrat',
@@ -10653,17 +10654,18 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         });
         return res.status(403).json({ error: 'Transition de statut non autorisee pour ce client' });
       }
-      if (nextStatus !== String(current.status || '')) {
+      const allowedClientTargetStatuses = [String(current.status || ''), 'demande_annulee_client'];
+      if (!allowedClientTargetStatuses.includes(nextStatus)) {
         void logSecurityEvent({
           req,
           eventType: 'reservation_demand_transition_denied',
           severity: 'warning',
           success: false,
           statusCode: 403,
-          message: 'Client transition denied due to forbidden target status (status mutation no longer allowed)',
+          message: 'Client transition denied due to forbidden target status',
           metadata: { demandId, requestedStatus: nextStatus },
         });
-        return res.status(403).json({ error: 'La modification de statut par le client n est plus autorisee sur cette etape' });
+        return res.status(403).json({ error: 'La modification de statut demandee n est pas autorisee sur cette etape' });
       }
     }
     const ownerNotifiedAt = body.communicateToOwner
@@ -10780,7 +10782,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     );
 
     if (current.unavailable_date_id) {
-      if (nextStatus === 'demande_rejetee_admin') {
+      if (nextStatus === 'demande_rejetee_admin' || nextStatus === 'demande_annulee_client') {
         await pool.query(
           `DELETE FROM unavailable_dates
            WHERE id = ?
