@@ -34,6 +34,7 @@ import {
   readPendingReservationDraft,
   type PendingReservationDraft,
 } from "../utils/pendingReservation";
+import { readAmicales } from "../utils/amicales";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const GALLERY_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e5e7eb'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1200' height='675' fill='url(%23g)'/%3E%3C/svg%3E";
@@ -748,6 +749,12 @@ export default function PropertyDetailsPage() {
   const [extraMattresses, setExtraMattresses] = useState(0);
   const [selectedPaidServiceIds, setSelectedPaidServiceIds] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance' | 'amicale'>('avance');
+  const [amicaleSelectionId, setAmicaleSelectionId] = useState("");
+  const [amicaleFullName, setAmicaleFullName] = useState("");
+  const [amicaleMatricule, setAmicaleMatricule] = useState("");
+  const [amicalePhone, setAmicalePhone] = useState("");
+  const [amicaleCode, setAmicaleCode] = useState("");
+  const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string }>>([]);
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
   const [showAmenitiesDialog, setShowAmenitiesDialog] = useState(false);
   const [showPaidServicesDialog, setShowPaidServicesDialog] = useState(false);
@@ -1154,8 +1161,16 @@ out body 40;
       return { valid: false, message: `Regle de periode non respectee: ${detail}.` };
     }
 
+    if (paymentMode === "amicale") {
+      if (!amicaleSelectionId) return { valid: false, message: "Selectionnez une amicale." };
+      if (!String(amicaleFullName || "").trim()) return { valid: false, message: "Nom et prenom obligatoires." };
+      if (!String(amicaleMatricule || "").trim()) return { valid: false, message: "Matricule obligatoire." };
+      if (!String(amicalePhone || "").trim()) return { valid: false, message: "Numero de telephone obligatoire." };
+      if (!String(amicaleCode || "").trim()) return { valid: false, message: "Code amicale obligatoire." };
+    }
+
     return { valid: true, message: "" };
-  }, [isSaleProperty, maxStay, minStay, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, isSaleProperty, maxStay, minStay, paymentMode, property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -2146,6 +2161,10 @@ out body 40;
   }, []);
 
   useEffect(() => {
+    setAmicaleOptions(readAmicales().map((item) => ({ id: item.id, name: item.name, code: item.code })));
+  }, []);
+
+  useEffect(() => {
     if (!property || draftHydratedRef.current) return;
     const stateDraft = (location.state as { draft?: PendingReservationDraft; restoreDraft?: boolean } | null)?.draft || null;
     const storedDraft = readPendingReservationDraft();
@@ -2169,6 +2188,11 @@ out body 40;
     setExtraMattresses(Math.max(0, Number(candidate.extraMattresses || 0)));
     setSelectedPaidServiceIds(Array.isArray(candidate.selectedPaidServiceIds) ? candidate.selectedPaidServiceIds : []);
     setPaymentMode(candidate.paymentMode === 'totalite' ? 'totalite' : (candidate.paymentMode === 'amicale' ? 'amicale' : 'avance'));
+    setAmicaleSelectionId(String(candidate.amicaleSelectionId || ""));
+    setAmicaleFullName(String(candidate.amicaleName || ""));
+    setAmicaleMatricule(String(candidate.amicaleMatricule || ""));
+    setAmicalePhone(String(candidate.amicalePhone || ""));
+    setAmicaleCode(String(candidate.amicaleCode || ""));
     setReservationNote(String(candidate.reservationNote || ""));
     setPendingDraft(candidate);
   }, [location.state, maxAdultGuests, maxChildGuests, maxGuests, property]);
@@ -2397,10 +2421,28 @@ out body 40;
       extraMattresses,
       selectedPaidServiceIds,
       paymentMode,
+      amicaleSelectionId: paymentMode === "amicale" ? amicaleSelectionId : undefined,
+      amicaleSelectionName: paymentMode === "amicale" ? (amicaleOptions.find((item) => item.id === amicaleSelectionId)?.name || "") : undefined,
+      amicaleName: paymentMode === "amicale" ? amicaleFullName.trim() : undefined,
+      amicaleMatricule: paymentMode === "amicale" ? amicaleMatricule.trim() : undefined,
+      amicalePhone: paymentMode === "amicale" ? amicalePhone.trim() : undefined,
+      amicaleCode: paymentMode === "amicale" ? amicaleCode.trim() : undefined,
       reservationNote: reservationNote.trim(),
     };
 
-    if (!user || user.role !== 'user' || !user.email) {
+    if (paymentMode === "amicale") {
+      const selectedAmicale = amicaleOptions.find((item) => item.id === amicaleSelectionId) || null;
+      if (!selectedAmicale) {
+        toast.error("Selection amicale invalide.");
+        return;
+      }
+      if (selectedAmicale.code !== amicaleCode.trim()) {
+        toast.error("Code amicale incorrect.");
+        return;
+      }
+    }
+
+    if (paymentMode !== "amicale" && (!user || user.role !== 'user' || !user.email)) {
       savePendingReservationDraft(draft);
       setPendingDraft(draft);
       setLoginPromptStep("choices");
@@ -2408,7 +2450,7 @@ out body 40;
       return;
     }
 
-    if (!user.profileCompleted) {
+    if (paymentMode !== "amicale" && !user.profileCompleted) {
       savePendingReservationDraft(draft);
       setPendingDraft(draft);
       openProfileSetupStep(user);
@@ -3970,6 +4012,52 @@ out body 40;
                       <button type="button" onClick={() => setPaymentMode('amicale')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'amicale' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
                         Amicale
                       </button>
+                    </div>
+                  </div>
+                )}
+
+                {!isSaleProperty && paymentMode === "amicale" && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                    <p className="text-xs font-bold uppercase text-emerald-700 mb-2">Formulaire Amicale</p>
+                    <div className="grid gap-2">
+                      <select
+                        value={amicaleSelectionId}
+                        onChange={(event) => setAmicaleSelectionId(event.target.value)}
+                        className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">Selectionner amicale</option>
+                        {amicaleOptions.map((item) => (
+                          <option key={item.id} value={item.id}>{item.name}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={amicaleFullName}
+                        onChange={(event) => setAmicaleFullName(event.target.value)}
+                        placeholder="Nom et prenom"
+                        className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={amicaleMatricule}
+                        onChange={(event) => setAmicaleMatricule(event.target.value)}
+                        placeholder="Identifiant interne (Matricule)"
+                        className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={amicalePhone}
+                        onChange={(event) => setAmicalePhone(event.target.value)}
+                        placeholder="Num tel"
+                        className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={amicaleCode}
+                        onChange={(event) => setAmicaleCode(event.target.value)}
+                        placeholder="Code"
+                        className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      />
                     </div>
                   </div>
                 )}

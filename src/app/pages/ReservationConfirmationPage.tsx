@@ -49,6 +49,7 @@ export default function ReservationConfirmationPage() {
   const property = properties.find((item) => propertyMatchesRouteToken(item, slug));
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
+  const isAmicaleFlow = draft?.paymentMode === 'amicale';
   const seasonalConfig = property?.seasonalConfig;
   const fallbackMaxGuests = Math.max(1, property?.guests || seasonalConfig?.limitePersonnesNuit || 1);
   const { maxGuests, maxAdultGuests, maxChildGuests } = computeGuestLimits({
@@ -238,17 +239,17 @@ export default function ReservationConfirmationPage() {
     );
   }
 
-  if (!user || user.role !== "user") {
+  if (!isAmicaleFlow && (!user || user.role !== "user")) {
     const returnTo = slug ? `/reservation/confirmation/${slug}` : "/logements";
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
   const hasIdentityProfile =
-    Boolean(String(user.firstName || "").trim())
-    && Boolean(String(user.lastName || "").trim())
-    && Boolean(String(user.telephone || "").trim())
-    && Boolean(String(user.cin || "").trim());
-  if (!hasIdentityProfile) {
+    Boolean(String(user?.firstName || "").trim())
+    && Boolean(String(user?.lastName || "").trim())
+    && Boolean(String(user?.telephone || "").trim())
+    && Boolean(String(user?.cin || "").trim());
+  if (!isAmicaleFlow && !hasIdentityProfile) {
     const returnTo = slug ? `/reservation/confirmation/${slug}` : "/logements";
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
@@ -287,9 +288,9 @@ export default function ReservationConfirmationPage() {
         credentials: "include",
           body: JSON.stringify({
             bien_id: String(property.id),
-          client_user_id: user.id,
-          client_email: user.email,
-          client_name: user.name,
+          client_user_id: isAmicaleFlow ? undefined : user?.id,
+          client_email: isAmicaleFlow ? undefined : user?.email,
+          client_name: isAmicaleFlow ? String(draft.amicaleName || "").trim() : user?.name,
           start_date: draft.startDate,
           end_date: draft.endDate,
             guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
@@ -301,7 +302,18 @@ export default function ReservationConfirmationPage() {
             selected_fixed_services: summary.fixedPaidServices || [],
             selected_variable_services: summary.variablePaidServices || [],
             client_note: buildClientNote(
-              draft,
+              {
+                ...draft,
+                reservationNote: isAmicaleFlow
+                  ? [
+                      String(draft.reservationNote || "").trim(),
+                      `Amicale: ${String(draft.amicaleSelectionName || draft.amicaleSelectionId || "").trim()}`,
+                      `Matricule: ${String(draft.amicaleMatricule || "").trim()}`,
+                      `Tel: ${String(draft.amicalePhone || "").trim()}`,
+                      `Code amicale saisi: ${String(draft.amicaleCode || "").trim()}`,
+                    ].filter(Boolean).join("\n")
+                  : draft.reservationNote,
+              },
               {
                 guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
                 adultGuests: summary?.adultGuests || Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1)),
@@ -330,6 +342,10 @@ export default function ReservationConfirmationPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible de confirmer la demande";
       if (/401|authentif|session/i.test(message)) {
+        if (isAmicaleFlow) {
+          toast.error(`${message}. Demande non enregistree.`);
+          return;
+        }
         toast.error("Session expiree. Reconnectez-vous puis confirmez la reservation.");
         const returnTo = slug ? `/reservation/confirmation/${encodeURIComponent(slug)}` : "/logements";
         navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`);

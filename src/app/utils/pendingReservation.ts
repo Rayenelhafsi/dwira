@@ -16,6 +16,12 @@ export type PendingReservationDraft = {
   extraMattresses?: number;
   selectedPaidServiceIds?: string[];
   paymentMode?: "totalite" | "avance" | "amicale";
+  amicaleSelectionId?: string;
+  amicaleSelectionName?: string;
+  amicaleName?: string;
+  amicaleMatricule?: string;
+  amicalePhone?: string;
+  amicaleCode?: string;
   reservationNote: string;
 };
 
