@@ -1271,8 +1271,9 @@ export default function BiensPage() {
       reservation_demand_id?: string | null;
     }>;
 
-    // Keep reservation-generated rows untouched.
-    const managedExisting = (Array.isArray(existingRows) ? existingRows : []).filter((row) => !row?.reservation_demand_id);
+    // Sync exactly what the admin keeps in the calendar list:
+    // if an entry is removed in UI, it must be deleted from DB too.
+    const managedExisting = Array.isArray(existingRows) ? existingRows : [];
     const existingBuckets = new Map<string, Array<{ id: string }>>();
     for (const row of managedExisting) {
       const id = String(row?.id || '').trim();

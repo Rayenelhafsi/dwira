@@ -10780,11 +10780,24 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     );
 
     if (current.unavailable_date_id) {
-      const unavailableStatus = (nextStatus === 'contrat_realise' || nextStatus === 'succes_paiement') ? 'booked' : 'pending';
-      await pool.query(
-        'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
-        [unavailableStatus, finalizationDueAt || current.finalization_due_at || null, current.unavailable_date_id]
-      );
+      if (nextStatus === 'demande_rejetee_admin') {
+        await pool.query(
+          `DELETE FROM unavailable_dates
+           WHERE id = ?
+             AND reservation_demand_id = ?`,
+          [current.unavailable_date_id, demandId]
+        );
+        await pool.query(
+          'UPDATE reservation_demands SET unavailable_date_id = ?, updated_at = ? WHERE id = ?',
+          [null, updatedAt, demandId]
+        );
+      } else {
+        const unavailableStatus = (nextStatus === 'contrat_realise' || nextStatus === 'succes_paiement') ? 'booked' : 'pending';
+        await pool.query(
+          'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
+          [unavailableStatus, finalizationDueAt || current.finalization_due_at || null, current.unavailable_date_id]
+        );
+      }
     }
 
     if (body.communicateToOwner) {
@@ -12949,7 +12962,9 @@ app.post('/api/unavailable-dates', requireAdminSession, async (req, res) => {
 app.delete('/api/unavailable-dates/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
-    await pool.query('DELETE FROM unavailable_dates WHERE id = ?', [req.params.id]);
+    const unavailableId = String(req.params.id || '').trim();
+    await pool.query('UPDATE reservation_demands SET unavailable_date_id = NULL WHERE unavailable_date_id = ?', [unavailableId]);
+    await pool.query('DELETE FROM unavailable_dates WHERE id = ?', [unavailableId]);
     res.json({ message: 'Unavailable date deleted' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete unavailable date' });
