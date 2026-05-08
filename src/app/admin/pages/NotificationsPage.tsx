@@ -32,6 +32,14 @@ const demandPriority: Record<ReservationDemandStatus, number> = {
   succes_paiement: 11,
 };
 
+function resolveDisplayStatus(demand: ReservationDemand): ReservationDemandStatus {
+  const note = String(demand.client_note || '').toLowerCase();
+  if (note.includes('annulee par le client') || note.includes('annulée par le client')) {
+    return 'demande_annulee_client';
+  }
+  return demand.status;
+}
+
 const statusLabels: Record<ReservationDemandStatus, string> = {
   en_attente_reponse_proprietaire: 'En attente de reponse proprietaire',
   pas_de_reponse_proprietaire: 'Pas de reponse proprietaire',
@@ -154,8 +162,10 @@ export default function NotificationsPage() {
     return demands
       .filter((demand) => openStatuses.has(demand.status))
       .sort((a, b) => {
-        const pa = demandPriority[a.status] ?? 99;
-        const pb = demandPriority[b.status] ?? 99;
+        const sa = resolveDisplayStatus(a);
+        const sb = resolveDisplayStatus(b);
+        const pa = demandPriority[sa] ?? 99;
+        const pb = demandPriority[sb] ?? 99;
         if (pa !== pb) return pa - pb;
         const da = new Date(String(a.updated_at || a.created_at || '')).getTime();
         const db = new Date(String(b.updated_at || b.created_at || '')).getTime();
@@ -167,9 +177,12 @@ export default function NotificationsPage() {
     [notifications]
   );
   const demandCounters = useMemo(() => {
-    const awaitingOwner = pendingDemands.filter((d) => d.status === 'en_attente_reponse_proprietaire').length;
-    const awaitingClient = pendingDemands.filter((d) => d.status === 'reponse_positive_attente_confirmation_client').length;
-    const paymentFlow = pendingDemands.filter((d) => d.status === 'demande_recu_paiement' || d.status === 'recu_paiement_envoye').length;
+    const awaitingOwner = pendingDemands.filter((d) => resolveDisplayStatus(d) === 'en_attente_reponse_proprietaire').length;
+    const awaitingClient = pendingDemands.filter((d) => resolveDisplayStatus(d) === 'reponse_positive_attente_confirmation_client').length;
+    const paymentFlow = pendingDemands.filter((d) => {
+      const s = resolveDisplayStatus(d);
+      return s === 'demande_recu_paiement' || s === 'recu_paiement_envoye';
+    }).length;
     return { awaitingOwner, awaitingClient, paymentFlow };
   }, [pendingDemands]);
 
@@ -452,6 +465,7 @@ export default function NotificationsPage() {
         <div className="space-y-3">
           {pendingDemands.length === 0 && <p className="text-sm text-gray-500">Aucune demande client en attente.</p>}
           {pendingDemands.map((demand) => {
+            const displayStatus = resolveDisplayStatus(demand);
             const isExpanded = Boolean(expandedDemandIds[demand.id]);
             const receiptUrl = demand.payment_receipt_image_url ? resolveAssetUrl(demand.payment_receipt_image_url) : '';
             const hasReceipt = Boolean(receiptUrl);
@@ -460,8 +474,8 @@ export default function NotificationsPage() {
               <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClasses[demand.status]}`}>
-                      {statusLabels[demand.status]}
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClasses[displayStatus]}`}>
+                      {statusLabels[displayStatus]}
                     </span>
                     <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
                       Cree le {formatDateTime(demand.created_at)}

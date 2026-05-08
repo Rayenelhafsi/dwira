@@ -312,6 +312,10 @@ export function Header() {
         }),
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Annulation impossible"));
+      const updated = await response.json().catch(() => null);
+      if (String(updated?.status || "") !== "demande_annulee_client") {
+        throw new Error("Annulation non appliquee par le serveur. Mise a jour backend requise.");
+      }
       setShowActionableNotice(false);
       setActionableDemand(null);
       toast.success("Reservation annulee.");
