@@ -83,6 +83,7 @@ export function Header() {
   const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
   const lastScrollYRef = useRef(0);
   const isHomePage = location.pathname === "/";
+  const isReservationConfirmationPage = location.pathname.startsWith("/reservation/confirmation/");
   const isPropertyDetailsPage = isPropertyDetailsPath(location.pathname);
   const isPropertyTopHidden = isPropertyDetailsPage && !isOpen && !isScrolled;
   const useLightText = isHomePage && !isScrolled && !isOpen;
@@ -234,6 +235,11 @@ export function Header() {
           : "no_quote";
         const demandVersion = String(nextDemand.updated_at || nextDemand.created_at || "");
         const key = `dwira_action_notice_${nextDemand.id}_${nextDemand.status}_${demandVersion}_${serviceQuoteKeyPart}`;
+        if (isReservationConfirmationPage) {
+          setActionableDemand(null);
+          setShowActionableNotice(false);
+          return;
+        }
         if (!localStorage.getItem(key)) {
           localStorage.setItem(key, "1");
           setActionableDemand(nextDemand);
@@ -241,7 +247,7 @@ export function Header() {
         }
       })
       .catch(() => setReservationCount(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }).length));
-  }, [user, location.pathname, location.search]);
+  }, [user, location.pathname, location.search, isReservationConfirmationPage]);
 
   const proceedToCoordinates = async () => {
     if (!actionableDemand) return;
@@ -535,7 +541,7 @@ export function Header() {
         </AnimatePresence>
       </div>
     </header>
-    <Dialog open={showActionableNotice} onOpenChange={setShowActionableNotice}>
+    <Dialog open={showActionableNotice && !isReservationConfirmationPage} onOpenChange={setShowActionableNotice}>
       <DialogContent className="max-w-xl border-2 border-emerald-200 p-7">
         <DialogHeader>
           <DialogTitle className="text-2xl text-emerald-700">Action requise</DialogTitle>

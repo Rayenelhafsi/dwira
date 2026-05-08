@@ -12,9 +12,25 @@ const openStatuses = new Set<ReservationDemandStatus>([
   'reponse_positive_attente_confirmation_client',
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
+  'demande_annulee_client',
   'demande_recu_paiement',
   'recu_paiement_envoye',
 ]);
+
+const demandPriority: Record<ReservationDemandStatus, number> = {
+  demande_annulee_client: 0,
+  reponse_positive_attente_confirmation_client: 1,
+  en_attente_reponse_proprietaire: 2,
+  pas_de_reponse_proprietaire: 3,
+  reponse_negative_autre_proposition_meme_bien: 4,
+  reponse_negative_autre_proposition_bien_similaire: 5,
+  demande_recu_paiement: 6,
+  recu_paiement_envoye: 7,
+  demande_rejetee_admin: 8,
+  attente_envoi_coordonnees_contrat: 9,
+  contrat_realise: 10,
+  succes_paiement: 11,
+};
 
 const statusLabels: Record<ReservationDemandStatus, string> = {
   en_attente_reponse_proprietaire: 'En attente de reponse proprietaire',
@@ -127,10 +143,18 @@ export default function NotificationsPage() {
     void fetchData();
   }, [fetchData]);
 
-  const pendingDemands = useMemo(
-    () => demands.filter((demand) => openStatuses.has(demand.status)),
-    [demands]
-  );
+  const pendingDemands = useMemo(() => {
+    return demands
+      .filter((demand) => openStatuses.has(demand.status))
+      .sort((a, b) => {
+        const pa = demandPriority[a.status] ?? 99;
+        const pb = demandPriority[b.status] ?? 99;
+        if (pa !== pb) return pa - pb;
+        const da = new Date(String(a.updated_at || a.created_at || '')).getTime();
+        const db = new Date(String(b.updated_at || b.created_at || '')).getTime();
+        return db - da;
+      });
+  }, [demands]);
   const unreadNotificationsCount = useMemo(
     () => notifications.filter((item) => !item.lu).length,
     [notifications]
