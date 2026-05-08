@@ -104,6 +104,7 @@ export default function MyReservationsPage() {
   const [activeServiceQuoteDemandId, setActiveServiceQuoteDemandId] = useState<string | null>(null);
   const [activeRejectedDemandId, setActiveRejectedDemandId] = useState<string | null>(null);
   const [loadingContractId, setLoadingContractId] = useState<string | null>(null);
+  const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
 
   const fetchReservations = useCallback(async () => {
     if (!user?.email) return;
@@ -204,10 +205,31 @@ export default function MyReservationsPage() {
     setReservations((prev) => prev.map((row) => row.id === updated.id ? updated : row));
   };
 
-  const proceedToIdentity = async (demand: ReservationDemand) => {
-    setActivePositiveDemandId(null);
-    navigate(`/mes-reservations/${encodeURIComponent(demand.id)}/coordonnees`);
-    toast.success("Verification des coordonnees en cours.");
+  const cancelReservation = async (demand: ReservationDemand) => {
+    setCancellingDemandId(demand.id);
+    try {
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          status: "demande_rejetee_admin",
+          actor_type: "client",
+          actor_id: user?.id || user?.email || "client",
+          client_note: "Reservation annulee par le client.",
+          history_note: "Reservation annulee par le client",
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Annulation impossible"));
+      const updated = await response.json();
+      updateReservationInState(updated);
+      setActivePositiveDemandId(null);
+      toast.success("Reservation annulee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Annulation impossible");
+    } finally {
+      setCancellingDemandId(null);
+    }
   };
 
   const openContract = async (demand: ReservationDemand) => {
@@ -447,20 +469,29 @@ export default function MyReservationsPage() {
             <DialogTitle className="text-2xl text-emerald-700">Reponse positive recue</DialogTitle>
             <DialogDescription className="text-base text-gray-600">
               Le proprietaire a accepte votre demande pour {activePositiveDemand?.bien_titre || "ce bien"}.
-              Cliquez sur le bouton ci-dessous pour continuer et fournir votre piece d'identite ou passeport afin de finaliser le contrat.
+              Cliquez sur le bouton ci-dessous pour continuer directement vers le paiement.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
-            Une fois clique, l'etat passe a "Attente d'envoi de coordonnees pour contrat" et l'admin est informe de l'heure de consultation.
+            Vous pouvez proceder immediatement au paiement de votre reservation.
           </div>
           <DialogFooter className="mt-3">
             <button
               type="button"
-              onClick={() => activePositiveDemand && void proceedToIdentity(activePositiveDemand)}
-              className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              onClick={() => activePositiveDemand && void cancelReservation(activePositiveDemand)}
+              disabled={!activePositiveDemand || cancellingDemandId === activePositiveDemand.id}
+              className="rounded-lg border border-rose-300 px-5 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
             >
-              Proceder maintenant
+              {activePositiveDemand && cancellingDemandId === activePositiveDemand.id ? "Annulation..." : "Annuler la reservation"}
             </button>
+            {activePositiveDemand ? (
+              <Link
+                to={`/mes-reservations/${encodeURIComponent(activePositiveDemand.id)}/paiement`}
+                className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                Proceder vers paiement
+              </Link>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

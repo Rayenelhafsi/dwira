@@ -71,6 +71,12 @@ function formatDateTime(value?: string | null) {
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString('fr-FR', { timeZone: 'Africa/Tunis', hour12: false });
 }
+function formatStayDate(value?: string | null) {
+  if (!value) return '-';
+  const parsed = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('fr-FR', { timeZone: 'Africa/Tunis' });
+}
 
 function resolveAssetUrl(url?: string | null) {
   const value = String(url || '').trim();
@@ -432,7 +438,7 @@ export default function NotificationsPage() {
                     {demand.bien_reference || demand.bien_id} - {demand.bien_titre || 'Bien'}
                   </p>
                   <p className="text-sm text-gray-700">
-                    {demand.client_name || demand.client_email || 'Client non identifie'} - {demand.start_date} {'->'} {demand.end_date} - {demand.guests} voyageurs
+                    {demand.client_name || demand.client_email || 'Client non identifie'} - {formatStayDate(demand.start_date)} {'->'} {formatStayDate(demand.end_date)} - {demand.guests} voyageurs
                   </p>
                   <p className="text-xs text-gray-500">
                     Proprietaire: <span className="font-medium text-gray-700">{demand.proprietaire_nom || '-'}</span>

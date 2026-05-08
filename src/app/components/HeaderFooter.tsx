@@ -180,7 +180,9 @@ export function Header() {
         const nextDemand = list.find((item) =>
           item.status === "reponse_positive_attente_confirmation_client" ||
           item.status === "attente_envoi_coordonnees_contrat" ||
-          item.status === "demande_recu_paiement"
+          item.status === "demande_recu_paiement" ||
+          item.status === "contrat_realise" ||
+          item.status === "demande_rejetee_admin"
         ) || null;
         if (!nextDemand) return;
         const serviceQuoteKeyPart = nextDemand.variable_services_quote_status === "devis_envoye"
@@ -194,15 +196,19 @@ export function Header() {
         }
       })
       .catch(() => setReservationCount(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }).length));
-  }, [user]);
+  }, [user, location.pathname, location.search]);
 
   const proceedToCoordinates = async () => {
     if (!actionableDemand) return;
     try {
-      const api = import.meta.env.VITE_API_URL || "/api";
       if (actionableDemand.status === "reponse_positive_attente_confirmation_client") {
         setShowActionableNotice(false);
-        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/coordonnees`);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
+        return;
+      }
+      if (actionableDemand.status === "attente_envoi_coordonnees_contrat") {
+        setShowActionableNotice(false);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
         return;
       }
       if (actionableDemand.status === "demande_recu_paiement") {
@@ -210,8 +216,13 @@ export function Header() {
         navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
         return;
       }
+      if (actionableDemand.status === "contrat_realise") {
+        setShowActionableNotice(false);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
+        return;
+      }
       setShowActionableNotice(false);
-      navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/coordonnees`);
+      navigate("/mes-reservations");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Redirection impossible");
     }
@@ -455,10 +466,16 @@ export function Header() {
           <DialogTitle className="text-2xl text-emerald-700">Action requise</DialogTitle>
           <DialogDescription className="text-base text-gray-600">
             {actionableDemand?.status === "reponse_positive_attente_confirmation_client"
-              ? "Le proprietaire a accepté votre demande. Veuillez envoyer vos coordonnées pour finaliser le contrat."
+              ? "Le proprietaire a accepte votre demande. Vous pouvez proceder directement au paiement."
+              : actionableDemand?.status === "attente_envoi_coordonnees_contrat"
+                ? "Votre demande est prete. Vous pouvez proceder directement au paiement."
+                : actionableDemand?.status === "contrat_realise"
+                  ? "Votre contrat est pret. Passez a l'etape paiement."
+                  : actionableDemand?.status === "demande_rejetee_admin"
+                    ? "Une mise a jour importante de votre demande est disponible."
               : actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0
-                ? `Votre devis séparé pour les services additionnels est prêt (${Number(actionableDemand?.variable_services_quote_total || 0).toLocaleString("fr-FR")} TND).`
-                : "Vos coordonnées sont attendues pour finaliser votre contrat."}
+                ? `Votre devis separe pour les services additionnels est pret (${Number(actionableDemand?.variable_services_quote_total || 0).toLocaleString("fr-FR")} TND).`
+                : "Une action est requise sur votre demande."}
           </DialogDescription>
         </DialogHeader>
         {actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0 ? (
@@ -481,7 +498,9 @@ export function Header() {
           >
             {actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0
               ? "Voir mon devis services"
-              : "Completer maintenant"}
+              : actionableDemand?.status === "demande_rejetee_admin"
+                ? "Voir ma demande"
+                : "Proceder vers paiement"}
           </button>
         </DialogFooter>
       </DialogContent>
