@@ -46,6 +46,22 @@ function isPropertyDetailsPath(pathname: string) {
   return pathname.startsWith("/properties/");
 }
 
+function hasCompletedClientProfile(user: {
+  profileCompleted?: boolean;
+  firstName?: string | null;
+  lastName?: string | null;
+  telephone?: string | null;
+  cin?: string | null;
+}) {
+  if (user.profileCompleted === true) return true;
+  return Boolean(
+    String(user.firstName || "").trim() &&
+    String(user.lastName || "").trim() &&
+    String(user.telephone || "").trim() &&
+    String(user.cin || "").trim()
+  );
+}
+
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const [isAutoHidden, setIsAutoHidden] = useState(false);
@@ -167,6 +183,13 @@ export function Header() {
   useEffect(() => {
     if (!user || user.role !== "user" || !user.email) {
       setReservationCount(0);
+      setActionableDemand(null);
+      setShowActionableNotice(false);
+      return;
+    }
+    if (!hasCompletedClientProfile(user)) {
+      setActionableDemand(null);
+      setShowActionableNotice(false);
       return;
     }
     const query = new URLSearchParams();
