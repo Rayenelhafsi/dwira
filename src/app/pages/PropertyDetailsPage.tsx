@@ -777,7 +777,7 @@ export default function PropertyDetailsPage() {
   const [profilePromptForm, setProfilePromptForm] = useState({
     firstName: "",
     lastName: "",
-    clientType: "",
+    clientType: "locataire",
     telephone: "",
     cin: "",
   });
@@ -1689,7 +1689,7 @@ out body 40;
     setProfilePromptForm({
       firstName: String(currentUser?.firstName || nameParts.firstName || "").trim(),
       lastName: String(currentUser?.lastName || nameParts.lastName || "").trim(),
-      clientType: String(currentUser?.clientType || "").trim(),
+      clientType: "locataire",
       telephone: String(currentUser?.telephone || "").trim(),
       cin: String(currentUser?.cin || "").trim(),
     });
@@ -2586,10 +2586,6 @@ out body 40;
       toast.error("Nom, prenom et telephone sont obligatoires.");
       return;
     }
-    if (!["proprietaire", "locataire", "acheteur"].includes(profilePromptForm.clientType)) {
-      toast.error("Type client obligatoire.");
-      return;
-    }
     setIsProfilePromptSaving(true);
     try {
       const savedUser = await completeSocialProfile({
@@ -2598,7 +2594,7 @@ out body 40;
         lastName: profilePromptForm.lastName.trim(),
         name: `${profilePromptForm.firstName.trim()} ${profilePromptForm.lastName.trim()}`.trim(),
         email: user.email,
-        clientType: profilePromptForm.clientType as 'proprietaire' | 'locataire' | 'acheteur',
+        clientType: "locataire",
         telephone: profilePromptForm.telephone.trim(),
         cin: profilePromptForm.cin.trim(),
       });
@@ -4507,17 +4503,6 @@ out body 40;
                       placeholder="Telephone *"
                       className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
                     />
-                    <select
-                      value={profilePromptForm.clientType}
-                      onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, clientType: event.target.value }))}
-                      className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
-                      required
-                    >
-                      <option value="">Type client *</option>
-                      <option value="locataire">Locataire</option>
-                      <option value="acheteur">Acheteur</option>
-                      <option value="proprietaire">Proprietaire</option>
-                    </select>
                     <input
                       type="text"
                       value={profilePromptForm.cin}

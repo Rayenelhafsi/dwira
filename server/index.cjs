@@ -8690,8 +8690,8 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       `SELECT id
        FROM unavailable_dates
        WHERE bien_id = ?
-         AND start_date <= ?
-         AND end_date >= ?
+         AND start_date < ?
+         AND end_date > ?
          AND status IN ('blocked', 'booked', 'pending')
        LIMIT 1`,
       [bienId, endDate, startDate]
@@ -10273,8 +10273,8 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       `SELECT id, status
        FROM unavailable_dates
        WHERE bien_id = ?
-         AND start_date <= ?
-         AND end_date >= ?
+         AND start_date < ?
+         AND end_date > ?
          AND status IN ('blocked', 'booked', 'pending')
        LIMIT 1`,
       [bien_id, end_date, start_date]
