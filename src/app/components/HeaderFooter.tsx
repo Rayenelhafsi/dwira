@@ -46,6 +46,14 @@ function isPropertyDetailsPath(pathname: string) {
   return pathname.startsWith("/properties/");
 }
 
+const ACTIONABLE_STATUS_PRIORITY: Record<string, number> = {
+  reponse_positive_attente_confirmation_client: 0,
+  attente_envoi_coordonnees_contrat: 1,
+  demande_recu_paiement: 2,
+  contrat_realise: 3,
+  demande_rejetee_admin: 4,
+};
+
 function hasCompletedClientProfile(user: {
   profileCompleted?: boolean;
   firstName?: string | null;
@@ -72,6 +80,7 @@ export function Header() {
   const [reservationCount, setReservationCount] = useState(0);
   const [actionableDemand, setActionableDemand] = useState<ReservationDemand | null>(null);
   const [showActionableNotice, setShowActionableNotice] = useState(false);
+  const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
   const lastScrollYRef = useRef(0);
   const isHomePage = location.pathname === "/";
   const isPropertyDetailsPage = isPropertyDetailsPath(location.pathname);
@@ -196,13 +205,22 @@ export function Header() {
       .then((rows) => {
         const list = Array.isArray(rows) ? rows : [];
         setReservationCount(list.length);
-        const nextDemand = list.find((item) =>
-          item.status === "reponse_positive_attente_confirmation_client" ||
-          item.status === "attente_envoi_coordonnees_contrat" ||
-          item.status === "demande_recu_paiement" ||
-          item.status === "contrat_realise" ||
-          item.status === "demande_rejetee_admin"
-        ) || null;
+        const nextDemand = list
+          .filter((item) =>
+            item.status === "reponse_positive_attente_confirmation_client" ||
+            item.status === "attente_envoi_coordonnees_contrat" ||
+            item.status === "demande_recu_paiement" ||
+            item.status === "contrat_realise" ||
+            item.status === "demande_rejetee_admin"
+          )
+          .sort((a, b) => {
+            const pa = ACTIONABLE_STATUS_PRIORITY[a.status] ?? 99;
+            const pb = ACTIONABLE_STATUS_PRIORITY[b.status] ?? 99;
+            if (pa !== pb) return pa - pb;
+            const da = new Date(String(a.updated_at || a.created_at || "")).getTime();
+            const db = new Date(String(b.updated_at || b.created_at || "")).getTime();
+            return db - da;
+          })[0] || null;
         if (!nextDemand) return;
         const shouldShowForCurrentUser =
           profileCompleted || nextDemand.status === "reponse_positive_attente_confirmation_client";
@@ -230,6 +248,9 @@ export function Header() {
     try {
       if (actionableDemand.status === "reponse_positive_attente_confirmation_client") {
         setShowActionableNotice(false);
+        if (location.pathname.startsWith("/reservation/confirmation/")) {
+          return;
+        }
         navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
         return;
       }
@@ -252,6 +273,33 @@ export function Header() {
       navigate("/mes-reservations");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Redirection impossible");
+    }
+  };
+
+  const cancelReservationFromNotice = async () => {
+    if (!actionableDemand || actionableDemand.status !== "reponse_positive_attente_confirmation_client") return;
+    setCancellingDemandId(actionableDemand.id);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands/${encodeURIComponent(actionableDemand.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          status: "demande_annulee_client",
+          actor_type: "client",
+          actor_id: user?.id || user?.email || "client",
+          client_note: "Reservation annulee par le client.",
+          history_note: "Reservation annulee par le client",
+        }),
+      });
+      if (!response.ok) throw new Error("Annulation impossible");
+      setShowActionableNotice(false);
+      setActionableDemand(null);
+      toast.success("Reservation annulee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Annulation impossible");
+    } finally {
+      setCancellingDemandId(null);
     }
   };
 
@@ -511,6 +559,16 @@ export function Header() {
           </div>
         ) : null}
         <DialogFooter>
+          {actionableDemand?.status === "reponse_positive_attente_confirmation_client" ? (
+            <button
+              type="button"
+              onClick={() => void cancelReservationFromNotice()}
+              disabled={cancellingDemandId === actionableDemand.id}
+              className="rounded-lg border border-rose-300 px-5 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {cancellingDemandId === actionableDemand.id ? "Annulation..." : "Annuler la reservation"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {
