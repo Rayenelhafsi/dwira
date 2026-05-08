@@ -12234,6 +12234,20 @@ async function ensureReservationDemandSchema() {
     );
     return rows.length > 0;
   };
+  const getColumnDataType = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `
+      SELECT DATA_TYPE AS data_type
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+      `,
+      [tableName, columnName]
+    );
+    return String(rows?.[0]?.data_type || '').trim().toLowerCase();
+  };
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reservation_demands (
@@ -12310,6 +12324,17 @@ async function ensureReservationDemandSchema() {
       KEY idx_reservation_demand_history_demand (demand_id, created_at)
     )
   `);
+
+  // Backward compatibility: older prod schemas may still have ENUM status values.
+  // Convert to VARCHAR so new statuses (e.g. demande_annulee_client) are persisted.
+  const reservationStatusType = await getColumnDataType('reservation_demands', 'status');
+  if (reservationStatusType && reservationStatusType !== 'varchar') {
+    await pool.query('ALTER TABLE reservation_demands MODIFY COLUMN status VARCHAR(80) NOT NULL');
+  }
+  const historyStatusType = await getColumnDataType('reservation_demand_history', 'status');
+  if (historyStatusType && historyStatusType !== 'varchar') {
+    await pool.query('ALTER TABLE reservation_demand_history MODIFY COLUMN status VARCHAR(80) NOT NULL');
+  }
 
   if (!(await columnExists('unavailable_dates', 'reservation_demand_id'))) {
     await pool.query('ALTER TABLE unavailable_dates ADD COLUMN reservation_demand_id VARCHAR(100) NULL AFTER status');
