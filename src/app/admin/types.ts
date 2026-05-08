@@ -561,7 +561,7 @@ export interface ReservationDemand {
   guests: number;
   adult_guests?: number;
   child_guests?: number;
-  payment_mode?: 'avance' | 'totalite' | null;
+  payment_mode?: 'avance' | 'totalite' | 'amicale' | null;
   total_amount?: number | null;
   amount_due_now?: number | null;
   selected_fixed_services?: ServicePayantBien[];

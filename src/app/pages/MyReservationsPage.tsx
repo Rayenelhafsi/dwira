@@ -353,7 +353,7 @@ export default function MyReservationsPage() {
                           <Info label="Devis services" value={`${Number(reservation.variable_services_quote_total || 0).toLocaleString("fr-FR")} TND`} />
                         ) : null}
                         {reservation.request_type !== "visite" && (
-                          <Info label="Paiement choisi" value={reservation.payment_mode === "totalite" ? "Totalite" : "Avance"} />
+                          <Info label="Paiement choisi" value={reservation.payment_mode === "totalite" ? "Totalite" : reservation.payment_mode === "amicale" ? "Amicale" : "Avance"} />
                         )}
                         {reservation.request_type !== "visite" ? (
                           <Info

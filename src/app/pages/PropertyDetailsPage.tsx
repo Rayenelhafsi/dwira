@@ -747,7 +747,7 @@ export default function PropertyDetailsPage() {
   const [includeServiceFee, setIncludeServiceFee] = useState(false);
   const [extraMattresses, setExtraMattresses] = useState(0);
   const [selectedPaidServiceIds, setSelectedPaidServiceIds] = useState<string[]>([]);
-  const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance'>('avance');
+  const [paymentMode, setPaymentMode] = useState<'totalite' | 'avance' | 'amicale'>('avance');
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
   const [showAmenitiesDialog, setShowAmenitiesDialog] = useState(false);
   const [showPaidServicesDialog, setShowPaidServicesDialog] = useState(false);
@@ -2168,7 +2168,7 @@ out body 40;
     setIncludeServiceFee(Boolean(candidate.includeServiceFee));
     setExtraMattresses(Math.max(0, Number(candidate.extraMattresses || 0)));
     setSelectedPaidServiceIds(Array.isArray(candidate.selectedPaidServiceIds) ? candidate.selectedPaidServiceIds : []);
-    setPaymentMode(candidate.paymentMode === 'totalite' ? 'totalite' : 'avance');
+    setPaymentMode(candidate.paymentMode === 'totalite' ? 'totalite' : (candidate.paymentMode === 'amicale' ? 'amicale' : 'avance'));
     setReservationNote(String(candidate.reservationNote || ""));
     setPendingDraft(candidate);
   }, [location.state, maxAdultGuests, maxChildGuests, maxGuests, property]);
@@ -3960,12 +3960,15 @@ out body 40;
                 {!isSaleProperty && (
                   <div className="rounded-lg border border-gray-200 p-3">
                     <p className="text-xs font-bold uppercase text-gray-600 mb-2">Paiement</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <button type="button" onClick={() => setPaymentMode('avance')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'avance' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
                         Avance ({advancePercent}%)
                       </button>
                       <button type="button" onClick={() => setPaymentMode('totalite')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'totalite' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
                         Totalite
+                      </button>
+                      <button type="button" onClick={() => setPaymentMode('amicale')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'amicale' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
+                        Amicale
                       </button>
                     </div>
                   </div>

@@ -15,7 +15,7 @@ export type PendingReservationDraft = {
   includeServiceFee: boolean;
   extraMattresses?: number;
   selectedPaidServiceIds?: string[];
-  paymentMode?: "totalite" | "avance";
+  paymentMode?: "totalite" | "avance" | "amicale";
   reservationNote: string;
 };
 

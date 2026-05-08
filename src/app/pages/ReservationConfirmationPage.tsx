@@ -121,7 +121,7 @@ export default function ReservationConfirmationPage() {
       extrasTotal,
       total,
       dueNow,
-      paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : 'avance',
+      paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : (draft.paymentMode === 'amicale' ? 'amicale' : 'avance'),
       advancePercent,
     };
   }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxAdultGuests, maxChildGuests, maxGuests, property, seasonalConfig]);
@@ -462,7 +462,7 @@ export default function ReservationConfirmationPage() {
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-3 text-sm">
                     <span className="text-gray-600">A payer maintenant</span>
-                    <span className="font-semibold text-gray-900">{summary?.dueNow} TND ({summary?.paymentMode === 'totalite' ? 'Totalite' : `Avance ${summary?.advancePercent || 30}%`})</span>
+                    <span className="font-semibold text-gray-900">{summary?.dueNow} TND ({summary?.paymentMode === 'totalite' ? 'Totalite' : summary?.paymentMode === 'amicale' ? 'Amicale' : `Avance ${summary?.advancePercent || 30}%`})</span>
                   </div>
                 </div>}
                 </div>
@@ -585,7 +585,7 @@ export default function ReservationConfirmationPage() {
                 <Line label="Total frais supplementaires" value={`${summary?.extrasTotal || 0} TND`} />
                 <div className="border-t border-gray-100 pt-4">
                   <Line label="Montant total" value={`${summary?.total || 0} TND`} strong />
-                  <Line label="A payer maintenant" value={`${summary?.dueNow || 0} TND (${summary?.paymentMode === 'totalite' ? 'Totalite' : `Avance ${summary?.advancePercent || 30}%`})`} />
+                  <Line label="A payer maintenant" value={`${summary?.dueNow || 0} TND (${summary?.paymentMode === 'totalite' ? 'Totalite' : summary?.paymentMode === 'amicale' ? 'Amicale' : `Avance ${summary?.advancePercent || 30}%`})`} />
                 </div>
               </div>
             )}

@@ -203,7 +203,7 @@ export default function ContractIdentityPage() {
               <p><strong>Devis services:</strong> {formatAmount(servicesQuoteAmount)}</p>
             ) : null}
             <p><strong>Montant global:</strong> {formatAmount(hasServicesQuote ? globalAmount : reservationAmount)}</p>
-            <p><strong>Paiement choisi:</strong> {demand.payment_mode === "totalite" ? "Totalite" : "Avance"}</p>
+            <p><strong>Paiement choisi:</strong> {demand.payment_mode === "totalite" ? "Totalite" : demand.payment_mode === "amicale" ? "Amicale" : "Avance"}</p>
           </div>
 
           {hasServicesQuote ? (
