@@ -70,6 +70,19 @@ function hasCompletedClientProfile(user: {
   );
 }
 
+async function getApiErrorMessage(response: Response, fallback: string) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const data = await response.json().catch(() => null);
+    const message = String(data?.error || data?.message || "").trim();
+    if (message) return message;
+  } else {
+    const text = await response.text().catch(() => "");
+    if (text && !text.startsWith("<!DOCTYPE")) return text;
+  }
+  return fallback;
+}
+
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const [isAutoHidden, setIsAutoHidden] = useState(false);
@@ -298,7 +311,7 @@ export function Header() {
           history_note: "Reservation annulee par le client",
         }),
       });
-      if (!response.ok) throw new Error("Annulation impossible");
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Annulation impossible"));
       setShowActionableNotice(false);
       setActionableDemand(null);
       toast.success("Reservation annulee.");

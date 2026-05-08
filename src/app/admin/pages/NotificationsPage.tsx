@@ -143,6 +143,13 @@ export default function NotificationsPage() {
     void fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void fetchData();
+    }, 10000);
+    return () => window.clearInterval(intervalId);
+  }, [fetchData]);
+
   const pendingDemands = useMemo(() => {
     return demands
       .filter((demand) => openStatuses.has(demand.status))
