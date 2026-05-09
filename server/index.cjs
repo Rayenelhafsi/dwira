@@ -12266,17 +12266,10 @@ app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthentic
 
     const payload = {
       amount: amountForFlouci,
-      accept_card: true,
-      session_timeout_secs: FLOUCI_SESSION_TIMEOUT_SECS,
       success_link: successLink,
       fail_link: failLink,
       developer_tracking_id: trackingId,
-      metadata: {
-        demand_id: demandId,
-        scope,
-        amount_tnd: amountTnd,
-        amount_flouci: amountForFlouci,
-      },
+      session_timeout_secs: FLOUCI_SESSION_TIMEOUT_SECS,
     };
     const generated = await flouciGeneratePayment(payload);
     const checkoutUrl = String(generated?.result?.link || generated?.link || '').trim();
