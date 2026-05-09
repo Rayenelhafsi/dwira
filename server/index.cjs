@@ -12102,7 +12102,16 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
     if (!req.file) {
       return res.status(400).json({ error: 'Image du recu requise' });
     }
-    if (!['demande_recu_paiement', 'recu_paiement_envoye', 'contrat_realise'].includes(String(current.status || ''))) {
+    const currentStatus = String(current.status || '').trim();
+    const allowedUploadReceiptStatuses = new Set([
+      'demande_recu_paiement',
+      'recu_paiement_envoye',
+      'contrat_realise',
+      'reponse_positive_attente_confirmation_client',
+      'client_procede_vers_paiement_en_cours',
+      'attente_envoi_coordonnees_contrat',
+    ]);
+    if (!allowedUploadReceiptStatuses.has(currentStatus)) {
       return res.status(400).json({ error: 'Le recu ne peut pas etre envoye a cette etape' });
     }
 
