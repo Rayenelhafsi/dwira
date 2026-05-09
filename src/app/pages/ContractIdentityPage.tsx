@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { ArrowLeft, ArrowRight, CreditCard, Receipt, TimerReset } from "lucide-react";
+import { ArrowLeft, ArrowRight, CreditCard, FileText, Receipt, TimerReset } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
@@ -230,6 +230,7 @@ export default function ContractIdentityPage() {
             ) : null}
             <p><strong>Montant global:</strong> {formatAmount(hasServicesQuote ? globalAmount : reservationAmount)}</p>
             <p><strong>Paiement choisi:</strong> {demand.payment_mode === "totalite" ? "Totalite" : demand.payment_mode === "amicale" ? "Amicale" : "Avance"}</p>
+            <p><strong>Contrat:</strong> {demand.contract_id ? demand.contract_id : "Generation automatique au clic paiement"}</p>
           </div>
 
           {hasServicesQuote ? (
@@ -275,6 +276,18 @@ export default function ContractIdentityPage() {
               </div>
             </div>
           )}
+
+          {demand.contract_id ? (
+            <div className="mt-4">
+              <Link
+                to="/mes-reservations"
+                className="inline-flex items-center gap-2 rounded-full border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100"
+              >
+                <FileText className="h-4 w-4" />
+                Consulter votre contrat
+              </Link>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

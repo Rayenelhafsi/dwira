@@ -4767,6 +4767,106 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
   return id;
 }
 
+async function ensureAutoContractForDemand(current, actorId = 'client') {
+  if (!current || current.contract_id) {
+    return { contractId: String(current?.contract_id || '').trim() || null };
+  }
+  const demandId = String(current.id || '').trim();
+  if (!demandId) return { contractId: null };
+
+  const [bienRows] = await pool.query(
+    `SELECT b.*, p.nom AS proprietaire_nom, p.email AS proprietaire_email
+     FROM biens b
+     LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+     WHERE b.id = ? LIMIT 1`,
+    [current.bien_id]
+  );
+  const bien = bienRows?.[0];
+  if (!bien) throw new Error('Bien introuvable pour generation automatique du contrat');
+
+  const rawName = String(current.client_name || '').trim();
+  const nameParts = rawName.split(/\s+/).filter(Boolean);
+  const identityLastName = String(current.identity_last_name || nameParts[0] || 'Client').trim();
+  const identityFirstName = String(current.identity_first_name || nameParts.slice(1).join(' ') || 'Dwira').trim();
+  const identityDocumentType = String(current.identity_document_type || 'cin_tn').trim();
+  const identityDocumentNumber = String(current.identity_document_number || 'N/A').trim();
+  const clientEmail = normalizeEmailForCompare(current.client_email || '') || `${demandId}@dwira.local`;
+
+  const locataireId = await upsertLocataireFromReservationProfile({
+    userId: current.client_user_id ? String(current.client_user_id).trim() : null,
+    name: `${identityLastName} ${identityFirstName}`.trim(),
+    email: clientEmail,
+    telephone: String(current.amicale_phone || '').trim(),
+    cin: identityDocumentType === 'cin_tn' ? identityDocumentNumber : '',
+  });
+
+  const now = getAgencySqlDateTime();
+  const contractId = `c${Date.now()}`;
+  const nights = computeNights(current.start_date, current.end_date);
+  const totalAmount = Number.isFinite(Number(current.total_amount)) && Number(current.total_amount) > 0
+    ? Number(current.total_amount)
+    : (Number(bien.prix_nuitee || 0) * nights);
+  const paymentMode = normalizePaymentMode(current.payment_mode, 'avance');
+  const amountDueNow = Number.isFinite(Number(current.amount_due_now)) && Number(current.amount_due_now) >= 0
+    ? Number(current.amount_due_now)
+    : (paymentMode === 'totalite' ? totalAmount : Math.min(totalAmount, Number(bien.avance || 0)));
+
+  const [contractUrl, ownerContractUrl] = await Promise.all([
+    generateReservationClientContractHtml({
+      demand: current,
+      bien,
+      contractId,
+      contractCreatedAt: now,
+      totalAmount,
+      amountDueNow,
+      paymentMode,
+      identityNumber: identityDocumentNumber,
+      identityDocumentType,
+      identityFirstName,
+      identityLastName,
+    }),
+    generateReservationOwnerContractHtml({
+      demand: current,
+      bien,
+      owner: { nom: bien.proprietaire_nom, email: bien.proprietaire_email },
+      contractId,
+      contractCreatedAt: now,
+      totalAmount,
+      amountDueNow,
+      paymentMode,
+    }),
+  ]);
+
+  await pool.query(
+    `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [contractId, current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'automatique', 'actif', now]
+  );
+
+  await pool.query(
+    `UPDATE reservation_demands
+     SET contract_id = ?,
+         contract_generated_at = ?,
+         identity_document_type = COALESCE(identity_document_type, ?),
+         identity_document_number = COALESCE(identity_document_number, ?),
+         identity_first_name = COALESCE(identity_first_name, ?),
+         identity_last_name = COALESCE(identity_last_name, ?),
+         updated_at = ?
+     WHERE id = ?`,
+    [contractId, now, identityDocumentType, identityDocumentNumber, identityFirstName, identityLastName, now, demandId]
+  );
+
+  await appendReservationDemandHistory(
+    demandId,
+    String(current.status || 'client_procede_vers_paiement_en_cours'),
+    'client',
+    String(actorId || current.client_user_id || current.client_email || 'client'),
+    `Contrat ${contractId} genere automatiquement avant paiement`,
+    now
+  );
+  return { contractId };
+}
+
 async function upsertPasskeyUser({ email, name }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Client';
@@ -11074,6 +11174,12 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
           metadata: { demandId, requestedStatus: nextStatus },
         });
         return res.status(403).json({ error: 'La modification de statut demandee n est pas autorisee sur cette etape' });
+      }
+      if (nextStatus === 'client_procede_vers_paiement_en_cours' && !String(current.contract_id || '').trim()) {
+        const autoContract = await ensureAutoContractForDemand(current, body.actor_id || requester?.id || requester?.email || 'client');
+        if (autoContract?.contractId) {
+          current.contract_id = autoContract.contractId;
+        }
       }
     }
     const isAmicaleDemand = String(current.payment_mode || '').trim() === 'amicale'

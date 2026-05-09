@@ -455,7 +455,7 @@ export default function MyReservationsPage() {
                           </Link>
                         </>
                       )}
-                      {(reservation.status === "contrat_realise" || reservation.status === "succes_paiement") && reservation.contract_id && (
+                      {reservation.contract_id && (
                         <>
                           <button
                             type="button"
