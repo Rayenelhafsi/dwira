@@ -107,8 +107,6 @@ function buildFlouciAuthHeaders() {
     Accept: 'application/json',
     Authorization: bearer,
     authorization: bearer,
-    apptoken: FLOUCI_PUBLIC_KEY,
-    appsecret: FLOUCI_PRIVATE_KEY,
   };
 }
 
@@ -129,9 +127,21 @@ async function flouciGeneratePayment(payload) {
     headers: buildFlouciAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const data = await response.json().catch(() => ({}));
+  const rawText = await response.text().catch(() => '');
+  let data = {};
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = {};
+  }
   if (!response.ok) {
-    const message = String(data?.message || data?.error || `HTTP ${response.status}`).trim();
+    const message = String(
+      data?.result?.message ||
+      data?.message ||
+      data?.error ||
+      rawText ||
+      `HTTP ${response.status}`
+    ).trim();
     throw new Error(message || 'Echec creation paiement Flouci');
   }
   return data;
