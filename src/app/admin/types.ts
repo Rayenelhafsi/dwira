@@ -545,6 +545,7 @@ export type ReservationDemandStatus =
   | 'rejete_par_agence'
   | 'demande_rejetee_admin'
   | 'demande_annulee_client'
+  | 'demande_annulee_echeance_contrat'
   | 'attente_envoi_coordonnees_contrat'
   | 'demande_recu_paiement'
   | 'recu_paiement_envoye'

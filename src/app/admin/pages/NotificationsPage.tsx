@@ -18,13 +18,13 @@ const openStatuses = new Set<ReservationDemandStatus>([
   'voucher_en_cours',
   'rejete_par_amicale',
   'rejete_par_agence',
-  'demande_annulee_client',
   'demande_recu_paiement',
   'recu_paiement_envoye',
 ]);
 
 const demandPriority: Record<ReservationDemandStatus, number> = {
   demande_annulee_client: 0,
+  demande_annulee_echeance_contrat: 0,
   reponse_positive_attente_confirmation_client: 1,
   client_procede_vers_paiement_en_cours: 2,
   en_attente_reponse_proprietaire: 3,
@@ -45,6 +45,18 @@ const demandPriority: Record<ReservationDemandStatus, number> = {
 };
 
 function resolveDisplayStatus(demand: ReservationDemand): ReservationDemandStatus {
+  const adminNote = String(demand.admin_note || '').toLowerCase();
+  const clientNote = String(demand.client_note || '').toLowerCase();
+  const mergedNote = `${adminNote} ${clientNote}`;
+  if (
+    mergedNote.includes('echeance') ||
+    mergedNote.includes('échéance') ||
+    mergedNote.includes('deadline') ||
+    mergedNote.includes('expire') ||
+    mergedNote.includes('expir')
+  ) {
+    return 'demande_annulee_echeance_contrat';
+  }
   const note = String(demand.client_note || '').toLowerCase();
   if (note.includes('annulee par le client') || note.includes('annulée par le client')) {
     return 'demande_annulee_client';
@@ -70,6 +82,7 @@ const statusLabels: Record<ReservationDemandStatus, string> = {
   rejete_par_agence: 'Rejete par l agence',
   demande_rejetee_admin: 'Demande rejetee par admin',
   demande_annulee_client: 'Demande annulee par client',
+  demande_annulee_echeance_contrat: 'Demande annulee par echeance contrat',
   attente_envoi_coordonnees_contrat: 'Attente d envoi de coordonnees pour contrat',
   demande_recu_paiement: 'Demande de recu de paiement',
   recu_paiement_envoye: 'Recu de paiement envoye',
@@ -90,6 +103,7 @@ const statusToneClasses: Record<ReservationDemandStatus, string> = {
   rejete_par_agence: 'bg-rose-100 text-rose-800 border-rose-200',
   demande_rejetee_admin: 'bg-rose-100 text-rose-800 border-rose-200',
   demande_annulee_client: 'bg-slate-100 text-slate-800 border-slate-200',
+  demande_annulee_echeance_contrat: 'bg-slate-100 text-slate-800 border-slate-200',
   attente_envoi_coordonnees_contrat: 'bg-cyan-100 text-cyan-800 border-cyan-200',
   demande_recu_paiement: 'bg-indigo-100 text-indigo-800 border-indigo-200',
   recu_paiement_envoye: 'bg-indigo-100 text-indigo-800 border-indigo-200',
@@ -145,6 +159,8 @@ export default function NotificationsPage() {
   const [historyRows, setHistoryRows] = useState<ReservationDemandHistory[]>([]);
   const [historyDemandId, setHistoryDemandId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'demands' | 'chat'>('demands');
+  const [demandTab, setDemandTab] = useState<'pending' | 'finished_success' | 'finished_cancelled'>('pending');
+  const [cancelledSubTab, setCancelledSubTab] = useState<'client' | 'echeance'>('client');
   const [selectedChatOwner, setSelectedChatOwner] = useState<{ id: string; name: string; demandId?: string } | null>(null);
   const [chatMessages, setChatMessages] = useState<Array<{ id: string; text: string; kind?: string; createdAt?: string }>>([]);
   const [chatDraft, setChatDraft] = useState('');
@@ -204,6 +220,37 @@ export default function NotificationsPage() {
         return pa - pb;
       });
   }, [demands]);
+  const finishedSuccessDemands = useMemo(
+    () =>
+      demands
+        .filter((demand) => !isAmicaleDemand(demand))
+        .filter((demand) => resolveDisplayStatus(demand) === 'succes_paiement')
+        .sort((a, b) => new Date(String(b.updated_at || b.created_at || '')).getTime() - new Date(String(a.updated_at || a.created_at || '')).getTime()),
+    [demands]
+  );
+  const cancelledByClientDemands = useMemo(
+    () =>
+      demands
+        .filter((demand) => !isAmicaleDemand(demand))
+        .filter((demand) => resolveDisplayStatus(demand) === 'demande_annulee_client')
+        .sort((a, b) => new Date(String(b.updated_at || b.created_at || '')).getTime() - new Date(String(a.updated_at || a.created_at || '')).getTime()),
+    [demands]
+  );
+  const cancelledByDeadlineDemands = useMemo(
+    () =>
+      demands
+        .filter((demand) => !isAmicaleDemand(demand))
+        .filter((demand) => resolveDisplayStatus(demand) === 'demande_annulee_echeance_contrat')
+        .sort((a, b) => new Date(String(b.updated_at || b.created_at || '')).getTime() - new Date(String(a.updated_at || a.created_at || '')).getTime()),
+    [demands]
+  );
+  const visibleDemands = useMemo(() => {
+    if (demandTab === 'finished_success') return finishedSuccessDemands;
+    if (demandTab === 'finished_cancelled') {
+      return cancelledSubTab === 'client' ? cancelledByClientDemands : cancelledByDeadlineDemands;
+    }
+    return pendingDemands;
+  }, [demandTab, cancelledSubTab, pendingDemands, finishedSuccessDemands, cancelledByClientDemands, cancelledByDeadlineDemands]);
   const unreadNotificationsCount = useMemo(
     () => notifications.filter((item) => !item.lu).length,
     [notifications]
@@ -493,11 +540,52 @@ export default function NotificationsPage() {
       <section className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="mb-4 flex items-center gap-2">
           <Bell className="h-5 w-5 text-amber-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Demandes en attente</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Demandes</h2>
         </div>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDemandTab('pending')}
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${demandTab === 'pending' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+          >
+            En attente ({pendingDemands.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setDemandTab('finished_success')}
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${demandTab === 'finished_success' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Demandes finies succes ({finishedSuccessDemands.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setDemandTab('finished_cancelled')}
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${demandTab === 'finished_cancelled' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Demandes finies annulees ({cancelledByClientDemands.length + cancelledByDeadlineDemands.length})
+          </button>
+        </div>
+        {demandTab === 'finished_cancelled' && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCancelledSubTab('client')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${cancelledSubTab === 'client' ? 'bg-slate-700 text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+            >
+              Annulees par client ({cancelledByClientDemands.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setCancelledSubTab('echeance')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${cancelledSubTab === 'echeance' ? 'bg-slate-700 text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+            >
+              Annulees par echeance ({cancelledByDeadlineDemands.length})
+            </button>
+          </div>
+        )}
         <div className="space-y-3">
-          {pendingDemands.length === 0 && <p className="text-sm text-gray-500">Aucune demande client en attente.</p>}
-          {pendingDemands.map((demand) => {
+          {visibleDemands.length === 0 && <p className="text-sm text-gray-500">Aucune demande dans cet onglet.</p>}
+          {visibleDemands.map((demand) => {
             const displayStatus = resolveDisplayStatus(demand);
             const statusSelectOptions = editableStatusOptions.includes(displayStatus)
               ? editableStatusOptions
