@@ -247,15 +247,10 @@ export default function ReservationConfirmationPage() {
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
-  const hasIdentityProfile =
-    Boolean(String(user?.firstName || "").trim())
-    && Boolean(String(user?.lastName || "").trim())
-    && Boolean(String(user?.telephone || "").trim())
-    && Boolean(String(user?.cin || "").trim());
-  if (!isAmicaleFlow && !hasIdentityProfile) {
-    const returnTo = slug ? `/reservation/confirmation/${slug}` : "/logements";
-    return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
-  }
+  // Important: avoid redirect loop on mobile OAuth.
+  // If the user is authenticated but profile fields are incomplete,
+  // we keep them on the reservation flow instead of bouncing to /login.
+  // Missing identity fields are completed later in the contract/payment flow.
 
   if (!property || !draft || !propertyMatchesRouteToken(property, draft.propertySlug)) {
     return <Navigate to={property ? buildPropertyDetailsPath(property) : "/logements"} replace />;
