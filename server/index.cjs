@@ -6587,6 +6587,10 @@ async function generateAmicaleVoucherHtml({
   const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
   const childGuests = Math.max(0, Number(demand.child_guests || 0));
   const createdAtLabel = formatDateFr(generatedAt || demand.agency_validation_at || demand.updated_at || getAgencySqlDateTime());
+  const backgroundUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}/voucher-template/vide.jpg`;
+  const amicaleLogoUrl = String(amicale?.logoUrl || demand?.amicale_logo_url || '').trim();
+  const peopleText = `${totalGuests} (Adultes: ${adultGuests}, Enfants: ${childGuests})`;
+  const voucherIdText = String(demand?.id || safeVoucherNumber).trim();
 
   const html = `<!doctype html>
 <html lang="fr">
@@ -6595,70 +6599,33 @@ async function generateAmicaleVoucherHtml({
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Voucher amicale ${escapeHtml(safeVoucherNumber)}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #f3f4f6; color: #0f172a; }
-    .page { max-width: 880px; margin: 24px auto; background: #fff; border: 1px solid #dbe2ea; border-radius: 16px; padding: 24px; }
-    h1 { margin: 0 0 6px; font-size: 28px; color: #065f46; }
-    .muted { color: #64748b; font-size: 13px; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 16px; }
-    .box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
-    .label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
-    .value { font-size: 15px; font-weight: 700; color: #0f172a; }
-    .voucher { display: inline-block; padding: 8px 12px; border-radius: 999px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; font-weight: 700; }
-    .qr-wrap { margin-top: 16px; display: flex; align-items: center; gap: 14px; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 12px; }
-    .qr-wrap img { width: 132px; height: 132px; border-radius: 8px; border: 1px solid #e2e8f0; }
-    .qr-title { font-size: 12px; color: #475569; margin-bottom: 4px; text-transform: uppercase; font-weight: 700; }
-    .qr-link { font-size: 12px; color: #0f766e; word-break: break-all; }
-    .footer { margin-top: 18px; padding-top: 12px; border-top: 1px dashed #cbd5e1; color: #475569; font-size: 13px; }
-    @media print { body { background: #fff; } .page { margin: 0; border: 0; border-radius: 0; } }
+    body { margin: 0; background: #f1f5f9; font-family: Arial, sans-serif; }
+    .sheet { width: 1536px; height: 1024px; position: relative; margin: 0 auto; background: url('${escapeHtml(backgroundUrl)}') no-repeat center/cover; }
+    .txt { position: absolute; color: #0f172a; font-weight: 600; font-size: 40px; line-height: 1.1; }
+    .small { font-size: 30px; }
+    .logo { position: absolute; left: 70px; top: 120px; width: 200px; height: 200px; border-radius: 999px; object-fit: contain; }
+    .qr { position: absolute; left: 430px; top: 800px; width: 150px; height: 150px; object-fit: contain; }
+    .id { position: absolute; left: 640px; top: 885px; width: 385px; font-size: 28px; font-weight: 700; color: #0f172a; }
+    .meta { position: absolute; left: 430px; top: 26px; font-size: 20px; color: #0f766e; font-weight: 700; }
+    .total { position: absolute; left: 1100px; top: 930px; font-size: 22px; color: #0f766e; font-weight: 700; }
+    @media print {
+      body { background: #fff; }
+      .sheet { margin: 0; }
+    }
   </style>
 </head>
 <body>
-  <main class="page">
-    <div class="voucher">Voucher en cours</div>
-    <h1>${escapeHtml(String(amicale?.name || 'Amicale'))}</h1>
-    <p class="muted">Reference voucher: ${escapeHtml(safeVoucherNumber)} - Genere le ${escapeHtml(createdAtLabel)}</p>
-
-    <div class="qr-wrap">
-      <img src="${escapeHtml(qrCodeUrl)}" alt="QR voucher ${escapeHtml(safeVoucherNumber)}" />
-      <div>
-        <div class="qr-title">QR Code Voucher</div>
-        <div class="muted">Scanner pour ouvrir directement la page du voucher.</div>
-        <a class="qr-link" href="${escapeHtml(voucherPublicUrl)}" target="_blank" rel="noreferrer">${escapeHtml(voucherPublicUrl)}</a>
-      </div>
-    </div>
-
-    <div class="grid">
-      <div class="box">
-        <div class="label">Client</div>
-        <div class="value">${escapeHtml(String(demand.client_name || '-'))}</div>
-        <div class="muted">Matricule: ${escapeHtml(String(demand.amicale_matricule || '-'))}</div>
-        <div class="muted">Telephone: ${escapeHtml(String(demand.amicale_phone || '-'))}</div>
-      </div>
-      <div class="box">
-        <div class="label">Logement</div>
-        <div class="value">${escapeHtml(String(bien?.reference || demand.bien_id || '-'))}</div>
-        <div class="muted">${escapeHtml(String(bien?.titre || demand.bien_titre || 'Bien'))}</div>
-      </div>
-      <div class="box">
-        <div class="label">Periode</div>
-        <div class="value">${escapeHtml(stayPeriodLabel)}</div>
-      </div>
-      <div class="box">
-        <div class="label">Voyageurs</div>
-        <div class="value">${escapeHtml(String(totalGuests))}</div>
-        <div class="muted">Adultes: ${escapeHtml(String(adultGuests))} | Enfants: ${escapeHtml(String(childGuests))}</div>
-      </div>
-      <div class="box">
-        <div class="label">Total HT</div>
-        <div class="value">${escapeHtml(formatCurrency(totalAmount))}</div>
-      </div>
-    </div>
-
-    <div class="footer">
-      <p><strong>Amicale:</strong> ${escapeHtml(String(amicale?.name || '-'))}</p>
-      <p><strong>Code amicale:</strong> ${escapeHtml(String(demand.amicale_code || '-'))}</p>
-      <p><strong>Etat:</strong> Voucher en cours</p>
-    </div>
+  <main class="sheet">
+    ${amicaleLogoUrl ? `<img class="logo" src="${escapeHtml(amicaleLogoUrl)}" alt="Logo amicale" />` : ''}
+    <div class="meta">Voucher ${escapeHtml(safeVoucherNumber)} | Genere le ${escapeHtml(createdAtLabel)}</div>
+    <div class="txt" style="left: 645px; top: 420px; width: 380px;">${escapeHtml(String(demand.client_name || '-'))}</div>
+    <div class="txt" style="left: 600px; top: 520px; width: 430px;">${escapeHtml(String(demand.amicale_phone || '-'))}</div>
+    <div class="txt" style="left: 660px; top: 610px; width: 360px;">${escapeHtml(String(bien?.reference || demand.bien_id || '-'))}</div>
+    <div class="txt small" style="left: 650px; top: 697px; width: 500px;">${escapeHtml(String(stayPeriodLabel || '-'))}</div>
+    <div class="txt small" style="left: 690px; top: 780px; width: 350px;">${escapeHtml(peopleText)}</div>
+    <img class="qr" src="${escapeHtml(qrCodeUrl)}" alt="QR Voucher" />
+    <div class="id">${escapeHtml(voucherIdText)}</div>
+    <div class="total">Total HT: ${escapeHtml(formatCurrency(totalAmount))}</div>
   </main>
 </body>
 </html>`;
@@ -11091,6 +11058,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
           },
           amicale: {
             name: detailedCurrent?.amicale_name || detailedCurrent?.client_name || 'Amicale',
+            logoUrl: detailedCurrent?.amicale_logo_url || null,
           },
           voucherNumber,
           generatedAt: agencyValidationAt,
