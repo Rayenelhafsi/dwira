@@ -100,13 +100,21 @@ function safeParseJson(value, fallbackValue = null) {
   }
 }
 
-function buildFlouciAuthHeaders() {
+function buildFlouciAuthorizationHeaders() {
   const bearer = `Bearer ${FLOUCI_PUBLIC_KEY}:${FLOUCI_PRIVATE_KEY}`;
   return {
     'Content-Type': 'application/json',
     Accept: 'application/json',
     Authorization: bearer,
-    authorization: bearer,
+  };
+}
+
+function buildFlouciTokenHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    apptoken: FLOUCI_PUBLIC_KEY,
+    appsecret: FLOUCI_PRIVATE_KEY,
   };
 }
 
@@ -121,12 +129,7 @@ function isFlouciSuccessStatus(status) {
   return ['SUCCESS', 'SUCCEEDED', 'PAID', 'COMPLETED', 'DONE'].includes(normalized);
 }
 
-async function flouciGeneratePayment(payload) {
-  const response = await fetch(`${FLOUCI_API_BASE_URL}/generate_payment`, {
-    method: 'POST',
-    headers: buildFlouciAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
+async function parseFlouciResponse(response) {
   const rawText = await response.text().catch(() => '');
   let data = {};
   try {
@@ -134,23 +137,56 @@ async function flouciGeneratePayment(payload) {
   } catch {
     data = {};
   }
-  if (!response.ok) {
-    const message = String(
-      data?.result?.message ||
-      data?.message ||
-      data?.error ||
-      rawText ||
-      `HTTP ${response.status}`
-    ).trim();
-    throw new Error(message || 'Echec creation paiement Flouci');
+  return { rawText, data };
+}
+
+function extractFlouciErrorMessage(response, data, rawText) {
+  return String(
+    data?.result?.message ||
+    data?.detail ||
+    data?.message ||
+    data?.error ||
+    rawText ||
+    `HTTP ${response.status}`
+  ).trim();
+}
+
+async function flouciGeneratePayment(payload) {
+  const firstResponse = await fetch(`${FLOUCI_API_BASE_URL}/generate_payment`, {
+    method: 'POST',
+    headers: buildFlouciAuthorizationHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const firstParsed = await parseFlouciResponse(firstResponse);
+  if (firstResponse.ok) return firstParsed.data;
+
+  const firstMessage = extractFlouciErrorMessage(firstResponse, firstParsed.data, firstParsed.rawText);
+  const shouldRetryWithTokenHeaders =
+    firstResponse.status === 401 ||
+    firstResponse.status === 403 ||
+    /authentication credentials were not provided|unauthorized|forbidden|token/i.test(firstMessage);
+
+  if (!shouldRetryWithTokenHeaders) {
+    throw new Error(firstMessage || 'Echec creation paiement Flouci');
   }
-  return data;
+
+  const secondResponse = await fetch(`${FLOUCI_API_BASE_URL}/generate_payment`, {
+    method: 'POST',
+    headers: buildFlouciTokenHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const secondParsed = await parseFlouciResponse(secondResponse);
+  if (!secondResponse.ok) {
+    const secondMessage = extractFlouciErrorMessage(secondResponse, secondParsed.data, secondParsed.rawText);
+    throw new Error(secondMessage || 'Echec creation paiement Flouci');
+  }
+  return secondParsed.data;
 }
 
 async function flouciVerifyPayment(paymentId) {
   const response = await fetch(`${FLOUCI_API_BASE_URL}/verify_payment/${encodeURIComponent(String(paymentId || '').trim())}`, {
     method: 'GET',
-    headers: buildFlouciAuthHeaders(),
+    headers: buildFlouciAuthorizationHeaders(),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
