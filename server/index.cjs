@@ -6580,7 +6580,6 @@ async function generateAmicaleVoucherHtml({
   const filePath = path.join(vouchersDir, fileName);
   const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
   const totalAmount = Number(demand.total_amount || 0);
-  const amountDueNow = Number(demand.amount_due_now || 0);
   const totalGuests = Math.max(1, Number(demand.guests || 1));
   const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
   const childGuests = Math.max(0, Number(demand.child_guests || 0));
@@ -6636,10 +6635,6 @@ async function generateAmicaleVoucherHtml({
       <div class="box">
         <div class="label">Total HT</div>
         <div class="value">${escapeHtml(formatCurrency(totalAmount))}</div>
-      </div>
-      <div class="box">
-        <div class="label">A payer maintenant</div>
-        <div class="value">${escapeHtml(formatCurrency(amountDueNow))}</div>
       </div>
     </div>
 

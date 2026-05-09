@@ -453,14 +453,28 @@ export default function AgentAmicaleDashboardPage() {
                           <p className="text-xs text-gray-500">{formatDateOnly(demand.start_date)} au {formatDateOnly(demand.end_date)} - {formatCurrency(demand.total_amount)}</p>
                         </div>
                         {voucherUrl ? (
-                          <a
-                            href={voucherUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
-                          >
-                            Ouvrir voucher
-                          </a>
+                          <div className="flex flex-wrap gap-2">
+                            <a
+                              href={voucherUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+                            >
+                              Consulter voucher
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const popup = window.open(voucherUrl, "_blank", "noopener,noreferrer");
+                                if (popup) {
+                                  popup.addEventListener("load", () => popup.print(), { once: true });
+                                }
+                              }}
+                              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                              Imprimer voucher
+                            </button>
+                          </div>
                         ) : null}
                       </div>
                     </div>
