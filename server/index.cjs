@@ -6610,8 +6610,8 @@ async function generateAmicaleVoucherHtml({
     .txt { position: absolute; color: #0f172a; font-weight: 600; font-size: 24px; line-height: 1.1; }
     .small { font-size: 20px; }
     .logo { position: absolute; left: 70px; top: 120px; width: 200px; height: 200px; border-radius: 999px; object-fit: contain; }
-    .qr { position: absolute; left: 443px; top: 806px; width: 132px; height: 132px; object-fit: contain; }
-    .id { position: absolute; left: 640px; top: 907px; width: 385px; font-size: 22px; font-weight: 700; color: #0f172a; }
+    .qr { position: absolute; left: 406px; top: 808px; width: 132px; height: 132px; object-fit: contain; }
+    .id { position: absolute; left: 445px; top: 896px; width: 385px; font-size: 22px; font-weight: 700; color: #0f172a; }
     .meta { position: absolute; left: 430px; top: 26px; font-size: 20px; color: #0f766e; font-weight: 700; }
     @media print {
       body { background: #fff; }
@@ -6623,14 +6623,14 @@ async function generateAmicaleVoucherHtml({
   <main class="sheet">
     ${amicaleLogoUrl ? `<img class="logo" src="${escapeHtml(amicaleLogoUrl)}" alt="Logo amicale" />` : ''}
     <div class="meta">Voucher ${escapeHtml(safeVoucherNumber)} | Genere le ${escapeHtml(createdAtLabel)}</div>
-    <div class="txt" style="left: 612px; top: 431px; width: 420px;">${escapeHtml(String(demand.client_name || '-'))}</div>
-    <div class="txt" style="left: 576px; top: 515px; width: 430px;">${escapeHtml(String(demand.amicale_phone || '-'))}</div>
-    <div class="txt" style="left: 628px; top: 599px; width: 390px;">${escapeHtml(String(bien?.reference || demand.bien_id || '-'))}</div>
-    <div class="txt small" style="left: 658px; top: 687px; width: 48px; text-align:center;">${escapeHtml(startDay)}</div>
-    <div class="txt small" style="left: 730px; top: 687px; width: 48px; text-align:center;">${escapeHtml(startMonth)}</div>
-    <div class="txt small" style="left: 866px; top: 687px; width: 48px; text-align:center;">${escapeHtml(endDay)}</div>
-    <div class="txt small" style="left: 938px; top: 687px; width: 48px; text-align:center;">${escapeHtml(endMonth)}</div>
-    <div class="txt small" style="left: 648px; top: 774px; width: 390px;">${escapeHtml(peopleText)}</div>
+    <div class="txt" style="left: 574px; top: 424px; width: 420px;">${escapeHtml(String(demand.client_name || '-'))}</div>
+    <div class="txt" style="left: 560px; top: 499px; width: 430px;">${escapeHtml(String(demand.amicale_phone || '-'))}</div>
+    <div class="txt" style="left: 599px; top: 568px; width: 390px;">${escapeHtml(String(bien?.reference || demand.bien_id || '-'))}</div>
+    <div class="txt small" style="left: 638px; top: 647px; width: 48px; text-align:center;">${escapeHtml(startDay)}</div>
+    <div class="txt small" style="left: 698px; top: 647px; width: 48px; text-align:center;">${escapeHtml(startMonth)}</div>
+    <div class="txt small" style="left: 845px; top: 649px; width: 48px; text-align:center;">${escapeHtml(endDay)}</div>
+    <div class="txt small" style="left: 909px; top: 648px; width: 48px; text-align:center;">${escapeHtml(endMonth)}</div>
+    <div class="txt small" style="left: 633px; top: 717px; width: 390px;">${escapeHtml(peopleText)}</div>
     <img class="qr" src="${escapeHtml(qrCodeUrl)}" alt="QR Voucher" />
     <div class="id">${escapeHtml(voucherIdText)}</div>
   </main>
