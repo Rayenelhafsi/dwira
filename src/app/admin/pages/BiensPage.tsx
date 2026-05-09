@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { mockZones } from '../data/mockData';
@@ -117,7 +117,7 @@ const renderFeatureIconPicker = (
 );
 
 const statusColors: Record<BienStatut, string> = { disponible: "bg-emerald-100 text-emerald-800 border-emerald-200", loue: "bg-blue-100 text-blue-800 border-blue-200", reserve: "bg-amber-100 text-amber-800 border-amber-200", maintenance: "bg-red-100 text-red-800 border-red-200", bloque: "bg-gray-200 text-gray-800 border-gray-300" };
-const statusLabels: Record<BienStatut, string> = { disponible: "Disponible", loue: "Loué", reserve: "Réservé", maintenance: "Maintenance", bloque: "Bloqué" };
+const statusLabels: Record<BienStatut, string> = { disponible: "Disponible", loue: "LouÃ©", reserve: "RÃ©servÃ©", maintenance: "Maintenance", bloque: "BloquÃ©" };
 const modeLabels: Record<BienMode, string> = {
   vente: "Vente",
   location_annuelle: "Location annuelle",
@@ -155,8 +155,8 @@ const LOTISSEMENT_PRIX_MODE_LABELS: Record<ModePrixLotissement, string> = {
 };
 const TYPE_RUE_LABELS: Record<TypeRueAppartementVente, string> = {
   piste: 'Piste',
-  route_goudronnee: 'Route goudronnée',
-  rue_residentielle: 'Rue résidentielle',
+  route_goudronnee: 'Route goudronnÃ©e',
+  rue_residentielle: 'Rue rÃ©sidentielle',
 };
 const TYPE_PAPIER_LABELS: Record<TypePapierAppartementVente, string> = {
   titre_foncier_individuel: 'Titre foncier individuel',
@@ -503,11 +503,11 @@ const APPARTEMENT_VENTE_BOOLEAN_LABELS: Record<(typeof APPARTEMENT_VENTE_BOOLEAN
   cuisine_equipee: 'Cuisine equipee',
   place_parking: 'Place parking',
   syndic: 'Syndic',
-  meuble: 'Meublé',
-  independant: 'Indépendant',
+  meuble: 'MeublÃ©',
+  independant: 'IndÃ©pendant',
   eau_puits: 'Eau puits',
   eau_sonede: 'Eau Sonede',
-  electricite_steg: 'Électricité STEG',
+  electricite_steg: 'Ã‰lectricitÃ© STEG',
 };
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 const isLegacyNightLimitFeature = (featureName: string) => {
@@ -602,15 +602,15 @@ const LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS = [
 ] as const;
 const LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS: Record<(typeof LOCAL_COMMERCIAL_VENTE_BOOLEAN_FIELDS)[number], string> = {
   toilette: 'Toilette',
-  reserve_local: 'Réserve',
+  reserve_local: 'RÃ©serve',
   vitrine: 'Vitrine',
   coin_angle: "Coin d'angle",
-  electricite_3_phases: 'Électricité 3 phases',
+  electricite_3_phases: 'Ã‰lectricitÃ© 3 phases',
   gaz_ville: 'Gaz de ville',
   alarme: 'Alarme',
   eau_puits: 'Eau puits',
   eau_sonede: 'Eau Sonede',
-  electricite_steg: 'Électricité STEG',
+  electricite_steg: 'Ã‰lectricitÃ© STEG',
 };
 const LOCAL_COMMERCIAL_VENTE_DETAIL_FEATURES = new Set(
   Object.values(LOCAL_COMMERCIAL_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
@@ -621,7 +621,7 @@ const TERRAIN_VENTE_BOOLEAN_LABELS: Record<(typeof TERRAIN_VENTE_BOOLEAN_FIELDS)
   terrain_angle: "Terrain d'angle",
   eau_puits: 'Eau puits',
   eau_sonede: 'Eau Sonede',
-  electricite_steg: 'Électricité STEG',
+  electricite_steg: 'Ã‰lectricitÃ© STEG',
 };
 const TERRAIN_VENTE_DETAIL_FEATURES = new Set(
   Object.values(TERRAIN_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
@@ -635,12 +635,12 @@ const IMMEUBLE_VENTE_BOOLEAN_LABELS: Record<(typeof IMMEUBLE_VENTE_BOOLEAN_FIELD
   immeuble_proche_plage: 'Proche de la plage',
   immeuble_ascenseur: 'Ascenseur',
   immeuble_parking_sous_sol: 'Parking sous-sol',
-  immeuble_parking_exterieur: 'Parking extérieur',
+  immeuble_parking_exterieur: 'Parking extÃ©rieur',
   immeuble_syndic: 'Syndic',
   immeuble_vue_mer: 'Vue mer',
   eau_puits: 'Eau puits',
   eau_sonede: 'Eau Sonede',
-  electricite_steg: 'Électricité STEG',
+  electricite_steg: 'Ã‰lectricitÃ© STEG',
 };
 const IMMEUBLE_VENTE_DETAIL_FEATURES = new Set(
   Object.values(IMMEUBLE_VENTE_BOOLEAN_LABELS).map((label) => normalizeFeatureName(label))
@@ -1127,7 +1127,7 @@ export default function BiensPage() {
     }
   };
 
-  const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
+  const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimÃ©'); } catch { toast.error('Erreur'); } } };
   const buildDuplicateSeed = (source: Bien): Bien => {
     const clone = JSON.parse(JSON.stringify(source)) as Bien;
     const nowIso = new Date().toISOString();
@@ -1463,12 +1463,12 @@ export default function BiensPage() {
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-        <div><h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Biens</h1><p className="text-xs sm:text-sm text-gray-500">Gérez votre portefeuille</p></div>
+        <div><h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Biens</h1><p className="text-xs sm:text-sm text-gray-500">GÃ©rez votre portefeuille</p></div>
         <button onClick={() => { setEditingBien(null); setEditorInitialStep(1); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
       </div>
       <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4">
         <div className="relative flex-1"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-gray-400" /></div><input type="text" className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md" placeholder="Rechercher..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-        <div className="w-full sm:w-64"><select className="block w-full pl-3 pr-10 py-2 border border-gray-300 rounded-md" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as BienStatut | 'all')}><option value="all">Tous les statuts</option><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
+        <div className="w-full sm:w-64"><select className="block w-full pl-3 pr-10 py-2 border border-gray-300 rounded-md" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as BienStatut | 'all')}><option value="all">Tous les statuts</option><option value="disponible">Disponible</option><option value="loue">LouÃ©</option><option value="reserve">RÃ©servÃ©</option><option value="maintenance">Maintenance</option><option value="bloque">BloquÃ©</option></select></div>
       </div>
       <div className="bg-white p-2 sm:p-3 rounded-lg shadow-sm border border-gray-100">
         <div className="flex flex-wrap gap-2">
@@ -1687,7 +1687,7 @@ export default function BiensPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
       </div>
-      {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
+      {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvÃ©</h3></div>}
       <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
         <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" /><Dialog.Content className="fixed inset-0 z-50 w-full h-full bg-white overflow-hidden flex flex-col">
           <Dialog.Description className="sr-only">Formulaire d'ajout ou de modification de bien</Dialog.Description>
@@ -1747,6 +1747,7 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
           minimum_nuitees: period.minimum_nuitees === null || period.minimum_nuitees === undefined ? null : Number(period.minimum_nuitees || 0),
           checkin_jour: period.checkin_jour || null,
           checkout_jour: period.checkout_jour || null,
+          amicale_id: period.amicale_id || null,
         }))
       : [],
   });
@@ -3170,7 +3171,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     setImages([...images, newMedia]);
     setNewImageUrl('');
     if (isLocalCommercial && !motifOverride) setNewImageMotif('');
-    toast.success('Image ajoutée');
+    toast.success('Image ajoutÃ©e');
   };
 
   const handleAddVideo = () => {
@@ -3188,7 +3189,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     };
     setImages([...images, newMedia]);
     setNewVideoUrl('');
-    toast.success('Vidéo ajoutée');
+    toast.success('VidÃ©o ajoutÃ©e');
   };
 
   const handleRemoveImage = (id: string) => {
@@ -3199,7 +3200,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     if (existsInInitialMedia) {
       setDeletedMediaIds((prev) => (prev.includes(mediaId) ? prev : [...prev, mediaId]));
     }
-    toast.success('Média supprimé');
+    toast.success('MÃ©dia supprimÃ©');
   };
 
   const reorderClientImages = (fromId: string, toId: string) => {
@@ -3247,7 +3248,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     newImages.unshift(movedImage);
     let clientCursor = 0;
     setImages(images.map((img) => (isProofImage(img) || img.type === 'video' ? img : newImages[clientCursor++])));
-    toast.success('Image principale définie');
+    toast.success('Image principale dÃ©finie');
   };
 
 
@@ -3296,7 +3297,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
 	                    placeholder="https://www.google.com/maps/embed?pb=... (prioritaire sur la zone)"
 	                    className="block w-full rounded-lg border-gray-300 border p-2"
 	                  />
-	                  <p className="text-xs text-gray-500">Ce lien est separé de la zone et sera utilise en priorite sur la page client.</p>
+	                  <p className="text-xs text-gray-500">Ce lien est separÃ© de la zone et sera utilise en priorite sur la page client.</p>
 	                </div>
 	                <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -3930,7 +3931,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       }
       toast.success(applyToAll ? 'Caracteristique appliquee a tous les biens' : 'Caracteristique mise a jour');
     } catch {
-      toast.error("Modification non persistée. Vérifier que l'API/backend déployé contient bien la logique d'override par bien.");
+      toast.error("Modification non persistÃ©e. VÃ©rifier que l'API/backend dÃ©ployÃ© contient bien la logique d'override par bien.");
     } finally {
       setFeatureSaving(false);
     }
@@ -4054,7 +4055,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setNewZoneImageFile(null);
       setNewZoneImagePreview('');
       setShowAddZone(false);
-      toast.success('Zone ajoutée');
+      toast.success('Zone ajoutÃ©e');
     } catch {
       toast.error('Erreur ajout zone');
     } finally {
@@ -4172,8 +4173,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const handleAddProprietaire = async () => {
     const firstName = newOwnerFirstName.trim();
     const lastName = newOwnerName.trim();
-    if (!firstName) return toast.error('Pr�nom du propri�taire requis');
-    if (!lastName) return toast.error('Nom du propri�taire requis');
+    if (!firstName) return toast.error('Prénom du propriétaire requis');
+    if (!lastName) return toast.error('Nom du propriétaire requis');
     const fullName = `${firstName} ${lastName}`.replace(/\s+/g, ' ').trim();
     const ownerEmail = newOwnerEmail.trim();
     const ownerPhone = newOwnerPhone.trim();
@@ -4243,9 +4244,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setNewOwnerEmail('');
       setNewOwnerCin('');
       setShowAddProprietaire(false);
-      toast.success('Propri�taire ajout�');
+      toast.success('Propriétaire ajouté');
     } catch {
-      toast.error('Erreur ajout propri�taire');
+      toast.error('Erreur ajout propriétaire');
     }
   };
 
@@ -5611,7 +5612,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   };
   const handleDeleteSelectedZone = async () => {
     const zoneId = String(formData.zone_id || '').trim();
-    if (!zoneId) return toast.error('Aucune zone sélectionnée');
+    if (!zoneId) return toast.error('Aucune zone sÃ©lectionnÃ©e');
     const sourceZone = zonesOptions.find((item) => item.id === zoneId);
     const fallbackTarget = zonesOptions.find((item) => item.id !== zoneId)?.id || '';
     try {
@@ -5626,7 +5627,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       });
       const response = await fetch(`${API_URL}/zones/${encodeURIComponent(zoneId)}/linked-biens`);
       const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : [];
-      if (!response.ok) throw new Error(payload?.error || 'Chargement des biens liés impossible');
+      if (!response.ok) throw new Error(payload?.error || 'Chargement des biens liÃ©s impossible');
       setZoneDeleteDialog((prev) => ({
         ...prev,
         linkedBiens: Array.isArray(payload) ? payload : [],
@@ -5640,7 +5641,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   };
   const handleDeleteSelectedProprietaire = async () => {
     const ownerId = String(formData.proprietaire_id || '').trim();
-    if (!ownerId) return toast.error('Aucun propriétaire sélectionné');
+    if (!ownerId) return toast.error('Aucun propriÃ©taire sÃ©lectionnÃ©');
     const sourceOwner = proprietaireOptions.find((item) => item.id === ownerId);
     const fallbackTarget = proprietaireOptions.find((item) => item.id !== ownerId)?.id || '';
     try {
@@ -5657,7 +5658,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         credentials: 'include',
       });
       const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : [];
-      if (!response.ok) throw new Error(payload?.error || 'Chargement des biens liés impossible');
+      if (!response.ok) throw new Error(payload?.error || 'Chargement des biens liÃ©s impossible');
       setOwnerDeleteDialog((prev) => ({
         ...prev,
         linkedBiens: Array.isArray(payload) ? payload : [],
@@ -5665,14 +5666,14 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       }));
     } catch (error) {
       setOwnerDeleteDialog((prev) => ({ ...prev, open: false, loading: false }));
-      const message = error instanceof Error ? error.message : 'Erreur suppression propriétaire';
+      const message = error instanceof Error ? error.message : 'Erreur suppression propriÃ©taire';
       toast.error(message);
     }
   };
   const handleConfirmDeleteZone = async () => {
     if (!zoneDeleteDialog.sourceId) return;
     if (zoneDeleteDialog.linkedBiens.length > 0 && !zoneDeleteDialog.targetId) {
-      toast.error('Sélectionnez une zone cible pour réaffecter les biens');
+      toast.error('SÃ©lectionnez une zone cible pour rÃ©affecter les biens');
       return;
     }
     try {
@@ -5692,7 +5693,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         return { ...prev, zone_id: zoneDeleteDialog.targetId || nextZones[0]?.id || '' };
       });
       setZoneDeleteDialog((prev) => ({ ...prev, open: false, submitting: false }));
-      toast.success('Zone supprimée');
+      toast.success('Zone supprimÃ©e');
     } catch (error) {
       setZoneDeleteDialog((prev) => ({ ...prev, submitting: false }));
       const message = error instanceof Error ? error.message : 'Erreur suppression zone';
@@ -5702,7 +5703,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const handleConfirmDeleteProprietaire = async () => {
     if (!ownerDeleteDialog.sourceId) return;
     if (ownerDeleteDialog.linkedBiens.length > 0 && !ownerDeleteDialog.targetId) {
-      toast.error('Sélectionnez un propriétaire cible pour réaffecter les biens');
+      toast.error('SÃ©lectionnez un propriÃ©taire cible pour rÃ©affecter les biens');
       return;
     }
     try {
@@ -5714,7 +5715,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         body: JSON.stringify({ target_proprietaire_id: ownerDeleteDialog.targetId || null }),
       });
       const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
-      if (!response.ok) throw new Error(payload?.error || 'Suppression propriétaire impossible');
+      if (!response.ok) throw new Error(payload?.error || 'Suppression propriÃ©taire impossible');
       const nextOwners = proprietaireOptions.filter((item) => item.id !== ownerDeleteDialog.sourceId);
       setProprietaireOptions(nextOwners);
       setFormData((prev) => {
@@ -5723,10 +5724,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         return { ...prev, proprietaire_id: ownerDeleteDialog.targetId || nextOwners[0]?.id || '' };
       });
       setOwnerDeleteDialog((prev) => ({ ...prev, open: false, submitting: false }));
-      toast.success('Propriétaire supprimé');
+      toast.success('PropriÃ©taire supprimÃ©');
     } catch (error) {
       setOwnerDeleteDialog((prev) => ({ ...prev, submitting: false }));
-      const message = error instanceof Error ? error.message : 'Erreur suppression propriétaire';
+      const message = error instanceof Error ? error.message : 'Erreur suppression propriÃ©taire';
       toast.error(message);
     }
   };
@@ -5911,7 +5912,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   )}
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={() => setShowAddZone(!showAddZone)} className="text-xs text-emerald-700 hover:underline">+ Ajouter une zone</button>
-                    <button type="button" onClick={handleDeleteSelectedZone} className="text-xs text-red-600 hover:underline">Supprimer zone sélectionnée</button>
+                    <button type="button" onClick={handleDeleteSelectedZone} className="text-xs text-red-600 hover:underline">Supprimer zone sÃ©lectionnÃ©e</button>
                   </div>
                   {showAddZone && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
@@ -5949,7 +5950,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                           className="block w-full rounded-lg border-gray-300 border p-2 text-xs"
                         />
                         {newZoneImagePreview && (
-                          <img src={newZoneImagePreview} alt="Aperçu zone" className="h-24 w-full rounded-lg border border-gray-200 object-cover" />
+                          <img src={newZoneImagePreview} alt="AperÃ§u zone" className="h-24 w-full rounded-lg border border-gray-200 object-cover" />
                         )}
                       </div>
                       <button type="button" disabled={newZoneImageUploading} onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">
@@ -5959,28 +5960,28 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   )}
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Propri�taire</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Propriétaire</label>
                   <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
-                    <option value="">-- Choisir un propri�taire --</option>
+                    <option value="">-- Choisir un propriétaire --</option>
                     {proprietaireOptions.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
                   </select>
                   <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propri�taire</button>
-                    <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propri�taire s�lectionn�</button>
+                    <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriétaire</button>
+                    <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propriétaire sélectionné</button>
                   </div>
                   {showAddProprietaire && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                      <input type="text" value={newOwnerFirstName} onChange={(e) => setNewOwnerFirstName(e.target.value)} placeholder="Pr�nom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newOwnerFirstName} onChange={(e) => setNewOwnerFirstName(e.target.value)} placeholder="Prénom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="text" value={newOwnerName} onChange={(e) => setNewOwnerName(e.target.value)} placeholder="Nom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newOwnerPhone} onChange={(e) => setNewOwnerPhone(e.target.value)} placeholder="T�l�phone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newOwnerPhone} onChange={(e) => setNewOwnerPhone(e.target.value)} placeholder="Téléphone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="email" value={newOwnerEmail} onChange={(e) => setNewOwnerEmail(e.target.value)} placeholder="Email (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="text" value={newOwnerCin} onChange={(e) => setNewOwnerCin(e.target.value)} placeholder="CIN (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <button type="button" onClick={handleAddProprietaire} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer propri�taire</button>
+                      <button type="button" onClick={handleAddProprietaire} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer propriétaire</button>
                     </div>
                   )}
                 </div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propri�taire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Num�ro propri�taire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propriétaire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Numéro propriétaire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
               </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
               <div className="flex justify-end"><button type="button" onClick={() => validateStepBeforeContinue(1, 2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
@@ -5991,7 +5992,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Type *</label><select name="type" value={formData.type || 'appartement'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{(BIEN_TYPES_BY_MODE[(formData.mode || 'location_saisonniere') as BienMode] || []).map((typeValue) => <option key={typeValue} value={typeValue}>{typeLabels[typeValue]}</option>)}</select></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">LouÃ©</option><option value="reserve">RÃ©servÃ©</option><option value="maintenance">Maintenance</option><option value="bloque">BloquÃ©</option></select></div>
                 {isLocationAppartement && (
                   <div data-field="configuration">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Sous-type *</label>
@@ -6060,7 +6061,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                       </button>
                     </div>
                     <p className="mt-1 text-xs text-gray-500">
-                      Valeurs de la variable Sous-type (créée dans Informations générales).
+                      Valeurs de la variable Sous-type (crÃ©Ã©e dans Informations gÃ©nÃ©rales).
                     </p>
                   </div>
                 )}
@@ -6068,7 +6069,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
               <label htmlFor="visible_sur_site" className="flex items-center justify-between gap-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50/60 cursor-pointer">
                 <div>
                   <span className="block text-sm font-medium text-gray-800">Visible sur le site</span>
-                  <span className="block text-xs text-gray-500">Si désactivé, le bien reste en admin mais n'apparait plus côté client.</span>
+                  <span className="block text-xs text-gray-500">Si dÃ©sactivÃ©, le bien reste en admin mais n'apparait plus cÃ´tÃ© client.</span>
                 </div>
                 <span className="relative inline-flex items-center">
                   <input type="checkbox" id="visible_sur_site" name="visible_sur_site" checked={formData.visible_sur_site !== false} onChange={handleCheckboxChange} className="peer sr-only" />
@@ -6079,7 +6080,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
               <label htmlFor="is_featured" className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-100 bg-amber-50/60 cursor-pointer">
                 <div>
                   <span className="block text-sm font-medium text-gray-800">Bien en vedette</span>
-                  <span className="block text-xs text-gray-500">Si activé, le bien apparait dans les listes vedette côté client.</span>
+                  <span className="block text-xs text-gray-500">Si activÃ©, le bien apparait dans les listes vedette cÃ´tÃ© client.</span>
                 </div>
                 <span className="relative inline-flex items-center">
                   <input type="checkbox" id="is_featured" name="is_featured" checked={formData.is_featured === true} onChange={handleCheckboxChange} className="peer sr-only" />
@@ -6090,7 +6091,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
                 <div>
                   <h4 className="text-sm font-semibold text-gray-900">Visibilite des composants UI</h4>
-                  <p className="text-xs text-gray-500">Ces reglages controlent quels blocs apparaissent sur la page client et dans l'aperçu admin.</p>
+                  <p className="text-xs text-gray-500">Ces reglages controlent quels blocs apparaissent sur la page client et dans l'aperÃ§u admin.</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {uiSectionOptions.map((section) => (
@@ -6377,11 +6378,11 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Superficie (m²)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Superficie (mÂ²)</label>
                       <input type="number" min={0} step="0.01" name="superficie_m2" value={formData.superficie_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Étage</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Ã‰tage</label>
                       <input type="number" min={0} name="etage" value={formData.etage ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
@@ -6397,7 +6398,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                       <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Année construction</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">AnnÃ©e construction</label>
                       <input type="number" min={1800} max={3000} name="annee_construction" value={formData.annee_construction ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
@@ -6439,11 +6440,11 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface (m²)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface (mÂ²)</label>
                       <input type="number" min={0} step="0.01" name="surface_local_m2" value={formData.surface_local_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Façade (m)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">FaÃ§ade (m)</label>
                       <input type="number" min={0} step="0.01" name="facade_m" value={formData.facade_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
@@ -6451,8 +6452,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                       <input type="number" min={0} step="0.01" name="hauteur_plafond_m" value={formData.hauteur_plafond_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Activité recommandée</label>
-                      <input name="activite_recommandee" value={formData.activite_recommandee || ''} onChange={handleChange} placeholder="Café, boutique..." className="block w-full rounded-lg border-gray-300 border p-2" />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">ActivitÃ© recommandÃ©e</label>
+                      <input name="activite_recommandee" value={formData.activite_recommandee || ''} onChange={handleChange} placeholder="CafÃ©, boutique..." className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                   </div>
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -6485,7 +6486,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
               )}
               {isTerrainVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Terrain (Vente)</h4>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">DÃ©tails Terrain (Vente)</h4>
                   <div className="flex flex-wrap gap-2 mb-4">
                     {terrainTabsForRender.map((section) => (
                       <button
@@ -6918,8 +6919,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   {isInfoDetailTab && (
                     <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface terrain (m²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_terrain_m2" value={formData.immeuble_surface_terrain_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface bâtie (m²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_batie_m2" value={formData.immeuble_surface_batie_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface terrain (mÂ²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_terrain_m2" value={formData.immeuble_surface_terrain_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface bÃ¢tie (mÂ²)</label><input type="number" min={0} step="0.01" name="immeuble_surface_batie_m2" value={formData.immeuble_surface_batie_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre de niveaux</label><input type="number" min={0} name="immeuble_nb_niveaux" value={formData.immeuble_nb_niveaux ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre de garages</label><input type="number" min={0} name="immeuble_nb_garages" value={formData.immeuble_nb_garages ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre d'appartements</label><input type="number" min={0} name="immeuble_nb_appartements" value={formData.immeuble_nb_appartements ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
@@ -6938,10 +6939,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     <div className="space-y-2">
                       {(formData.immeuble_appartements || []).map((row, idx) => (
                         <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
-                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Référence</label><input value={row.reference || generateChildReference('APT', idx + 1)} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - RÃ©fÃ©rence</label><input value={row.reference || generateChildReference('APT', idx + 1)} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Chambres</label><input type="number" min={0} value={row.chambres || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'chambres', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - SDB</label><input type="number" min={0} value={row.salle_bain || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'salle_bain', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Surface (m²)</label><input type="number" min={0} step="0.01" value={row.superficie_m2 ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'superficie_m2', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Surface (mÂ²)</label><input type="number" min={0} step="0.01" value={row.superficie_m2 ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'superficie_m2', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Configuration</label><input value={row.configuration || ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'configuration', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div className="md:col-span-4 mt-1 rounded-lg border border-dashed border-gray-300 p-2">
                             <div className="text-xs font-medium text-gray-700 mb-2">Preuves Appartement {idx + 1} (type rue / type papier)</div>
@@ -7008,21 +7009,21 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     <>
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-lg border border-gray-200 bg-white p-3">
-                      <h6 className="text-sm font-semibold text-gray-800 mb-2">Références garages</h6>
+                      <h6 className="text-sm font-semibold text-gray-800 mb-2">RÃ©fÃ©rences garages</h6>
                       <div className="space-y-2">
                         {(formData.immeuble_garages || []).map((row, idx) => (
                           <input key={`garage-${idx}`} value={row.reference || generateChildReference('GAR', idx + 1)} readOnly className="w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" />
                         ))}
-                        {(formData.immeuble_garages || []).length === 0 && <span className="text-xs text-gray-500">Aucun garage défini.</span>}
+                        {(formData.immeuble_garages || []).length === 0 && <span className="text-xs text-gray-500">Aucun garage dÃ©fini.</span>}
                       </div>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-white p-3">
-                      <h6 className="text-sm font-semibold text-gray-800 mb-2">Références locaux commerciaux</h6>
+                      <h6 className="text-sm font-semibold text-gray-800 mb-2">RÃ©fÃ©rences locaux commerciaux</h6>
                       <div className="space-y-2">
                         {(formData.immeuble_locaux_commerciaux || []).map((row, idx) => (
                           <input key={`local-${idx}`} value={row.reference || generateChildReference('LOC', idx + 1)} readOnly className="w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" />
                         ))}
-                        {(formData.immeuble_locaux_commerciaux || []).length === 0 && <span className="text-xs text-gray-500">Aucun local commercial défini.</span>}
+                        {(formData.immeuble_locaux_commerciaux || []).length === 0 && <span className="text-xs text-gray-500">Aucun local commercial dÃ©fini.</span>}
                       </div>
                     </div>
                   </div>
@@ -7346,24 +7347,24 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Méthode de commission</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">MÃ©thode de commission</label>
                       <select name="tarification_methode" value={currentTarificationMethode} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
                         <option value="avec_commission">Avec commission</option>
                         <option value="sans_commission">Sans commission</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix affiché client (DT)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix affichÃ© client (DT)</label>
                       <input type="number" min={0} step="0.01" name="prix_affiche_client" value={formData.prix_affiche_client ?? formData.prix_nuitee ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                     {currentTarificationMethode === 'avec_commission' ? (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriétaire (calculé)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriÃ©taire (calculÃ©)</label>
                         <input readOnly value={venteTarificationPreview.prixFixeProprietaire} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" />
                       </div>
                     ) : (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriétaire (DT)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriÃ©taire (DT)</label>
                         <input type="number" min={0} step="0.01" name="prix_fixe_proprietaire" value={formData.prix_fixe_proprietaire ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                       </div>
                     )}
@@ -7378,7 +7379,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   {currentTarificationMethode === 'avec_commission' ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Commission part propriétaire (%)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Commission part propriÃ©taire (%)</label>
                         <input type="number" min={0} step="0.01" name="commission_pourcentage_proprietaire" value={formData.commission_pourcentage_proprietaire ?? DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                       </div>
                       <div>
@@ -7389,11 +7390,11 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Montant max à diminuer (DT)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Montant max Ã  diminuer (DT)</label>
                         <input type="number" min={0} step="0.01" name="montant_max_reduction_negociation" value={formData.montant_max_reduction_negociation ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix minimum accepté (calculé)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prix minimum acceptÃ© (calculÃ©)</label>
                         <input readOnly value={venteTarificationPreview.prixMinimumAccepte} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" />
                       </div>
                     </div>
@@ -7401,7 +7402,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix final (DT)</label><input readOnly value={venteTarificationPreview.prixFinal} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Revenu agence (DT)</label><input readOnly value={venteTarificationPreview.revenuAgence} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriétaire (DT)</label><input readOnly value={venteTarificationPreview.prixFixeProprietaire} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Prix fixe propriÃ©taire (DT)</label><input readOnly value={venteTarificationPreview.prixFixeProprietaire} className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
                   </div>
                 </>
               ) : (
@@ -7706,7 +7707,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
               {(isImmeubleVente || isLotissementVente) ? (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600">
-                    Les images client sont séparées par {(isImmeubleVente ? "unité d'immeuble" : "terrain")} pour éviter tout mélange.
+                    Les images client sont sÃ©parÃ©es par {(isImmeubleVente ? "unitÃ© d'immeuble" : "terrain")} pour Ã©viter tout mÃ©lange.
                   </p>
                   {(isImmeubleVente ? immeubleClientImageUnits : lotissementClientImageUnits).map(({ unitKey, label }) => {
                     const unitMotif = buildUnitGalleryMotif(
@@ -7751,7 +7752,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     );
                   })}
                   {isImmeubleVente && immeubleClientImageUnits.length === 0 && (
-                    <div className="text-xs text-gray-500">Ajoutez le nombre d'appartements, de garages ou de locaux commerciaux dans les détails immeuble.</div>
+                    <div className="text-xs text-gray-500">Ajoutez le nombre d'appartements, de garages ou de locaux commerciaux dans les dÃ©tails immeuble.</div>
                   )}
                   {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
                 </div>
@@ -7816,8 +7817,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                               type="button"
                               onClick={() => handleSetMainImage(index)}
                               className="p-1.5 bg-emerald-500 text-white rounded-full shadow"
-                              aria-label="Définir comme image principale"
-                              title="Définir en principale"
+                              aria-label="DÃ©finir comme image principale"
+                              title="DÃ©finir en principale"
                             >
                               <Check className="h-4 w-4" />
                             </button>
@@ -7840,7 +7841,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     {clientVisibleImages.length === 0 && <div className="col-span-full text-center py-8 text-gray-500">Aucune image</div>}
                   </div>
                   <div className="mt-8 border-t border-gray-200 pt-6">
-                    <h4 className="text-sm font-semibold text-gray-900 mb-3">Vidéos du bien</h4>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-3">VidÃ©os du bien</h4>
                     <div className="flex gap-2 mb-4">
                       <input
                         type="text"
@@ -7931,7 +7932,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         type="button"
         onClick={() => handleRemoveImage(video.id)}
         className="absolute top-4 right-4 p-2 bg-red-500 text-white rounded-full shadow"
-        aria-label="Supprimer la vidéo"
+        aria-label="Supprimer la vidÃ©o"
         title="Supprimer"
       >
         <Trash2 className="h-4 w-4" />
@@ -7940,7 +7941,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     </div>
   );
 })}
-                      {clientVisibleVideos.length === 0 && <div className="col-span-full text-center py-6 text-gray-500">Aucune vidéo</div>}
+                      {clientVisibleVideos.length === 0 && <div className="col-span-full text-center py-6 text-gray-500">Aucune vidÃ©o</div>}
                     </div>
                   </div>
                 </>
@@ -8000,17 +8001,17 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
             </Dialog.Description>
             <div className="mt-4 space-y-3">
               {zoneDeleteDialog.loading ? (
-                <div className="text-sm text-gray-500">Chargement des biens liés...</div>
+                <div className="text-sm text-gray-500">Chargement des biens liÃ©s...</div>
               ) : (
                 <>
                   <p className="text-sm text-gray-700">
                     {zoneDeleteDialog.linkedBiens.length > 0
                       ? `${zoneDeleteDialog.linkedBiens.length} bien(s) utilisent cette zone.`
-                      : 'Aucun bien lié. La zone peut être supprimée directement.'}
+                      : 'Aucun bien liÃ©. La zone peut Ãªtre supprimÃ©e directement.'}
                   </p>
                   {zoneDeleteDialog.linkedBiens.length > 0 && (
                     <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Réaffecter tous les biens vers</label>
+                      <label className="block text-sm font-medium text-gray-700">RÃ©affecter tous les biens vers</label>
                       <select
                         value={zoneDeleteDialog.targetId}
                         onChange={(e) => setZoneDeleteDialog((prev) => ({ ...prev, targetId: e.target.value }))}
@@ -8032,7 +8033,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                           <li key={bien.id} className="p-3 text-sm">
                             <p className="font-medium text-gray-900">{bien.titre || '(Sans titre)'}</p>
                             <p className="text-gray-500">
-                              Ref: {bien.reference || '-'} • Mode: {modeLabels[(bien.mode as BienMode)] || bien.mode || '-'} • Type: {typeLabels[(bien.type as BienType)] || bien.type || '-'}
+                              Ref: {bien.reference || '-'} â€¢ Mode: {modeLabels[(bien.mode as BienMode)] || bien.mode || '-'} â€¢ Type: {typeLabels[(bien.type as BienType)] || bien.type || '-'}
                             </p>
                           </li>
                         ))}
@@ -8050,7 +8051,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                 disabled={zoneDeleteDialog.loading || zoneDeleteDialog.submitting || (zoneDeleteDialog.linkedBiens.length > 0 && !zoneDeleteDialog.targetId)}
                 className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm disabled:opacity-50"
               >
-                {zoneDeleteDialog.submitting ? 'Suppression...' : 'Réaffecter et supprimer'}
+                {zoneDeleteDialog.submitting ? 'Suppression...' : 'RÃ©affecter et supprimer'}
               </button>
             </div>
           </Dialog.Content>
@@ -8060,29 +8061,29 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
           <Dialog.Content className="fixed z-[61] left-1/2 top-1/2 w-[92vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
-            <Dialog.Title className="text-lg font-semibold text-gray-900">Supprimer un propriétaire</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold text-gray-900">Supprimer un propriÃ©taire</Dialog.Title>
             <Dialog.Description className="mt-2 text-sm text-gray-600">
-              Propriétaire: <span className="font-medium text-gray-900">{ownerDeleteDialog.sourceLabel}</span>
+              PropriÃ©taire: <span className="font-medium text-gray-900">{ownerDeleteDialog.sourceLabel}</span>
             </Dialog.Description>
             <div className="mt-4 space-y-3">
               {ownerDeleteDialog.loading ? (
-                <div className="text-sm text-gray-500">Chargement des biens liés...</div>
+                <div className="text-sm text-gray-500">Chargement des biens liÃ©s...</div>
               ) : (
                 <>
                   <p className="text-sm text-gray-700">
                     {ownerDeleteDialog.linkedBiens.length > 0
-                      ? `${ownerDeleteDialog.linkedBiens.length} bien(s) utilisent ce propriétaire.`
-                      : 'Aucun bien lié. Le propriétaire peut être supprimé directement.'}
+                      ? `${ownerDeleteDialog.linkedBiens.length} bien(s) utilisent ce propriÃ©taire.`
+                      : 'Aucun bien liÃ©. Le propriÃ©taire peut Ãªtre supprimÃ© directement.'}
                   </p>
                   {ownerDeleteDialog.linkedBiens.length > 0 && (
                     <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Réaffecter tous les biens vers</label>
+                      <label className="block text-sm font-medium text-gray-700">RÃ©affecter tous les biens vers</label>
                       <select
                         value={ownerDeleteDialog.targetId}
                         onChange={(e) => setOwnerDeleteDialog((prev) => ({ ...prev, targetId: e.target.value }))}
                         className="block w-full rounded-lg border border-gray-300 p-2"
                       >
-                        <option value="">-- Choisir un propriétaire --</option>
+                        <option value="">-- Choisir un propriÃ©taire --</option>
                         {proprietaireOptions.filter((item) => item.id !== ownerDeleteDialog.sourceId).map((item) => (
                           <option key={item.id} value={item.id}>{item.nom}</option>
                         ))}
@@ -8098,7 +8099,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                           <li key={bien.id} className="p-3 text-sm">
                             <p className="font-medium text-gray-900">{bien.titre || '(Sans titre)'}</p>
                             <p className="text-gray-500">
-                              Ref: {bien.reference || '-'} • Mode: {modeLabels[(bien.mode as BienMode)] || bien.mode || '-'} • Type: {typeLabels[(bien.type as BienType)] || bien.type || '-'}
+                              Ref: {bien.reference || '-'} â€¢ Mode: {modeLabels[(bien.mode as BienMode)] || bien.mode || '-'} â€¢ Type: {typeLabels[(bien.type as BienType)] || bien.type || '-'}
                             </p>
                           </li>
                         ))}
@@ -8116,7 +8117,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                 disabled={ownerDeleteDialog.loading || ownerDeleteDialog.submitting || (ownerDeleteDialog.linkedBiens.length > 0 && !ownerDeleteDialog.targetId)}
                 className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm disabled:opacity-50"
               >
-                {ownerDeleteDialog.submitting ? 'Suppression...' : 'Réaffecter et supprimer'}
+                {ownerDeleteDialog.submitting ? 'Suppression...' : 'RÃ©affecter et supprimer'}
               </button>
             </div>
           </Dialog.Content>
@@ -8600,6 +8601,7 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
     </div>
   );
 }
+
 
 
 

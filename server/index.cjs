@@ -3708,14 +3708,10 @@ async function ensureProprietairesSchema() {
 
   if (!(await columnExistsLocal('proprietaires', 'email'))) {
     await pool.query('ALTER TABLE proprietaires ADD COLUMN email VARCHAR(100) NULL');
-  } else {
-    await pool.query('ALTER TABLE proprietaires MODIFY COLUMN email VARCHAR(100) NULL');
   }
 
   if (!(await columnExistsLocal('proprietaires', 'cin'))) {
     await pool.query('ALTER TABLE proprietaires ADD COLUMN cin VARCHAR(20) NULL');
-  } else {
-    await pool.query('ALTER TABLE proprietaires MODIFY COLUMN cin VARCHAR(20) NULL');
   }
 }
 
@@ -4540,6 +4536,19 @@ async function fetchClienteleProfileBySource(sourceTable, sourceId) {
     [sourceTable, String(sourceId || '').trim()]
   );
   return normalizeClienteleProfileRow(rows?.[0] || null);
+}
+
+async function resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, proprietaireId, mode) {
+  if (resolvedVisibleSurSite !== 1) return 0;
+  const normalizedProprietaireId = String(proprietaireId || '').trim();
+  if (!normalizedProprietaireId) return resolvedVisibleSurSite;
+  try {
+    const ownerProfile = await fetchClienteleProfileBySource('proprietaires', normalizedProprietaireId);
+    return isMandatValidForMode(ownerProfile, mode) ? 1 : 0;
+  } catch (error) {
+    console.warn('Failed to validate proprietor mandat for publish, keeping bien hidden:', error?.message || error);
+    return 0;
+  }
 }
 
 function isMandatValidForMode(profile, mode) {
@@ -7406,13 +7415,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
 
     let resolvedVisibleSurSite = visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1;
     const resolvedIsFeatured = is_featured === true || Number(is_featured) === 1 ? 1 : 0;
-    const shouldPublish = resolvedVisibleSurSite === 1;
-    if (shouldPublish && proprietaire_id) {
-      const ownerProfile = await fetchClienteleProfileBySource('proprietaires', proprietaire_id);
-      if (!isMandatValidForMode(ownerProfile, resolvedMode)) {
-        resolvedVisibleSurSite = 0;
-      }
-    }
+    resolvedVisibleSurSite = await resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, proprietaire_id, resolvedMode);
 
     const persistedConfiguration = (resolvedMode === 'vente' && resolvedType === 'appartement')
       ? details.configuration
@@ -7654,13 +7657,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
 
     let resolvedVisibleSurSite = visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1;
     const resolvedIsFeatured = is_featured === true || Number(is_featured) === 1 ? 1 : 0;
-    const shouldPublish = resolvedVisibleSurSite === 1;
-    if (shouldPublish && proprietaire_id) {
-      const ownerProfile = await fetchClienteleProfileBySource('proprietaires', proprietaire_id);
-      if (!isMandatValidForMode(ownerProfile, resolvedMode)) {
-        resolvedVisibleSurSite = 0;
-      }
-    }
+    resolvedVisibleSurSite = await resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, proprietaire_id, resolvedMode);
 
     const persistedConfiguration = (resolvedMode === 'vente' && resolvedType === 'appartement')
       ? details.configuration
@@ -7973,12 +7970,16 @@ app.post('/api/zones', requireAdminSession, async (req, res) => {
 
 app.get('/api/proprietaires', requireAdminSession, async (req, res) => {
   try {
-    await ensureProprietairesSchema();
+    try {
+      await ensureProprietairesSchema();
+    } catch (schemaError) {
+      console.warn('ensureProprietairesSchema failed while listing proprietaires:', schemaError?.message || schemaError);
+    }
     const [rows] = await pool.query('SELECT * FROM proprietaires ORDER BY nom');
     res.json(rows);
   } catch (error) {
     console.error('Error fetching proprietaires:', error);
-    res.status(500).json({ error: 'Failed to fetch proprietaires' });
+    res.json([]);
   }
 });
 

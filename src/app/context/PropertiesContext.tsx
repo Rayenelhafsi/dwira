@@ -794,7 +794,12 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         fetchBiensResilient(API_URL),
         fetchWithTimeout(`${API_URL}/zones`, { credentials: 'include' }, 8000),
         fetchWithTimeout(`${API_URL}/site-mode-priorities`, { credentials: 'include' }, 8000),
-        isAdminRoute ? fetchWithTimeout(`${API_URL}/proprietaires`, { credentials: 'include' }, 10000) : Promise.resolve(null),
+        isAdminRoute
+          ? fetchWithTimeout(`${API_URL}/proprietaires`, { credentials: 'include' }, 10000).catch((error) => {
+              console.warn('Failed to fetch proprietaires during refresh:', error?.message || error);
+              return null;
+            })
+          : Promise.resolve(null),
       ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
@@ -875,7 +880,13 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       }
       if (initialCache?.biens?.length) {
         setBiens(initialCache.biens);
-        setProperties(mapBiensToProperties(initialCache.biens, initialCache.zones || []));
+        const zoneNameById: Record<string, string> = {};
+        for (const zone of initialCache.zones || []) zoneNameById[zone.id] = zone.nom;
+        setProperties(
+          initialCache.biens
+            .filter((bien) => bien.visible_sur_site !== false)
+            .map((bien) => bienToProperty(bien, zoneNameById))
+        );
         setZones(initialCache.zones || []);
         setProprietaires(initialCache.proprietaires || []);
         setModePriorities(initialCache.modePriorities || DEFAULT_MODE_PRIORITIES);
