@@ -36,6 +36,7 @@ const FLOUCI_API_BASE_URL = String(process.env.FLOUCI_API_BASE_URL || 'https://d
 const FLOUCI_PUBLIC_KEY = String(process.env.FLOUCI_PUBLIC_KEY || '').trim();
 const FLOUCI_PRIVATE_KEY = String(process.env.FLOUCI_PRIVATE_KEY || '').trim();
 const FLOUCI_WEBHOOK_SECRET = String(process.env.FLOUCI_WEBHOOK_SECRET || '').trim();
+const MOBILE_FLOW_DEBUG = String(process.env.MOBILE_FLOW_DEBUG || '').trim().toLowerCase() === 'true';
 const FLOUCI_AMOUNT_MULTIPLIER = Number.isFinite(Number(process.env.FLOUCI_AMOUNT_MULTIPLIER))
   ? Math.max(1, Number(process.env.FLOUCI_AMOUNT_MULTIPLIER))
   : 1000;
@@ -508,6 +509,27 @@ function decodeOauthState(rawState) {
     return parsed && typeof parsed === 'object' ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+function logMobileFlow(step, req, extra = {}) {
+  if (!MOBILE_FLOW_DEBUG) return;
+  try {
+    const ua = String(req?.headers?.['user-agent'] || '').slice(0, 180);
+    const ip = String(req?.headers?.['x-forwarded-for'] || req?.ip || '').split(',')[0].trim();
+    const payload = {
+      step,
+      method: req?.method,
+      path: req?.originalUrl || req?.url,
+      ip,
+      ua,
+      userId: req?.authUser?.id || null,
+      userRole: req?.authUser?.role || null,
+      ...extra,
+    };
+    console.log('[MOBILE_FLOW_DEBUG]', JSON.stringify(payload));
+  } catch (error) {
+    console.warn('[MOBILE_FLOW_DEBUG] logging failed:', error?.message || error);
   }
 }
 
@@ -11215,6 +11237,14 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         };
 
     const nextStatus = normalizeReservationDemandStatus(body.status || current.status);
+    if (nextStatus === 'client_procede_vers_paiement_en_cours' || String(current.status || '') === 'reponse_positive_attente_confirmation_client') {
+      logMobileFlow('reservation_status_update_request', req, {
+        demandId,
+        fromStatus: String(current.status || ''),
+        toStatus: nextStatus,
+        actorType: body.actor_type || null,
+      });
+    }
     if (requester?.role !== 'admin') {
       const allowedCurrentStatuses = ['reponse_positive_attente_confirmation_client'];
       if (!allowedCurrentStatuses.includes(String(current.status || ''))) {
@@ -11598,8 +11628,19 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
       [demandId]
     );
     res.json(formatReservationDemandRow(updatedRows[0]));
+    if (nextStatus === 'client_procede_vers_paiement_en_cours' || nextStatus === 'contrat_realise') {
+      logMobileFlow('reservation_status_update_success', req, {
+        demandId,
+        fromStatus: String(current.status || ''),
+        toStatus: nextStatus,
+      });
+    }
   } catch (error) {
     console.error('Error updating reservation demand:', error);
+    logMobileFlow('reservation_status_update_error', req, {
+      demandId: String(req.params?.id || ''),
+      error: String(error?.message || error),
+    });
     res.status(500).json({ error: 'Impossible de mettre a jour la demande de reservation' });
   }
 });
@@ -12257,6 +12298,10 @@ app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymen
 
 app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
   try {
+    logMobileFlow('flouci_create_checkout_start', req, {
+      demandId: String(req.params?.id || ''),
+      scope: String(req.body?.scope || 'reservation'),
+    });
     await ensureReservationDemandSchema();
     if (!FLOUCI_ENABLED) {
       return res.status(501).json({ error: 'Flouci non configure. Ajoutez FLOUCI_PUBLIC_KEY et FLOUCI_PRIVATE_KEY.' });
@@ -12354,6 +12399,10 @@ app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthentic
     });
   } catch (error) {
     console.error('Error creating Flouci checkout:', error);
+    logMobileFlow('flouci_create_checkout_error', req, {
+      demandId: String(req.params?.id || ''),
+      error: String(error?.message || error),
+    });
     const detail = String(error?.message || '').trim();
     return res.status(500).json({
       error: detail ? `Impossible de creer la session Flouci (${detail})` : 'Impossible de creer la session Flouci',
@@ -12364,6 +12413,11 @@ app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthentic
 
 app.post('/api/reservation-demands/:id/flouci/confirm', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
   try {
+    logMobileFlow('flouci_confirm_start', req, {
+      demandId: String(req.params?.id || ''),
+      paymentId: String(req.body?.payment_id || req.body?.paymentId || ''),
+      scope: String(req.body?.scope || ''),
+    });
     await ensureReservationDemandSchema();
     if (!FLOUCI_ENABLED) return res.status(501).json({ error: 'Flouci non configure' });
     const demandId = String(req.params.id || '').trim();
@@ -12431,6 +12485,10 @@ app.post('/api/reservation-demands/:id/flouci/confirm', requireAuthenticatedSess
     return res.json(formatReservationDemandRow(updatedRows[0]));
   } catch (error) {
     console.error('Error confirming Flouci payment:', error);
+    logMobileFlow('flouci_confirm_error', req, {
+      demandId: String(req.params?.id || ''),
+      error: String(error?.message || error),
+    });
     return res.status(500).json({ error: 'Impossible de confirmer le paiement Flouci' });
   }
 });
