@@ -55,13 +55,6 @@ export default function ReservationPaymentPage() {
   const methodView = String(searchParams.get("method") || "").trim().toLowerCase();
   const showFlouciBlock = methodView !== "receipt";
   const showReceiptBlock = methodView === "receipt";
-  const flouciPayScope: PaymentScope | null = useMemo(() => {
-    if (!paymentSummary) return null;
-    if (paymentSummary.canPayCombined) return "combined";
-    if (paymentSummary.canPayReservation) return "reservation";
-    if (paymentSummary.canPayServices) return "services";
-    return null;
-  }, [paymentSummary]);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -151,6 +144,14 @@ export default function ReservationPaymentPage() {
       canPayCombined: reservationAmount > 0 && !reservationPaid && servicesPayable && !servicesPaid,
     };
   }, [demand]);
+
+  const flouciPayScope: PaymentScope | null = useMemo(() => {
+    if (!paymentSummary) return null;
+    if (paymentSummary.canPayCombined) return "combined";
+    if (paymentSummary.canPayReservation) return "reservation";
+    if (paymentSummary.canPayServices) return "services";
+    return null;
+  }, [paymentSummary]);
 
   const handlePay = async (scope: PaymentScope) => {
     if (!demand) return;
