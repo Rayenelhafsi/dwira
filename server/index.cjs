@@ -11072,8 +11072,12 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     const isAmicaleDemand = String(current.payment_mode || '').trim() === 'amicale'
       || Boolean(String(current.pricing_amicale_id || '').trim());
     if (requester?.role === 'admin' && isAmicaleDemand && ['voucher_en_cours', 'rejete_par_agence'].includes(nextStatus)) {
-      if (String(current.status || '') !== 'attente_validation_par_agence') {
+      const currentStatus = String(current.status || '');
+      if (nextStatus === 'voucher_en_cours' && currentStatus !== 'attente_validation_par_agence') {
         return res.status(400).json({ error: 'La demande amicale doit etre en attente agence avant validation finale' });
+      }
+      if (nextStatus === 'rejete_par_agence' && !['attente_validation_par_agence', 'voucher_en_cours'].includes(currentStatus)) {
+        return res.status(400).json({ error: 'La demande amicale ne peut pas etre rejetee sur ce statut' });
       }
       const detailedCurrent = await fetchReservationDemandDetailsById(demandId) || formatReservationDemandRow(current);
       const agencyValidationAt = getAgencySqlDateTime();
@@ -11158,6 +11162,19 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
          WHERE id = ?`,
         [nextStatus, agencyValidationAt, agencyValidationAt, demandId]
       );
+      try {
+        const existingVoucherUrl = String(detailedCurrent?.voucher_url || current.voucher_url || '').trim();
+        if (existingVoucherUrl) {
+          const voucherFileName = path.basename(existingVoucherUrl);
+          const vouchersDir = path.join(__dirname, 'contracts', 'amicale-vouchers');
+          const voucherFilePath = path.join(vouchersDir, voucherFileName);
+          if (voucherFileName && fs.existsSync(voucherFilePath)) {
+            await fs.promises.unlink(voucherFilePath);
+          }
+        }
+      } catch (unlinkError) {
+        console.warn('Failed to delete amicale voucher file:', unlinkError?.message || unlinkError);
+      }
       if (current.unavailable_date_id) {
         await pool.query(
           `DELETE FROM unavailable_dates

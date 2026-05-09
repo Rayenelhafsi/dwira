@@ -168,6 +168,39 @@ export default function AgentAmicaleDashboardPage() {
     });
   }, [demandRows]);
 
+  const filteredVoucherRows = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return voucherRows;
+    return voucherRows.filter((row) => {
+      const bag = [
+        row.client_name,
+        row.amicale_matricule,
+        row.amicale_phone,
+        row.bien_reference,
+        row.bien_titre,
+        row.status,
+        row.voucher_number,
+      ].map((v) => String(v || "").toLowerCase());
+      return bag.some((v) => v.includes(needle));
+    });
+  }, [searchTerm, voucherRows]);
+
+  const filteredComptabiliteRows = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return comptabiliteRows;
+    return comptabiliteRows.filter(({ row }) => {
+      const bag = [
+        row.client_name,
+        row.amicale_matricule,
+        row.amicale_phone,
+        row.bien_reference,
+        row.bien_titre,
+        row.status,
+      ].map((v) => String(v || "").toLowerCase());
+      return bag.some((v) => v.includes(needle));
+    });
+  }, [comptabiliteRows, searchTerm]);
+
   const comptabiliteTotals = useMemo(() => {
     return comptabiliteRows.reduce(
       (acc, item) => {
@@ -452,10 +485,17 @@ export default function AgentAmicaleDashboardPage() {
 
           {tab === "vouchers" && (
             <div className="mt-6 space-y-3">
-              {voucherRows.length === 0 ? (
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Filtrer: matricule, nom/prenom, tel, reference logement, statut, numero voucher..."
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+              {filteredVoucherRows.length === 0 ? (
                 <p className="text-sm text-gray-500">Aucun voucher genere pour cette amicale.</p>
               ) : (
-                voucherRows.map((demand) => {
+                filteredVoucherRows.map((demand) => {
                   const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
                   return (
                     <div key={demand.id} className="rounded-xl border border-gray-200 bg-slate-50 p-4">
@@ -506,6 +546,13 @@ export default function AgentAmicaleDashboardPage() {
 
           {tab === "comptabilite" && (
             <div className="mt-6 space-y-4">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Filtrer: matricule, nom/prenom, tel, reference logement, statut..."
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <StatCard label="Demandes totales" value={demandRows.length} tone="emerald" />
                 <StatCard label="Total HT" value={Math.round(comptabiliteTotals.ht * 100) / 100} tone="sky" currency />
@@ -513,7 +560,7 @@ export default function AgentAmicaleDashboardPage() {
                 <StatCard label="Total TTC" value={Math.round(comptabiliteTotals.ttc * 100) / 100} tone="indigo" currency />
               </div>
 
-              {comptabiliteRows.length === 0 ? (
+              {filteredComptabiliteRows.length === 0 ? (
                 <p className="text-sm text-gray-500">Aucune demande pour la comptabilite.</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -530,7 +577,7 @@ export default function AgentAmicaleDashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {comptabiliteRows.map(({ row, ht, tva, ttc }) => (
+                      {filteredComptabiliteRows.map(({ row, ht, tva, ttc }) => (
                         <tr key={`compta-${row.id}`} className="border-b border-gray-100">
                           <td className="px-3 py-2 text-gray-900">{String(row.client_name || "-")}</td>
                           <td className="px-3 py-2 text-gray-900">{String(row.bien_reference || row.bien_id || "-")}</td>
