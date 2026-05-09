@@ -99,6 +99,8 @@ export function Header() {
   const isHomePage = location.pathname === "/";
   const isAgentAmicaleDashboard = location.pathname.startsWith("/agent-amicale/dashboard");
   const isReservationConfirmationPage = location.pathname.startsWith("/reservation/confirmation/");
+  const isClientFinalizationFlowPage =
+    /^\/mes-reservations\/[^/]+\/(coordonnees|paiement)$/.test(location.pathname);
   const isPropertyDetailsPage = isPropertyDetailsPath(location.pathname);
   const isPropertyTopHidden = isPropertyDetailsPage && !isOpen && !isScrolled;
   const useLightText = isHomePage && !isScrolled && !isOpen;
@@ -251,7 +253,7 @@ export function Header() {
           : "no_quote";
         const demandVersion = String(nextDemand.updated_at || nextDemand.created_at || "");
         const key = `dwira_action_notice_${nextDemand.id}_${nextDemand.status}_${demandVersion}_${serviceQuoteKeyPart}`;
-        if (isReservationConfirmationPage) {
+        if (isReservationConfirmationPage || isClientFinalizationFlowPage) {
           setActionableDemand(null);
           setShowActionableNotice(false);
           return;
@@ -263,7 +265,7 @@ export function Header() {
         }
       })
       .catch(() => setReservationCount(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }).length));
-  }, [user, location.pathname, location.search, isReservationConfirmationPage]);
+  }, [user, location.pathname, location.search, isReservationConfirmationPage, isClientFinalizationFlowPage]);
 
   const proceedToCoordinates = async () => {
     if (!actionableDemand) return;
@@ -598,7 +600,7 @@ export function Header() {
       </div>
     </header>
     <Dialog
-      open={showActionableNotice && !isReservationConfirmationPage}
+      open={showActionableNotice && !isReservationConfirmationPage && !isClientFinalizationFlowPage}
       onOpenChange={(open) => {
         if (!open) return;
         setShowActionableNotice(true);

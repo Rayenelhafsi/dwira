@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { ArrowLeft, ArrowRight, TimerReset } from "lucide-react";
+import { ArrowLeft, ArrowRight, CreditCard, Receipt, TimerReset } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
@@ -239,15 +239,38 @@ export default function ContractIdentityPage() {
           ) : null}
 
           {canProceedToPayment && (
-            <div className="mt-6 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 p-5">
-              <p className="text-sm text-amber-900">Etape OCR supprimee. Continuez directement vers le paiement.</p>
-              <div className="mt-4">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 p-5">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <CreditCard className="h-5 w-5" />
+                  <p className="text-sm font-semibold uppercase tracking-wide">Paiement Flouci</p>
+                </div>
+                <p className="mt-2 text-sm text-amber-900">
+                  Paiement en ligne immediate via Flouci.
+                </p>
                 <Link
-                  to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement`}
-                  className="group inline-flex items-center gap-2 rounded-full border border-amber-300 bg-white px-5 py-2.5 text-sm font-semibold text-amber-800 shadow-sm transition hover:shadow-[0_0_20px_rgba(245,158,11,0.35)]"
+                  to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement?method=flouci`}
+                  className="mt-4 inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
                 >
-                  Proceder vers paiement
-                  <ArrowRight className="h-4 w-4 animate-pulse transition-transform duration-300 group-hover:translate-x-1" />
+                  Payer avec Flouci
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+
+              <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-cyan-50 to-sky-100 p-5">
+                <div className="flex items-center gap-2 text-sky-800">
+                  <Receipt className="h-5 w-5" />
+                  <p className="text-sm font-semibold uppercase tracking-wide">Upload recu</p>
+                </div>
+                <p className="mt-2 text-sm text-sky-900">
+                  Importez le recu de paiement pour verification par l'agence.
+                </p>
+                <Link
+                  to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement?method=receipt`}
+                  className="mt-4 inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
+                >
+                  Uploader mon recu
+                  <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
             </div>
