@@ -106,6 +106,22 @@ const getCanonicalSubTypeKey = (value?: string | null) => {
   if (sPlusMatch?.[0]) return sPlusMatch[0];
   return raw.replace(/\s+/g, " ");
 };
+const getResolvedPropertyCategoryLabel = (property: any): string => {
+  const rawCategory = String(property?.category || "").trim();
+  const title = String(property?.title || "").trim();
+  const titleSPlus = title.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
+  const bedrooms = Number(property?.bedrooms || 0);
+  const normalizedCategory = rawCategory.toLowerCase().replace(/\s+/g, " ");
+  const hasUnknownSPlus = /\bs\+\s*\?/i.test(rawCategory) || normalizedCategory.includes("s+?");
+  if (hasUnknownSPlus) {
+    if (titleSPlus) return `Appartement ${titleSPlus}`;
+    if (Number.isFinite(bedrooms) && bedrooms > 0) return `Appartement S+${Math.max(1, Math.floor(bedrooms))}`;
+  }
+  if (rawCategory) return rawCategory;
+  if (titleSPlus) return `Appartement ${titleSPlus}`;
+  if (Number.isFinite(bedrooms) && bedrooms > 0) return `Appartement S+${Math.max(1, Math.floor(bedrooms))}`;
+  return "";
+};
 const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKey) => {
   const normalizeToken = (value?: string | null) =>
     String(value || "")
@@ -321,17 +337,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       ),
     [normalizedZones, locationPays, locationGouvernerat, locationRegion]
   );
+  const imageCacheBustTokenRef = useRef(`iosfix-${Date.now()}`);
+  const withCacheBust = (url: string) => {
+    if (!url || url.startsWith("data:")) return url;
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}v=${imageCacheBustTokenRef.current}`;
+  };
   const resolveZoneImageUrl = (url?: string | null) => {
     const value = String(url || '').trim();
     if (!value) return ZONE_FALLBACK_IMAGE;
-    if (/^https?:\/\//i.test(value)) return value;
-    return value.startsWith('/') ? `${window.location.origin}${value}` : value;
+    if (/^https?:\/\//i.test(value)) return withCacheBust(value);
+    return withCacheBust(value.startsWith('/') ? `${window.location.origin}${value}` : value);
   };
   const resolveTypeImageUrl = (url?: string | null) => {
     const value = String(url || '').trim();
     if (!value) return TYPE_FALLBACK_IMAGE;
-    if (/^https?:\/\//i.test(value)) return value;
-    return value.startsWith('/') ? `${window.location.origin}${value}` : value;
+    if (/^https?:\/\//i.test(value)) return withCacheBust(value);
+    return withCacheBust(value.startsWith('/') ? `${window.location.origin}${value}` : value);
   };
   const normalizeTypeToken = (value?: string | null) => String(value || "").trim().toLowerCase();
   const normalizeSearchToken = (value?: string | null) =>
@@ -496,7 +518,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const availableTypeOptions = useMemo(() => {
     const byCategory = new Map<string, { label: string; imageUrl: string }>();
     for (const property of modeProperties) {
-      const category = String(property.category || '').trim();
+      const category = getResolvedPropertyCategoryLabel(property);
       if (!category) continue;
       if (!byCategory.has(category)) {
         const firstImage = Array.isArray(property.images) ? String(property.images[0] || '').trim() : '';
@@ -606,7 +628,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`/api/type-filter-images?mode=${encodeURIComponent(selectedMode)}`);
+        const response = await fetch(
+          `/api/type-filter-images?mode=${encodeURIComponent(selectedMode)}&cb=${Date.now()}`,
+          { cache: "no-store", credentials: "include" }
+        );
         if (!response.ok) throw new Error('type-filter-images');
         const rows = await response.json();
         if (!cancelled) setTypeFilterImageRows(Array.isArray(rows) ? rows : []);
@@ -623,7 +648,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`/api/home-filter-option-images?mode=${encodeURIComponent(selectedMode)}`);
+        const response = await fetch(
+          `/api/home-filter-option-images?mode=${encodeURIComponent(selectedMode)}&cb=${Date.now()}`,
+          { cache: "no-store", credentials: "include" }
+        );
         if (!response.ok) throw new Error("home-filter-option-images");
         const rows = await response.json();
         if (!cancelled) setHomeFilterOptionImageRows(Array.isArray(rows) ? rows : []);

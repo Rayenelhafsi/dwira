@@ -42,12 +42,18 @@ const resolveMainTypeLabel = (category: string, title: string) => {
   return "Bien";
 };
 
-const resolveSubTypeLabel = (category: string, mainType: string) => {
+const resolveSubTypeLabel = (category: string, mainType: string, title: string, bedrooms?: number) => {
   const rawCategory = String(category || "").trim();
+  const rawTitle = String(title || "").trim();
   const normalizedCategory = normalizeTypeToken(rawCategory);
   const normalizedMainType = normalizeTypeToken(mainType);
+  const titleSPlusMatch = rawTitle.match(/s\+\d+/i);
+  if (titleSPlusMatch?.[0]) return titleSPlusMatch[0].toUpperCase();
   const sPlusMatch = rawCategory.match(/s\+\d+/i);
   if (sPlusMatch?.[0]) return sPlusMatch[0].toUpperCase();
+  if (normalizedMainType === "appartement" && Number.isFinite(Number(bedrooms)) && Number(bedrooms) > 0) {
+    return `S+${Math.max(1, Math.floor(Number(bedrooms)))}`;
+  }
   if (normalizedMainType) {
     const prefixRegex = new RegExp(`^${escapeRegExp(mainType)}\\s*[-:/]?\\s*`, "i");
     const trimmedWithoutType = rawCategory.replace(prefixRegex, "").trim();
@@ -108,7 +114,12 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     ? 0
     : currentPricing.weeklyPrice;
   const mainTypeLabel = resolveMainTypeLabel(property.category || "", property.title || "");
-  const subTypeLabel = resolveSubTypeLabel(property.category || "", mainTypeLabel);
+  const subTypeLabel = resolveSubTypeLabel(
+    property.category || "",
+    mainTypeLabel,
+    property.title || "",
+    Number(property.bedrooms || 0)
+  );
   const typeWidgetLabel = subTypeLabel ? `${mainTypeLabel} ${subTypeLabel}` : mainTypeLabel;
   const displayTitle = buildDisplayTitle(property.reference, property.title);
 
