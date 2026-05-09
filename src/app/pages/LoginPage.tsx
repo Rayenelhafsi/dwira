@@ -75,12 +75,12 @@ export default function LoginPage() {
     const returnTo = returnToFromUrl || returnToFromSession;
     if (returnTo) {
       clearAuthReturnTo();
-      window.location.replace(returnTo);
+      navigate(returnTo, { replace: true });
       return true;
     }
     const pendingDraft = readPendingReservationDraft();
     if (!pendingDraft || typeof pendingDraft.propertySlug !== 'string') return false;
-    window.location.replace(`/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`);
+    navigate(`/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`, { replace: true });
     return true;
   };
 
@@ -98,7 +98,7 @@ export default function LoginPage() {
         // If opener is in an invalid browser error context, fallback to local navigation.
       }
     }
-    window.location.replace(target);
+    navigate(target, { replace: true });
     return true;
   };
 
@@ -137,7 +137,6 @@ export default function LoginPage() {
       });
       return;
     }
-    if (user.role === 'user' && redirectToPendingReservation()) return;
     navigate(user.role === 'admin' ? '/admin' : '/', { replace: true });
   }, [user, authLoading, isProcessingSocialToken, navigate]);
 
@@ -178,24 +177,11 @@ export default function LoginPage() {
     const restoreSocialSession = async () => {
       try {
         const socialUser = await getSocialSession(socialToken);
-        const targetFromDraft = (() => {
-          const pendingDraft = readPendingReservationDraft();
-          if (!pendingDraft || typeof pendingDraft.propertySlug !== 'string') return null;
-          return `/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`;
-        })();
-        const finalReturnTo = returnTo || targetFromDraft;
         loginUser(socialUser);
         if (socialUser.profileCompleted) {
           toast.success('Connexion reussie');
-          if (finalReturnTo) {
-            if (redirectToTargetOrClosePopup(finalReturnTo)) return;
-            return;
-          }
           navigate('/', { replace: true });
         } else {
-          if (finalReturnTo && notifyOpenerAndClose({ type: 'DWIRA_AUTH_PROFILE_REQUIRED', returnTo: finalReturnTo })) {
-            return;
-          }
           const fallbackNames = splitHumanName(socialUser.name);
           setProfileForm({
             firstName: socialUser.firstName || fallbackNames.firstName,
