@@ -54,6 +54,7 @@ const ACTIONABLE_STATUS_PRIORITY: Record<string, number> = {
   demande_recu_paiement: 3,
   contrat_realise: 4,
   demande_rejetee_admin: 5,
+  succes_paiement: 6,
 };
 
 function hasCompletedClientProfile(user: {
@@ -236,7 +237,8 @@ export function Header() {
             item.status === "attente_envoi_coordonnees_contrat" ||
             item.status === "demande_recu_paiement" ||
             item.status === "contrat_realise" ||
-            item.status === "demande_rejetee_admin"
+            item.status === "demande_rejetee_admin" ||
+            item.status === "succes_paiement"
           )
           .sort((a, b) => {
             const pa = ACTIONABLE_STATUS_PRIORITY[a.status] ?? 99;
@@ -248,7 +250,10 @@ export function Header() {
           })[0] || null;
         if (!nextDemand) return;
         const shouldShowForCurrentUser =
-          profileCompleted || nextDemand.status === "reponse_positive_attente_confirmation_client" || nextDemand.status === "client_procede_vers_paiement_en_cours";
+          profileCompleted
+          || nextDemand.status === "reponse_positive_attente_confirmation_client"
+          || nextDemand.status === "client_procede_vers_paiement_en_cours"
+          || nextDemand.status === "succes_paiement";
         if (!shouldShowForCurrentUser) {
           setActionableDemand(null);
           setShowActionableNotice(false);
@@ -319,6 +324,11 @@ export function Header() {
       if (actionableDemand.status === "contrat_realise") {
         setShowActionableNotice(false);
         navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
+        return;
+      }
+      if (actionableDemand.status === "succes_paiement") {
+        setShowActionableNotice(false);
+        setActionableDemand(null);
         return;
       }
       setShowActionableNotice(false);
@@ -628,7 +638,9 @@ export function Header() {
         <DialogHeader>
           <DialogTitle className="text-2xl text-emerald-700">Action requise</DialogTitle>
           <DialogDescription className="text-base text-gray-600">
-            {actionableDemand?.status === "reponse_positive_attente_confirmation_client"
+            {actionableDemand?.status === "succes_paiement"
+              ? "Paiement confirme avec succes. Votre demande est finalisee."
+              : actionableDemand?.status === "reponse_positive_attente_confirmation_client"
               ? "Le proprietaire a accepte votre demande. Vous pouvez proceder directement au paiement."
               : actionableDemand?.status === "client_procede_vers_paiement_en_cours"
                 ? "Vous avez deja lance la finalisation. Continuez pour terminer votre paiement."
@@ -643,7 +655,15 @@ export function Header() {
                 : "Une action est requise sur votre demande."}
           </DialogDescription>
         </DialogHeader>
-        {actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0 ? (
+        {actionableDemand?.status === "succes_paiement" ? (
+          <div className="rounded-2xl border border-emerald-200 bg-[radial-gradient(circle_at_top,#d1fae5_0%,#ecfdf5_45%,#ffffff_100%)] p-5 text-center">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_0_0_10px_rgba(16,185,129,0.14)] animate-pulse">
+              <span className="text-4xl leading-none">?</span>
+            </div>
+            <p className="mt-4 text-2xl font-bold text-emerald-800">Paiement reussi</p>
+            <p className="mt-1 text-sm text-emerald-700">Demande {actionableDemand?.id}</p>
+          </div>
+        ) : actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0 ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             Vos services payants variables ont un devis séparé. Consultez votre demande pour voir le détail avant de continuer.
           </div>
@@ -662,6 +682,11 @@ export function Header() {
           <button
             type="button"
             onClick={() => {
+              if (actionableDemand?.status === "succes_paiement") {
+                setShowActionableNotice(false);
+                setActionableDemand(null);
+                return;
+              }
               if (actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0) {
                 setShowActionableNotice(false);
                 navigate("/mes-reservations");
@@ -671,7 +696,9 @@ export function Header() {
             }}
             className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
           >
-            {actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0
+            {actionableDemand?.status === "succes_paiement"
+              ? "Fermer"
+              : actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0
               ? "Voir mon devis services"
               : actionableDemand?.status === "demande_rejetee_admin"
                 ? "Voir ma demande"
@@ -757,3 +784,4 @@ export function Footer() {
     </footer>
   );
 }
+

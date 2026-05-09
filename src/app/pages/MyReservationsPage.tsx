@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
-import { CalendarClock, CheckCircle2, Printer, ShoppingBag, TimerReset } from "lucide-react";
+import { CalendarClock, Printer, ShoppingBag, TimerReset } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { useProperties } from "../context/PropertiesContext";
@@ -111,7 +111,6 @@ export default function MyReservationsPage() {
   const [activeContractDemandId, setActiveContractDemandId] = useState<string | null>(null);
   const [activeServiceQuoteDemandId, setActiveServiceQuoteDemandId] = useState<string | null>(null);
   const [activeRejectedDemandId, setActiveRejectedDemandId] = useState<string | null>(null);
-  const [activeSuccessDemandId, setActiveSuccessDemandId] = useState<string | null>(null);
   const [loadingContractId, setLoadingContractId] = useState<string | null>(null);
   const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
 
@@ -203,18 +202,6 @@ export default function MyReservationsPage() {
     }
   }, [reservations, activeRejectedDemandId]);
 
-  useEffect(() => {
-    if (activeSuccessDemandId) return;
-    for (const demand of reservations) {
-      if (demand.status !== "succes_paiement") continue;
-      const key = `dwira_success_payment_popup_${demand.id}_${demand.updated_at}`;
-      if (!localStorage.getItem(key)) {
-        localStorage.setItem(key, "1");
-        setActiveSuccessDemandId(demand.id);
-        break;
-      }
-    }
-  }, [reservations, activeSuccessDemandId]);
 
   const reservationCards = useMemo(
     () => reservations.map((reservation) => {
@@ -341,7 +328,6 @@ export default function MyReservationsPage() {
   const activeContractDemand = reservations.find((item) => item.id === activeContractDemandId) || null;
   const activeServiceQuoteDemand = reservations.find((item) => item.id === activeServiceQuoteDemandId) || null;
   const activeRejectedDemand = reservations.find((item) => item.id === activeRejectedDemandId) || null;
-  const activeSuccessDemand = reservations.find((item) => item.id === activeSuccessDemandId) || null;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
@@ -636,33 +622,6 @@ export default function MyReservationsPage() {
                 Continuer la demande
               </Link>
             ) : null}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!activeSuccessDemand} onOpenChange={(open) => !open && setActiveSuccessDemandId(null)}>
-        <DialogContent className="max-w-xl border-2 border-emerald-200 p-7">
-          <DialogHeader>
-            <DialogTitle className="text-xl text-emerald-700">Succes paiement</DialogTitle>
-            <DialogDescription>
-              Paiement confirme avec succes. Votre demande est finalisee.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-[radial-gradient(circle_at_top,#d1fae5_0%,#ecfdf5_45%,#ffffff_100%)] p-6">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_0_0_10px_rgba(16,185,129,0.14)] animate-pulse">
-              <CheckCircle2 className="h-11 w-11" />
-            </div>
-            <p className="mt-4 text-center text-sm font-semibold text-emerald-800">Paiement reussi</p>
-            <p className="mt-1 text-center text-xs text-emerald-700/90">Demande {activeSuccessDemand?.id}</p>
-          </div>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setActiveSuccessDemandId(null)}
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Fermer
-            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
