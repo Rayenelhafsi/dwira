@@ -60,7 +60,7 @@ const statusLabels: Record<ReservationDemandStatus, string> = {
   en_attente_reponse_proprietaire: 'En attente de reponse proprietaire',
   pas_de_reponse_proprietaire: 'Pas de reponse proprietaire',
   reponse_positive_attente_confirmation_client: 'Reponse positive, attente confirmation client',
-  client_procede_vers_paiement_en_cours: 'Client procede vers le paiement en cours',
+  client_procede_vers_paiement_en_cours: 'Confirme, attente de paiement',
   reponse_negative_autre_proposition_meme_bien: 'Reponse negative, autre proposition pour ce bien',
   reponse_negative_autre_proposition_bien_similaire: 'Reponse negative, autre proposition pour un bien similaire',
   attente_validation_amicale: 'Attente validation amicale',
@@ -191,14 +191,17 @@ export default function NotificationsPage() {
       .filter((demand) => openStatuses.has(demand.status))
       .filter((demand) => !isAmicaleDemand(demand))
       .sort((a, b) => {
+        const updatedA = new Date(String(a.updated_at || a.created_at || '')).getTime();
+        const updatedB = new Date(String(b.updated_at || b.created_at || '')).getTime();
+        if (updatedA !== updatedB) return updatedB - updatedA;
+        const createdA = new Date(String(a.created_at || '')).getTime();
+        const createdB = new Date(String(b.created_at || '')).getTime();
+        if (createdA !== createdB) return createdB - createdA;
         const sa = resolveDisplayStatus(a);
         const sb = resolveDisplayStatus(b);
         const pa = demandPriority[sa] ?? 99;
         const pb = demandPriority[sb] ?? 99;
-        if (pa !== pb) return pa - pb;
-        const da = new Date(String(a.updated_at || a.created_at || '')).getTime();
-        const db = new Date(String(b.updated_at || b.created_at || '')).getTime();
-        return db - da;
+        return pa - pb;
       });
   }, [demands]);
   const unreadNotificationsCount = useMemo(
@@ -496,6 +499,9 @@ export default function NotificationsPage() {
           {pendingDemands.length === 0 && <p className="text-sm text-gray-500">Aucune demande client en attente.</p>}
           {pendingDemands.map((demand) => {
             const displayStatus = resolveDisplayStatus(demand);
+            const statusSelectOptions = editableStatusOptions.includes(displayStatus)
+              ? editableStatusOptions
+              : [displayStatus, ...editableStatusOptions];
             const isExpanded = Boolean(expandedDemandIds[demand.id]);
             const receiptUrl = demand.payment_receipt_image_url ? resolveAssetUrl(demand.payment_receipt_image_url) : '';
             const hasReceipt = Boolean(receiptUrl);
@@ -549,12 +555,12 @@ export default function NotificationsPage() {
                   <label className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-medium text-gray-600">
                     Etat
                     <select
-                      value={demand.status}
+                      value={displayStatus}
                       onChange={(event) => void handleDemandUpdate(demand, { status: event.target.value as ReservationDemandStatus, history_note: `Etat change par admin: ${statusLabels[event.target.value as ReservationDemandStatus]}` })}
                       disabled={savingId === demand.id}
                       className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700"
                     >
-                      {editableStatusOptions.map((value) => (
+                      {statusSelectOptions.map((value) => (
                         <option key={value} value={value}>{statusLabels[value]}</option>
                       ))}
                     </select>

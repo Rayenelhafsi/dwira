@@ -32,6 +32,13 @@ function formatAmount(value?: number | null) {
   return `${amount.toLocaleString("fr-FR")} TND`;
 }
 
+function resolveAssetUrl(url?: string | null) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${window.location.origin}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -61,6 +68,7 @@ export default function ContractIdentityPage() {
   const { user } = useAuth();
   const [demand, setDemand] = useState<ReservationDemand | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [openingContract, setOpeningContract] = useState(false);
   const autoFilledFromProfileRef = useRef(false);
 
   const fetchDemand = useCallback(async () => {
@@ -143,6 +151,25 @@ export default function ContractIdentityPage() {
   const hasServicesQuote = servicesQuoteAmount > 0;
   const globalAmount = reservationAmount + servicesQuoteAmount;
   const isPaymentFlowLocked = String(demand?.status || "") === "client_procede_vers_paiement_en_cours";
+
+  const openContractDirectly = useCallback(async () => {
+    if (!demand?.contract_id) {
+      toast.error("Contrat indisponible.");
+      return;
+    }
+    setOpeningContract(true);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(demand.contract_id)}`, { credentials: "include" });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Impossible de charger le contrat"));
+      const contract = await response.json().catch(() => null) as { url_pdf?: string | null } | null;
+      if (!contract?.url_pdf) throw new Error("Le contrat n'a pas encore de fichier associe");
+      window.open(resolveAssetUrl(contract.url_pdf), "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible d'ouvrir le contrat");
+    } finally {
+      setOpeningContract(false);
+    }
+  }, [demand?.contract_id]);
 
   useEffect(() => {
     if (!isPaymentFlowLocked) return;
@@ -279,13 +306,15 @@ export default function ContractIdentityPage() {
 
           {demand.contract_id ? (
             <div className="mt-4">
-              <Link
-                to="/mes-reservations"
+              <button
+                type="button"
+                onClick={() => void openContractDirectly()}
+                disabled={openingContract}
                 className="inline-flex items-center gap-2 rounded-full border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100"
               >
                 <FileText className="h-4 w-4" />
-                Consulter votre contrat
-              </Link>
+                {openingContract ? "Ouverture..." : "Consulter votre contrat"}
+              </button>
             </div>
           ) : null}
         </div>
