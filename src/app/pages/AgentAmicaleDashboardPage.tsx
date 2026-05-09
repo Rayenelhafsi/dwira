@@ -180,6 +180,22 @@ export default function AgentAmicaleDashboardPage() {
     );
   }, [comptabiliteRows]);
 
+  const filteredDemandRows = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return demandRows;
+    return demandRows.filter((row) => {
+      const bag = [
+        row.client_name,
+        row.amicale_matricule,
+        row.amicale_phone,
+        row.bien_reference,
+        row.bien_titre,
+        row.status,
+      ].map((v) => String(v || "").toLowerCase());
+      return bag.some((v) => v.includes(needle));
+    });
+  }, [demandRows, searchTerm]);
+
   const handleDemandAction = async (demand: AgentDemandRow, next: "validate" | "reject") => {
     setSavingId(demand.id);
     try {
@@ -209,23 +225,6 @@ export default function AgentAmicaleDashboardPage() {
   }
 
   if (!session) return <Navigate to="/agent-amicale/login" replace />;
-
-  const activeDemandRows = demandRows;
-  const filteredDemandRows = useMemo(() => {
-    const needle = searchTerm.trim().toLowerCase();
-    if (!needle) return activeDemandRows;
-    return activeDemandRows.filter((row) => {
-      const bag = [
-        row.client_name,
-        row.amicale_matricule,
-        row.amicale_phone,
-        row.bien_reference,
-        row.bien_titre,
-        row.status,
-      ].map((v) => String(v || "").toLowerCase());
-      return bag.some((v) => v.includes(needle));
-    });
-  }, [activeDemandRows, searchTerm]);
 
   return (
     <div className="flex min-h-screen bg-gray-100">
