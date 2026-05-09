@@ -12308,7 +12308,9 @@ app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthentic
     const callbackBase = `${backendBase.replace(/\/+$/, '')}/api/payments/flouci/callback`;
     const successLink = `${callbackBase}?demand_id=${encodeURIComponent(demandId)}&scope=${encodeURIComponent(scope)}&flow=success&return_to=${encodeURIComponent(`${frontendBase}/mes-reservations/${encodeURIComponent(demandId)}/paiement`)}`;
     const failLink = `${callbackBase}?demand_id=${encodeURIComponent(demandId)}&scope=${encodeURIComponent(scope)}&flow=fail&return_to=${encodeURIComponent(`${frontendBase}/mes-reservations/${encodeURIComponent(demandId)}/paiement`)}`;
-    const trackingId = `demand:${demandId}|scope:${scope}|ts:${Date.now()}`;
+    const shortDemandId = String(demandId).replace(/[^a-zA-Z0-9_-]/g, '').slice(-14);
+    const shortScope = String(scope || 'reservation').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 10);
+    const trackingId = `dwira-${shortDemandId}-${shortScope}-${Date.now()}`;
 
     const payload = {
       amount: amountForFlouci,
