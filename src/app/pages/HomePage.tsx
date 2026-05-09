@@ -488,32 +488,49 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         && (!locationRegion || region === locationRegion)
         && zoneName === value;
     });
-    const first = rows[0];
-    if (!first) return ZONE_FALLBACK_IMAGE;
-    const preferred =
-      (level === "pays" ? first.pays_image_url : null)
-      || (level === "gouvernerat" ? first.gouvernerat_image_url : null)
-      || (level === "region" ? first.region_image_url : null)
-      || (level === "zone" ? first.quartier_image_url : null)
-      || first.image_url
-      || first.quartier_image_url
-      || first.region_image_url
-      || first.gouvernerat_image_url
-      || first.pays_image_url
-      || "";
-    return resolveZoneImageUrl(preferred);
+    if (!rows.length) return ZONE_FALLBACK_IMAGE;
+    const pickFirstNonEmpty = (field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
+      String(rows.find((item) => String(item[field] || '').trim())?.[field] || '').trim();
+    const levelImage =
+      level === "pays"
+        ? pickFirstNonEmpty('pays_image_url')
+        : level === "gouvernerat"
+          ? pickFirstNonEmpty('gouvernerat_image_url')
+          : level === "region"
+            ? pickFirstNonEmpty('region_image_url')
+            : pickFirstNonEmpty('quartier_image_url');
+
+    // Keep generic zone image only as last fallback (mainly for zone cards),
+    // so iOS does not show unrelated old/default images for pays/gouvernorat/region.
+    const fallback =
+      level === "zone"
+        ? (
+          pickFirstNonEmpty('image_url')
+          || pickFirstNonEmpty('quartier_image_url')
+          || pickFirstNonEmpty('region_image_url')
+          || pickFirstNonEmpty('gouvernerat_image_url')
+          || pickFirstNonEmpty('pays_image_url')
+        )
+        : (
+          pickFirstNonEmpty('region_image_url')
+          || pickFirstNonEmpty('gouvernerat_image_url')
+          || pickFirstNonEmpty('pays_image_url')
+        );
+    return resolveZoneImageUrl(levelImage || fallback || ZONE_FALLBACK_IMAGE);
   };
   const modeProperties = useMemo(
     () => properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode),
     [properties, selectedMode]
   );
+  // Keep filter options stable across iOS/Android/Desktop.
+  // Options should not disappear based on currently loaded properties.
   const availableSeasideOptions = useMemo(
-    () => SEASIDE_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesSeasideOption(property, key))),
-    [modeProperties]
+    () => [...SEASIDE_OPTION_KEYS],
+    []
   );
   const availableComfortOptions = useMemo(
-    () => COMFORT_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesComfortOption(property, key))),
-    [modeProperties]
+    () => [...COMFORT_OPTION_KEYS],
+    []
   );
   const availableTypeOptions = useMemo(() => {
     const byCategory = new Map<string, { label: string; imageUrl: string }>();
