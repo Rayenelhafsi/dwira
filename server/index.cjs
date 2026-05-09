@@ -746,6 +746,15 @@ function getAgentSessionFromRequest(req) {
   return verifySignedAgentSessionToken(token);
 }
 
+function requireAgentAmicaleSession(req, res, next) {
+  const session = getAgentSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Session agent invalide' });
+  }
+  req.agentSession = session;
+  return next();
+}
+
 function setAgentSessionCookie(req, res, sessionPayload) {
   const token = createSignedAgentSessionToken(sessionPayload);
   res.cookie(AGENT_SESSION_COOKIE_NAME, token, {
@@ -4611,6 +4620,11 @@ const RESERVATION_DEMAND_STATUSES = new Set([
   'reponse_positive_attente_confirmation_client',
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
+  'attente_validation_amicale',
+  'attente_validation_par_agence',
+  'voucher_en_cours',
+  'rejete_par_amicale',
+  'rejete_par_agence',
   'demande_rejetee_admin',
   'demande_annulee_client',
   'attente_envoi_coordonnees_contrat',
@@ -4627,7 +4641,7 @@ function normalizeReservationDemandStatus(value) {
 
 function normalizePaymentMode(value, fallback = 'avance') {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'totalite' || normalized === 'avance') return normalized;
+  if (normalized === 'totalite' || normalized === 'avance' || normalized === 'amicale') return normalized;
   return fallback;
 }
 
@@ -5299,6 +5313,16 @@ function formatReservationDemandRow(row) {
     ...row,
     request_type: row.request_type === 'visite' ? 'visite' : 'reservation',
     payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
+    pricing_amicale_id: row.pricing_amicale_id || null,
+    amicale_matricule: row.amicale_matricule || null,
+    amicale_phone: row.amicale_phone || null,
+    amicale_code: row.amicale_code || null,
+    amicale_validation_at: row.amicale_validation_at || null,
+    agency_validation_at: row.agency_validation_at || null,
+    voucher_id: row.voucher_id || null,
+    voucher_number: row.voucher_number || null,
+    voucher_url: row.voucher_url || null,
+    voucher_generated_at: row.voucher_generated_at || null,
     guests: Number(row.guests || 1),
     adult_guests: Number(row.adult_guests || row.guests || 1),
     child_guests: Number(row.child_guests || 0),
@@ -5332,6 +5356,43 @@ function formatReservationDemandRow(row) {
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
+}
+
+async function fetchReservationDemandDetailsById(demandId) {
+  const normalizedId = String(demandId || '').trim();
+  if (!normalizedId) return null;
+  const [rows] = await pool.query(
+    `SELECT
+       d.*,
+       b.titre AS bien_titre,
+       b.reference AS bien_reference,
+       b.mode AS bien_mode,
+       p.nom AS proprietaire_nom,
+       a.name AS amicale_name,
+       a.logo_url AS amicale_logo_url,
+       DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+       DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+       DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+       DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+       DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+       DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+       DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+       DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+       DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+       DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+       DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+       DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+       DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM reservation_demands d
+     LEFT JOIN biens b ON b.id = d.bien_id
+     LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+     WHERE d.id = ?
+     LIMIT 1`,
+    [normalizedId]
+  );
+  return formatReservationDemandRow(rows?.[0] || null);
 }
 
 function normalizeIdentityDocumentType(value, fallback = 'cin_tn') {
@@ -5445,6 +5506,7 @@ function normalizePaymentModeForTemplate(paymentMode, paymentMethod) {
   if (method === 'carte') return 'Carte';
   if (method === 'cheque') return 'Cheque';
   if (method === 'virement') return 'Virement';
+  if (paymentMode === 'amicale') return 'Amicale';
   if (paymentMode === 'totalite') return 'Carte';
   return 'Virement';
 }
@@ -6500,6 +6562,98 @@ async function generateReservationOwnerContractHtml({
 
   await fs.promises.writeFile(filePath, html, 'utf8');
   return `/contracts/${fileName}`;
+}
+
+async function generateAmicaleVoucherHtml({
+  demand,
+  bien,
+  amicale,
+  voucherNumber,
+  generatedAt,
+}) {
+  const vouchersDir = path.join(__dirname, 'contracts', 'amicale-vouchers');
+  if (!fs.existsSync(vouchersDir)) {
+    fs.mkdirSync(vouchersDir, { recursive: true });
+  }
+  const safeVoucherNumber = String(voucherNumber || '').trim() || `VCH-${String(demand?.id || '').slice(-8).toUpperCase()}`;
+  const fileName = `voucher-${String(demand?.id || 'demand').replace(/[^a-zA-Z0-9_-]/g, '_')}.html`;
+  const filePath = path.join(vouchersDir, fileName);
+  const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
+  const totalAmount = Number(demand.total_amount || 0);
+  const amountDueNow = Number(demand.amount_due_now || 0);
+  const totalGuests = Math.max(1, Number(demand.guests || 1));
+  const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
+  const childGuests = Math.max(0, Number(demand.child_guests || 0));
+  const createdAtLabel = formatDateFr(generatedAt || demand.agency_validation_at || demand.updated_at || getAgencySqlDateTime());
+
+  const html = `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voucher amicale ${escapeHtml(safeVoucherNumber)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f3f4f6; color: #0f172a; }
+    .page { max-width: 880px; margin: 24px auto; background: #fff; border: 1px solid #dbe2ea; border-radius: 16px; padding: 24px; }
+    h1 { margin: 0 0 6px; font-size: 28px; color: #065f46; }
+    .muted { color: #64748b; font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+    .box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
+    .label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+    .value { font-size: 15px; font-weight: 700; color: #0f172a; }
+    .voucher { display: inline-block; padding: 8px 12px; border-radius: 999px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; font-weight: 700; }
+    .footer { margin-top: 18px; padding-top: 12px; border-top: 1px dashed #cbd5e1; color: #475569; font-size: 13px; }
+    @media print { body { background: #fff; } .page { margin: 0; border: 0; border-radius: 0; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="voucher">Voucher en cours</div>
+    <h1>${escapeHtml(String(amicale?.name || 'Amicale'))}</h1>
+    <p class="muted">Reference voucher: ${escapeHtml(safeVoucherNumber)} - Genere le ${escapeHtml(createdAtLabel)}</p>
+
+    <div class="grid">
+      <div class="box">
+        <div class="label">Client</div>
+        <div class="value">${escapeHtml(String(demand.client_name || '-'))}</div>
+        <div class="muted">Matricule: ${escapeHtml(String(demand.amicale_matricule || '-'))}</div>
+        <div class="muted">Telephone: ${escapeHtml(String(demand.amicale_phone || '-'))}</div>
+      </div>
+      <div class="box">
+        <div class="label">Logement</div>
+        <div class="value">${escapeHtml(String(bien?.reference || demand.bien_id || '-'))}</div>
+        <div class="muted">${escapeHtml(String(bien?.titre || demand.bien_titre || 'Bien'))}</div>
+      </div>
+      <div class="box">
+        <div class="label">Periode</div>
+        <div class="value">${escapeHtml(stayPeriodLabel)}</div>
+      </div>
+      <div class="box">
+        <div class="label">Voyageurs</div>
+        <div class="value">${escapeHtml(String(totalGuests))}</div>
+        <div class="muted">Adultes: ${escapeHtml(String(adultGuests))} | Enfants: ${escapeHtml(String(childGuests))}</div>
+      </div>
+      <div class="box">
+        <div class="label">Total HT</div>
+        <div class="value">${escapeHtml(formatCurrency(totalAmount))}</div>
+      </div>
+      <div class="box">
+        <div class="label">A payer maintenant</div>
+        <div class="value">${escapeHtml(formatCurrency(amountDueNow))}</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p><strong>Amicale:</strong> ${escapeHtml(String(amicale?.name || '-'))}</p>
+      <p><strong>Code amicale:</strong> ${escapeHtml(String(demand.amicale_code || '-'))}</p>
+      <p><strong>Etat:</strong> Voucher en cours</p>
+    </div>
+  </main>
+</body>
+</html>`;
+
+  await fs.promises.writeFile(filePath, html, 'utf8');
+  return `/contracts/amicale-vouchers/${fileName}`;
 }
 
 async function appendReservationDemandHistory(demandId, status, actorType, actorId, note, createdAt = getAgencySqlDateTime()) {
@@ -10283,11 +10437,14 @@ app.get('/api/reservation-demands/:id/history', requireAuthenticatedSession, asy
   }
 });
 
-app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMutationRateLimit, async (req, res) => {
+app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
     await ensureSeasonalPricingSchema();
-    const requester = req.authUser || null;
+    const requester = getSessionUserFromRequest(req);
+    if (requester) {
+      req.authUser = requester;
+    }
     const {
       bien_id,
       client_user_id,
@@ -10306,25 +10463,44 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       client_note,
       request_type,
       pricing_amicale_id,
+      amicale_name,
+      amicale_matricule,
+      amicale_phone,
+      amicale_code,
       turnstileToken,
       sessionId,
     } = req.body || {};
 
+    const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
+    const normalizedPricingAmicaleId = String(pricing_amicale_id || req.body?.pricingAmicaleId || req.body?.amicale_id || req.body?.amicaleSelectionId || '').trim() || null;
+    const normalizedAmicaleName = String(amicale_name || req.body?.amicaleName || client_name || '').trim() || null;
+    const normalizedAmicaleMatricule = String(amicale_matricule || req.body?.amicaleMatricule || '').trim() || null;
+    const normalizedAmicalePhone = normalizePhoneNumber(amicale_phone || req.body?.amicalePhone || '');
+    const normalizedAmicaleCode = String(amicale_code || req.body?.amicaleCode || '').trim() || null;
+    const isAmicaleFlow = normalizedPaymentMode === 'amicale';
+
+    if (!requester && !isAmicaleFlow) {
+      return res.status(401).json({ error: 'Authentification requise' });
+    }
+    if (isAmicaleFlow && !normalizedPricingAmicaleId) {
+      return res.status(400).json({ error: 'Amicale cible requise' });
+    }
+
     const resolvedClientUserId = requester?.role === 'admin'
       ? (client_user_id || null)
-      : (String(requester?.id || '').trim() || null);
+      : (requester ? (String(requester.id || '').trim() || null) : null);
     let resolvedClientEmail = requester?.role === 'admin'
       ? (client_email || null)
-      : normalizeEmailForCompare(requester?.email);
+      : (requester ? normalizeEmailForCompare(requester.email) : null);
     let resolvedClientName = requester?.role === 'admin'
       ? (client_name || null)
-      : (String(requester?.name || '').trim() || null);
+      : (requester ? (String(requester.name || '').trim() || null) : normalizedAmicaleName);
     let resolvedClientTelephone = requester?.role === 'admin'
       ? normalizePhoneNumber(req.body?.client_telephone || '')
-      : normalizePhoneNumber(requester?.telephone || '');
+      : (requester ? normalizePhoneNumber(requester.telephone || '') : normalizedAmicalePhone);
     let resolvedClientCin = requester?.role === 'admin'
       ? String(req.body?.client_cin || '').trim()
-      : String(requester?.cin || '').trim();
+      : (requester ? String(requester.cin || '').trim() : null);
 
     if (resolvedClientUserId) {
       const [clientUserRows] = await pool.query(
@@ -10369,6 +10545,35 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     );
     const bien = bienRows[0];
     if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+    let amicaleRow = null;
+    if (isAmicaleFlow) {
+      if (!normalizedAmicaleName) {
+        return res.status(400).json({ error: 'Nom et prenom obligatoires pour une reservation amicale' });
+      }
+      if (!normalizedAmicaleMatricule) {
+        return res.status(400).json({ error: 'Matricule obligatoire pour une reservation amicale' });
+      }
+      if (!normalizedAmicalePhone) {
+        return res.status(400).json({ error: 'Numero de telephone obligatoire pour une reservation amicale' });
+      }
+      if (!normalizedAmicaleCode) {
+        return res.status(400).json({ error: 'Code amicale obligatoire' });
+      }
+      const [amicaleRows] = await pool.query(
+        'SELECT id, name, code, logo_url FROM amicales WHERE id = ? LIMIT 1',
+        [normalizedPricingAmicaleId]
+      );
+      amicaleRow = amicaleRows?.[0] || null;
+      if (!amicaleRow) {
+        return res.status(400).json({ error: 'Amicale selectionnee introuvable' });
+      }
+      if (String(amicaleRow.code || '').trim() !== normalizedAmicaleCode) {
+        return res.status(400).json({ error: 'Code amicale incorrect' });
+      }
+      if (!String(amicaleRow.name || '').trim()) {
+        return res.status(400).json({ error: 'Amicale invalide' });
+      }
+    }
     await appendClientInteraction({
       req,
       clientUserId: resolvedClientUserId,
@@ -10386,7 +10591,6 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       },
     }).catch(() => {});
     const requestType = bien.mode === 'vente' ? 'visite' : (request_type === 'visite' ? 'visite' : 'reservation');
-    const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
     const normalizedTotalAmount = Number.isFinite(Number(total_amount)) ? Number(total_amount) : null;
     const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) ? Number(amount_due_now) : null;
     const normalizedFixedServices = Array.isArray(selected_fixed_services) ? selected_fixed_services : [];
@@ -10416,7 +10620,6 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     const cfgMinStay = Number.isFinite(cfgMinStayRaw) && cfgMinStayRaw > 0
       ? Math.max(1, Math.floor(cfgMinStayRaw))
       : 1;
-    const normalizedPricingAmicaleId = String(pricing_amicale_id || req.body?.pricingAmicaleId || req.body?.amicale_id || '').trim() || null;
     const normalizeReservationPeriod = (row) => ({
       start: toSqlDateOnly(row?.start_date),
       end: toSqlDateOnly(row?.end_date),
@@ -10539,13 +10742,16 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     }
     const balancedAdultGuests = normalizedAdultGuests;
     const balancedChildGuests = normalizedChildGuests;
+    const initialDemandStatus = isAmicaleFlow ? 'attente_validation_amicale' : 'en_attente_reponse_proprietaire';
 
     await pool.query(
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, adult_guests, child_guests, payment_mode, pricing_amicale_id, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at, admin_note, client_note,
+        start_date, end_date, guests, adult_guests, child_guests, payment_mode, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
+        total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
+        amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
@@ -10563,6 +10769,9 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
         balancedChildGuests,
         normalizedPaymentMode,
         normalizedPricingAmicaleId,
+        isAmicaleFlow ? normalizedAmicaleMatricule : null,
+        isAmicaleFlow ? normalizedAmicalePhone : null,
+        isAmicaleFlow ? normalizedAmicaleCode : null,
         normalizedTotalAmount,
         normalizedAmountDueNow,
         JSON.stringify(normalizedFixedServices),
@@ -10570,7 +10779,14 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
         JSON.stringify([]),
         null,
         variableServicesQuoteStatus,
-        'en_attente_reponse_proprietaire',
+        initialDemandStatus,
+        isAmicaleFlow ? now : null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null,
         null,
         null,
@@ -10591,17 +10807,21 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
 
     await appendReservationDemandHistory(
       demandId,
-      'en_attente_reponse_proprietaire',
-      'client',
-      resolvedClientUserId || resolvedClientEmail || null,
-      `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
+      initialDemandStatus,
+      isAmicaleFlow ? 'agent_amicale' : 'client',
+      resolvedClientUserId || resolvedClientEmail || normalizedAmicaleMatricule || null,
+      isAmicaleFlow
+        ? `Nouvelle demande amicale de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
+        : `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
     );
 
-    await createAdminNotification(
-      'warning',
-      `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
-      now
-    );
+    if (!isAmicaleFlow) {
+      await createAdminNotification(
+        'warning',
+        `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
+        now
+      );
+    }
 
     if (requestType === 'reservation') {
       await upsertLocataireFromReservationProfile({
@@ -10838,6 +11058,143 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         });
         return res.status(403).json({ error: 'La modification de statut demandee n est pas autorisee sur cette etape' });
       }
+    }
+    const isAmicaleDemand = String(current.payment_mode || '').trim() === 'amicale'
+      || Boolean(String(current.pricing_amicale_id || '').trim());
+    if (requester?.role === 'admin' && isAmicaleDemand && ['voucher_en_cours', 'rejete_par_agence'].includes(nextStatus)) {
+      if (String(current.status || '') !== 'attente_validation_par_agence') {
+        return res.status(400).json({ error: 'La demande amicale doit etre en attente agence avant validation finale' });
+      }
+      const detailedCurrent = await fetchReservationDemandDetailsById(demandId) || formatReservationDemandRow(current);
+      const agencyValidationAt = getAgencySqlDateTime();
+      if (nextStatus === 'voucher_en_cours') {
+        const voucherNumber = String(detailedCurrent?.voucher_number || `VCH-${String(demandId).slice(-8).toUpperCase()}`).trim();
+        const voucherUrl = await generateAmicaleVoucherHtml({
+          demand: detailedCurrent || current,
+          bien: {
+            reference: detailedCurrent?.bien_reference || current.bien_id,
+            titre: detailedCurrent?.bien_titre || current.bien_titre || current.bien_id,
+          },
+          amicale: {
+            name: detailedCurrent?.amicale_name || detailedCurrent?.client_name || 'Amicale',
+          },
+          voucherNumber,
+          generatedAt: agencyValidationAt,
+        });
+        const voucherId = String(detailedCurrent?.voucher_id || `vch_${demandId}`).trim();
+        await pool.query(
+          `UPDATE reservation_demands
+           SET status = ?,
+               agency_validation_at = ?,
+               voucher_id = ?,
+               voucher_number = ?,
+               voucher_url = ?,
+               voucher_generated_at = ?,
+               updated_at = ?
+           WHERE id = ?`,
+          [nextStatus, agencyValidationAt, voucherId, voucherNumber, voucherUrl, agencyValidationAt, agencyValidationAt, demandId]
+        );
+        if (current.unavailable_date_id) {
+          await pool.query(
+            'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
+            ['booked', current.finalization_due_at || agencyValidationAt, current.unavailable_date_id]
+          );
+        }
+        await appendReservationDemandHistory(
+          demandId,
+          nextStatus,
+          'admin',
+          body.actor_id || 'admin',
+          body.history_note || `Agence valide la demande amicale et genere le voucher ${voucherNumber}`,
+          agencyValidationAt
+        );
+        const [updatedRows] = await pool.query(
+          `SELECT
+            d.*,
+            b.titre AS bien_titre,
+            b.reference AS bien_reference,
+            p.nom AS proprietaire_nom,
+            DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+            DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+            DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+            DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+            DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+            DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+            DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+            DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+            DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+            DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+            DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+            DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+            DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+            DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+          FROM reservation_demands d
+          LEFT JOIN biens b ON b.id = d.bien_id
+          LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+          WHERE d.id = ? LIMIT 1`,
+          [demandId]
+        );
+        return res.json(formatReservationDemandRow(updatedRows?.[0] || null));
+      }
+      await pool.query(
+        `UPDATE reservation_demands
+         SET status = ?,
+             agency_validation_at = ?,
+             voucher_id = NULL,
+             voucher_number = NULL,
+             voucher_url = NULL,
+             voucher_generated_at = NULL,
+             updated_at = ?
+         WHERE id = ?`,
+        [nextStatus, agencyValidationAt, agencyValidationAt, demandId]
+      );
+      if (current.unavailable_date_id) {
+        await pool.query(
+          `DELETE FROM unavailable_dates
+           WHERE id = ?
+             AND reservation_demand_id = ?`,
+          [current.unavailable_date_id, demandId]
+        );
+        await pool.query(
+          'UPDATE reservation_demands SET unavailable_date_id = NULL, updated_at = ? WHERE id = ?',
+          [agencyValidationAt, demandId]
+        );
+      }
+      await appendReservationDemandHistory(
+        demandId,
+        nextStatus,
+        'admin',
+        body.actor_id || 'admin',
+        body.history_note || 'Demande amicale rejetee par l agence',
+        agencyValidationAt
+      );
+      const [updatedRows] = await pool.query(
+        `SELECT
+          d.*,
+          b.titre AS bien_titre,
+          b.reference AS bien_reference,
+          p.nom AS proprietaire_nom,
+          DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+          DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+          DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+          DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+          DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+          DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+          DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+          DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+          DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+          DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+          DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+          DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+          DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+          DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+        FROM reservation_demands d
+        LEFT JOIN biens b ON b.id = d.bien_id
+        LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+        WHERE d.id = ? LIMIT 1`,
+        [demandId]
+      );
+      return res.json(formatReservationDemandRow(updatedRows?.[0] || null));
     }
     const ownerNotifiedAt = body.communicateToOwner
       ? getAgencySqlDateTime()
@@ -12438,6 +12795,9 @@ async function ensureReservationDemandSchema() {
       child_guests INT NOT NULL DEFAULT 0,
       payment_mode VARCHAR(20) NULL,
       pricing_amicale_id VARCHAR(64) NULL,
+      amicale_matricule VARCHAR(80) NULL,
+      amicale_phone VARCHAR(40) NULL,
+      amicale_code VARCHAR(80) NULL,
       total_amount DECIMAL(12,2) NULL,
       amount_due_now DECIMAL(12,2) NULL,
       selected_fixed_services_json LONGTEXT NULL,
@@ -12446,6 +12806,12 @@ async function ensureReservationDemandSchema() {
       variable_services_quote_total DECIMAL(12,2) NULL,
       variable_services_quote_status VARCHAR(30) NULL,
       status VARCHAR(80) NOT NULL,
+      amicale_validation_at DATETIME NULL,
+      agency_validation_at DATETIME NULL,
+      voucher_id VARCHAR(100) NULL,
+      voucher_number VARCHAR(80) NULL,
+      voucher_url VARCHAR(700) NULL,
+      voucher_generated_at DATETIME NULL,
       owner_notified_at DATETIME NULL,
       owner_response_at DATETIME NULL,
       client_confirmation_clicked_at DATETIME NULL,
@@ -12480,7 +12846,9 @@ async function ensureReservationDemandSchema() {
       KEY idx_reservation_demands_client (client_user_id, client_email),
       KEY idx_reservation_demands_bien (bien_id),
       KEY idx_reservation_demands_pricing_amicale (pricing_amicale_id),
+      KEY idx_reservation_demands_amicale_status (pricing_amicale_id, status),
       KEY idx_reservation_demands_owner (proprietaire_id, owner_user_id),
+      KEY idx_reservation_demands_voucher (voucher_id),
       KEY idx_reservation_demands_status (status)
     )
   `);
@@ -12551,11 +12919,38 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'pricing_amicale_id'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN pricing_amicale_id VARCHAR(64) NULL AFTER payment_mode');
   }
+  if (!(await columnExists('reservation_demands', 'amicale_matricule'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN amicale_matricule VARCHAR(80) NULL AFTER pricing_amicale_id');
+  }
+  if (!(await columnExists('reservation_demands', 'amicale_phone'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN amicale_phone VARCHAR(40) NULL AFTER amicale_matricule');
+  }
+  if (!(await columnExists('reservation_demands', 'amicale_code'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN amicale_code VARCHAR(80) NULL AFTER amicale_phone');
+  }
   if (!(await columnExists('reservation_demands', 'adult_guests'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN adult_guests INT NOT NULL DEFAULT 1 AFTER guests');
   }
   if (!(await columnExists('reservation_demands', 'child_guests'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN child_guests INT NOT NULL DEFAULT 0 AFTER adult_guests');
+  }
+  if (!(await columnExists('reservation_demands', 'amicale_validation_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN amicale_validation_at DATETIME NULL AFTER status');
+  }
+  if (!(await columnExists('reservation_demands', 'agency_validation_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN agency_validation_at DATETIME NULL AFTER amicale_validation_at');
+  }
+  if (!(await columnExists('reservation_demands', 'voucher_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN voucher_id VARCHAR(100) NULL AFTER agency_validation_at');
+  }
+  if (!(await columnExists('reservation_demands', 'voucher_number'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN voucher_number VARCHAR(80) NULL AFTER voucher_id');
+  }
+  if (!(await columnExists('reservation_demands', 'voucher_url'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN voucher_url VARCHAR(700) NULL AFTER voucher_number');
+  }
+  if (!(await columnExists('reservation_demands', 'voucher_generated_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN voucher_generated_at DATETIME NULL AFTER voucher_url');
   }
   if (!(await columnExists('reservation_demands', 'total_amount'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN total_amount DECIMAL(12,2) NULL AFTER payment_mode');
@@ -13363,6 +13758,171 @@ app.get('/api/auth/agent-amicale/me', async (req, res) => {
 app.post('/api/auth/agent-amicale/logout', async (req, res) => {
   clearAgentSessionCookie(req, res);
   return res.json({ success: true });
+});
+
+app.get('/api/agent-amicale/reservation-demands', requireAgentAmicaleSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const amicaleId = String(req.agentSession?.amicaleId || '').trim();
+    if (!amicaleId) {
+      return res.status(400).json({ error: 'Amicale introuvable' });
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         d.*,
+         b.titre AS bien_titre,
+         b.reference AS bien_reference,
+         a.name AS amicale_name,
+         a.logo_url AS amicale_logo_url,
+         DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+         DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+         DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+         DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+         DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+       WHERE d.pricing_amicale_id = ?
+       ORDER BY d.created_at DESC`,
+      [amicaleId]
+    );
+    res.json((rows || []).map((row) => formatReservationDemandRow(row)));
+  } catch (error) {
+    console.error('Error fetching agent amicale reservation demands:', error);
+    res.status(500).json({ error: 'Impossible de charger les demandes amicale' });
+  }
+});
+
+app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const amicaleId = String(req.agentSession?.amicaleId || '').trim();
+    const [rows] = await pool.query(
+      `SELECT
+         d.*,
+         b.titre AS bien_titre,
+         b.reference AS bien_reference,
+         a.name AS amicale_name,
+         a.logo_url AS amicale_logo_url,
+         DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+         DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+         DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+       WHERE d.pricing_amicale_id = ?
+         AND d.voucher_url IS NOT NULL
+       ORDER BY d.voucher_generated_at DESC, d.updated_at DESC`,
+      [amicaleId]
+    );
+    res.json((rows || []).map((row) => formatReservationDemandRow(row)));
+  } catch (error) {
+    console.error('Error fetching agent amicale vouchers:', error);
+    res.status(500).json({ error: 'Impossible de charger les vouchers amicale' });
+  }
+});
+
+app.post('/api/agent-amicale/reservation-demands/:id/validate', requireAgentAmicaleSession, reservationMutationRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    const amicaleId = String(req.agentSession?.amicaleId || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    const detailedCurrent = await fetchReservationDemandDetailsById(demandId);
+    if (!detailedCurrent) return res.status(404).json({ error: 'Demande introuvable' });
+    if (String(detailedCurrent.pricing_amicale_id || '').trim() !== amicaleId) {
+      return res.status(403).json({ error: 'Demande amicale non autorisee' });
+    }
+    if (String(detailedCurrent.status || '') !== 'attente_validation_amicale') {
+      return res.status(400).json({ error: 'Cette demande ne peut plus etre validee par l amicale' });
+    }
+
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?,
+           amicale_validation_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      ['attente_validation_par_agence', now, now, demandId]
+    );
+    await appendReservationDemandHistory(
+      demandId,
+      'attente_validation_par_agence',
+      'agent_amicale',
+      String(req.agentSession?.userId || req.agentSession?.username || 'agent_amicale').trim(),
+      'Demande validee par l amicale et transmise a l agence',
+      now
+    );
+    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+  } catch (error) {
+    console.error('Error validating agent amicale demand:', error);
+    res.status(500).json({ error: 'Impossible de valider la demande amicale' });
+  }
+});
+
+app.post('/api/agent-amicale/reservation-demands/:id/reject', requireAgentAmicaleSession, reservationMutationRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    const amicaleId = String(req.agentSession?.amicaleId || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    const detailedCurrent = await fetchReservationDemandDetailsById(demandId);
+    if (!detailedCurrent) return res.status(404).json({ error: 'Demande introuvable' });
+    if (String(detailedCurrent.pricing_amicale_id || '').trim() !== amicaleId) {
+      return res.status(403).json({ error: 'Demande amicale non autorisee' });
+    }
+    if (String(detailedCurrent.status || '') !== 'attente_validation_amicale') {
+      return res.status(400).json({ error: 'Cette demande ne peut plus etre rejetee par l amicale' });
+    }
+
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?,
+           amicale_validation_at = ?,
+           agency_validation_at = NULL,
+           voucher_id = NULL,
+           voucher_number = NULL,
+           voucher_url = NULL,
+           voucher_generated_at = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      ['rejete_par_amicale', now, now, demandId]
+    );
+    if (detailedCurrent.unavailable_date_id) {
+      await pool.query(
+        `DELETE FROM unavailable_dates
+         WHERE id = ?
+           AND reservation_demand_id = ?`,
+        [detailedCurrent.unavailable_date_id, demandId]
+      );
+      await pool.query(
+        'UPDATE reservation_demands SET unavailable_date_id = NULL, updated_at = ? WHERE id = ?',
+        [now, demandId]
+      );
+    }
+    await appendReservationDemandHistory(
+      demandId,
+      'rejete_par_amicale',
+      'agent_amicale',
+      String(req.agentSession?.userId || req.agentSession?.username || 'agent_amicale').trim(),
+      'Demande rejetee par l amicale',
+      now
+    );
+    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+  } catch (error) {
+    console.error('Error rejecting agent amicale demand:', error);
+    res.status(500).json({ error: 'Impossible de rejeter la demande amicale' });
+  }
 });
 
 app.get('/api/auth/providers', (req, res) => {

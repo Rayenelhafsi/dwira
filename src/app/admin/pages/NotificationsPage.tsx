@@ -12,6 +12,11 @@ const openStatuses = new Set<ReservationDemandStatus>([
   'reponse_positive_attente_confirmation_client',
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
+  'attente_validation_amicale',
+  'attente_validation_par_agence',
+  'voucher_en_cours',
+  'rejete_par_amicale',
+  'rejete_par_agence',
   'demande_annulee_client',
   'demande_recu_paiement',
   'recu_paiement_envoye',
@@ -24,12 +29,17 @@ const demandPriority: Record<ReservationDemandStatus, number> = {
   pas_de_reponse_proprietaire: 3,
   reponse_negative_autre_proposition_meme_bien: 4,
   reponse_negative_autre_proposition_bien_similaire: 5,
-  demande_recu_paiement: 6,
-  recu_paiement_envoye: 7,
-  demande_rejetee_admin: 8,
-  attente_envoi_coordonnees_contrat: 9,
-  contrat_realise: 10,
-  succes_paiement: 11,
+  attente_validation_amicale: 6,
+  attente_validation_par_agence: 7,
+  voucher_en_cours: 8,
+  rejete_par_amicale: 9,
+  rejete_par_agence: 10,
+  demande_recu_paiement: 11,
+  recu_paiement_envoye: 12,
+  demande_rejetee_admin: 13,
+  attente_envoi_coordonnees_contrat: 14,
+  contrat_realise: 15,
+  succes_paiement: 16,
 };
 
 function resolveDisplayStatus(demand: ReservationDemand): ReservationDemandStatus {
@@ -40,12 +50,21 @@ function resolveDisplayStatus(demand: ReservationDemand): ReservationDemandStatu
   return demand.status;
 }
 
+function isAmicaleDemand(demand: ReservationDemand) {
+  return String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
+}
+
 const statusLabels: Record<ReservationDemandStatus, string> = {
   en_attente_reponse_proprietaire: 'En attente de reponse proprietaire',
   pas_de_reponse_proprietaire: 'Pas de reponse proprietaire',
   reponse_positive_attente_confirmation_client: 'Reponse positive, attente confirmation client',
   reponse_negative_autre_proposition_meme_bien: 'Reponse negative, autre proposition pour ce bien',
   reponse_negative_autre_proposition_bien_similaire: 'Reponse negative, autre proposition pour un bien similaire',
+  attente_validation_amicale: 'Attente validation amicale',
+  attente_validation_par_agence: 'Attente validation par l agence',
+  voucher_en_cours: 'Voucher en cours',
+  rejete_par_amicale: 'Rejete par l amicale',
+  rejete_par_agence: 'Rejete par l agence',
   demande_rejetee_admin: 'Demande rejetee par admin',
   demande_annulee_client: 'Demande annulee par client',
   attente_envoi_coordonnees_contrat: 'Attente d envoi de coordonnees pour contrat',
@@ -60,6 +79,11 @@ const statusToneClasses: Record<ReservationDemandStatus, string> = {
   reponse_positive_attente_confirmation_client: 'bg-amber-100 text-amber-800 border-amber-200',
   reponse_negative_autre_proposition_meme_bien: 'bg-violet-100 text-violet-800 border-violet-200',
   reponse_negative_autre_proposition_bien_similaire: 'bg-violet-100 text-violet-800 border-violet-200',
+  attente_validation_amicale: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  attente_validation_par_agence: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  voucher_en_cours: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  rejete_par_amicale: 'bg-slate-100 text-slate-700 border-slate-200',
+  rejete_par_agence: 'bg-rose-100 text-rose-800 border-rose-200',
   demande_rejetee_admin: 'bg-rose-100 text-rose-800 border-rose-200',
   demande_annulee_client: 'bg-slate-100 text-slate-800 border-slate-200',
   attente_envoi_coordonnees_contrat: 'bg-cyan-100 text-cyan-800 border-cyan-200',
@@ -74,6 +98,11 @@ const editableStatusOptions: ReservationDemandStatus[] = [
   'reponse_positive_attente_confirmation_client',
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
+  'attente_validation_amicale',
+  'attente_validation_par_agence',
+  'voucher_en_cours',
+  'rejete_par_amicale',
+  'rejete_par_agence',
   'recu_paiement_envoye',
   'succes_paiement',
 ];
@@ -161,6 +190,7 @@ export default function NotificationsPage() {
   const pendingDemands = useMemo(() => {
     return demands
       .filter((demand) => openStatuses.has(demand.status))
+      .filter((demand) => !isAmicaleDemand(demand))
       .sort((a, b) => {
         const sa = resolveDisplayStatus(a);
         const sb = resolveDisplayStatus(b);
@@ -469,6 +499,8 @@ export default function NotificationsPage() {
             const isExpanded = Boolean(expandedDemandIds[demand.id]);
             const receiptUrl = demand.payment_receipt_image_url ? resolveAssetUrl(demand.payment_receipt_image_url) : '';
             const hasReceipt = Boolean(receiptUrl);
+            const isAmicaleDemand = String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
+            const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : '';
             return (
             <div key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -490,6 +522,20 @@ export default function NotificationsPage() {
                   <p className="text-xs text-gray-500">
                     Proprietaire: <span className="font-medium text-gray-700">{demand.proprietaire_nom || '-'}</span>
                   </p>
+                  {isAmicaleDemand && (
+                    <div className="space-y-1 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                      <p className="font-semibold uppercase tracking-wide text-emerald-700">Amicale</p>
+                      <p>
+                        Matricule: <span className="font-medium text-emerald-900">{demand.amicale_matricule || '-'}</span>
+                      </p>
+                      <p>
+                        Telephone: <span className="font-medium text-emerald-900">{demand.amicale_phone || '-'}</span>
+                      </p>
+                      <p>
+                        Code: <span className="font-medium text-emerald-900">{demand.amicale_code || '-'}</span>
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 xl:justify-end">
                   <button
@@ -513,44 +559,82 @@ export default function NotificationsPage() {
                       ))}
                     </select>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleDemandUpdate(demand, { communicateToOwner: true, history_note: 'Demande communiquee au proprietaire' });
-                      openOwnerChat(demand);
-                    }}
-                    disabled={savingId === demand.id}
-                    className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
-                  >
-                    <MessageSquareShare className="h-4 w-4" />
-                    Contacter proprietaire
-                  </button>
-                  <a
-                    href={hasReceipt ? receiptUrl : undefined}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-disabled={!hasReceipt}
-                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
-                      hasReceipt
-                        ? 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100'
-                        : 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
-                    }`}
-                    onClick={(event) => {
-                      if (hasReceipt) return;
-                      event.preventDefault();
-                    }}
-                  >
-                    Voir recu
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => void requestOwnerAvailability(demand)}
-                    disabled={savingId === demand.id}
-                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                  >
-                    <Bell className="h-4 w-4" />
-                    Demander disponibilite
-                  </button>
+                  {isAmicaleDemand ? (
+                    <>
+                      {displayStatus === 'attente_validation_par_agence' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void handleDemandUpdate(demand, { status: 'voucher_en_cours', history_note: 'Agence valide la demande amicale et genere le voucher' })}
+                            disabled={savingId === demand.id}
+                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Valider voucher
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDemandUpdate(demand, { status: 'rejete_par_agence', history_note: "Agence rejette la demande amicale" })}
+                            disabled={savingId === demand.id}
+                            className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                          >
+                            Rejeter agence
+                          </button>
+                        </>
+                      )}
+                      {voucherUrl && (
+                        <a
+                          href={voucherUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+                        >
+                          Ouvrir voucher
+                        </a>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleDemandUpdate(demand, { communicateToOwner: true, history_note: 'Demande communiquee au proprietaire' });
+                          openOwnerChat(demand);
+                        }}
+                        disabled={savingId === demand.id}
+                        className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
+                      >
+                        <MessageSquareShare className="h-4 w-4" />
+                        Contacter proprietaire
+                      </button>
+                      <a
+                        href={hasReceipt ? receiptUrl : undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-disabled={!hasReceipt}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                          hasReceipt
+                            ? 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100'
+                            : 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
+                        }`}
+                        onClick={(event) => {
+                          if (hasReceipt) return;
+                          event.preventDefault();
+                        }}
+                      >
+                        Voir recu
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => void requestOwnerAvailability(demand)}
+                        disabled={savingId === demand.id}
+                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                      >
+                        <Bell className="h-4 w-4" />
+                        Demander disponibilite
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => void openHistory(demand.id)}
@@ -559,22 +643,26 @@ export default function NotificationsPage() {
                     <History className="h-4 w-4" />
                     Trace
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void rejectDemand(demand, false)}
-                    disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
-                    className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
-                  >
-                    Rejeter
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void rejectDemand(demand, true)}
-                    disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
-                    className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-60"
-                  >
-                    Rejeter + popup client
-                  </button>
+                  {!isAmicaleDemand && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void rejectDemand(demand, false)}
+                        disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
+                        className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                      >
+                        Rejeter
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void rejectDemand(demand, true)}
+                        disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
+                        className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                      >
+                        Rejeter + popup client
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600 md:grid-cols-2 xl:grid-cols-4">

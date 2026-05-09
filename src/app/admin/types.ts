@@ -537,6 +537,11 @@ export type ReservationDemandStatus =
   | 'reponse_positive_attente_confirmation_client'
   | 'reponse_negative_autre_proposition_meme_bien'
   | 'reponse_negative_autre_proposition_bien_similaire'
+  | 'attente_validation_amicale'
+  | 'attente_validation_par_agence'
+  | 'voucher_en_cours'
+  | 'rejete_par_amicale'
+  | 'rejete_par_agence'
   | 'demande_rejetee_admin'
   | 'demande_annulee_client'
   | 'attente_envoi_coordonnees_contrat'
@@ -563,6 +568,10 @@ export interface ReservationDemand {
   adult_guests?: number;
   child_guests?: number;
   payment_mode?: 'avance' | 'totalite' | 'amicale' | null;
+  pricing_amicale_id?: string | null;
+  amicale_matricule?: string | null;
+  amicale_phone?: string | null;
+  amicale_code?: string | null;
   total_amount?: number | null;
   amount_due_now?: number | null;
   selected_fixed_services?: ServicePayantBien[];
@@ -570,6 +579,12 @@ export interface ReservationDemand {
   variable_services_quote?: Array<ServicePayantBien & { prix_saisi?: number | null }>;
   variable_services_quote_total?: number | null;
   variable_services_quote_status?: 'aucun' | 'a_traiter' | 'devis_envoye' | 'accepte' | 'paye' | null;
+  amicale_validation_at?: string | null;
+  agency_validation_at?: string | null;
+  voucher_id?: string | null;
+  voucher_number?: string | null;
+  voucher_url?: string | null;
+  voucher_generated_at?: string | null;
   reservation_payment_id?: string | null;
   reservation_payment_paid_at?: string | null;
   services_payment_id?: string | null;
@@ -611,7 +626,7 @@ export interface ReservationDemandHistory {
   id: string;
   demand_id: string;
   status: ReservationDemandStatus;
-  actor_type: 'client' | 'admin' | 'system' | 'proprietaire';
+  actor_type: 'client' | 'admin' | 'system' | 'proprietaire' | 'agent_amicale';
   actor_id?: string | null;
   note?: string | null;
   created_at: string;
