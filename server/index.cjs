@@ -101,8 +101,12 @@ function safeParseJson(value, fallbackValue = null) {
 }
 
 function buildFlouciAuthHeaders() {
+  const bearer = `Bearer ${FLOUCI_PUBLIC_KEY}:${FLOUCI_PRIVATE_KEY}`;
   return {
     'Content-Type': 'application/json',
+    Accept: 'application/json',
+    Authorization: bearer,
+    authorization: bearer,
     apptoken: FLOUCI_PUBLIC_KEY,
     appsecret: FLOUCI_PRIVATE_KEY,
   };
