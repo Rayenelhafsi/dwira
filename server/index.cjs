@@ -4967,10 +4967,22 @@ async function ensureSeasonalPricingSchema() {
   if (!ensureSeasonalPricingSchemaPromise) {
     ensureSeasonalPricingSchemaPromise = (async () => {
       await ensureBiensWorkflowSchema();
+      const indexExists = async (tableName, indexName) => {
+        const [rows] = await pool.query(
+          `SELECT COUNT(*) AS total
+           FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = DATABASE()
+             AND TABLE_NAME = ?
+             AND INDEX_NAME = ?`,
+          [tableName, indexName]
+        );
+        return Number(rows?.[0]?.total || 0) > 0;
+      };
       await pool.query(`
     CREATE TABLE IF NOT EXISTS bien_pricing_periods (
       id VARCHAR(120) NOT NULL PRIMARY KEY,
       bien_id VARCHAR(120) NOT NULL,
+      amicale_id VARCHAR(64) NULL,
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
       prix_nuitee DECIMAL(12,2) NOT NULL,
@@ -4981,6 +4993,7 @@ async function ensureSeasonalPricingSchema() {
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       KEY idx_bien_pricing_periods_bien (bien_id),
+      KEY idx_bien_pricing_periods_amicale (amicale_id),
       KEY idx_bien_pricing_periods_dates (start_date, end_date)
     )
   `);
@@ -4997,11 +5010,17 @@ async function ensureSeasonalPricingSchema() {
       if (!(await columnExists('bien_pricing_periods', 'minimum_nuitees'))) {
         await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN minimum_nuitees INT NULL DEFAULT NULL AFTER prix_semaine');
       }
+      if (!(await columnExists('bien_pricing_periods', 'amicale_id'))) {
+        await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN amicale_id VARCHAR(64) NULL DEFAULT NULL AFTER bien_id');
+      }
       if (!(await columnExists('bien_pricing_periods', 'checkin_jour'))) {
         await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkin_jour VARCHAR(20) NULL DEFAULT NULL AFTER minimum_nuitees');
       }
       if (!(await columnExists('bien_pricing_periods', 'checkout_jour'))) {
         await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkout_jour VARCHAR(20) NULL DEFAULT NULL AFTER checkin_jour');
+      }
+      if (!(await indexExists('bien_pricing_periods', 'idx_bien_pricing_periods_amicale'))) {
+        await pool.query('ALTER TABLE bien_pricing_periods ADD KEY idx_bien_pricing_periods_amicale (amicale_id)');
       }
     })().catch((error) => {
       ensureSeasonalPricingSchemaPromise = null;
@@ -5174,6 +5193,7 @@ function normalizeSeasonalPricingPeriod(period, index = 0) {
   const minimumNights = minimumNightsRaw === null ? null : (Number.isFinite(minimumNightsRaw) && minimumNightsRaw > 0 ? Math.max(1, Math.floor(minimumNightsRaw)) : null);
   const checkinDay = normalizeWeekday(period?.checkin_jour);
   const checkoutDay = normalizeWeekday(period?.checkout_jour);
+  const amicaleId = String(period?.amicale_id || period?.amicaleId || '').trim() || null;
   if (!start || !end || !isValidIsoDate(start) || !isValidIsoDate(end) || end < start || nightly <= 0) return null;
   return {
     id: String(period?.id || `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`),
@@ -5184,6 +5204,7 @@ function normalizeSeasonalPricingPeriod(period, index = 0) {
     minimum_nuitees: minimumNights,
     checkin_jour: checkinDay,
     checkout_jour: checkoutDay,
+    amicale_id: amicaleId,
   };
 }
 
@@ -5220,7 +5241,7 @@ async function listPricingPeriodsForBienIds(bienIds) {
   if (ids.length === 0) return byBienId;
   const placeholders = ids.map(() => '?').join(', ');
   const [rows] = await pool.query(
-    `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
+    `SELECT id, bien_id, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
      FROM bien_pricing_periods
      WHERE bien_id IN (${placeholders})
      ORDER BY start_date ASC, end_date ASC`,
@@ -5236,6 +5257,7 @@ async function listPricingPeriodsForBienIds(bienIds) {
       minimum_nuitees: row.minimum_nuitees === null || row.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
       checkin_jour: row.checkin_jour ? String(row.checkin_jour).toLowerCase() : null,
       checkout_jour: row.checkout_jour ? String(row.checkout_jour).toLowerCase() : null,
+      amicale_id: row.amicale_id ? String(row.amicale_id).trim() : null,
     };
     if (!byBienId.has(row.bien_id)) byBienId.set(row.bien_id, []);
     byBienId.get(row.bien_id).push(item);
@@ -5255,9 +5277,9 @@ async function syncBienPricingPeriods(bienId, periods) {
   for (const period of normalized) {
     await pool.query(
       `INSERT INTO bien_pricing_periods (
-         id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [period.id, normalizedBienId, period.start, period.end, period.prix_nuitee, period.prix_semaine, period.minimum_nuitees, period.checkin_jour, period.checkout_jour, now, now]
+         id, bien_id, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [period.id, normalizedBienId, period.amicale_id || null, period.start, period.end, period.prix_nuitee, period.prix_semaine, period.minimum_nuitees, period.checkin_jour, period.checkout_jour, now, now]
     );
   }
 }
@@ -10282,6 +10304,7 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
       selected_variable_services,
       client_note,
       request_type,
+      pricing_amicale_id,
       turnstileToken,
       sessionId,
     } = req.body || {};
@@ -10392,17 +10415,64 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     const cfgMinStay = Number.isFinite(cfgMinStayRaw) && cfgMinStayRaw > 0
       ? Math.max(1, Math.floor(cfgMinStayRaw))
       : 1;
+    const normalizedPricingAmicaleId = String(pricing_amicale_id || req.body?.pricingAmicaleId || req.body?.amicale_id || '').trim() || null;
+    const normalizeReservationPeriod = (row) => ({
+      start: toSqlDateOnly(row?.start_date),
+      end: toSqlDateOnly(row?.end_date),
+      minimum_nuitees: row?.minimum_nuitees === null || row?.minimum_nuitees === undefined
+        ? null
+        : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
+      checkin_jour: row?.checkin_jour ? String(row.checkin_jour).trim().toLowerCase() : null,
+      checkout_jour: row?.checkout_jour ? String(row.checkout_jour).trim().toLowerCase() : null,
+      amicale_id: row?.amicale_id ? String(row.amicale_id).trim() : null,
+    });
+    const getReservationPeriodScopeRank = (period, targetAmicaleId) => {
+      const target = String(targetAmicaleId || '').trim();
+      const periodAmicaleId = String(period?.amicale_id || '').trim();
+      if (!target) return periodAmicaleId ? 0 : 1;
+      if (!periodAmicaleId) return 1;
+      return periodAmicaleId === target ? 2 : 0;
+    };
+    const findReservationPeriodForDate = (periods, date, targetAmicaleId) => {
+      const target = toSqlDateOnly(date);
+      const candidates = (Array.isArray(periods) ? periods : [])
+        .filter((period) => {
+          const start = String(period?.start || '').slice(0, 10);
+          const end = String(period?.end || '').slice(0, 10);
+          return start && end && start <= target && target <= end && getReservationPeriodScopeRank(period, targetAmicaleId) > 0;
+        })
+        .sort((a, b) => {
+          const scopeDiff = getReservationPeriodScopeRank(b, targetAmicaleId) - getReservationPeriodScopeRank(a, targetAmicaleId);
+          if (scopeDiff !== 0) return scopeDiff;
+          const startDiff = String(b.start || '').localeCompare(String(a.start || ''));
+          if (startDiff !== 0) return startDiff;
+          return String(b.end || '').localeCompare(String(a.end || ''));
+        });
+      return candidates[0] || null;
+    };
+    const addSqlDays = (date, days) => {
+      const base = toSqlDateOnly(date);
+      if (!base) return null;
+      const next = new Date(`${base}T00:00:00`);
+      if (Number.isNaN(next.getTime())) return null;
+      next.setDate(next.getDate() + days);
+      return toSqlDateOnly(next);
+    };
     const [periodRules] = await pool.query(
-      `SELECT minimum_nuitees, checkin_jour, checkout_jour
+      `SELECT minimum_nuitees, checkin_jour, checkout_jour, start_date, end_date, amicale_id
        FROM bien_pricing_periods
        WHERE bien_id = ?
          AND start_date <= ?
          AND end_date >= ?`,
       [bien_id, end_date, start_date]
     );
+    const normalizedPeriodRules = (periodRules || []).map(normalizeReservationPeriod);
     let requiredMinNights = cfgMinStay;
-    for (const rule of periodRules || []) {
-      const value = Number(rule?.minimum_nuitees || 0);
+    for (let offset = 0; offset < requestedNights; offset += 1) {
+      const day = addSqlDays(start_date, offset);
+      if (!day) continue;
+      const period = findReservationPeriodForDate(normalizedPeriodRules, day, normalizedPricingAmicaleId);
+      const value = Number(period?.minimum_nuitees || 0);
       if (Number.isFinite(value) && value > requiredMinNights) {
         requiredMinNights = Math.max(1, Math.floor(value));
       }
@@ -10412,15 +10482,15 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     }
     const startWeekday = getWeekdayFrFromSqlDate(start_date);
     const endWeekday = getWeekdayFrFromSqlDate(end_date);
-    for (const rule of periodRules || []) {
-      const checkinDay = String(rule?.checkin_jour || '').trim().toLowerCase();
-      const checkoutDay = String(rule?.checkout_jour || '').trim().toLowerCase();
-      if (requestType === 'reservation' && checkinDay && startWeekday && checkinDay !== startWeekday) {
-        return res.status(400).json({ error: `Check-in autorise uniquement le ${checkinDay} pour cette periode` });
-      }
-      if (requestType === 'reservation' && checkoutDay && endWeekday && checkoutDay !== endWeekday) {
-        return res.status(400).json({ error: `Check-out autorise uniquement le ${checkoutDay} pour cette periode` });
-      }
+    const arrivalPeriod = findReservationPeriodForDate(normalizedPeriodRules, start_date, normalizedPricingAmicaleId);
+    const departurePeriod = findReservationPeriodForDate(normalizedPeriodRules, addSqlDays(end_date, -1), normalizedPricingAmicaleId);
+    const checkinDay = String(arrivalPeriod?.checkin_jour || '').trim().toLowerCase();
+    const checkoutDay = String(departurePeriod?.checkout_jour || '').trim().toLowerCase();
+    if (requestType === 'reservation' && checkinDay && startWeekday && checkinDay !== startWeekday) {
+      return res.status(400).json({ error: `Check-in autorise uniquement le ${checkinDay} pour cette periode` });
+    }
+    if (requestType === 'reservation' && checkoutDay && endWeekday && checkoutDay !== endWeekday) {
+      return res.status(400).json({ error: `Check-out autorise uniquement le ${checkoutDay} pour cette periode` });
     }
 
     const now = getAgencySqlDateTime();
@@ -10472,9 +10542,9 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
     await pool.query(
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, adult_guests, child_guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at, admin_note, client_note,
+        start_date, end_date, guests, adult_guests, child_guests, payment_mode, pricing_amicale_id, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
@@ -10491,6 +10561,7 @@ app.post('/api/reservation-demands', requireAuthenticatedSession, reservationMut
         balancedAdultGuests,
         balancedChildGuests,
         normalizedPaymentMode,
+        normalizedPricingAmicaleId,
         normalizedTotalAmount,
         normalizedAmountDueNow,
         JSON.stringify(normalizedFixedServices),
@@ -12365,6 +12436,7 @@ async function ensureReservationDemandSchema() {
       adult_guests INT NOT NULL DEFAULT 1,
       child_guests INT NOT NULL DEFAULT 0,
       payment_mode VARCHAR(20) NULL,
+      pricing_amicale_id VARCHAR(64) NULL,
       total_amount DECIMAL(12,2) NULL,
       amount_due_now DECIMAL(12,2) NULL,
       selected_fixed_services_json LONGTEXT NULL,
@@ -12406,6 +12478,7 @@ async function ensureReservationDemandSchema() {
       updated_at DATETIME NOT NULL,
       KEY idx_reservation_demands_client (client_user_id, client_email),
       KEY idx_reservation_demands_bien (bien_id),
+      KEY idx_reservation_demands_pricing_amicale (pricing_amicale_id),
       KEY idx_reservation_demands_owner (proprietaire_id, owner_user_id),
       KEY idx_reservation_demands_status (status)
     )
@@ -12473,6 +12546,9 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'payment_mode'))) {
     await pool.query("ALTER TABLE reservation_demands ADD COLUMN payment_mode VARCHAR(20) NULL AFTER guests");
+  }
+  if (!(await columnExists('reservation_demands', 'pricing_amicale_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN pricing_amicale_id VARCHAR(64) NULL AFTER payment_mode');
   }
   if (!(await columnExists('reservation_demands', 'adult_guests'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN adult_guests INT NOT NULL DEFAULT 1 AFTER guests');
@@ -13103,7 +13179,7 @@ app.get('/api/pricing-periods/:bien_id', async (req, res) => {
     const bienId = String(req.params.bien_id || '').trim();
     if (!bienId) return res.status(400).json({ error: 'bien_id requis' });
     const [rows] = await pool.query(
-      `SELECT id, bien_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
+      `SELECT id, bien_id, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
        FROM bien_pricing_periods
        WHERE bien_id = ?
        ORDER BY start_date ASC, end_date ASC`,
@@ -13119,6 +13195,7 @@ app.get('/api/pricing-periods/:bien_id', async (req, res) => {
       minimum_nuitees: row.minimum_nuitees === null || row.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
       checkin_jour: row.checkin_jour ? String(row.checkin_jour).toLowerCase() : null,
       checkout_jour: row.checkout_jour ? String(row.checkout_jour).toLowerCase() : null,
+      amicale_id: row.amicale_id ? String(row.amicale_id).trim() : null,
     }));
     res.json(data);
   } catch (error) {

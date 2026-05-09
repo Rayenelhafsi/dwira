@@ -46,6 +46,7 @@ export default function ReservationConfirmationPage() {
   const draftFromState = (location.state as LocationState | null)?.draft || null;
   const draftFromStorage = useMemo(() => readPendingReservationDraft(), []);
   const draft = draftFromState || draftFromStorage || null;
+  const pricingAmicaleId = String(draft?.pricingAmicaleId || draft?.amicaleSelectionId || "").trim() || null;
   const property = properties.find((item) => propertyMatchesRouteToken(item, slug));
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
@@ -80,6 +81,7 @@ export default function ReservationConfirmationPage() {
       defaultNightlyPrice: property.pricePerNight,
       defaultWeeklyPrice: property.pricePerWeek,
       pricingPeriods: property.pricingPeriods,
+      amicaleId: pricingAmicaleId,
     });
     const nights = accommodationPricing.nights;
     const accommodationTotal = accommodationPricing.accommodationTotal;
@@ -125,7 +127,7 @@ export default function ReservationConfirmationPage() {
       paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : (draft.paymentMode === 'amicale' ? 'amicale' : 'avance'),
       advancePercent,
     };
-  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxAdultGuests, maxChildGuests, maxGuests, property, seasonalConfig]);
+  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxAdultGuests, maxChildGuests, maxGuests, pricingAmicaleId, property, seasonalConfig]);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,6 +295,7 @@ export default function ReservationConfirmationPage() {
           client_name: isAmicaleFlow ? String(draft.amicaleName || "").trim() : user?.name,
           start_date: draft.startDate,
           end_date: draft.endDate,
+          pricing_amicale_id: pricingAmicaleId || undefined,
             guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
             adult_guests: summary?.adultGuests || Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1)),
             child_guests: summary?.childGuests || Math.max(0, Number(draft.childGuests || 0)),

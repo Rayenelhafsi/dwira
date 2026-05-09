@@ -13,6 +13,15 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
+export function normalizeAmicaleSlug(value: string) {
+  return normalizeString(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function readAmicales(): AmicaleItem[] {
   try {
     const raw = localStorage.getItem(AMICALES_STORAGE_KEY);
@@ -132,4 +141,10 @@ export function findAmicaleById(id: string) {
   const nextId = normalizeString(id);
   if (!nextId) return null;
   return readAmicales().find((item) => item.id === nextId) || null;
+}
+
+export function findAmicaleBySlug(slug: string, items: AmicaleItem[] = readAmicales()) {
+  const nextSlug = normalizeAmicaleSlug(slug);
+  if (!nextSlug) return null;
+  return (Array.isArray(items) ? items : []).find((item) => normalizeAmicaleSlug(item.name) === nextSlug) || null;
 }

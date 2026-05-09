@@ -159,6 +159,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
             minimum_nuitees: item?.minimum_nuitees === null || item?.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(item.minimum_nuitees || 0))),
             checkin_jour: normalizePricingWeekday(item?.checkin_jour),
             checkout_jour: normalizePricingWeekday(item?.checkout_jour),
+            amicale_id: String(item?.amicale_id || item?.amicaleId || '').trim() || null,
           }))
           .filter((item) =>
             item.start
@@ -183,6 +184,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
         minimum_nuitees: item?.minimum_nuitees === null || item?.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(item.minimum_nuitees || 0))),
         checkin_jour: normalizePricingWeekday(item?.checkin_jour),
         checkout_jour: normalizePricingWeekday(item?.checkout_jour),
+        amicale_id: String(item?.amicale_id || item?.amicaleId || '').trim() || null,
       }))
       .filter((item) =>
         item.start

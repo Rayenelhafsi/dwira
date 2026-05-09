@@ -66,7 +66,7 @@ export default function AgentAmicaleLoginPage() {
               className="amicale-orbit-item"
               style={{ animationDelay: `${index * -1.3}s` }}
             >
-              <img src={logo} alt="" className="h-full w-full object-cover" />
+              <img src={logo} alt="" className="h-full w-full object-contain" />
             </span>
           ))}
         </div>

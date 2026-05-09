@@ -777,7 +777,31 @@ export default function PropertiesPage() {
   );
 
   useEffect(() => {
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(searchParams);
+    [
+      "mode",
+      "q",
+      "location",
+      "checkIn",
+      "checkOut",
+      "mainType",
+      "categories",
+      "features",
+      "doubleRoomsMin",
+      "parentRoomsMin",
+      "simpleRoomsMin",
+      "bathroomsMin",
+      "climatizedRoomsMin",
+      "paidServices",
+      "seaside",
+      "comfort",
+      "standing",
+      "guestsMin",
+      "featured",
+      "maxPrice",
+      "tolerance",
+      "sort",
+    ].forEach((key) => params.delete(key));
     params.set("mode", selectedMode);
     if (query.trim()) params.set("q", query.trim());
     if (location) params.set("location", location);
@@ -880,7 +904,32 @@ export default function PropertiesPage() {
     setPriceMax(priceCeiling);
     setSmartTolerance(35);
     setSortMode("matching");
-    setSearchParams(new URLSearchParams(`mode=${selectedMode}`), { replace: true });
+    const next = new URLSearchParams(searchParams);
+    [
+      "q",
+      "location",
+      "checkIn",
+      "checkOut",
+      "mainType",
+      "categories",
+      "features",
+      "doubleRoomsMin",
+      "parentRoomsMin",
+      "simpleRoomsMin",
+      "bathroomsMin",
+      "climatizedRoomsMin",
+      "paidServices",
+      "seaside",
+      "comfort",
+      "standing",
+      "guestsMin",
+      "featured",
+      "maxPrice",
+      "tolerance",
+      "sort",
+    ].forEach((key) => next.delete(key));
+    next.set("mode", selectedMode);
+    setSearchParams(next, { replace: true });
   };
 
   const scoredResults = useMemo(() => {

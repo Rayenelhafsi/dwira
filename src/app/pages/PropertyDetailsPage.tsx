@@ -788,7 +788,8 @@ export default function PropertyDetailsPage() {
     telephone: "",
     cin: "",
   });
-  const [pendingDraft, setPendingDraft] = useState<Record<string, unknown> | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<PendingReservationDraft | null>(null);
+  const pricingAmicaleId = String(searchParams.get("amicale") || (paymentMode === "amicale" ? amicaleSelectionId : "") || pendingDraft?.pricingAmicaleId || "").trim() || null;
   const [liveUnavailableDates, setLiveUnavailableDates] = useState<Array<{
     start: string;
     end: string;
@@ -1109,8 +1110,8 @@ out body 40;
   const maxStay = Math.max(minStay, seasonalConfig?.dureeMaxSejourNuits || 365);
   const periodMinStay = useMemo(() => {
     if (!selectedStart) return null;
-    return getPeriodMinStayForDate(property?.pricingPeriods || [], selectedStart);
-  }, [property?.pricingPeriods, selectedStart]);
+    return getPeriodMinStayForDate(property?.pricingPeriods || [], selectedStart, pricingAmicaleId);
+  }, [pricingAmicaleId, property?.pricingPeriods, selectedStart]);
   const displayedMinStay = Math.max(minStay, periodMinStay || 0);
   const activeWeekdayRule = useMemo(() => {
     if (!selectedStart || !selectedEnd) return { requiredCheckinDay: null, requiredCheckoutDay: null };
@@ -1120,8 +1121,9 @@ out body 40;
       startDate: start,
       endDate: end,
       periods: property?.pricingPeriods || [],
+      amicaleId: pricingAmicaleId,
     });
-  }, [property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
   const reservationValidation = useMemo(() => {
     if (isSaleProperty) return { valid: true, message: "" };
     if (!selectedStart || !selectedEnd) return { valid: false, message: "Selectionnez vos dates d'arrivee et de depart." };
@@ -1141,6 +1143,7 @@ out body 40;
       endDate,
       periods: property?.pricingPeriods || [],
       fallbackMinStay: minStay,
+      amicaleId: pricingAmicaleId,
     });
     if (nights < minStayForSelection) {
       return { valid: false, message: `Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).` };
@@ -1153,6 +1156,7 @@ out body 40;
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
+      amicaleId: pricingAmicaleId,
     });
     if (!weekdayRuleCheck.ok) {
       const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in ${weekdayRuleCheck.requiredCheckinDay}` : null;
@@ -1170,7 +1174,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, isSaleProperty, maxStay, minStay, paymentMode, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -1192,8 +1196,9 @@ out body 40;
       defaultNightlyPrice: Number(property?.pricePerNight || 0),
       defaultWeeklyPrice: Number(property?.pricePerWeek || 0),
       pricingPeriods: property?.pricingPeriods || [],
+      amicaleId: pricingAmicaleId,
     }),
-    [property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
+    [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
   );
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
@@ -2060,6 +2065,7 @@ out body 40;
         startDate,
         endDate: format(new Date(start.getTime() + (24 * 60 * 60 * 1000)), 'yyyy-MM-dd'),
         periods: property?.pricingPeriods || [],
+        amicaleId: pricingAmicaleId,
       });
       if (!weekdayRuleCheck.ok) {
         const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
@@ -2120,6 +2126,7 @@ out body 40;
         endDate,
         periods: property?.pricingPeriods || [],
         fallbackMinStay: minStay,
+        amicaleId: pricingAmicaleId,
       });
       if (nights < minStayForSelection) {
         failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
@@ -2134,6 +2141,7 @@ out body 40;
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
+        amicaleId: pricingAmicaleId,
       });
       if (!weekdayRuleCheck.ok) {
         const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
@@ -2233,6 +2241,7 @@ out body 40;
       defaultNightlyPrice: property!.pricePerNight,
       defaultWeeklyPrice: property!.pricePerWeek,
       pricingPeriods: property!.pricingPeriods,
+      amicaleId: pricingAmicaleId,
     });
     const nights = accommodationPricing.nights;
     const accommodationTotal = accommodationPricing.accommodationTotal;
@@ -2393,6 +2402,7 @@ out body 40;
       endDate,
       periods: property?.pricingPeriods || [],
       fallbackMinStay: minStay,
+      amicaleId: pricingAmicaleId,
     });
     if (!isSaleProperty && nights < minStayForSelection) {
       failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
@@ -2406,6 +2416,7 @@ out body 40;
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
+      amicaleId: pricingAmicaleId,
     });
     if (!isSaleProperty && !weekdayRuleCheck.ok) {
       const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
@@ -2429,6 +2440,7 @@ out body 40;
       extraMattresses,
       selectedPaidServiceIds,
       paymentMode,
+      pricingAmicaleId: pricingAmicaleId || undefined,
       amicaleSelectionId: paymentMode === "amicale" ? amicaleSelectionId : undefined,
       amicaleSelectionName: paymentMode === "amicale" ? (amicaleOptions.find((item) => item.id === amicaleSelectionId)?.name || "") : undefined,
       amicaleName: paymentMode === "amicale" ? amicaleFullName.trim() : undefined,

@@ -13,6 +13,7 @@ export interface SeasonalPricingPeriod {
   end: string;
   prix_nuitee: number;
   prix_semaine?: number | null;
+  amicale_id?: string | null;
 }
 
 export interface Property {

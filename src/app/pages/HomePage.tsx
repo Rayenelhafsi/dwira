@@ -181,7 +181,11 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   return false;
 };
 
-export default function HomePage() {
+type HomePageProps = {
+  forcedAmicaleId?: string | null;
+};
+
+export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const INITIAL_VISIBLE_PROPERTIES = 10;
   // Use shared context for properties
   const { properties, zones, modePriorities, loading } = useProperties();
@@ -228,6 +232,15 @@ export default function HomePage() {
   const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
   const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
   const [showAllProperties, setShowAllProperties] = useState(false);
+  const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
+  const applyAmicaleParam = (params: URLSearchParams) => {
+    if (activeAmicaleId) {
+      params.set("amicale", activeAmicaleId);
+    } else {
+      params.delete("amicale");
+    }
+    return params;
+  };
 
   const today = startOfDay(new Date());
   const orderedModeTabs = useMemo(
@@ -658,12 +671,12 @@ export default function HomePage() {
     }
     const defaultMode = orderedModeTabs.find((tab) => !tab.comingSoon)?.value || "location_saisonniere";
     setSelectedMode(defaultMode);
-    const next = new URLSearchParams(searchParams);
+    const next = applyAmicaleParam(new URLSearchParams(searchParams));
     if (next.get("mode") !== defaultMode) {
       next.set("mode", defaultMode);
       setSearchParams(next, { replace: true });
     }
-  }, [loading, orderedModeTabs, searchParams, setSearchParams]);
+  }, [activeAmicaleId, loading, orderedModeTabs, searchParams, setSearchParams]);
 
   // Calendar calculations
   const monthStart = startOfMonth(currentMonth);
@@ -755,7 +768,7 @@ export default function HomePage() {
   const handleSearch = () => {
     setHasSearched(true);
     
-    const params = new URLSearchParams();
+    const params = applyAmicaleParam(new URLSearchParams(searchParams));
     params.set("mode", selectedMode);
     if (location) params.set("location", location);
     if (selectedMainType) params.set("mainType", selectedMainType);
@@ -836,7 +849,7 @@ export default function HomePage() {
   const anyFilterOpen =
     showLocationDropdown || showCalendar || showCategoryDropdown || showSeasideDropdown || showComfortDropdown;
   const handleOpenAdvancedFilters = () => {
-    const params = new URLSearchParams();
+    const params = applyAmicaleParam(new URLSearchParams(searchParams));
     const logementsMode = selectedMode === "location_annuelle" ? "location_annuelle" : "location_saisonniere";
     params.set("mode", logementsMode);
     if (location) params.set("location", location);
@@ -930,7 +943,7 @@ export default function HomePage() {
                   if (tab.comingSoon) return;
                   setSelectedMode(tab.value);
                   setHasSearched(false);
-                  const next = new URLSearchParams(searchParams);
+                  const next = applyAmicaleParam(new URLSearchParams(searchParams));
                   next.set("mode", tab.value);
                   setSearchParams(next, { replace: true });
                 }}
@@ -1788,7 +1801,15 @@ export default function HomePage() {
               </p>
             </div>
             {!isSelectedModeComingSoon && (
-              <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group">
+              <Link
+                to={(() => {
+                  if (selectedMode === "vente") return "/ventes";
+                  const params = applyAmicaleParam(new URLSearchParams(searchParams));
+                  params.set("mode", selectedMode);
+                  return `/logements?${params.toString()}`;
+                })()}
+                className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group"
+              >
                 Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </Link>
             )}
@@ -1810,7 +1831,7 @@ export default function HomePage() {
                   key={property.id}
                   property={property}
                   searchParams={(() => {
-                    const params = new URLSearchParams();
+                    const params = applyAmicaleParam(new URLSearchParams(searchParams));
                     params.set("mode", selectedMode);
                     if (location) params.set("location", location);
                     if (selectedMainType) params.set("mainType", selectedMainType);

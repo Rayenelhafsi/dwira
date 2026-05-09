@@ -9,6 +9,7 @@ export type SeasonalPricingPeriod = {
   minimum_nuitees?: number | null;
   checkin_jour?: string | null;
   checkout_jour?: string | null;
+  amicale_id?: string | null;
 };
 
 type PricingContext = {
@@ -47,6 +48,30 @@ function normalizePrice(value: number | null | undefined): number {
   return numeric;
 }
 
+function normalizeAmicaleId(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim();
+  return normalized ? normalized : null;
+}
+
+function getPeriodAmicaleId(period?: SeasonalPricingPeriod | null): string | null {
+  if (!period || typeof period !== 'object') return null;
+  return normalizeAmicaleId((period as SeasonalPricingPeriod & { amicaleId?: string | null }).amicale_id
+    ?? (period as SeasonalPricingPeriod & { amicaleId?: string | null }).amicaleId
+    ?? null);
+}
+
+function getPeriodScopeRank(period: SeasonalPricingPeriod, amicaleId?: string | null): number {
+  const targetAmicaleId = normalizeAmicaleId(amicaleId);
+  const periodAmicaleId = getPeriodAmicaleId(period);
+  if (!targetAmicaleId) {
+    return periodAmicaleId ? 0 : 1;
+  }
+  if (!periodAmicaleId) {
+    return 1;
+  }
+  return periodAmicaleId === targetAmicaleId ? 2 : 0;
+}
+
 function toDateKey(value: Date): string {
   return format(value, 'yyyy-MM-dd');
 }
@@ -56,6 +81,7 @@ export function resolveCurrentPricing(params: {
   defaultNightlyPrice: number;
   defaultWeeklyPrice?: number | null;
   pricingPeriods?: SeasonalPricingPeriod[];
+  amicaleId?: string | null;
 }): CurrentPricingResult {
   const today = toDateAtMidnight(params.today || new Date());
   const defaultNightly = normalizePrice(params.defaultNightlyPrice);
@@ -76,9 +102,15 @@ export function resolveCurrentPricing(params: {
       const start = String(period?.start || '').slice(0, 10);
       const end = String(period?.end || '').slice(0, 10);
       const nightly = normalizePrice(period?.prix_nuitee);
-      return start && end && start <= end && nightly > 0 && todayKey >= start && todayKey <= end;
+      return start && end && start <= end && nightly > 0 && todayKey >= start && todayKey <= end && getPeriodScopeRank(period, params.amicaleId) > 0;
     })
-    .sort((a, b) => String(b.start || '').localeCompare(String(a.start || '')));
+    .sort((a, b) => {
+      const scopeDiff = getPeriodScopeRank(b, params.amicaleId) - getPeriodScopeRank(a, params.amicaleId);
+      if (scopeDiff !== 0) return scopeDiff;
+      const startDiff = String(b.start || '').localeCompare(String(a.start || ''));
+      if (startDiff !== 0) return startDiff;
+      return String(b.end || '').localeCompare(String(a.end || ''));
+    });
 
   const activePeriod = candidates[0] || null;
   if (!activePeriod) {
@@ -110,15 +142,22 @@ function segmentCost(nights: number, nightlyPrice: number, weeklyPrice: number):
   return nights * normalizedNightly;
 }
 
-function findPeriodForNight(periods: SeasonalPricingPeriod[], day: Date): SeasonalPricingPeriod | null {
+function findPeriodForNight(periods: SeasonalPricingPeriod[], day: Date, amicaleId?: string | null): SeasonalPricingPeriod | null {
   const target = format(day, 'yyyy-MM-dd');
-  for (const period of periods) {
-    const start = String(period.start || '').slice(0, 10);
-    const end = String(period.end || '').slice(0, 10);
-    if (!start || !end) continue;
-    if (target >= start && target <= end) return period;
-  }
-  return null;
+  const candidates = (Array.isArray(periods) ? periods : [])
+    .filter((period) => {
+      const start = String(period.start || '').slice(0, 10);
+      const end = String(period.end || '').slice(0, 10);
+      return start && end && target >= start && target <= end && getPeriodScopeRank(period, amicaleId) > 0;
+    })
+    .sort((a, b) => {
+      const scopeDiff = getPeriodScopeRank(b, amicaleId) - getPeriodScopeRank(a, amicaleId);
+      if (scopeDiff !== 0) return scopeDiff;
+      const startDiff = String(b.start || '').localeCompare(String(a.start || ''));
+      if (startDiff !== 0) return startDiff;
+      return String(b.end || '').localeCompare(String(a.end || ''));
+    });
+  return candidates[0] || null;
 }
 
 function normalizeMinNights(value: number | null | undefined): number | null {
@@ -145,10 +184,10 @@ function getWeekdayFr(date: Date): string {
   return 'samedi';
 }
 
-export function getPeriodMinStayForDate(periods: SeasonalPricingPeriod[], date: Date | string): number | null {
+export function getPeriodMinStayForDate(periods: SeasonalPricingPeriod[], date: Date | string, amicaleId?: string | null): number | null {
   const day = toDateAtMidnight(date);
   if (!day) return null;
-  const period = findPeriodForNight(Array.isArray(periods) ? periods : [], day);
+  const period = findPeriodForNight(Array.isArray(periods) ? periods : [], day, amicaleId);
   return normalizeMinNights(period?.minimum_nuitees);
 }
 
@@ -157,6 +196,7 @@ export function getReservationMinStayRequirement(params: {
   endDate: Date | string;
   periods?: SeasonalPricingPeriod[];
   fallbackMinStay?: number;
+  amicaleId?: string | null;
 }): number {
   const start = toDateAtMidnight(params.startDate);
   const end = toDateAtMidnight(params.endDate);
@@ -170,7 +210,7 @@ export function getReservationMinStayRequirement(params: {
   const periods = Array.isArray(params.periods) ? params.periods : [];
   for (let offset = 0; offset < nights; offset += 1) {
     const day = addDays(rangeStart, offset);
-    const period = findPeriodForNight(periods, day);
+    const period = findPeriodForNight(periods, day, params.amicaleId);
     const periodMin = normalizeMinNights(period?.minimum_nuitees);
     if (periodMin && periodMin > required) required = periodMin;
   }
@@ -181,6 +221,7 @@ export function getReservationWeekdayRule(params: {
   startDate: Date | string;
   endDate: Date | string;
   periods?: SeasonalPricingPeriod[];
+  amicaleId?: string | null;
 }): { requiredCheckinDay: string | null; requiredCheckoutDay: string | null } {
   const start = toDateAtMidnight(params.startDate);
   const end = toDateAtMidnight(params.endDate);
@@ -194,9 +235,9 @@ export function getReservationWeekdayRule(params: {
   // Rules are period-based:
   // - check-in day comes from the arrival period
   // - check-out day comes from the period of the last stayed night
-  const arrivalPeriod = findPeriodForNight(periods, rangeStart);
+  const arrivalPeriod = findPeriodForNight(periods, rangeStart, params.amicaleId);
   const lastNightDate = addDays(rangeEnd, -1);
-  const departurePeriod = findPeriodForNight(periods, lastNightDate);
+  const departurePeriod = findPeriodForNight(periods, lastNightDate, params.amicaleId);
   const requiredCheckinDay = normalizeWeekday(arrivalPeriod?.checkin_jour);
   const requiredCheckoutDay = normalizeWeekday(departurePeriod?.checkout_jour);
   return { requiredCheckinDay, requiredCheckoutDay };
@@ -206,6 +247,7 @@ export function validateReservationWeekdayRule(params: {
   startDate: Date | string;
   endDate: Date | string;
   periods?: SeasonalPricingPeriod[];
+  amicaleId?: string | null;
 }): { ok: boolean; requiredCheckinDay: string | null; requiredCheckoutDay: string | null; startDay: string | null; endDay: string | null } {
   const start = toDateAtMidnight(params.startDate);
   const end = toDateAtMidnight(params.endDate);
@@ -224,6 +266,7 @@ export function calculateAccommodationPricing(params: {
   defaultNightlyPrice: number;
   defaultWeeklyPrice?: number | null;
   pricingPeriods?: SeasonalPricingPeriod[];
+  amicaleId?: string | null;
 }): AccommodationPricingResult {
   const start = toDateAtMidnight(params.startDate);
   const end = toDateAtMidnight(params.endDate);
@@ -245,13 +288,14 @@ export function calculateAccommodationPricing(params: {
   const contexts: PricingContext[] = [];
   for (let offset = 0; offset < nights; offset += 1) {
     const day = addDays(rangeStart, offset);
-    const period = findPeriodForNight(sortedPeriods, day);
+    const period = findPeriodForNight(sortedPeriods, day, params.amicaleId);
     const nightlyPrice = normalizePrice(period?.prix_nuitee) || defaultNightly;
     const weeklyPrice = normalizePrice(period?.prix_semaine) || defaultWeekly || (nightlyPrice * 7);
+    const periodAmicaleId = getPeriodAmicaleId(period) || 'global';
     const key = period?.id
-      ? `period:${period.id}`
+      ? `period:${period.id}:${periodAmicaleId}`
       : period
-        ? `period:${String(period.start)}:${String(period.end)}:${nightlyPrice}:${weeklyPrice}`
+        ? `period:${String(period.start)}:${String(period.end)}:${periodAmicaleId}:${nightlyPrice}:${weeklyPrice}`
         : `base:${nightlyPrice}:${weeklyPrice}`;
     contexts.push({ key, nightlyPrice, weeklyPrice });
   }

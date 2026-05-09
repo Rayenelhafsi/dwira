@@ -90,11 +90,16 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(checkInRaw)) return undefined;
     return `${checkInRaw}T00:00:00`;
   }, [searchParams]);
+  const pricingAmicaleId = useMemo(() => {
+    const params = new URLSearchParams(String(searchParams || ""));
+    return String(params.get("amicale") || "").trim() || null;
+  }, [searchParams]);
   const currentPricing = resolveCurrentPricing({
     today: pricingAnchorDate,
     defaultNightlyPrice: Number(property.pricePerNight || 0),
     defaultWeeklyPrice: Number(property.pricePerWeek || 0),
     pricingPeriods: property.pricingPeriods || [],
+    amicaleId: pricingAmicaleId,
   });
   const syncedNightlyPrice = property.priceContext === 'sale'
     ? Number(property.pricePerNight || 0)
