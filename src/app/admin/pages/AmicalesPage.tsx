@@ -107,6 +107,8 @@ export default function AmicalesPage() {
   const [code, setCode] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [activeTab, setActiveTab] = useState<AdminAmicaleTab>("amicales");
+  const [activeAmicaleFilter, setActiveAmicaleFilter] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
 
@@ -149,6 +151,46 @@ export default function AmicalesPage() {
     const voucherCount = demandRows.filter((row) => row.status === "voucher_en_cours" && Boolean(row.voucher_url)).length;
     return { waitingAmicale, waitingAgency, voucherCount };
   }, [demandRows]);
+
+  const amicaleNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of amicales) {
+      map.set(String(item.id || "").trim(), String(item.name || "").trim());
+    }
+    return map;
+  }, [amicales]);
+
+  const amicaleTabs = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string; count: number }>();
+    for (const row of demandRows) {
+      const id = String(row.pricing_amicale_id || "").trim();
+      if (!id) continue;
+      const current = byId.get(id);
+      const name = String(row.amicale_name || amicaleNameById.get(id) || id).trim();
+      byId.set(id, { id, name, count: (current?.count || 0) + 1 });
+    }
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  }, [demandRows, amicaleNameById]);
+
+  const filteredDemands = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    return demandRows.filter((row) => {
+      const amicaleId = String(row.pricing_amicale_id || "").trim();
+      if (activeAmicaleFilter !== "all" && amicaleId !== activeAmicaleFilter) return false;
+      if (!needle) return true;
+      const bag = [
+        row.client_name,
+        row.amicale_matricule,
+        row.amicale_phone,
+        row.bien_reference,
+        row.bien_titre,
+        row.amicale_name,
+        row.pricing_amicale_id,
+        row.status,
+      ].map((v) => String(v || "").toLowerCase());
+      return bag.some((v) => v.includes(needle));
+    });
+  }, [activeAmicaleFilter, demandRows, searchTerm]);
 
   const handleAdd = async () => {
     if (!name.trim() || !code.trim()) {
@@ -370,11 +412,40 @@ export default function AmicalesPage() {
             </div>
           </div>
 
-          {demandRows.length === 0 ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveAmicaleFilter("all")}
+                className={`rounded-lg border px-3 py-2 text-xs font-semibold ${activeAmicaleFilter === "all" ? "border-emerald-600 bg-emerald-600 text-white" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
+              >
+                Toutes ({demandRows.length})
+              </button>
+              {amicaleTabs.map((tabItem) => (
+                <button
+                  key={tabItem.id}
+                  type="button"
+                  onClick={() => setActiveAmicaleFilter(tabItem.id)}
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold ${activeAmicaleFilter === tabItem.id ? "border-emerald-600 bg-emerald-600 text-white" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
+                >
+                  {tabItem.name} ({tabItem.count})
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Filtrer: matricule, nom/prenom, tel, reference logement, statut..."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+
+          {filteredDemands.length === 0 ? (
             <p className="text-sm text-gray-500">Aucune demande amicale pour le moment.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[1200px] w-full text-sm">
+              <table className="min-w-[1320px] w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-gray-600">
                     <th className="px-3 py-2 font-semibold">Amicale</th>
@@ -385,18 +456,20 @@ export default function AmicalesPage() {
                     <th className="px-3 py-2 font-semibold">Periode prise</th>
                     <th className="px-3 py-2 font-semibold">Total HT</th>
                     <th className="px-3 py-2 font-semibold">Statut</th>
+                    <th className="px-3 py-2 font-semibold">Validation agence</th>
                     <th className="px-3 py-2 font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {demandRows.map((demand) => {
+                  {filteredDemands.map((demand) => {
                     const consultPath = buildPropertyPath(demand);
                     const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
                     return (
                       <tr key={demand.id} className="border-b border-gray-100 align-top">
                         <td className="px-3 py-3 text-gray-900">
-                          <div className="font-medium">{String(demand.amicale_name || demand.pricing_amicale_id || "-")}</div>
-                          <div className="text-xs text-gray-500">{String(demand.pricing_amicale_id || "-")}</div>
+                          <div className="font-medium">
+                            {String(demand.amicale_name || amicaleNameById.get(String(demand.pricing_amicale_id || "").trim()) || "-")}
+                          </div>
                         </td>
                         <td className="px-3 py-3 text-gray-900">{String(demand.client_name || "-")}</td>
                         <td className="px-3 py-3 text-gray-700">{String(demand.amicale_matricule || "-")}</td>
@@ -432,34 +505,28 @@ export default function AmicalesPage() {
                             </a>
                           ) : null}
                         </td>
+                        <td className="px-3 py-3 text-gray-700">
+                          {demand.agency_validation_at ? formatDateTime(demand.agency_validation_at) : "-"}
+                        </td>
                         <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-2">
-                            {demand.status === "attente_validation_par_agence" ? (
-                              <>
-                                <button
-                                  type="button"
-                                  disabled={savingId === demand.id}
-                                  onClick={() => void handleDemandAction(demand, "voucher_en_cours")}
-                                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                                >
-                                  <CheckCircle2 className="h-4 w-4" />
-                                  Valider
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={savingId === demand.id}
-                                  onClick={() => void handleDemandAction(demand, "rejete_par_agence")}
-                                  className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
-                                >
-                                  Rejeter
-                                </button>
-                              </>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                                <Code2 className="h-3.5 w-3.5" />
-                                Statut verrouille
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              disabled={savingId === demand.id}
+                              onClick={() => void handleDemandAction(demand, "voucher_en_cours")}
+                              className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              Valider
+                            </button>
+                            <button
+                              type="button"
+                              disabled={savingId === demand.id}
+                              onClick={() => void handleDemandAction(demand, "rejete_par_agence")}
+                              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                            >
+                              Rejeter
+                            </button>
                           </div>
                         </td>
                       </tr>

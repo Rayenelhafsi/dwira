@@ -87,6 +87,7 @@ export default function AgentAmicaleDashboardPage() {
   const [demandRows, setDemandRows] = useState<AgentDemandRow[]>([]);
   const [voucherRows, setVoucherRows] = useState<AgentDemandRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
   const navigate = useNavigate();
 
   const loadData = useCallback(async () => {
@@ -189,6 +190,21 @@ export default function AgentAmicaleDashboardPage() {
   if (!session) return <Navigate to="/agent-amicale/login" replace />;
 
   const activeDemandRows = demandRows;
+  const filteredDemandRows = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return activeDemandRows;
+    return activeDemandRows.filter((row) => {
+      const bag = [
+        row.client_name,
+        row.amicale_matricule,
+        row.amicale_phone,
+        row.bien_reference,
+        row.bien_titre,
+        row.status,
+      ].map((v) => String(v || "").toLowerCase());
+      return bag.some((v) => v.includes(needle));
+    });
+  }, [activeDemandRows, searchTerm]);
 
   return (
     <div className="flex min-h-screen bg-gray-100">
@@ -299,7 +315,15 @@ export default function AgentAmicaleDashboardPage() {
           </div>
 
           {tab === "demandes" && (
-            <div className="mt-6 overflow-x-auto">
+            <div className="mt-6 space-y-3">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Filtrer: matricule, nom/prenom, tel, reference logement, statut..."
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+              <div className="overflow-x-auto">
               <table className="min-w-[1200px] w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-gray-600">
@@ -314,14 +338,14 @@ export default function AgentAmicaleDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {activeDemandRows.length === 0 ? (
+                  {filteredDemandRows.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-3 py-6 text-center text-gray-500">
                         Aucune demande amicale pour cette amicale.
                       </td>
                     </tr>
                   ) : (
-                    activeDemandRows.map((demand) => {
+                    filteredDemandRows.map((demand) => {
                       const consultPath = buildPropertyPath(demand);
                       const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
                       const canDecide = demand.status === "attente_validation_amicale";
@@ -351,7 +375,10 @@ export default function AgentAmicaleDashboardPage() {
                               {demandStatusLabel(demand.status)}
                             </span>
                             {demand.amicale_validation_at ? (
-                              <div className="mt-1 text-xs text-gray-500">Validée amicale le {formatDateTime(demand.amicale_validation_at)}</div>
+                              <div className="mt-1 text-xs text-gray-500">Validee amicale le {formatDateTime(demand.amicale_validation_at)}</div>
+                            ) : null}
+                            {demand.agency_validation_at ? (
+                              <div className="mt-1 text-xs text-gray-500">Validee agence le {formatDateTime(demand.agency_validation_at)}</div>
                             ) : null}
                             {voucherUrl ? (
                               <a
@@ -399,6 +426,7 @@ export default function AgentAmicaleDashboardPage() {
                   )}
                 </tbody>
               </table>
+            </div>
             </div>
           )}
 
