@@ -22,6 +22,7 @@ const statusLabels: Record<ReservationDemand["status"], string> = {
   en_attente_reponse_proprietaire: "En attente de reponse proprietaire",
   pas_de_reponse_proprietaire: "Pas de reponse proprietaire",
   reponse_positive_attente_confirmation_client: "Reponse positive, attente confirmation client",
+  client_procede_vers_paiement_en_cours: "Client procede vers le paiement en cours",
   reponse_negative_autre_proposition_meme_bien: "Reponse negative, autre proposition pour ce bien",
   reponse_negative_autre_proposition_bien_similaire: "Reponse negative, autre proposition pour un bien similaire",
   attente_validation_amicale: "Attente validation amicale",
@@ -209,6 +210,32 @@ export default function MyReservationsPage() {
 
   const updateReservationInState = (updated: ReservationDemand) => {
     setReservations((prev) => prev.map((row) => row.id === updated.id ? updated : row));
+  };
+
+  const proceedReservationToPaymentFlow = async (demand: ReservationDemand) => {
+    try {
+      let updatedDemand = demand;
+      if (demand.status === "reponse_positive_attente_confirmation_client") {
+        const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            status: "client_procede_vers_paiement_en_cours",
+            actor_type: "client",
+            actor_id: user?.id || user?.email || "client",
+            history_note: "Client procede vers le paiement",
+          }),
+        });
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, "Mise a jour du statut impossible"));
+        updatedDemand = await response.json();
+        updateReservationInState(updatedDemand);
+      }
+      setActivePositiveDemandId(null);
+      navigate(`/mes-reservations/${encodeURIComponent(updatedDemand.id)}/coordonnees`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Redirection vers paiement impossible");
+    }
   };
 
   const cancelReservation = async (demand: ReservationDemand) => {
@@ -473,8 +500,12 @@ export default function MyReservationsPage() {
         </div>
       </div>
 
-      <Dialog open={!!activePositiveDemand} onOpenChange={(open) => !open && setActivePositiveDemandId(null)}>
-        <DialogContent className="max-w-3xl border-2 border-emerald-200 p-8">
+      <Dialog open={!!activePositiveDemand} onOpenChange={(open) => { if (open) setActivePositiveDemandId(activePositiveDemand?.id || null); }}>
+        <DialogContent
+          className="max-w-3xl border-2 border-emerald-200 p-8 [&_[data-slot='dialog-close-button']]:hidden"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+          onInteractOutside={(event) => event.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="text-2xl text-emerald-700">Reponse positive recue</DialogTitle>
             <DialogDescription className="text-base text-gray-600">
@@ -495,12 +526,13 @@ export default function MyReservationsPage() {
               {activePositiveDemand && cancellingDemandId === activePositiveDemand.id ? "Annulation..." : "Annuler la reservation"}
             </button>
             {activePositiveDemand ? (
-              <Link
-                to={`/mes-reservations/${encodeURIComponent(activePositiveDemand.id)}/paiement`}
-                className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              <button
+                type="button"
+                onClick={() => void proceedReservationToPaymentFlow(activePositiveDemand)}
+                className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
               >
                 Proceder vers paiement
-              </Link>
+              </button>
             ) : null}
           </DialogFooter>
         </DialogContent>

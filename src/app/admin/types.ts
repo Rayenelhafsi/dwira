@@ -535,6 +535,7 @@ export type ReservationDemandStatus =
   | 'en_attente_reponse_proprietaire'
   | 'pas_de_reponse_proprietaire'
   | 'reponse_positive_attente_confirmation_client'
+  | 'client_procede_vers_paiement_en_cours'
   | 'reponse_negative_autre_proposition_meme_bien'
   | 'reponse_negative_autre_proposition_bien_similaire'
   | 'attente_validation_amicale'

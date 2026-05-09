@@ -48,10 +48,11 @@ function isPropertyDetailsPath(pathname: string) {
 
 const ACTIONABLE_STATUS_PRIORITY: Record<string, number> = {
   reponse_positive_attente_confirmation_client: 0,
-  attente_envoi_coordonnees_contrat: 1,
-  demande_recu_paiement: 2,
-  contrat_realise: 3,
-  demande_rejetee_admin: 4,
+  client_procede_vers_paiement_en_cours: 1,
+  attente_envoi_coordonnees_contrat: 2,
+  demande_recu_paiement: 3,
+  contrat_realise: 4,
+  demande_rejetee_admin: 5,
 };
 
 function hasCompletedClientProfile(user: {
@@ -223,6 +224,7 @@ export function Header() {
         const nextDemand = list
           .filter((item) =>
             item.status === "reponse_positive_attente_confirmation_client" ||
+            item.status === "client_procede_vers_paiement_en_cours" ||
             item.status === "attente_envoi_coordonnees_contrat" ||
             item.status === "demande_recu_paiement" ||
             item.status === "contrat_realise" ||
@@ -238,7 +240,7 @@ export function Header() {
           })[0] || null;
         if (!nextDemand) return;
         const shouldShowForCurrentUser =
-          profileCompleted || nextDemand.status === "reponse_positive_attente_confirmation_client";
+          profileCompleted || nextDemand.status === "reponse_positive_attente_confirmation_client" || nextDemand.status === "client_procede_vers_paiement_en_cours";
         if (!shouldShowForCurrentUser) {
           setActionableDemand(null);
           setShowActionableNotice(false);
@@ -267,16 +269,30 @@ export function Header() {
     if (!actionableDemand) return;
     try {
       if (actionableDemand.status === "reponse_positive_attente_confirmation_client") {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands/${encodeURIComponent(actionableDemand.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            status: "client_procede_vers_paiement_en_cours",
+            actor_type: "client",
+            actor_id: user?.id || user?.email || "client",
+            history_note: "Client procede vers le paiement",
+          }),
+        });
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, "Mise a jour du statut impossible"));
         setShowActionableNotice(false);
-        if (location.pathname.startsWith("/reservation/confirmation/")) {
-          return;
-        }
-        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/coordonnees`);
+        return;
+      }
+      if (actionableDemand.status === "client_procede_vers_paiement_en_cours") {
+        setShowActionableNotice(false);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/coordonnees`);
         return;
       }
       if (actionableDemand.status === "attente_envoi_coordonnees_contrat") {
         setShowActionableNotice(false);
-        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/paiement`);
+        navigate(`/mes-reservations/${encodeURIComponent(actionableDemand.id)}/coordonnees`);
         return;
       }
       if (actionableDemand.status === "demande_recu_paiement") {
@@ -581,13 +597,25 @@ export function Header() {
         </AnimatePresence>
       </div>
     </header>
-    <Dialog open={showActionableNotice && !isReservationConfirmationPage} onOpenChange={setShowActionableNotice}>
-      <DialogContent className="max-w-xl border-2 border-emerald-200 p-7">
+    <Dialog
+      open={showActionableNotice && !isReservationConfirmationPage}
+      onOpenChange={(open) => {
+        if (!open) return;
+        setShowActionableNotice(true);
+      }}
+    >
+      <DialogContent
+        className="max-w-xl border-2 border-emerald-200 p-7 [&_[data-slot='dialog-close-button']]:hidden"
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="text-2xl text-emerald-700">Action requise</DialogTitle>
           <DialogDescription className="text-base text-gray-600">
             {actionableDemand?.status === "reponse_positive_attente_confirmation_client"
               ? "Le proprietaire a accepte votre demande. Vous pouvez proceder directement au paiement."
+              : actionableDemand?.status === "client_procede_vers_paiement_en_cours"
+                ? "Vous avez deja lance la finalisation. Continuez pour terminer votre paiement."
               : actionableDemand?.status === "attente_envoi_coordonnees_contrat"
                 ? "Votre demande est prete. Vous pouvez proceder directement au paiement."
                 : actionableDemand?.status === "contrat_realise"
@@ -625,7 +653,7 @@ export function Header() {
               }
               void proceedToCoordinates();
             }}
-            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+            className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
           >
             {actionableDemand?.variable_services_quote_status === "devis_envoye" && Number(actionableDemand?.variable_services_quote_total || 0) > 0
               ? "Voir mon devis services"

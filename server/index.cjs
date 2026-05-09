@@ -4618,6 +4618,7 @@ const RESERVATION_DEMAND_STATUSES = new Set([
   'en_attente_reponse_proprietaire',
   'pas_de_reponse_proprietaire',
   'reponse_positive_attente_confirmation_client',
+  'client_procede_vers_paiement_en_cours',
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
   'attente_validation_amicale',
@@ -8630,6 +8631,7 @@ app.post('/api/contrats', requireAdminSession, async (req, res) => {
            'en_attente_reponse_proprietaire',
            'pas_de_reponse_proprietaire',
            'reponse_positive_attente_confirmation_client',
+           'client_procede_vers_paiement_en_cours',
            'reponse_negative_autre_proposition_meme_bien',
            'reponse_negative_autre_proposition_bien_similaire',
            'attente_envoi_coordonnees_contrat'
@@ -11060,7 +11062,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         });
         return res.status(403).json({ error: 'Transition de statut non autorisee pour ce client' });
       }
-      const allowedClientTargetStatuses = [String(current.status || ''), 'demande_annulee_client'];
+      const allowedClientTargetStatuses = [String(current.status || ''), 'demande_annulee_client', 'client_procede_vers_paiement_en_cours'];
       if (!allowedClientTargetStatuses.includes(nextStatus)) {
         void logSecurityEvent({
           req,
@@ -11245,7 +11247,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
       ? body.client_confirmation_clicked_at
       : (
           current.client_confirmation_clicked_at ||
-          (body.actor_type === 'client' && nextStatus === 'reponse_positive_attente_confirmation_client'
+          (body.actor_type === 'client' && nextStatus === 'client_procede_vers_paiement_en_cours'
             ? getAgencySqlDateTime()
             : null)
         );
@@ -11451,7 +11453,7 @@ app.post('/api/reservation-demands/:id/extract-identity', requireAuthenticatedSe
       });
       return res.status(403).json({ error: 'Acces refuse a cette demande' });
     }
-    if (!['attente_envoi_coordonnees_contrat', 'reponse_positive_attente_confirmation_client'].includes(String(current.status || ''))) {
+    if (!['attente_envoi_coordonnees_contrat', 'reponse_positive_attente_confirmation_client', 'client_procede_vers_paiement_en_cours'].includes(String(current.status || ''))) {
       return res.status(400).json({ error: 'Cette demande n est pas dans une etape de collecte des coordonnees' });
     }
 
@@ -11516,7 +11518,7 @@ app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSes
       return res.status(403).json({ error: 'Acces refuse a cette demande' });
     }
 
-    if (!['attente_envoi_coordonnees_contrat', 'reponse_positive_attente_confirmation_client'].includes(String(current.status || ''))) {
+    if (!['attente_envoi_coordonnees_contrat', 'reponse_positive_attente_confirmation_client', 'client_procede_vers_paiement_en_cours'].includes(String(current.status || ''))) {
       return res.status(400).json({ error: 'Cette demande n est pas dans une etape de collecte des coordonnees' });
     }
 

@@ -142,6 +142,26 @@ export default function ContractIdentityPage() {
   const servicesQuoteAmount = Number(demand?.variable_services_quote_total || 0);
   const hasServicesQuote = servicesQuoteAmount > 0;
   const globalAmount = reservationAmount + servicesQuoteAmount;
+  const isPaymentFlowLocked = String(demand?.status || "") === "client_procede_vers_paiement_en_cours";
+
+  useEffect(() => {
+    if (!isPaymentFlowLocked) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const onPopState = () => {
+      window.history.pushState(null, "", window.location.href);
+      toast.info("Finalisez votre demande avant de quitter cette page.");
+    };
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [isPaymentFlowLocked]);
 
   if (!user || user.role !== "user") {
     return <Navigate to="/login" replace />;
@@ -180,10 +200,16 @@ export default function ContractIdentityPage() {
     <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
       <div className="container mx-auto max-w-4xl px-4 md:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
-            <ArrowLeft className="h-4 w-4" />
-            Retour
-          </button>
+          {isPaymentFlowLocked ? (
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-amber-700">
+              Finalisation en cours
+            </span>
+          ) : (
+            <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
+              <ArrowLeft className="h-4 w-4" />
+              Retour
+            </button>
+          )}
           <button type="button" onClick={() => void fetchDemand()} className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
             <TimerReset className="h-4 w-4" />
             Actualiser
