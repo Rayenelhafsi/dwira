@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const multer = require('multer');
@@ -5174,12 +5174,38 @@ async function ensurePaidServicesSchema() {
   await ensurePaidServicesSchemaPromise;
 }
 
+let ensureBiensWorkflowSchemaSafePromise = null;
+async function ensureBiensWorkflowSchemaSafe() {
+  if (!ensureBiensWorkflowSchemaSafePromise) {
+    ensureBiensWorkflowSchemaSafePromise = (async () => {
+      let lastError = null;
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
+        try {
+          await ensureBiensWorkflowSchema();
+          return;
+        } catch (error) {
+          lastError = error;
+          const code = String(error?.code || '').trim();
+          const message = String(error?.message || '').toLowerCase();
+          const retryable = code === 'ER_LOCK_DEADLOCK' || message.includes('deadlock found');
+          if (!retryable || attempt === 4) throw error;
+          await delay(150 * attempt);
+        }
+      }
+      if (lastError) throw lastError;
+    })().finally(() => {
+      ensureBiensWorkflowSchemaSafePromise = null;
+    });
+  }
+  return ensureBiensWorkflowSchemaSafePromise;
+}
+
 let ensureSeasonalPricingSchemaPromise = null;
 
 async function ensureSeasonalPricingSchema() {
   if (!ensureSeasonalPricingSchemaPromise) {
     ensureSeasonalPricingSchemaPromise = (async () => {
-      await ensureBiensWorkflowSchema();
+      await ensureBiensWorkflowSchemaSafe();
       const indexExists = async (tableName, indexName) => {
         const [rows] = await pool.query(
           `SELECT COUNT(*) AS total
@@ -6479,8 +6505,8 @@ async function generateReservationClientContractHtml({
 
   const esc = (value) => escapeHtml(String(value || ''));
   const representativeValue = String(demand?.contract_representative || process.env.CONTRACT_REPRESENTATIVE || 'ghaith').trim().toLowerCase();
-  const checkboxChayma = representativeValue === 'chayma' ? '☑' : '';
-  const checkboxGhaith = representativeValue === 'ghaith' ? '☑' : '';
+  const checkboxChayma = representativeValue === 'chayma' ? '?' : '';
+  const checkboxGhaith = representativeValue === 'ghaith' ? '?' : '';
   const startDay = String(start.dd || '');
   const startMonth = String(start.mm || '');
   const endDay = String(end.dd || '');
@@ -7184,9 +7210,9 @@ async function runSchemaStepWithRetry(label, fn, maxAttempts = 5) {
 }
 
 async function initializeDatabaseSchema() {
-  console.log('🔄 Connecting to database...');
+  console.log('?? Connecting to database...');
   const conn = await pool.getConnection();
-  console.log('✅ Database connected successfully');
+  console.log('? Database connected successfully');
   const lockName = 'dwira_schema_init_lock_v1';
   let hasLock = false;
 
@@ -7225,7 +7251,7 @@ async function initializeDatabaseSchema() {
       await runSchemaStepWithRetry(label, step);
     }
 
-    console.log('✅ Auth schema and bien workflow ready');
+    console.log('? Auth schema and bien workflow ready');
   } finally {
     if (hasLock) {
       try {
@@ -7239,7 +7265,7 @@ async function initializeDatabaseSchema() {
 }
 
 initializeDatabaseSchema().catch((err) => {
-  console.error('❌ Database connection failed:', err.message);
+  console.error('? Database connection failed:', err.message);
 });
 // ============================================
 // BIENS (PROPERTIES) API
@@ -7248,7 +7274,7 @@ initializeDatabaseSchema().catch((err) => {
 // GET all biens
 app.get('/api/site-mode-priorities', async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const priorities = await readSiteModePriorities();
     res.json(priorities);
   } catch (error) {
@@ -7259,7 +7285,7 @@ app.get('/api/site-mode-priorities', async (req, res) => {
 
 app.put('/api/site-mode-priorities', requireAdminSession, async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const normalized = normalizeSiteModePriorities(req.body || {});
     if (normalized.error) {
       return res.status(400).json({ error: normalized.error });
@@ -9435,7 +9461,7 @@ app.post('/api/system/sync-feature-catalog-from-site', requireAdminSession, asyn
   let sitePool = null;
   let localConn = null;
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     if (isSiteDbSource) {
       return res.status(400).json({ error: 'Cette action doit etre lancee depuis une instance locale (DB_SOURCE=local).' });
     }
@@ -12545,7 +12571,7 @@ app.post('/api/payments/flouci/webhook', async (req, res) => {
 
 app.post('/api/caracteristique-onglets', requireAdminSession, async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
     const type = normalizeBienType(req.body.type_bien || req.body.type);
     const nom = String(req.body.nom || '').trim();
@@ -12584,7 +12610,7 @@ app.post('/api/caracteristique-onglets', requireAdminSession, async (req, res) =
 
 app.delete('/api/caracteristique-onglets/:id', requireAdminSession, async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ error: 'id requis' });
     const [rows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
@@ -12601,7 +12627,7 @@ app.delete('/api/caracteristique-onglets/:id', requireAdminSession, async (req, 
 
 app.put('/api/caracteristique-onglets/:id', requireAdminSession, async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const id = String(req.params.id || '').trim();
     const nom = String(req.body.nom || '').trim();
     const ordre = Number(req.body.ordre || 999);
@@ -12625,7 +12651,7 @@ app.put('/api/caracteristique-onglets/:id', requireAdminSession, async (req, res
 
 app.get('/api/caracteristiques', async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const normalizeFeatureNameForFilter = (value) => String(value || '')
       .toLowerCase()
       .normalize('NFD')
@@ -12717,7 +12743,7 @@ app.get('/api/caracteristiques', async (req, res) => {
 
 app.post('/api/caracteristiques', requireAdminSession, async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const { nom, mode_bien, mode, type_bien, type, type_caracteristique, choix, unite, icon_name, onglet_id, visibilite_client } = req.body;
     const normalizedMode = normalizeBienMode(mode_bien ?? mode);
     const normalizedType = normalizeBienType(type_bien ?? type);
@@ -13406,7 +13432,7 @@ async function ensureContractsSchema() {
 
 app.delete('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const featureId = String(req.params.id || '').trim();
     if (!featureId) {
       return res.status(400).json({ error: 'id requis' });
@@ -13466,7 +13492,7 @@ app.delete('/api/caracteristiques/:id', requireAdminSession, async (req, res) =>
 
 app.put('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
   try {
-    await ensureBiensWorkflowSchema();
+    await ensureBiensWorkflowSchemaSafe();
     const featureId = String(req.params.id || '').trim();
     const mode = normalizeBienMode(req.body.mode_bien || req.body.mode);
     const type = normalizeBienType(req.body.type_bien || req.body.type);
