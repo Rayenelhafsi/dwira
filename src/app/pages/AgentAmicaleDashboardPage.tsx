@@ -160,7 +160,9 @@ export default function AgentAmicaleDashboardPage() {
   }, [demandRows, voucherRows]);
 
   const comptabiliteRows = useMemo(() => {
-    return demandRows.map((row) => {
+    return demandRows
+      .filter((row) => !['rejete_par_agence', 'rejete_par_amicale', 'demande_rejetee_admin'].includes(String(row.status || '')))
+      .map((row) => {
       const ht = Number(row.total_amount || 0);
       const tva = Math.round((ht * 0.1) * 100) / 100;
       const ttc = Math.round((ht + tva) * 100) / 100;
