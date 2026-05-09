@@ -6582,8 +6582,14 @@ async function generateAmicaleVoucherHtml({
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(voucherPublicUrl)}`;
   const filePath = path.join(vouchersDir, fileName);
   const parseDayMonth = (value) => {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return {
+        day: String(value.getDate()).padStart(2, '0'),
+        month: String(value.getMonth() + 1).padStart(2, '0'),
+      };
+    }
     const raw = String(value || '').trim();
-    if (!raw) return { day: '--', month: '--' };
+    if (!raw || raw === 'undefined' || raw === 'null') return { day: '--', month: '--' };
     const isoLike = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (isoLike) return { day: isoLike[3], month: isoLike[2] };
     const frLike = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
@@ -6598,8 +6604,18 @@ async function generateAmicaleVoucherHtml({
     }
     return { day: '--', month: '--' };
   };
-  const startDM = parseDayMonth(demand.start_date);
-  const endDM = parseDayMonth(demand.end_date);
+  const startCandidate = demand.start_date || demand.startDate || demand.date_debut || demand.start || null;
+  const endCandidate = demand.end_date || demand.endDate || demand.date_fin || demand.end || null;
+  let startDM = parseDayMonth(startCandidate);
+  let endDM = parseDayMonth(endCandidate);
+  if ((startDM.day === '--' || startDM.month === '--' || endDM.day === '--' || endDM.month === '--')) {
+    const label = formatStayPeriodFr(startCandidate, endCandidate);
+    const m = String(label || '').match(/(\d{2})\/(\d{2})\/\d{4}.*?(\d{2})\/(\d{2})\/\d{4}/);
+    if (m) {
+      startDM = { day: m[1], month: m[2] };
+      endDM = { day: m[3], month: m[4] };
+    }
+  }
   const startDay = startDM.day;
   const startMonth = startDM.month;
   const endDay = endDM.day;
