@@ -891,7 +891,7 @@ export default function HomePage() {
             alt="Kelibia Beach"
             className="hidden md:block w-full h-full object-cover brightness-75"
             loading="eager"
-            fetchPriority="high"
+            fetchpriority="high"
             decoding="async"
           />
           <div className="md:hidden absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(16,185,129,0.35),transparent_45%),linear-gradient(160deg,#0f172a_0%,#134e4a_55%,#064e3b_100%)]" />

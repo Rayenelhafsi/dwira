@@ -96,6 +96,7 @@ export function Header() {
   const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
   const lastScrollYRef = useRef(0);
   const isHomePage = location.pathname === "/";
+  const isAgentAmicaleDashboard = location.pathname.startsWith("/agent-amicale/dashboard");
   const isReservationConfirmationPage = location.pathname.startsWith("/reservation/confirmation/");
   const isPropertyDetailsPage = isPropertyDetailsPath(location.pathname);
   const isPropertyTopHidden = isPropertyDetailsPage && !isOpen && !isScrolled;
@@ -334,6 +335,8 @@ export function Header() {
     { name: "Contact", path: "/contact" },
   ];
 
+  if (isAgentAmicaleDashboard) return null;
+
   return (
     <>
     <header
@@ -355,7 +358,7 @@ export function Header() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-8">
+        <nav className="hidden lg:flex items-center gap-5">
           {navLinks.map((link) => (
             <Link
               key={link.path}
@@ -419,17 +422,30 @@ export function Header() {
               </button>
             </div>
           ) : (
-            <Link
-              to="/login"
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                !useLightText
-                  ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
-                  : "text-white hover:bg-white/20 border border-white/30"
-              }`}
-            >
-              <User size={16} />
-              <span>Connexion</span>
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/agent-amicale/login"
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  !useLightText
+                    ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
+                    : "text-white hover:bg-white/20 border border-white/30"
+                }`}
+              >
+                <User size={16} />
+                <span>Login amicale</span>
+              </Link>
+              <Link
+                to="/login"
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  !useLightText
+                    ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
+                    : "text-white hover:bg-white/20 border border-white/30"
+                }`}
+              >
+                <User size={16} />
+                <span>Connexion</span>
+              </Link>
+            </div>
           )}
           
           <button
@@ -444,7 +460,7 @@ export function Header() {
 
         {/* Mobile Menu Button */}
         <button
-          className={`md:hidden z-[95] inline-flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm transition-colors ${
+          className={`lg:hidden z-[95] inline-flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm transition-colors ${
             useSolidHeader
               ? "border-gray-200 bg-white text-slate-900"
               : "border-white/30 bg-white/12 text-white backdrop-blur-md"
@@ -467,7 +483,7 @@ export function Header() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: "100%" }}
               transition={{ type: "tween", duration: 0.3 }}
-              className="fixed inset-0 left-0 top-0 z-[90] h-dvh w-screen overflow-hidden bg-white md:hidden"
+              className="fixed inset-0 left-0 top-0 z-[90] h-dvh w-screen overflow-hidden bg-white lg:hidden"
             >
               <div className="relative z-10 flex h-full flex-col overflow-y-auto px-6 pb-10 pt-28">
                 <div className="mb-8 flex flex-col items-center border-b border-gray-100 pb-6">
@@ -530,7 +546,14 @@ export function Header() {
                   </button>
                 </div>
               ) : (
-                <div className="mt-2 flex justify-center border-t border-gray-100 pt-6">
+                <div className="mt-2 flex flex-col items-center gap-3 border-t border-gray-100 pt-6">
+                  <Link
+                    to="/agent-amicale/login"
+                    className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
+                  >
+                    <User size={24} />
+                    <span>Login amicale</span>
+                  </Link>
                   <Link
                     to="/login"
                     className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"

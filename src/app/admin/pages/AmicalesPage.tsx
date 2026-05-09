@@ -1,27 +1,39 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { addAmicale, readAmicales, removeAmicale } from "../../utils/amicales";
+import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, type AmicaleItem } from "../../utils/amicales";
 
 export default function AmicalesPage() {
-  const [refreshIndex, setRefreshIndex] = useState(0);
+  const [amicales, setAmicales] = useState<AmicaleItem[]>([]);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
-  const amicales = useMemo(() => readAmicales(), [refreshIndex]);
+  const [logoUrl, setLogoUrl] = useState("");
 
-  const handleAdd = () => {
-    const result = addAmicale(name, code);
-    if (!result.ok) {
-      if (result.reason === "duplicate_name") {
-        toast.error("Une amicale avec ce nom existe deja.");
-        return;
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setAmicales(await fetchAmicalesAdmin());
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Chargement amicales impossible");
       }
+    };
+    void load();
+  }, []);
+
+  const handleAdd = async () => {
+    if (!name.trim() || !code.trim()) {
       toast.error("Nom et code obligatoires.");
       return;
     }
-    setName("");
-    setCode("");
-    setRefreshIndex((prev) => prev + 1);
-    toast.success("Amicale ajoutee.");
+    try {
+      await createAmicaleApi({ name, code, logoUrl: logoUrl || undefined });
+      setAmicales(await fetchAmicalesAdmin());
+      setName("");
+      setCode("");
+      setLogoUrl("");
+      toast.success("Amicale ajoutee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Ajout impossible");
+    }
   };
 
   return (
@@ -48,6 +60,24 @@ export default function AmicalesPage() {
             placeholder="Code amicale"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
           />
+          <div className="md:col-span-2 rounded-lg border border-gray-200 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase text-gray-500">Logo amicale (upload)</p>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => setLogoUrl(String(reader.result || ""));
+                reader.readAsDataURL(file);
+              }}
+              className="w-full text-sm"
+            />
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo amicale" className="mt-3 h-16 w-16 rounded-lg border border-gray-200 object-cover" />
+            ) : null}
+          </div>
         </div>
         <button
           type="button"
@@ -68,6 +98,7 @@ export default function AmicalesPage() {
               <thead>
                 <tr className="border-b border-gray-200 text-left text-gray-600">
                   <th className="px-3 py-2 font-semibold">Nom</th>
+                  <th className="px-3 py-2 font-semibold">Logo</th>
                   <th className="px-3 py-2 font-semibold">Code</th>
                   <th className="px-3 py-2 font-semibold">Action</th>
                 </tr>
@@ -76,15 +107,26 @@ export default function AmicalesPage() {
                 {amicales.map((item) => (
                   <tr key={item.id} className="border-b border-gray-100">
                     <td className="px-3 py-2 text-gray-900">{item.name}</td>
+                    <td className="px-3 py-2">
+                      {item.logoUrl ? (
+                        <img src={item.logoUrl} alt={item.name} className="h-10 w-10 rounded-lg border border-gray-200 object-cover" />
+                      ) : (
+                        <span className="text-xs text-gray-400">Sans logo</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-gray-700">{item.code}</td>
                     <td className="px-3 py-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          removeAmicale(item.id);
-                          setRefreshIndex((prev) => prev + 1);
-                          toast.success("Amicale supprimee.");
-                        }}
+                        onClick={() => void (async () => {
+                          try {
+                            await deleteAmicaleApi(item.id);
+                            setAmicales(await fetchAmicalesAdmin());
+                            toast.success("Amicale supprimee.");
+                          } catch (error) {
+                            toast.error(error instanceof Error ? error.message : "Suppression impossible");
+                          }
+                        })()}
                         className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
                       >
                         Supprimer

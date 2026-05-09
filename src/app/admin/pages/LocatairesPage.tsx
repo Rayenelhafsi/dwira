@@ -3,12 +3,13 @@ import { CalendarDays, Edit2, FileText, Mail, Phone, Plus, QrCode, Search, Trash
 import { Bien, ClienteleProfile, ClienteleTask, Contrat, Locataire, Maintenance, Paiement, Proprietaire, Utilisateur } from '../types';
 import { toast } from 'sonner';
 import { fetchClientInteractions } from '../../utils/clientInteractions';
+import { fetchAmicalesAdmin } from '../../utils/amicales';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const DOSSIERS_STORAGE_KEY = 'dwira_clienteles_dossiers_v1';
 
-type ClientCategory = 'locataires' | 'acheteurs' | 'proprietaires';
-type ClientRole = 'Locataire' | 'Acheteur' | 'Proprietaire';
+type ClientCategory = 'locataires' | 'acheteurs' | 'proprietaires' | 'agents_amicale';
+type ClientRole = 'Locataire' | 'Acheteur' | 'Proprietaire' | 'Agent amicale';
 
 type ContratApi = Contrat & {
   bien_titre?: string;
@@ -23,7 +24,7 @@ type ClientRecord = {
   origins: Array<'utilisateurs' | 'locataires' | 'proprietaires'>;
   linkedUserId?: string | null;
   linkedRecordIds: string[];
-  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | null;
   cinImageUrl?: string;
   nom: string;
   prenom: string;
@@ -72,6 +73,10 @@ type ClientDossier = {
   extraPhones?: string[];
   extraEmails?: string[];
   interactions: ClientInteraction[];
+  amicaleId?: string;
+  amicaleName?: string;
+  username?: string;
+  password?: string;
 };
 
 type DossierStore = Record<string, ClientDossier>;
@@ -84,6 +89,9 @@ type ClientFormState = {
   cin: string;
   extraPhones: string;
   extraEmails: string;
+  amicaleId: string;
+  username: string;
+  password: string;
 };
 
 const splitFullName = (fullName?: string | null) => {
@@ -326,6 +334,8 @@ export default function ClientelesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
+  const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [agentAmicaleProfiles, setAgentAmicaleProfiles] = useState<Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }>>({});
   const [isCinViewerOpen, setIsCinViewerOpen] = useState(false);
   const [qrPreviewOwner, setQrPreviewOwner] = useState<{ id: string; name: string } | null>(null);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -342,6 +352,9 @@ export default function ClientelesPage() {
     cin: '',
     extraPhones: '',
     extraEmails: '',
+    amicaleId: '',
+    username: '',
+    password: '',
   });
   const [interactionFilters, setInteractionFilters] = useState<{
     type: '' | ClientInteractionType;
@@ -367,6 +380,10 @@ export default function ClientelesPage() {
             extraPhones: Array.isArray(safeDossier.extraPhones) ? safeDossier.extraPhones.map((item) => String(item || '').trim()).filter(Boolean) : [],
             extraEmails: Array.isArray(safeDossier.extraEmails) ? safeDossier.extraEmails.map((item) => String(item || '').trim()).filter(Boolean) : [],
             interactions: Array.isArray(safeDossier.interactions) ? safeDossier.interactions.filter(isClientInteraction) : [],
+            amicaleId: typeof safeDossier.amicaleId === 'string' ? safeDossier.amicaleId : undefined,
+            amicaleName: typeof safeDossier.amicaleName === 'string' ? safeDossier.amicaleName : undefined,
+            username: typeof safeDossier.username === 'string' ? safeDossier.username : undefined,
+            password: typeof safeDossier.password === 'string' ? safeDossier.password : undefined,
           } satisfies ClientDossier];
         })
       );
@@ -408,7 +425,7 @@ export default function ClientelesPage() {
     const fetchData = async () => {
       setIsLoading(true);
       const authFetchOptions: RequestInit = { credentials: 'include' };
-      const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult, paiementsResult, maintenancesResult, profilesResult] = await Promise.allSettled([
+      const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult, paiementsResult, maintenancesResult, profilesResult, amicalesResult, agentsAmicaleResult] = await Promise.allSettled([
         fetch(`${API_URL}/locataires`, authFetchOptions),
         fetch(`${API_URL}/proprietaires`, authFetchOptions),
         fetch(`${API_URL}/utilisateurs`, authFetchOptions),
@@ -417,6 +434,8 @@ export default function ClientelesPage() {
         fetch(`${API_URL}/paiements`, authFetchOptions),
         fetch(`${API_URL}/maintenance`, authFetchOptions),
         fetch(`${API_URL}/clienteles/profiles`, authFetchOptions),
+        fetchAmicalesAdmin(),
+        fetch(`${API_URL}/agents-amicale`, authFetchOptions),
       ]);
 
       if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {
@@ -475,6 +494,33 @@ export default function ClientelesPage() {
         setProfiles([]);
       }
 
+      if (amicalesResult.status === 'fulfilled') {
+        const rows = amicalesResult.value;
+        setAmicaleOptions(Array.isArray(rows) ? rows.map((item) => ({ id: item.id, name: item.name })) : []);
+      } else {
+        setAmicaleOptions([]);
+      }
+
+      if (agentsAmicaleResult.status === 'fulfilled' && agentsAmicaleResult.value.ok) {
+        const rows = await agentsAmicaleResult.value.json();
+        const nextMap: Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }> = {};
+        if (Array.isArray(rows)) {
+          rows.forEach((row) => {
+            const userId = String(row?.user_id || '').trim();
+            if (!userId) return;
+            nextMap[userId] = {
+              amicaleId: String(row?.amicale_id || '').trim(),
+              amicaleName: String(row?.amicale_name || '').trim(),
+              username: String(row?.username || '').trim(),
+              password: String(row?.password_text || '').trim(),
+            };
+          });
+        }
+        setAgentAmicaleProfiles(nextMap);
+      } else {
+        setAgentAmicaleProfiles({});
+      }
+
       setIsLoading(false);
     };
 
@@ -496,6 +542,7 @@ export default function ClientelesPage() {
     if (value === 'proprietaire') return 'Proprietaire';
     if (value === 'locataire') return 'Locataire';
     if (value === 'acheteur') return 'Acheteur';
+    if (value === 'agent_amicale') return 'Agent amicale';
     return 'Non precise';
   };
 
@@ -511,6 +558,7 @@ export default function ClientelesPage() {
       locataires: baseUsers.filter((utilisateur) => utilisateur.client_type === 'locataire'),
       acheteurs: baseUsers.filter((utilisateur) => utilisateur.client_type === 'acheteur'),
       proprietaires: baseUsers.filter((utilisateur) => utilisateur.client_type === 'proprietaire'),
+      agentsAmicale: baseUsers.filter((utilisateur) => utilisateur.client_type === 'agent_amicale'),
       passkeyUnknown: baseUsers.filter((utilisateur) => utilisateur.auth_provider === 'passkey' && !utilisateur.client_type),
     };
   }, [utilisateurs]);
@@ -656,11 +704,36 @@ export default function ClientelesPage() {
       });
   }, [utilisateursClientsByType.acheteurs, utilisateursClientsByType.passkeyUnknown]);
 
+  const agentAmicaleClients = useMemo<ClientRecord[]>(() => {
+    return utilisateursClientsByType.agentsAmicale
+      .map((utilisateur) => {
+        const { prenom, nom } = splitFullName(utilisateur.nom);
+        return {
+          id: utilisateur.id,
+          category: 'agents_amicale',
+          role: 'Agent amicale',
+          sourceTable: 'utilisateurs',
+          origins: ['utilisateurs'],
+          linkedUserId: utilisateur.id,
+          linkedRecordIds: [utilisateur.id],
+          clientType: 'agent_amicale' as const,
+          cinImageUrl: utilisateur.cin_image_url || undefined,
+          nom,
+          prenom,
+          telephone: utilisateur.telephone || '',
+          email: utilisateur.email,
+          cin: utilisateur.cin || '',
+          createdAt: utilisateur.created_at,
+        };
+      });
+  }, [utilisateursClientsByType.agentsAmicale]);
+
   const clients = useMemo<Record<ClientCategory, ClientRecord[]>>(() => ({
     locataires: locataireClients,
     acheteurs: acheteurClients,
     proprietaires: proprietaireClients,
-  }), [acheteurClients, locataireClients, proprietaireClients]);
+    agents_amicale: agentAmicaleClients,
+  }), [acheteurClients, agentAmicaleClients, locataireClients, proprietaireClients]);
 
   const filteredClients = useMemo(() => {
     return clients[activeCategory].filter((client) =>
@@ -1022,6 +1095,9 @@ export default function ClientelesPage() {
       cin: '',
       extraPhones: '',
       extraEmails: '',
+      amicaleId: '',
+      username: '',
+      password: '',
     });
     setEditingClientId(null);
     setEditingClientSourceTable(null);
@@ -1036,6 +1112,7 @@ export default function ClientelesPage() {
 
   const openEditClientModal = (client: ClientRecord) => {
     const dossier = dossiers[client.id] || { interactions: [] };
+    const agentProfile = agentAmicaleProfiles[client.id];
     setClientModalMode('edit');
     setEditingClientId(client.id);
     setEditingClientSourceTable(client.sourceTable);
@@ -1049,6 +1126,9 @@ export default function ClientelesPage() {
       cin: client.cin,
       extraPhones: (dossier.extraPhones || []).join('\n'),
       extraEmails: (dossier.extraEmails || []).join('\n'),
+      amicaleId: String(agentProfile?.amicaleId || dossier.amicaleId || ''),
+      username: String(agentProfile?.username || dossier.username || client.email || ''),
+      password: String(agentProfile?.password || dossier.password || ''),
     });
     setIsClientModalOpen(true);
   };
@@ -1128,6 +1208,20 @@ export default function ClientelesPage() {
       toast.error('Nom, prenom, telephone et CIN sont requis');
       return;
     }
+    if (clientForm.category === 'agents_amicale') {
+      if (!clientForm.amicaleId.trim()) {
+        toast.error('Selectionnez une amicale');
+        return;
+      }
+      if (!clientForm.username.trim()) {
+        toast.error('Champ utilisateur requis');
+        return;
+      }
+      if (!clientForm.password.trim()) {
+        toast.error('Champ motdepasse requis');
+        return;
+      }
+    }
 
     const extraPhones = parseMultivalueText(clientForm.extraPhones);
     const extraEmails = parseMultivalueText(clientForm.extraEmails);
@@ -1141,13 +1235,14 @@ export default function ClientelesPage() {
     };
 
     try {
-      if (clientForm.category === 'acheteurs') {
+      if (clientForm.category === 'acheteurs' || clientForm.category === 'agents_amicale') {
+        const isAgentAmicale = clientForm.category === 'agents_amicale';
         const utilisateurPayload = {
           nom: `${clientForm.prenom.trim()} ${clientForm.nom.trim()}`.trim(),
-          email: clientForm.email.trim(),
+          email: (isAgentAmicale ? clientForm.username : clientForm.email).trim(),
           role: 'user',
           telephone: clientForm.telephone.trim(),
-          client_type: 'acheteur',
+          client_type: isAgentAmicale ? 'agent_amicale' : 'acheteur',
           cin: clientForm.cin.trim() || null,
           cin_image_url: (editingClientId ? dossiers[editingClientId]?.cinImageUrl : '') || null,
         };
@@ -1160,8 +1255,54 @@ export default function ClientelesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(utilisateurPayload),
         });
-        if (!response.ok) throw new Error('Acheteur request failed');
-        const savedBuyer = await response.json();
+        let savedBuyer: any = null;
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          if (isAgentAmicale && response.status === 409 && data?.existingId) {
+            const recoverResponse = await fetch(`${API_URL}/utilisateurs/${encodeURIComponent(String(data.existingId))}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify(utilisateurPayload),
+            });
+            if (!recoverResponse.ok) {
+              const recoverData = await recoverResponse.json().catch(() => null);
+              throw new Error(String(recoverData?.error || 'Mise a jour utilisateur existant impossible'));
+            }
+            savedBuyer = await recoverResponse.json();
+          } else {
+            throw new Error(String(data?.error || 'Acheteur request failed'));
+          }
+        } else {
+          savedBuyer = await response.json();
+        }
+        if (isAgentAmicale) {
+          const profileResponse = await fetch(`${API_URL}/agents-amicale`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              user_id: savedBuyer.id,
+              amicale_id: clientForm.amicaleId.trim(),
+              username: clientForm.username.trim(),
+              password: clientForm.password.trim(),
+            }),
+          });
+          if (!profileResponse.ok) {
+            const data = await profileResponse.json().catch(() => null);
+            throw new Error(String(data?.error || 'Agent amicale profile request failed'));
+          }
+          const savedProfile = await profileResponse.json().catch(() => null);
+          setAgentAmicaleProfiles((prev) => ({
+            ...prev,
+            [savedBuyer.id]: {
+              amicaleId: String(savedProfile?.amicale_id || clientForm.amicaleId.trim()),
+              amicaleName: String(savedProfile?.amicale_name || amicaleOptions.find((item) => item.id === clientForm.amicaleId)?.name || ''),
+              username: String(savedProfile?.username || clientForm.username.trim()),
+              password: String(savedProfile?.password_text || clientForm.password.trim()),
+            },
+          }));
+        }
         setUtilisateurs((prev) => {
           if (clientModalMode === 'edit') {
             return prev.map((item) => item.id === savedBuyer.id ? savedBuyer : item);
@@ -1186,9 +1327,17 @@ export default function ClientelesPage() {
             interactions: prev[savedBuyer.id]?.interactions || [],
             extraPhones,
             extraEmails,
+            amicaleId: isAgentAmicale ? clientForm.amicaleId : prev[savedBuyer.id]?.amicaleId,
+            amicaleName: isAgentAmicale ? (amicaleOptions.find((item) => item.id === clientForm.amicaleId)?.name || '') : prev[savedBuyer.id]?.amicaleName,
+            username: isAgentAmicale ? clientForm.username.trim() : prev[savedBuyer.id]?.username,
+            password: isAgentAmicale ? clientForm.password : prev[savedBuyer.id]?.password,
           },
         }));
-        toast.success(clientModalMode === 'edit' ? 'Acheteur modifie' : 'Acheteur ajoute');
+        toast.success(
+          clientModalMode === 'edit'
+            ? (isAgentAmicale ? 'Agent amicale modifie' : 'Acheteur modifie')
+            : (isAgentAmicale ? 'Agent amicale ajoute' : 'Acheteur ajoute')
+        );
         closeClientModal();
         return;
       }
@@ -1445,7 +1594,7 @@ export default function ClientelesPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Clienteles</h1>
-          <p className="text-sm text-gray-500">Locataires, acheteurs et proprietaires avec dossier client, CIN et historique.</p>
+          <p className="text-sm text-gray-500">Locataires, acheteurs, proprietaires et agents amicale avec dossier client, CIN et historique.</p>
         </div>
         <button
           type="button"
@@ -1463,6 +1612,7 @@ export default function ClientelesPage() {
             <CategoryButton active={activeCategory === 'locataires'} label={`Locataires (${locataireClients.length})`} onClick={() => setActiveCategory('locataires')} />
             <CategoryButton active={activeCategory === 'acheteurs'} label={`Acheteurs (${acheteurClients.length})`} onClick={() => setActiveCategory('acheteurs')} />
             <CategoryButton active={activeCategory === 'proprietaires'} label={`Proprietaires (${proprietaireClients.length})`} onClick={() => setActiveCategory('proprietaires')} />
+            <CategoryButton active={activeCategory === 'agents_amicale'} label={`Agents amicale (${agentAmicaleClients.length})`} onClick={() => setActiveCategory('agents_amicale')} />
           </div>
           <div className="relative w-full lg:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -1629,6 +1779,9 @@ export default function ClientelesPage() {
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Nom" value={selectedClient.nom || '-'} />
                   <InfoRow icon={<UserSquare2 className="h-4 w-4" />} label="Prenom" value={selectedClient.prenom || '-'} />
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Type client" value={formatClientType(selectedClient.clientType)} />
+                  {selectedClient.category === 'agents_amicale' && (
+                    <InfoRow icon={<Users className="h-4 w-4" />} label="Amicale" value={agentAmicaleProfiles[selectedClient.id]?.amicaleName || selectedClientDossier.amicaleName || '-'} />
+                  )}
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Statut global" value={businessInsights ? formatGlobalStatus(businessInsights.globalStatus) : 'Prospect'} />
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Score" value={businessInsights ? scoreStars(businessInsights.score) : '-'} />
                   <InfoListRow icon={<FileText className="h-4 w-4" />} label="Origines" values={selectedClient.origins.map(formatOriginLabel)} emptyLabel="Aucune origine" />
@@ -2122,6 +2275,7 @@ export default function ClientelesPage() {
                   <option value="locataires">Locataires</option>
                   <option value="acheteurs">Acheteurs</option>
                   <option value="proprietaires">Proprietaires</option>
+                  <option value="agents_amicale">Agents amicale</option>
                 </select>
               </FormField>
               <FormField label="Nom *">
@@ -2136,6 +2290,28 @@ export default function ClientelesPage() {
               <FormField label="Email">
                 <input value={clientForm.email} onChange={(e) => setClientForm((prev) => ({ ...prev, email: e.target.value }))} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
               </FormField>
+              {clientForm.category === 'agents_amicale' && (
+                <>
+                  <FormField label="Amicale *">
+                    <select
+                      value={clientForm.amicaleId}
+                      onChange={(e) => setClientForm((prev) => ({ ...prev, amicaleId: e.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+                    >
+                      <option value="">Selectionner amicale</option>
+                      {amicaleOptions.map((item) => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Utilisateur *">
+                    <input value={clientForm.username} onChange={(e) => setClientForm((prev) => ({ ...prev, username: e.target.value }))} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                  </FormField>
+                  <FormField label="Motdepasse *">
+                    <input type="text" value={clientForm.password} onChange={(e) => setClientForm((prev) => ({ ...prev, password: e.target.value }))} className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                  </FormField>
+                </>
+              )}
               <FormField label="Autres telephones">
                 <textarea
                   value={clientForm.extraPhones}

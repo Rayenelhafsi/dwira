@@ -34,7 +34,7 @@ import {
   readPendingReservationDraft,
   type PendingReservationDraft,
 } from "../utils/pendingReservation";
-import { readAmicales } from "../utils/amicales";
+import { fetchAmicalesPublic } from "../utils/amicales";
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const GALLERY_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e5e7eb'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1200' height='675' fill='url(%23g)'/%3E%3C/svg%3E";
@@ -754,7 +754,7 @@ export default function PropertyDetailsPage() {
   const [amicaleMatricule, setAmicaleMatricule] = useState("");
   const [amicalePhone, setAmicalePhone] = useState("");
   const [amicaleCode, setAmicaleCode] = useState("");
-  const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string }>>([]);
+  const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string }>>([]);
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
   const [showAmenitiesDialog, setShowAmenitiesDialog] = useState(false);
   const [showPaidServicesDialog, setShowPaidServicesDialog] = useState(false);
@@ -2161,7 +2161,15 @@ out body 40;
   }, []);
 
   useEffect(() => {
-    setAmicaleOptions(readAmicales().map((item) => ({ id: item.id, name: item.name, code: item.code })));
+    const loadAmicales = async () => {
+      try {
+        const rows = await fetchAmicalesPublic();
+        setAmicaleOptions(rows.map((item) => ({ id: item.id, name: item.name, code: item.code, logoUrl: item.logoUrl })));
+      } catch {
+        setAmicaleOptions([]);
+      }
+    };
+    void loadAmicales();
   }, []);
 
   useEffect(() => {
@@ -4020,16 +4028,32 @@ out body 40;
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
                     <p className="text-xs font-bold uppercase text-emerald-700 mb-2">Formulaire Amicale</p>
                     <div className="grid gap-2">
-                      <select
-                        value={amicaleSelectionId}
-                        onChange={(event) => setAmicaleSelectionId(event.target.value)}
-                        className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <option value="">Selectionner amicale</option>
-                        {amicaleOptions.map((item) => (
-                          <option key={item.id} value={item.id}>{item.name}</option>
-                        ))}
-                      </select>
+                      <div>
+                        <p className="mb-2 text-xs font-semibold text-emerald-800">Selectionner amicale</p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {amicaleOptions.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setAmicaleSelectionId(item.id)}
+                              className={`relative h-16 overflow-hidden rounded-lg border text-left transition ${amicaleSelectionId === item.id ? 'border-emerald-600 ring-2 ring-emerald-300' : 'border-emerald-200 hover:border-emerald-400'}`}
+                            >
+                              {item.logoUrl ? (
+                                <div
+                                  className="absolute inset-0 bg-no-repeat"
+                                  style={{ backgroundImage: `url(${item.logoUrl})`, backgroundSize: '100% 100%' }}
+                                />
+                              ) : (
+                                <div className="absolute inset-0 bg-gradient-to-r from-emerald-100 to-white" />
+                              )}
+                              <div className="absolute inset-0 bg-black/25" />
+                              <div className="relative z-10 px-3 py-2 text-sm font-semibold text-white">
+                                {item.name}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <input
                         type="text"
                         value={amicaleFullName}

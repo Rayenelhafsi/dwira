@@ -54,6 +54,7 @@ const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_OCR_MODEL = String(process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini').trim();
 const CLOUDINARY_UPLOAD_SOURCE_BASE_URL = String(process.env.CLOUDINARY_UPLOAD_SOURCE_BASE_URL || 'https://www.dwiraimmobilier.com').trim().replace(/\/+$/, '');
 const SESSION_COOKIE_NAME = 'dwira_session';
+const AGENT_SESSION_COOKIE_NAME = 'dwira_agent_session';
 const DEVICE_COOKIE_NAME = 'dwira_device';
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEVICE_COOKIE_DURATION_MS = 180 * 24 * 60 * 60 * 1000;
@@ -691,6 +692,77 @@ function clearAuthSessionCookie(req, res) {
     secure: isSecureRequest(req),
     path: '/',
     expires: new Date(0),
+    maxAge: 0,
+  });
+}
+
+function createSignedAgentSessionToken(sessionPayload) {
+  const now = Date.now();
+  const payload = {
+    v: 1,
+    iat: now,
+    exp: now + SESSION_DURATION_MS,
+    role: 'agent_amicale',
+    userId: String(sessionPayload?.userId || '').trim(),
+    username: String(sessionPayload?.username || '').trim(),
+    displayName: String(sessionPayload?.displayName || '').trim(),
+    amicaleId: String(sessionPayload?.amicaleId || '').trim(),
+    amicaleName: String(sessionPayload?.amicaleName || '').trim(),
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const signature = signSessionPayload(encodedPayload);
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifySignedAgentSessionToken(token) {
+  const raw = String(token || '').trim();
+  if (!raw || !raw.includes('.')) return null;
+  const [encodedPayload, signature] = raw.split('.');
+  if (!encodedPayload || !signature) return null;
+  const expectedSignature = signSessionPayload(encodedPayload);
+  try {
+    const providedBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    if (providedBuffer.length !== expectedBuffer.length) return null;
+    if (!crypto.timingSafeEqual(providedBuffer, expectedBuffer)) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    if (!payload || typeof payload !== 'object') return null;
+    if (Number(payload.exp || 0) <= Date.now()) return null;
+    if (String(payload.role || '') !== 'agent_amicale') return null;
+    if (!payload.userId || !payload.username || !payload.amicaleId) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function getAgentSessionFromRequest(req) {
+  const cookies = parseCookies(req.headers?.cookie);
+  const token = cookies[AGENT_SESSION_COOKIE_NAME];
+  return verifySignedAgentSessionToken(token);
+}
+
+function setAgentSessionCookie(req, res, sessionPayload) {
+  const token = createSignedAgentSessionToken(sessionPayload);
+  res.cookie(AGENT_SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
+    maxAge: SESSION_DURATION_MS,
+  });
+}
+
+function clearAgentSessionCookie(req, res) {
+  res.cookie(AGENT_SESSION_COOKIE_NAME, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
     maxAge: 0,
   });
 }
@@ -2885,15 +2957,42 @@ async function ensureAuthSchema() {
 
   if (!(await columnExists('utilisateurs', 'client_type'))) {
     await pool.query(
-      "ALTER TABLE utilisateurs ADD COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur') NULL"
+      "ALTER TABLE utilisateurs ADD COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur', 'agent_amicale') NULL"
     );
   }
+  await pool.query(
+    "ALTER TABLE utilisateurs MODIFY COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur', 'agent_amicale') NULL"
+  );
 
   if (!(await indexExists('utilisateurs', 'uq_provider_user'))) {
     await pool.query(
       'CREATE UNIQUE INDEX uq_provider_user ON utilisateurs (auth_provider, provider_user_id)'
     );
   }
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS amicales (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL UNIQUE,
+      code VARCHAR(255) NOT NULL,
+      logo_url LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )`
+  );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS agent_amicale_profiles (
+      user_id VARCHAR(64) PRIMARY KEY,
+      amicale_id VARCHAR(64) NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      password_text VARCHAR(255) NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      INDEX idx_agent_amicale_amicale (amicale_id),
+      INDEX idx_agent_amicale_username (username)
+    )`
+  );
 
   const seedEmail = process.env.ADMIN_SEED_EMAIL;
   const seedPassword = process.env.ADMIN_SEED_PASSWORD;
@@ -13119,6 +13218,75 @@ app.post('/api/auth/admin/login', authLoginRateLimit, async (req, res) => {
   }
 });
 
+app.post('/api/auth/agent-amicale/login', authLoginRateLimit, async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '').trim();
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username and password are required' });
+    }
+    const [rows] = await pool.query(
+      `SELECT
+        p.user_id,
+        p.amicale_id,
+        p.username,
+        p.password_text,
+        u.nom AS user_nom,
+        a.name AS amicale_name,
+        a.logo_url AS amicale_logo_url
+      FROM agent_amicale_profiles p
+      INNER JOIN utilisateurs u ON u.id = p.user_id
+      LEFT JOIN amicales a ON a.id = p.amicale_id
+      WHERE p.username = ?
+      LIMIT 1`,
+      [username]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return res.status(401).json({ error: 'Identifiants invalides' });
+    if (String(row.password_text || '') !== password) return res.status(401).json({ error: 'Identifiants invalides' });
+
+    const agentSession = {
+      userId: String(row.user_id || '').trim(),
+      username: String(row.username || '').trim(),
+      displayName: String(row.user_nom || '').trim(),
+      amicaleId: String(row.amicale_id || '').trim(),
+      amicaleName: String(row.amicale_name || '').trim(),
+      amicaleLogoUrl: row.amicale_logo_url ? String(row.amicale_logo_url).trim() : null,
+    };
+    setAgentSessionCookie(req, res, agentSession);
+    return res.json({ session: agentSession });
+  } catch (error) {
+    console.error('Error logging agent amicale:', error);
+    return res.status(500).json({ error: 'Connexion agent amicale impossible' });
+  }
+});
+
+app.get('/api/auth/agent-amicale/me', async (req, res) => {
+  try {
+    const session = getAgentSessionFromRequest(req);
+    if (!session) return res.status(401).json({ error: 'Session agent invalide' });
+    let amicaleLogoUrl = null;
+    try {
+      const [rows] = await pool.query(
+        'SELECT logo_url FROM amicales WHERE id = ? LIMIT 1',
+        [String(session.amicaleId || '').trim()]
+      );
+      amicaleLogoUrl = rows?.[0]?.logo_url ? String(rows[0].logo_url).trim() : null;
+    } catch (lookupError) {
+      console.warn('agent-amicale/me logo lookup failed:', lookupError?.message || lookupError);
+    }
+    return res.json({ session: { ...session, amicaleLogoUrl } });
+  } catch (error) {
+    console.error('Error reading agent session:', error);
+    return res.status(500).json({ error: 'Lecture session agent impossible' });
+  }
+});
+
+app.post('/api/auth/agent-amicale/logout', async (req, res) => {
+  clearAgentSessionCookie(req, res);
+  return res.json({ success: true });
+});
+
 app.get('/api/auth/providers', (req, res) => {
   const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
   const facebookConfigured = Boolean(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET);
@@ -14699,8 +14867,8 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     }
     if (!firstName || !lastName) return res.status(400).json({ error: 'Nom et prenom obligatoires' });
     if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
-    if (!['proprietaire', 'locataire', 'acheteur'].includes(clientType)) {
-      return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire ou acheteur)' });
+    if (!['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType)) {
+      return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire, acheteur ou agent_amicale)' });
     }
 
     const [existingRows] = await pool.query('SELECT id FROM utilisateurs WHERE id = ? LIMIT 1', [id]);
@@ -14785,18 +14953,26 @@ app.get('/api/utilisateurs', requireAdminSession, async (req, res) => {
 app.post('/api/utilisateurs', requireAdminSession, async (req, res) => {
   try {
     const { id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!nom || !normalizedEmail) {
+      return res.status(400).json({ error: 'nom and email are required' });
+    }
+    const [emailRows] = await pool.query('SELECT id FROM utilisateurs WHERE email = ? LIMIT 1', [normalizedEmail]);
+    if (emailRows[0]) {
+      return res.status(409).json({ error: 'Cet email/utilisateur existe deja', existingId: emailRows[0].id });
+    }
     const newId = id || 'u' + Date.now();
     const created_at = new Date().toISOString().split('T')[0];
     await pool.query(
       `INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [newId, nom, email, role || 'user', avatar || null, telephone || null, client_type || null, cin || null, cin_image_url || null, created_at]
+      [newId, nom, normalizedEmail, role || 'user', avatar || null, telephone || null, client_type || null, cin || null, cin_image_url || null, created_at]
     );
     const [newUser] = await pool.query('SELECT * FROM utilisateurs WHERE id = ?', [newId]);
     res.status(201).json(newUser[0]);
   } catch (error) {
     console.error('Error creating utilisateur:', error);
-    res.status(500).json({ error: 'Failed to create utilisateur' });
+    res.status(500).json({ error: 'Failed to create utilisateur', details: String(error?.message || error) });
   }
 });
 
@@ -14830,11 +15006,147 @@ app.put('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
 
 app.delete('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
   try {
+    await pool.query('DELETE FROM agent_amicale_profiles WHERE user_id = ?', [req.params.id]);
     await pool.query('DELETE FROM utilisateurs WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting utilisateur:', error);
     res.status(500).json({ error: 'Failed to delete utilisateur' });
+  }
+});
+
+app.get('/api/public/amicales', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, code, logo_url
+       FROM amicales
+       ORDER BY updated_at DESC, created_at DESC`
+    );
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching public amicales:', error);
+    res.status(500).json({ error: 'Failed to fetch amicales' });
+  }
+});
+
+app.get('/api/amicales', requireAdminSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, code, logo_url, created_at, updated_at
+       FROM amicales
+       ORDER BY updated_at DESC, created_at DESC`
+    );
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching amicales:', error);
+    res.status(500).json({ error: 'Failed to fetch amicales' });
+  }
+});
+
+app.post('/api/amicales', requireAdminSession, async (req, res) => {
+  try {
+    const id = String(req.body?.id || `am_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`).trim();
+    const name = String(req.body?.name || '').trim();
+    const code = String(req.body?.code || '').trim();
+    const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
+    if (!name || !code) return res.status(400).json({ error: 'name and code are required' });
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO amicales (id, name, code, logo_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, name, code, logoUrl, now, now]
+    );
+    const [rows] = await pool.query('SELECT * FROM amicales WHERE id = ? LIMIT 1', [id]);
+    res.status(201).json(rows?.[0] || null);
+  } catch (error) {
+    console.error('Error creating amicale:', error);
+    res.status(500).json({ error: 'Failed to create amicale' });
+  }
+});
+
+app.put('/api/amicales/:id', requireAdminSession, async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const name = String(req.body?.name || '').trim();
+    const code = String(req.body?.code || '').trim();
+    const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    if (!name || !code) return res.status(400).json({ error: 'name and code are required' });
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE amicales
+       SET name = ?, code = ?, logo_url = ?, updated_at = ?
+       WHERE id = ?`,
+      [name, code, logoUrl, now, id]
+    );
+    const [rows] = await pool.query('SELECT * FROM amicales WHERE id = ? LIMIT 1', [id]);
+    res.json(rows?.[0] || null);
+  } catch (error) {
+    console.error('Error updating amicale:', error);
+    res.status(500).json({ error: 'Failed to update amicale' });
+  }
+});
+
+app.delete('/api/amicales/:id', requireAdminSession, async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    await pool.query('DELETE FROM agent_amicale_profiles WHERE amicale_id = ?', [id]);
+    await pool.query('DELETE FROM amicales WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting amicale:', error);
+    res.status(500).json({ error: 'Failed to delete amicale' });
+  }
+});
+
+app.get('/api/agents-amicale', requireAdminSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.user_id, p.amicale_id, p.username, p.password_text, p.created_at, p.updated_at, a.name AS amicale_name
+       FROM agent_amicale_profiles p
+       LEFT JOIN amicales a ON a.id = p.amicale_id
+       ORDER BY p.updated_at DESC, p.created_at DESC`
+    );
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching agents amicale:', error);
+    res.status(500).json({ error: 'Failed to fetch agents amicale' });
+  }
+});
+
+app.post('/api/agents-amicale', requireAdminSession, async (req, res) => {
+  try {
+    const userId = String(req.body?.user_id || req.body?.userId || '').trim();
+    const amicaleId = String(req.body?.amicale_id || req.body?.amicaleId || '').trim();
+    const username = String(req.body?.username || '').trim();
+    const passwordText = String(req.body?.password_text || req.body?.password || '').trim();
+    if (!userId || !amicaleId || !username || !passwordText) {
+      return res.status(400).json({ error: 'user_id, amicale_id, username and password are required' });
+    }
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO agent_amicale_profiles (user_id, amicale_id, username, password_text, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         amicale_id = VALUES(amicale_id),
+         username = VALUES(username),
+         password_text = VALUES(password_text),
+         updated_at = VALUES(updated_at)`,
+      [userId, amicaleId, username, passwordText, now, now]
+    );
+    const [rows] = await pool.query(
+      `SELECT p.user_id, p.amicale_id, p.username, p.password_text, p.created_at, p.updated_at, a.name AS amicale_name
+       FROM agent_amicale_profiles p
+       LEFT JOIN amicales a ON a.id = p.amicale_id
+       WHERE p.user_id = ?
+       LIMIT 1`,
+      [userId]
+    );
+    res.status(201).json(rows?.[0] || null);
+  } catch (error) {
+    console.error('Error saving agent amicale profile:', error);
+    res.status(500).json({ error: 'Failed to save agent amicale profile' });
   }
 });
 

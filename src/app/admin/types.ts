@@ -6,7 +6,7 @@ export interface Utilisateur {
   email: string;
   role: UserRole;
   avatar?: string;
-  client_type?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  client_type?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | null;
   telephone?: string | null;
   cin?: string | null;
   cin_image_url?: string | null;

@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+Vary: Origin
+Access-Control-Allow-Credentials: true
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+Set-Cookie: dwira_device=dev_Zd-neejx8RgYEPcWtQGOIWdw; Max-Age=15552000; Path=/; Expires=Thu, 05 Nov 2026 00:13:30 GMT; HttpOnly; SameSite=Lax
+Set-Cookie: dwira_agent_session=eyJ2IjoxLCJpYXQiOjE3NzgyODU2MTA1NTcsImV4cCI6MTc4MDg3NzYxMDU1Nywicm9sZSI6ImFnZW50X2FtaWNhbGUiLCJ1c2VySWQiOiJ1MTc3ODI4Mzk2Mzk4NiIsInVzZXJuYW1lIjoicmF5ZW4xMjNAZ21haWwuY29tIiwiZGlzcGxheU5hbWUiOiJSYXllbiBFbGhhZnNpIiwiYW1pY2FsZUlkIjoiYW1fMTc3ODI4NDQxMjc0MV83M3I0bjEiLCJhbWljYWxlTmFtZSI6IlBoYXJtYWNpZSBDZW50cmFsZSJ9.RzsYERm2wu_W25ZFVphNgEzvZn5po_V6SzdhXsPkkHM; Max-Age=2592000; Path=/; Expires=Mon, 08 Jun 2026 00:13:30 GMT; HttpOnly; SameSite=Lax
+Content-Type: application/json; charset=utf-8
+Content-Length: 74601
+ETag: W/"12369-INN/dYkMVZla7BVwigs4aj1qryM"
+Date: Sat, 09 May 2026 00:13:30 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
