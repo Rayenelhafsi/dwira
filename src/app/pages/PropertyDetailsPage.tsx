@@ -4120,32 +4120,36 @@ out body 40;
 
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    <div className="flex justify-between">
-                     <span className="underline">{pricing.hasPeriodOverride ? `${pricing.averageNightlyPrice} TND (moyenne) x ${pricing.nights} nuits` : `${property.pricePerNight} TND x ${pricing.nights} nuits`}</span>
-                     <span>{pricing.accommodationTotal} TND</span>
+                     <span className="underline">
+                       {paymentMode === 'amicale'
+                         ? `${pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight} TND (forfaitaire) x ${pricing.nights} nuits`
+                         : (pricing.hasPeriodOverride ? `${pricing.averageNightlyPrice} TND (moyenne) x ${pricing.nights} nuits` : `${property.pricePerNight} TND x ${pricing.nights} nuits`)}
+                     </span>
+                     <span>{pricing.accommodationTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                    </div>
                    {pricing.cleaningFee > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Frais de ménage</span>
-                       <span>{pricing.cleaningFee} TND</span>
+                       <span>{pricing.cleaningFee} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                      </div>
                    )}
                    {pricing.serviceFee > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Frais de service</span>
-                       <span>{pricing.serviceFee} TND</span>
+                       <span>{pricing.serviceFee} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                      </div>
                    )}
                    {pricing.extraMattressTotal > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Matelas supplementaires</span>
-                       <span>{pricing.extraMattressTotal} TND</span>
+                       <span>{pricing.extraMattressTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                      </div>
                    )}
                    {pricing.paidServicesTotal > 0 && (
                      <div className="space-y-2">
                        <div className="flex justify-between">
                          <span className="underline">Services fixes</span>
-                         <span>{pricing.paidServicesTotal} TND</span>
+                         <span>{pricing.paidServicesTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                        </div>
                        {pricing.fixedSelectedServices?.length > 0 && (
                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
@@ -4162,20 +4166,22 @@ out body 40;
                    {pricing.productsAccueilFee > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Produits d'accueil</span>
-                       <span>{pricing.productsAccueilFee} TND</span>
+                       <span>{pricing.productsAccueilFee} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                      </div>
                    )}
                    <div className="flex justify-between">
                      <span className="underline">Total frais supplementaires</span>
-                     <span>{pricing.extrasTotal} TND</span>
+                     <span>{pricing.extrasTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                    </div>
                    <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-100 mt-2">
-                     <span>Montant total</span>
-                     <span>{pricing.total} TND</span>
+                     <span>{paymentMode === 'amicale' ? 'Montant total (HT)' : 'Montant total'}</span>
+                     <span>{pricing.total} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
                    </div>
                    <div className="flex justify-between text-sm text-gray-600">
                      <span className="inline-flex items-center gap-1"><Wallet size={14} />A payer maintenant</span>
-                     <span className="font-semibold text-gray-900">{paymentMode === 'totalite' ? pricing.total : Math.round((pricing.total * advancePercent) / 100)} TND</span>
+                     <span className="font-semibold text-gray-900">
+                       {paymentMode === 'totalite' ? pricing.total : Math.round((pricing.total * advancePercent) / 100)} TND{paymentMode === 'amicale' ? ' (HT)' : ''}
+                     </span>
                    </div>
                 </div>}
 
