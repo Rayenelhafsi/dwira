@@ -219,6 +219,7 @@ export default function NotificationsPage() {
   const chatOwners = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; demandId?: string }>();
     demands.forEach((demand) => {
+      if (isAmicaleDemand(demand)) return;
       const ownerId = String(demand.proprietaire_id || '').trim();
       if (!ownerId) return;
       if (!byId.has(ownerId)) {

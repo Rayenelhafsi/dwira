@@ -10780,7 +10780,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         null,
         variableServicesQuoteStatus,
         initialDemandStatus,
-        isAmicaleFlow ? now : null,
+        null,
         null,
         null,
         null,
@@ -10808,7 +10808,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     await appendReservationDemandHistory(
       demandId,
       initialDemandStatus,
-      isAmicaleFlow ? 'agent_amicale' : 'client',
+      'client',
       resolvedClientUserId || resolvedClientEmail || normalizedAmicaleMatricule || null,
       isAmicaleFlow
         ? `Nouvelle demande amicale de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
