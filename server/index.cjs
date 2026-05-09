@@ -10789,7 +10789,6 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         null,
         null,
         null,
-        null,
         client_note || null,
         paymentDeadline,
         null,

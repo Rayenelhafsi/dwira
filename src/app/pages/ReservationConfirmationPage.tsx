@@ -111,6 +111,7 @@ export default function ReservationConfirmationPage() {
       childGuests,
       nights,
       accommodationTotal,
+      accommodationSegments: accommodationPricing.segments,
       averageNightlyPrice: accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
       cleaningFee,
@@ -595,6 +596,20 @@ export default function ReservationConfirmationPage() {
             ) : (
               <div className="mt-6 space-y-4 text-sm text-gray-700">
                 <Line label={summary?.hasPeriodOverride ? `${summary?.averageNightlyPrice || 0} TND (moyenne) x ${summary?.nights || 0} nuits` : `${property.pricePerNight} TND x ${summary?.nights || 0} nuits`} value={`${summary?.accommodationTotal || 0} TND`} />
+                {summary?.accommodationSegments?.length ? (
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Detail par periode</p>
+                    <div className="mt-2 space-y-2">
+                      {summary.accommodationSegments.map((segment, index) => (
+                        <Line
+                          key={`${segment.key}-${index}-${segment.startDate}`}
+                          label={`${segment.startDate} -> ${segment.endDate} : ${segment.nightlyPrice} TND x ${segment.nights} nuit(s)`}
+                          value={`${segment.subtotal} TND`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {summary?.cleaningFee ? <Line label="Frais de menage" value={`${summary.cleaningFee} TND`} /> : null}
                 {summary?.serviceFee ? <Line label="Frais de service" value={`${summary.serviceFee} TND`} /> : null}
                 {summary?.extraMattressTotal ? <Line label="Matelas supplementaires" value={`${summary.extraMattressTotal} TND`} /> : null}

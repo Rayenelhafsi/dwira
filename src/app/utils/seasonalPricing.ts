@@ -23,6 +23,17 @@ export type AccommodationPricingResult = {
   accommodationTotal: number;
   averageNightlyPrice: number;
   hasPeriodOverride: boolean;
+  segments: {
+    key: string;
+    label: string;
+    nights: number;
+    nightlyPrice: number;
+    weeklyPrice: number;
+    subtotal: number;
+    startDate: string;
+    endDate: string;
+    isAmicale: boolean;
+  }[];
 };
 
 export type CurrentPricingResult = {
@@ -271,11 +282,11 @@ export function calculateAccommodationPricing(params: {
   const start = toDateAtMidnight(params.startDate);
   const end = toDateAtMidnight(params.endDate);
   if (!start || !end) {
-    return { nights: 0, accommodationTotal: 0, averageNightlyPrice: 0, hasPeriodOverride: false };
+    return { nights: 0, accommodationTotal: 0, averageNightlyPrice: 0, hasPeriodOverride: false, segments: [] };
   }
   const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
   if (nights === 0) {
-    return { nights: 0, accommodationTotal: 0, averageNightlyPrice: 0, hasPeriodOverride: false };
+    return { nights: 0, accommodationTotal: 0, averageNightlyPrice: 0, hasPeriodOverride: false, segments: [] };
   }
 
   const rangeStart = start <= end ? start : end;
@@ -304,30 +315,60 @@ export function calculateAccommodationPricing(params: {
   let total = 0;
   let segmentNights = 0;
   let segment: PricingContext | null = null;
+  let segmentStart: Date | null = null;
+  let segmentEnd: Date | null = null;
+  const segments: AccommodationPricingResult['segments'] = [];
 
   const flushSegment = () => {
-    if (!segment || segmentNights <= 0) return;
-    total += segmentCost(segmentNights, segment.nightlyPrice, segment.weeklyPrice);
+    if (!segment || segmentNights <= 0 || !segmentStart || !segmentEnd) return;
+    const subtotalRaw = segmentCost(segmentNights, segment.nightlyPrice, segment.weeklyPrice);
+    const subtotal = Math.round(subtotalRaw * 100) / 100;
+    total += subtotal;
+    const startDate = toDateKey(segmentStart);
+    const endDate = toDateKey(segmentEnd);
+    const isPeriod = segment.key.startsWith('period:');
+    const isAmicale = isPeriod && segment.key.includes(':global') === false;
+    segments.push({
+      key: segment.key,
+      label: isPeriod
+        ? (isAmicale ? `Tarif periode amicale (${startDate} → ${endDate})` : `Tarif periode standard (${startDate} → ${endDate})`)
+        : `Tarif de base (${startDate} → ${endDate})`,
+      nights: segmentNights,
+      nightlyPrice: segment.nightlyPrice,
+      weeklyPrice: segment.weeklyPrice,
+      subtotal,
+      startDate,
+      endDate,
+      isAmicale,
+    });
     segmentNights = 0;
+    segmentStart = null;
+    segmentEnd = null;
   };
 
-  for (const ctx of contexts) {
+  contexts.forEach((ctx, index) => {
+    const day = addDays(rangeStart, index);
     if (!segment) {
       segment = ctx;
       segmentNights = 1;
+      segmentStart = day;
+      segmentEnd = day;
       if (ctx.key.startsWith('period:')) hasPeriodOverride = true;
-      continue;
+      return;
     }
     if (ctx.key === segment.key) {
       segmentNights += 1;
+      segmentEnd = day;
       if (ctx.key.startsWith('period:')) hasPeriodOverride = true;
-      continue;
+      return;
     }
     flushSegment();
     segment = ctx;
     segmentNights = 1;
+    segmentStart = day;
+    segmentEnd = day;
     if (ctx.key.startsWith('period:')) hasPeriodOverride = true;
-  }
+  });
   flushSegment();
 
   return {
@@ -335,5 +376,6 @@ export function calculateAccommodationPricing(params: {
     accommodationTotal: Math.round(total * 100) / 100,
     averageNightlyPrice: Math.round((total / nights) * 100) / 100,
     hasPeriodOverride,
+    segments,
   };
 }
