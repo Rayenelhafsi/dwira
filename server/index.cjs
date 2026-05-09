@@ -5200,6 +5200,22 @@ async function ensureBiensWorkflowSchemaSafe() {
   return ensureBiensWorkflowSchemaSafePromise;
 }
 
+app.use((req, _res, next) => {
+  if (MOBILE_FLOW_DEBUG) {
+    const path = String(req.originalUrl || req.url || '');
+    if (
+      path.startsWith('/api/auth/') ||
+      path.startsWith('/api/reservation-demands') ||
+      path.includes('/flouci/')
+    ) {
+      logMobileFlow('api_request_in', req, {
+        query: req.query || {},
+      });
+    }
+  }
+  next();
+});
+
 let ensureSeasonalPricingSchemaPromise = null;
 
 async function ensureSeasonalPricingSchema() {
