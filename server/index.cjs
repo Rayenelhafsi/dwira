@@ -11759,6 +11759,57 @@ app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSes
   }
 });
 
+app.post('/api/reservation-demands/:id/regenerate-voucher', requireAdminSession, reservationMutationRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    const detailedCurrent = await fetchReservationDemandDetailsById(demandId);
+    if (!detailedCurrent) return res.status(404).json({ error: 'Demande introuvable' });
+    const isAmicaleDemand = String(detailedCurrent.payment_mode || '').trim() === 'amicale'
+      || Boolean(String(detailedCurrent.pricing_amicale_id || '').trim());
+    if (!isAmicaleDemand) return res.status(400).json({ error: 'Regeneration voucher reservee aux demandes amicale' });
+    if (String(detailedCurrent.status || '') !== 'voucher_en_cours') {
+      return res.status(400).json({ error: 'Le voucher ne peut etre regenere que pour une demande en cours' });
+    }
+
+    const now = getAgencySqlDateTime();
+    const voucherNumber = String(detailedCurrent.voucher_number || `VCH-${String(demandId).slice(-8).toUpperCase()}`).trim();
+    const voucherUrl = await generateAmicaleVoucherHtml({
+      demand: detailedCurrent,
+      bien: {
+        reference: detailedCurrent.bien_reference || detailedCurrent.bien_id,
+        titre: detailedCurrent.bien_titre || detailedCurrent.bien_id,
+      },
+      amicale: {
+        name: detailedCurrent.amicale_name || detailedCurrent.client_name || 'Amicale',
+        logoUrl: detailedCurrent.amicale_logo_url || null,
+      },
+      voucherNumber,
+      generatedAt: now,
+    });
+    const voucherId = String(detailedCurrent.voucher_id || `vch_${demandId}`).trim();
+    await pool.query(
+      `UPDATE reservation_demands
+       SET voucher_id = ?, voucher_number = ?, voucher_url = ?, voucher_generated_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [voucherId, voucherNumber, voucherUrl, now, now, demandId]
+    );
+    await appendReservationDemandHistory(
+      demandId,
+      'voucher_en_cours',
+      'admin',
+      String(req.authUser?.id || req.authUser?.email || 'admin').trim(),
+      `Voucher regenere (${voucherNumber})`,
+      now
+    );
+    const refreshed = await fetchReservationDemandDetailsById(demandId);
+    return res.json(refreshed || null);
+  } catch (error) {
+    console.error('Error regenerating voucher:', error);
+    return res.status(500).json({ error: 'Impossible de regenerer le voucher' });
+  }
+});
+
 app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthenticatedSession, reservationMutationRateLimit, paymentReceiptUpload.single('receipt'), async (req, res) => {
   try {
     await ensureReservationDemandSchema();

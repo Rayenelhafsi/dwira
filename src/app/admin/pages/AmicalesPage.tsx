@@ -239,6 +239,26 @@ export default function AmicalesPage() {
     }
   };
 
+  const handleRegenerateVoucher = async (demand: AmicaleDemandRow) => {
+    setSavingId(demand.id);
+    try {
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/regenerate-voucher`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(String(data?.error || "Regeneration impossible"));
+      }
+      toast.success("Voucher regenere.");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Regeneration impossible");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -527,6 +547,16 @@ export default function AmicalesPage() {
                             >
                               Rejeter
                             </button>
+                            {String(demand.status || "") === "voucher_en_cours" ? (
+                              <button
+                                type="button"
+                                disabled={savingId === demand.id}
+                                onClick={() => void handleRegenerateVoucher(demand)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+                              >
+                                Regenerer voucher
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
