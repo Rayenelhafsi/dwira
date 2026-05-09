@@ -52,6 +52,9 @@ export default function ReservationPaymentPage() {
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [startingFlouciScope, setStartingFlouciScope] = useState<PaymentScope | null>(null);
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
+  const methodView = String(searchParams.get("method") || "").trim().toLowerCase();
+  const showFlouciBlock = methodView !== "receipt";
+  const showReceiptBlock = methodView === "receipt";
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -286,76 +289,80 @@ export default function ReservationPaymentPage() {
               <InfoCard label="Paiement services" value={summary?.servicesPayable ? (summary?.servicesPaid ? `Regle le ${formatDateTime(demand.services_payment_paid_at)}` : formatMoney(summary?.servicesAmount)) : "Aucun devis a regler"} />
             </div>
 
-            <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
-              <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Flouci (Sandbox)</p>
-              <p className="mt-1 text-sm text-emerald-700">
-                Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement.
-              </p>
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <button
-                  type="button"
-                  disabled={!summary?.canPayReservation || !!startingFlouciScope || confirmingFlouci}
-                  onClick={() => void handleStartFlouci("reservation")}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {startingFlouciScope === "reservation" ? "Ouverture..." : "Payer reservation"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!summary?.canPayServices || !!startingFlouciScope || confirmingFlouci}
-                  onClick={() => void handleStartFlouci("services")}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {startingFlouciScope === "services" ? "Ouverture..." : "Payer services"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!summary?.canPayCombined || !!startingFlouciScope || confirmingFlouci}
-                  onClick={() => void handleStartFlouci("combined")}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {startingFlouciScope === "combined" ? "Ouverture..." : "Payer combine"}
-                </button>
+            {showFlouciBlock ? (
+              <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
+                <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Flouci (Sandbox)</p>
+                <p className="mt-1 text-sm text-emerald-700">
+                  Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement.
+                </p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    disabled={!summary?.canPayReservation || !!startingFlouciScope || confirmingFlouci}
+                    onClick={() => void handleStartFlouci("reservation")}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    {startingFlouciScope === "reservation" ? "Ouverture..." : "Payer reservation"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!summary?.canPayServices || !!startingFlouciScope || confirmingFlouci}
+                    onClick={() => void handleStartFlouci("services")}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    {startingFlouciScope === "services" ? "Ouverture..." : "Payer services"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!summary?.canPayCombined || !!startingFlouciScope || confirmingFlouci}
+                    onClick={() => void handleStartFlouci("combined")}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    {startingFlouciScope === "combined" ? "Ouverture..." : "Payer combine"}
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : null}
 
-            <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
-              <p className="text-sm font-semibold text-emerald-800">Envoyer mon recu de paiement</p>
-              <p className="mt-1 text-sm text-emerald-700">
-                {demand.status === "demande_recu_paiement"
-                  ? "L'administration demande votre recu pour valider le paiement."
-                  : demand.status === "recu_paiement_envoye"
-                    ? "Recu deja envoye. Vous pouvez en renvoyer un autre si necessaire."
-                    : "Vous pouvez envoyer votre recu de paiement pour verification."}
-              </p>
-              <div className="mt-4 space-y-3">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp"
-                  onChange={(event) => setReceiptFile(event.target.files?.[0] || null)}
-                  className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
-                />
-                <textarea
-                  value={receiptNote}
-                  onChange={(event) => setReceiptNote(event.target.value)}
-                  rows={2}
-                  placeholder="Note (optionnelle)"
-                  className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleUploadReceipt()}
-                  disabled={uploadingReceipt}
-                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  <Upload className="h-4 w-4" />
-                  {uploadingReceipt ? "Envoi..." : "Uploader recu"}
-                </button>
+            {showReceiptBlock ? (
+              <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
+                <p className="text-sm font-semibold text-emerald-800">Envoyer mon recu de paiement</p>
+                <p className="mt-1 text-sm text-emerald-700">
+                  {demand.status === "demande_recu_paiement"
+                    ? "L'administration demande votre recu pour valider le paiement."
+                    : demand.status === "recu_paiement_envoye"
+                      ? "Recu deja envoye. Vous pouvez en renvoyer un autre si necessaire."
+                      : "Vous pouvez envoyer votre recu de paiement pour verification."}
+                </p>
+                <div className="mt-4 space-y-3">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    onChange={(event) => setReceiptFile(event.target.files?.[0] || null)}
+                    className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <textarea
+                    value={receiptNote}
+                    onChange={(event) => setReceiptNote(event.target.value)}
+                    rows={2}
+                    placeholder="Note (optionnelle)"
+                    className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleUploadReceipt()}
+                    disabled={uploadingReceipt}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {uploadingReceipt ? "Envoi..." : "Uploader recu"}
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : null}
           </section>
 
           <aside className="space-y-4">
