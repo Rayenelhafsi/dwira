@@ -55,6 +55,13 @@ export default function ReservationPaymentPage() {
   const methodView = String(searchParams.get("method") || "").trim().toLowerCase();
   const showFlouciBlock = methodView !== "receipt";
   const showReceiptBlock = methodView === "receipt";
+  const flouciPayScope: PaymentScope | null = useMemo(() => {
+    if (!paymentSummary) return null;
+    if (paymentSummary.canPayCombined) return "combined";
+    if (paymentSummary.canPayReservation) return "reservation";
+    if (paymentSummary.canPayServices) return "services";
+    return null;
+  }, [paymentSummary]);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -295,33 +302,15 @@ export default function ReservationPaymentPage() {
                 <p className="mt-1 text-sm text-emerald-700">
                   Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement.
                 </p>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <div className="mt-4">
                   <button
                     type="button"
-                    disabled={!summary?.canPayReservation || !!startingFlouciScope || confirmingFlouci}
-                    onClick={() => void handleStartFlouci("reservation")}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    disabled={!flouciPayScope || !!startingFlouciScope || confirmingFlouci}
+                    onClick={() => flouciPayScope ? void handleStartFlouci(flouciPayScope) : undefined}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                   >
                     <ExternalLink className="h-4 w-4" />
-                    {startingFlouciScope === "reservation" ? "Ouverture..." : "Payer reservation"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!summary?.canPayServices || !!startingFlouciScope || confirmingFlouci}
-                    onClick={() => void handleStartFlouci("services")}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    {startingFlouciScope === "services" ? "Ouverture..." : "Payer services"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!summary?.canPayCombined || !!startingFlouciScope || confirmingFlouci}
-                    onClick={() => void handleStartFlouci("combined")}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    {startingFlouciScope === "combined" ? "Ouverture..." : "Payer combine"}
+                    {!!startingFlouciScope ? "Ouverture..." : "Payer"}
                   </button>
                 </div>
               </div>
