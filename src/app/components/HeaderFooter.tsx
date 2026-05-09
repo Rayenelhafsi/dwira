@@ -9,6 +9,7 @@ import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 import { getReservationsFromCache } from "../utils/reservations";
 import { buildTelLink, getPublicContactForMode, openPhoneApp } from "../utils/deepLinks";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import { getSessionUser } from "../services/auth";
 
 // Custom TikTok Icon
 const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
@@ -215,13 +216,17 @@ export function Header() {
       setShowActionableNotice(false);
       return;
     }
+    let cancelled = false;
     const profileCompleted = hasCompletedClientProfile(user);
     const query = new URLSearchParams();
     if (user.id) query.set("client_user_id", user.id);
     query.set("client_email", user.email);
-    fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands?${query.toString()}`, { credentials: "include" })
+    void getSessionUser().then((sessionUser) => {
+      if (!sessionUser || cancelled) return;
+      return fetch(`${import.meta.env.VITE_API_URL || "/api"}/reservation-demands?${query.toString()}`, { credentials: "include" })
       .then((response) => response.ok ? response.json() : [])
       .then((rows) => {
+        if (cancelled) return;
         const list = Array.isArray(rows) ? rows : [];
         setReservationCount(list.length);
         const nextDemand = list
@@ -265,7 +270,15 @@ export function Header() {
           setShowActionableNotice(true);
         }
       })
-      .catch(() => setReservationCount(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }).length));
+      .catch(() => {
+        if (!cancelled) {
+          setReservationCount(getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email }).length);
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user, location.pathname, location.search, isReservationConfirmationPage, isClientFinalizationFlowPage, isMyReservationsPage]);
 
   const proceedToCoordinates = async () => {

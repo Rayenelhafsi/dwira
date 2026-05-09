@@ -60,6 +60,32 @@ interface PhoneOtpRequestResponse {
   debugCode?: string;
 }
 
+let providersCache: { value: AuthProvidersResponse; at: number } | null = null;
+let providersInFlight: Promise<AuthProvidersResponse> | null = null;
+let sessionCache: { value: AuthUser | null; at: number } | null = null;
+let sessionInFlight: Promise<AuthUser | null> | null = null;
+const PROVIDERS_CACHE_MS = 5 * 60 * 1000;
+const SESSION_CACHE_MS = 2000;
+
+function readProvidersCache(): AuthProvidersResponse | null {
+  if (!providersCache) return null;
+  if ((Date.now() - providersCache.at) > PROVIDERS_CACHE_MS) return null;
+  return providersCache.value;
+}
+
+function readSessionCache(): AuthUser | null | undefined {
+  if (!sessionCache) return undefined;
+  if ((Date.now() - sessionCache.at) > SESSION_CACHE_MS) return undefined;
+  return sessionCache.value;
+}
+
+export function invalidateAuthClientCaches() {
+  providersCache = null;
+  providersInFlight = null;
+  sessionCache = null;
+  sessionInFlight = null;
+}
+
 export async function loginAdmin(email: string, password: string): Promise<AuthUser> {
   const data = await fetchJsonWithApiFallback<AdminLoginResponse>('/auth/admin/login', {
     method: 'POST',
@@ -71,18 +97,28 @@ export async function loginAdmin(email: string, password: string): Promise<AuthU
 }
 
 export async function getAuthProviders(): Promise<AuthProvidersResponse> {
-  try {
-    const data = await fetchJsonWithApiFallback<AuthProvidersResponse>('/auth/providers');
-    return {
-      google: Boolean(data?.google),
-      facebook: Boolean(data?.facebook),
-      phoneOtp: Boolean(data?.phoneOtp),
-      emailOtp: Boolean(data?.emailOtp),
-      passkey: data?.passkey !== false,
-    };
-  } catch {
-    return { google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true };
-  }
+  const cached = readProvidersCache();
+  if (cached) return cached;
+  if (providersInFlight) return providersInFlight;
+  providersInFlight = (async () => {
+    try {
+      const data = await fetchJsonWithApiFallback<AuthProvidersResponse>('/auth/providers');
+      const normalized = {
+        google: Boolean(data?.google),
+        facebook: Boolean(data?.facebook),
+        phoneOtp: Boolean(data?.phoneOtp),
+        emailOtp: Boolean(data?.emailOtp),
+        passkey: data?.passkey !== false,
+      };
+      providersCache = { value: normalized, at: Date.now() };
+      return normalized;
+    } catch {
+      return { google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true };
+    } finally {
+      providersInFlight = null;
+    }
+  })();
+  return providersInFlight;
 }
 
 type PasskeyOptionsResponse = {
@@ -178,12 +214,23 @@ export async function getAntiBotConfig(): Promise<AntiBotConfig> {
 }
 
 export async function getSessionUser(): Promise<AuthUser | null> {
-  try {
-    const data = await fetchJsonWithApiFallback<AuthSessionResponse>('/auth/session');
-    return data?.user || null;
-  } catch {
-    return null;
-  }
+  const cached = readSessionCache();
+  if (cached !== undefined) return cached;
+  if (sessionInFlight) return sessionInFlight;
+  sessionInFlight = (async () => {
+    try {
+      const data = await fetchJsonWithApiFallback<AuthSessionResponse>('/auth/session');
+      const user = data?.user || null;
+      sessionCache = { value: user, at: Date.now() };
+      return user;
+    } catch {
+      sessionCache = { value: null, at: Date.now() };
+      return null;
+    } finally {
+      sessionInFlight = null;
+    }
+  })();
+  return sessionInFlight;
 }
 
 export async function logoutSession(): Promise<void> {
@@ -191,6 +238,8 @@ export async function logoutSession(): Promise<void> {
     await fetchJsonWithApiFallback<{ success: boolean }>('/auth/logout', { method: 'POST' });
   } catch {
     // Ignore network errors and continue with local logout.
+  } finally {
+    invalidateAuthClientCaches();
   }
 }
 

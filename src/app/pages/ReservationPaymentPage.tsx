@@ -4,6 +4,7 @@ import { ArrowLeft, BadgeCheck, ExternalLink, ReceiptText, TimerReset, Upload } 
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
+import { getSessionUser } from "../services/auth";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -60,6 +61,11 @@ export default function ReservationPaymentPage() {
     if (!id || !user?.email) return;
     setIsLoading(true);
     try {
+      const sessionUser = await getSessionUser();
+      if (!sessionUser) {
+        setDemand(null);
+        return;
+      }
       const query = new URLSearchParams();
       if (user.id) query.set("client_user_id", user.id);
       query.set("client_email", user.email);

@@ -751,12 +751,21 @@ function isSecureRequest(req) {
 function setAuthSessionCookie(req, res, user) {
   const safeUser = buildAuthUser(user);
   const token = createSignedSessionToken(safeUser);
+  const secureFlag = isSecureRequest(req);
   res.cookie(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: isSecureRequest(req),
+    secure: secureFlag,
     path: '/',
     maxAge: SESSION_DURATION_MS,
+  });
+  logMobileFlow('session_cookie_set', req, {
+    userId: safeUser.id,
+    role: safeUser.role,
+    secure: secureFlag,
+    sameSite: 'lax',
+    host: String(req.headers?.host || ''),
+    origin: String(req.headers?.origin || ''),
   });
   void bindDeviceToUser(req, safeUser.id, {
     reason: 'session_set',
@@ -14370,7 +14379,15 @@ app.get('/api/anti-bot/config', (req, res) => {
 });
 
 app.get('/api/auth/session', (req, res) => {
+  const cookies = parseCookies(req.headers?.cookie);
+  const hasSessionCookie = Boolean(String(cookies?.[SESSION_COOKIE_NAME] || '').trim());
   const user = getSessionUserFromRequest(req);
+  logMobileFlow('auth_session_check', req, {
+    hasSessionCookie,
+    authenticated: Boolean(user),
+    authUserId: user?.id || null,
+    authRole: user?.role || null,
+  });
   if (!user) {
     return res.json({ authenticated: false, user: null });
   }

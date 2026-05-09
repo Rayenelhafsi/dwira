@@ -7,6 +7,7 @@ import { useProperties } from "../context/PropertiesContext";
 import type { ReservationDemand } from "../admin/types";
 import { getReservationsFromCache } from "../utils/reservations";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
+import { getSessionUser } from "../services/auth";
 import {
   Dialog,
   DialogContent,
@@ -117,6 +118,11 @@ export default function MyReservationsPage() {
     if (!user?.email) return;
     setIsLoading(true);
     try {
+      const sessionUser = await getSessionUser();
+      if (!sessionUser) {
+        setReservations([]);
+        return;
+      }
       const query = new URLSearchParams();
       if (user.id) query.set("client_user_id", user.id);
       query.set("client_email", user.email);
