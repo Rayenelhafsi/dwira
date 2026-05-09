@@ -62,7 +62,7 @@ interface PhoneOtpRequestResponse {
 
 let providersCache: { value: AuthProvidersResponse; at: number } | null = null;
 let providersInFlight: Promise<AuthProvidersResponse> | null = null;
-let sessionCache: { value: AuthUser | null; at: number } | null = null;
+let sessionCache: { value: AuthUser; at: number } | null = null;
 let sessionInFlight: Promise<AuthUser | null> | null = null;
 const PROVIDERS_CACHE_MS = 5 * 60 * 1000;
 const SESSION_CACHE_MS = 2000;
@@ -73,7 +73,7 @@ function readProvidersCache(): AuthProvidersResponse | null {
   return providersCache.value;
 }
 
-function readSessionCache(): AuthUser | null | undefined {
+function readSessionCache(): AuthUser | undefined {
   if (!sessionCache) return undefined;
   if ((Date.now() - sessionCache.at) > SESSION_CACHE_MS) return undefined;
   return sessionCache.value;
@@ -215,16 +215,20 @@ export async function getAntiBotConfig(): Promise<AntiBotConfig> {
 
 export async function getSessionUser(): Promise<AuthUser | null> {
   const cached = readSessionCache();
-  if (cached !== undefined) return cached;
+  if (cached) return cached;
   if (sessionInFlight) return sessionInFlight;
   sessionInFlight = (async () => {
     try {
       const data = await fetchJsonWithApiFallback<AuthSessionResponse>('/auth/session');
       const user = data?.user || null;
-      sessionCache = { value: user, at: Date.now() };
+      if (user) {
+        sessionCache = { value: user, at: Date.now() };
+      } else {
+        sessionCache = null;
+      }
       return user;
     } catch {
-      sessionCache = { value: null, at: Date.now() };
+      sessionCache = null;
       return null;
     } finally {
       sessionInFlight = null;
