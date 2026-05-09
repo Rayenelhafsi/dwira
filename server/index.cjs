@@ -6581,8 +6581,14 @@ async function generateAmicaleVoucherHtml({
   const voucherPublicUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}${voucherRelativePath}`;
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(voucherPublicUrl)}`;
   const filePath = path.join(vouchersDir, fileName);
-  const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
-  const totalAmount = Number(demand.total_amount || 0);
+  const startDateRaw = String(demand.start_date || '').slice(0, 10);
+  const endDateRaw = String(demand.end_date || '').slice(0, 10);
+  const startDateParts = startDateRaw.split('-');
+  const endDateParts = endDateRaw.split('-');
+  const startDay = startDateParts.length === 3 ? startDateParts[2] : '--';
+  const startMonth = startDateParts.length === 3 ? startDateParts[1] : '--';
+  const endDay = endDateParts.length === 3 ? endDateParts[2] : '--';
+  const endMonth = endDateParts.length === 3 ? endDateParts[1] : '--';
   const totalGuests = Math.max(1, Number(demand.guests || 1));
   const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
   const childGuests = Math.max(0, Number(demand.child_guests || 0));
@@ -6601,13 +6607,12 @@ async function generateAmicaleVoucherHtml({
   <style>
     body { margin: 0; background: #f1f5f9; font-family: Arial, sans-serif; }
     .sheet { width: 1536px; height: 1024px; position: relative; margin: 0 auto; background: url('${escapeHtml(backgroundUrl)}') no-repeat center/cover; }
-    .txt { position: absolute; color: #0f172a; font-weight: 600; font-size: 40px; line-height: 1.1; }
-    .small { font-size: 30px; }
+    .txt { position: absolute; color: #0f172a; font-weight: 600; font-size: 24px; line-height: 1.1; }
+    .small { font-size: 20px; }
     .logo { position: absolute; left: 70px; top: 120px; width: 200px; height: 200px; border-radius: 999px; object-fit: contain; }
-    .qr { position: absolute; left: 430px; top: 800px; width: 150px; height: 150px; object-fit: contain; }
-    .id { position: absolute; left: 640px; top: 885px; width: 385px; font-size: 28px; font-weight: 700; color: #0f172a; }
+    .qr { position: absolute; left: 443px; top: 806px; width: 132px; height: 132px; object-fit: contain; }
+    .id { position: absolute; left: 640px; top: 907px; width: 385px; font-size: 22px; font-weight: 700; color: #0f172a; }
     .meta { position: absolute; left: 430px; top: 26px; font-size: 20px; color: #0f766e; font-weight: 700; }
-    .total { position: absolute; left: 1100px; top: 930px; font-size: 22px; color: #0f766e; font-weight: 700; }
     @media print {
       body { background: #fff; }
       .sheet { margin: 0; }
@@ -6618,14 +6623,16 @@ async function generateAmicaleVoucherHtml({
   <main class="sheet">
     ${amicaleLogoUrl ? `<img class="logo" src="${escapeHtml(amicaleLogoUrl)}" alt="Logo amicale" />` : ''}
     <div class="meta">Voucher ${escapeHtml(safeVoucherNumber)} | Genere le ${escapeHtml(createdAtLabel)}</div>
-    <div class="txt" style="left: 645px; top: 420px; width: 380px;">${escapeHtml(String(demand.client_name || '-'))}</div>
-    <div class="txt" style="left: 600px; top: 520px; width: 430px;">${escapeHtml(String(demand.amicale_phone || '-'))}</div>
-    <div class="txt" style="left: 660px; top: 610px; width: 360px;">${escapeHtml(String(bien?.reference || demand.bien_id || '-'))}</div>
-    <div class="txt small" style="left: 650px; top: 697px; width: 500px;">${escapeHtml(String(stayPeriodLabel || '-'))}</div>
-    <div class="txt small" style="left: 690px; top: 780px; width: 350px;">${escapeHtml(peopleText)}</div>
+    <div class="txt" style="left: 612px; top: 431px; width: 420px;">${escapeHtml(String(demand.client_name || '-'))}</div>
+    <div class="txt" style="left: 576px; top: 515px; width: 430px;">${escapeHtml(String(demand.amicale_phone || '-'))}</div>
+    <div class="txt" style="left: 628px; top: 599px; width: 390px;">${escapeHtml(String(bien?.reference || demand.bien_id || '-'))}</div>
+    <div class="txt small" style="left: 658px; top: 687px; width: 48px; text-align:center;">${escapeHtml(startDay)}</div>
+    <div class="txt small" style="left: 730px; top: 687px; width: 48px; text-align:center;">${escapeHtml(startMonth)}</div>
+    <div class="txt small" style="left: 866px; top: 687px; width: 48px; text-align:center;">${escapeHtml(endDay)}</div>
+    <div class="txt small" style="left: 938px; top: 687px; width: 48px; text-align:center;">${escapeHtml(endMonth)}</div>
+    <div class="txt small" style="left: 648px; top: 774px; width: 390px;">${escapeHtml(peopleText)}</div>
     <img class="qr" src="${escapeHtml(qrCodeUrl)}" alt="QR Voucher" />
     <div class="id">${escapeHtml(voucherIdText)}</div>
-    <div class="total">Total HT: ${escapeHtml(formatCurrency(totalAmount))}</div>
   </main>
 </body>
 </html>`;
