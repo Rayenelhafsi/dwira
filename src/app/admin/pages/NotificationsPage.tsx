@@ -670,6 +670,7 @@ export default function NotificationsPage() {
                 <div>Reponse proprietaire: <span className="font-semibold text-gray-800">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</span></div>
                 <div>Consultation client: <span className="font-semibold text-gray-800">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</span></div>
                 <div>Derniere MAJ: <span className="font-semibold text-gray-800">{demand.updated_at ? formatDateTime(demand.updated_at) : formatDateTime(demand.created_at)}</span></div>
+                <div>Contrat realise: <span className="font-semibold text-gray-800">{demand.contract_generated_at ? formatDateTime(demand.contract_generated_at) : 'Pas encore'}</span></div>
               </div>
               {isExpanded && (
                 <>

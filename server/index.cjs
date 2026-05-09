@@ -27,6 +27,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const CANONICAL_FRONTEND_URL = String(FRONTEND_URL || '').trim().replace('https://dwiraimmobilier.com', 'https://www.dwiraimmobilier.com');
@@ -458,6 +459,15 @@ function decodeOauthState(rawState) {
   } catch {
     return null;
   }
+}
+
+function resolvePublicApiBase(req) {
+  if (API_BASE_URL) return API_BASE_URL;
+  const host = String(req?.get?.('host') || '').trim();
+  if (!host) return '';
+  const isLocalHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host);
+  const protocol = isLocalHost ? String(req?.protocol || 'http') : 'https';
+  return `${protocol}://${host}`;
 }
 
 function toSqlDateBoundary(input, endOfDay = false) {
@@ -4845,23 +4855,30 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
 
   await pool.query(
     `UPDATE reservation_demands
-     SET contract_id = ?,
+     SET status = 'contrat_realise',
+         contract_id = ?,
          contract_generated_at = ?,
+         client_confirmation_clicked_at = COALESCE(client_confirmation_clicked_at, ?),
          identity_document_type = COALESCE(identity_document_type, ?),
          identity_document_number = COALESCE(identity_document_number, ?),
          identity_first_name = COALESCE(identity_first_name, ?),
          identity_last_name = COALESCE(identity_last_name, ?),
          updated_at = ?
      WHERE id = ?`,
-    [contractId, now, identityDocumentType, identityDocumentNumber, identityFirstName, identityLastName, now, demandId]
+    [contractId, now, now, identityDocumentType, identityDocumentNumber, identityFirstName, identityLastName, now, demandId]
   );
 
   await appendReservationDemandHistory(
     demandId,
-    String(current.status || 'client_procede_vers_paiement_en_cours'),
+    'contrat_realise',
     'client',
     String(actorId || current.client_user_id || current.client_email || 'client'),
     `Contrat ${contractId} genere automatiquement avant paiement`,
+    now
+  );
+  await createAdminNotification(
+    'success',
+    `Contrat ${contractId} realise pour la demande ${demandId}`,
     now
   );
   return { contractId };
@@ -12237,7 +12254,7 @@ app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthentic
     const amountForFlouci = normalizeFlouciAmount(amountTnd);
     if (amountForFlouci <= 0) return res.status(400).json({ error: 'Montant Flouci invalide' });
     const frontendBase = CANONICAL_FRONTEND_URL.replace(/\/+$/, '');
-    const backendBase = API_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const backendBase = resolvePublicApiBase(req) || `${req.protocol}://${req.get('host')}`;
     const callbackBase = `${backendBase.replace(/\/+$/, '')}/api/payments/flouci/callback`;
     const successLink = `${callbackBase}?demand_id=${encodeURIComponent(demandId)}&scope=${encodeURIComponent(scope)}&flow=success&return_to=${encodeURIComponent(`${frontendBase}/mes-reservations/${encodeURIComponent(demandId)}/paiement`)}`;
     const failLink = `${callbackBase}?demand_id=${encodeURIComponent(demandId)}&scope=${encodeURIComponent(scope)}&flow=fail&return_to=${encodeURIComponent(`${frontendBase}/mes-reservations/${encodeURIComponent(demandId)}/paiement`)}`;
@@ -12292,7 +12309,11 @@ app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthentic
     });
   } catch (error) {
     console.error('Error creating Flouci checkout:', error);
-    return res.status(500).json({ error: 'Impossible de creer la session Flouci' });
+    const detail = String(error?.message || '').trim();
+    return res.status(500).json({
+      error: detail ? `Impossible de creer la session Flouci (${detail})` : 'Impossible de creer la session Flouci',
+      detail,
+    });
   }
 });
 
