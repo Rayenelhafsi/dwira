@@ -159,6 +159,27 @@ export default function AgentAmicaleDashboardPage() {
     return { waitingAmicale, waitingAgency, vouchers, totalHt };
   }, [demandRows, voucherRows]);
 
+  const comptabiliteRows = useMemo(() => {
+    return demandRows.map((row) => {
+      const ht = Number(row.total_amount || 0);
+      const tva = Math.round((ht * 0.1) * 100) / 100;
+      const ttc = Math.round((ht + tva) * 100) / 100;
+      return { row, ht, tva, ttc };
+    });
+  }, [demandRows]);
+
+  const comptabiliteTotals = useMemo(() => {
+    return comptabiliteRows.reduce(
+      (acc, item) => {
+        acc.ht += item.ht;
+        acc.tva += item.tva;
+        acc.ttc += item.ttc;
+        return acc;
+      },
+      { ht: 0, tva: 0, ttc: 0 }
+    );
+  }, [comptabiliteRows]);
+
   const handleDemandAction = async (demand: AgentDemandRow, next: "validate" | "reject") => {
     setSavingId(demand.id);
     try {
@@ -485,11 +506,52 @@ export default function AgentAmicaleDashboardPage() {
           )}
 
           {tab === "comptabilite" && (
-            <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Demandes totales" value={demandRows.length} tone="emerald" />
-              <StatCard label="En attente amicale" value={summary.waitingAmicale} tone="amber" />
-              <StatCard label="En attente agence" value={summary.waitingAgency} tone="sky" />
-              <StatCard label="Total HT vouchers" value={Number.isFinite(summary.totalHt) ? summary.totalHt : 0} tone="indigo" currency />
+            <div className="mt-6 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard label="Demandes totales" value={demandRows.length} tone="emerald" />
+                <StatCard label="Total HT" value={Math.round(comptabiliteTotals.ht * 100) / 100} tone="sky" currency />
+                <StatCard label="TVA 10%" value={Math.round(comptabiliteTotals.tva * 100) / 100} tone="amber" currency />
+                <StatCard label="Total TTC" value={Math.round(comptabiliteTotals.ttc * 100) / 100} tone="indigo" currency />
+              </div>
+
+              {comptabiliteRows.length === 0 ? (
+                <p className="text-sm text-gray-500">Aucune demande pour la comptabilite.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-[980px] w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-left text-gray-600">
+                        <th className="px-3 py-2 font-semibold">Client</th>
+                        <th className="px-3 py-2 font-semibold">Logement</th>
+                        <th className="px-3 py-2 font-semibold">Periode</th>
+                        <th className="px-3 py-2 font-semibold">Statut</th>
+                        <th className="px-3 py-2 font-semibold">Prix HT</th>
+                        <th className="px-3 py-2 font-semibold">+ 10%</th>
+                        <th className="px-3 py-2 font-semibold">Prix TTC</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comptabiliteRows.map(({ row, ht, tva, ttc }) => (
+                        <tr key={`compta-${row.id}`} className="border-b border-gray-100">
+                          <td className="px-3 py-2 text-gray-900">{String(row.client_name || "-")}</td>
+                          <td className="px-3 py-2 text-gray-900">{String(row.bien_reference || row.bien_id || "-")}</td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {formatDateOnly(row.start_date)} au {formatDateOnly(row.end_date)}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${demandStatusTone(row.status)}`}>
+                              {demandStatusLabel(row.status)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-gray-900">{formatCurrency(ht)}</td>
+                          <td className="px-3 py-2 font-semibold text-amber-700">{formatCurrency(tva)}</td>
+                          <td className="px-3 py-2 font-semibold text-emerald-700">{formatCurrency(ttc)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

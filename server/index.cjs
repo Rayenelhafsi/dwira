@@ -6577,6 +6577,9 @@ async function generateAmicaleVoucherHtml({
   }
   const safeVoucherNumber = String(voucherNumber || '').trim() || `VCH-${String(demand?.id || '').slice(-8).toUpperCase()}`;
   const fileName = `voucher-${String(demand?.id || 'demand').replace(/[^a-zA-Z0-9_-]/g, '_')}.html`;
+  const voucherRelativePath = `/contracts/amicale-vouchers/${fileName}`;
+  const voucherPublicUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}${voucherRelativePath}`;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(voucherPublicUrl)}`;
   const filePath = path.join(vouchersDir, fileName);
   const stayPeriodLabel = formatStayPeriodFr(demand.start_date, demand.end_date);
   const totalAmount = Number(demand.total_amount || 0);
@@ -6601,6 +6604,10 @@ async function generateAmicaleVoucherHtml({
     .label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
     .value { font-size: 15px; font-weight: 700; color: #0f172a; }
     .voucher { display: inline-block; padding: 8px 12px; border-radius: 999px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; font-weight: 700; }
+    .qr-wrap { margin-top: 16px; display: flex; align-items: center; gap: 14px; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 12px; }
+    .qr-wrap img { width: 132px; height: 132px; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .qr-title { font-size: 12px; color: #475569; margin-bottom: 4px; text-transform: uppercase; font-weight: 700; }
+    .qr-link { font-size: 12px; color: #0f766e; word-break: break-all; }
     .footer { margin-top: 18px; padding-top: 12px; border-top: 1px dashed #cbd5e1; color: #475569; font-size: 13px; }
     @media print { body { background: #fff; } .page { margin: 0; border: 0; border-radius: 0; } }
   </style>
@@ -6610,6 +6617,15 @@ async function generateAmicaleVoucherHtml({
     <div class="voucher">Voucher en cours</div>
     <h1>${escapeHtml(String(amicale?.name || 'Amicale'))}</h1>
     <p class="muted">Reference voucher: ${escapeHtml(safeVoucherNumber)} - Genere le ${escapeHtml(createdAtLabel)}</p>
+
+    <div class="qr-wrap">
+      <img src="${escapeHtml(qrCodeUrl)}" alt="QR voucher ${escapeHtml(safeVoucherNumber)}" />
+      <div>
+        <div class="qr-title">QR Code Voucher</div>
+        <div class="muted">Scanner pour ouvrir directement la page du voucher.</div>
+        <a class="qr-link" href="${escapeHtml(voucherPublicUrl)}" target="_blank" rel="noreferrer">${escapeHtml(voucherPublicUrl)}</a>
+      </div>
+    </div>
 
     <div class="grid">
       <div class="box">
@@ -6648,7 +6664,7 @@ async function generateAmicaleVoucherHtml({
 </html>`;
 
   await fs.promises.writeFile(filePath, html, 'utf8');
-  return `/contracts/amicale-vouchers/${fileName}`;
+  return voucherRelativePath;
 }
 
 async function appendReservationDemandHistory(demandId, status, actorType, actorId, note, createdAt = getAgencySqlDateTime()) {
