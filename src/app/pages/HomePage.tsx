@@ -345,7 +345,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   };
   const resolveZoneImageUrl = (url?: string | null) => {
     const value = String(url || '').trim();
-    if (!value) return ZONE_FALLBACK_IMAGE;
+    if (!value) return 'about:blank';
     if (/^https?:\/\//i.test(value)) return withCacheBust(value);
     return withCacheBust(value.startsWith('/') ? `${window.location.origin}${value}` : value);
   };
@@ -411,7 +411,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setShowComfortDropdown(false);
   };
   const selectedLocationImages = useMemo(() => {
-    const pickImage = (items: Zone[], field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
+    const pickImage = (items: Zone[], field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url') =>
       items.find((item) => String(item[field] || '').trim())?.[field] || null;
 
     const paysImage = locationPays
@@ -455,16 +455,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       pays: paysImage,
       gouvernerat: gouverneratImage,
       region: regionImage,
-      zone: zoneImage || pickImage(
-        normalizedZones.filter(
-          (zone) =>
-            (!locationPays || String(zone.pays || '').trim() === locationPays)
-            && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
-            && (!locationRegion || String(zone.region || '').trim() === locationRegion)
-            && (!locationZone || String(zone.quartier || zone.nom || '').trim() === locationZone)
-        ),
-        'image_url'
-      ),
+      zone: zoneImage,
     };
   }, [normalizedZones, locationPays, locationGouvernerat, locationRegion, locationZone]);
   const getLocationOptionImage = (
@@ -488,7 +479,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         && (!locationRegion || region === locationRegion)
         && zoneName === value;
     });
-    if (!rows.length) return ZONE_FALLBACK_IMAGE;
+    if (!rows.length) return 'about:blank';
     const pickFirstNonEmpty = (field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
       String(rows.find((item) => String(item[field] || '').trim())?.[field] || '').trim();
     const levelImage =
@@ -500,23 +491,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             ? pickFirstNonEmpty('region_image_url')
             : pickFirstNonEmpty('quartier_image_url');
 
-    // Keep generic zone image only as last fallback (mainly for zone cards),
-    // so iOS does not show unrelated old/default images for pays/gouvernorat/region.
-    const fallback =
-      level === "zone"
-        ? (
-          pickFirstNonEmpty('image_url')
-          || pickFirstNonEmpty('quartier_image_url')
-          || pickFirstNonEmpty('region_image_url')
-          || pickFirstNonEmpty('gouvernerat_image_url')
-          || pickFirstNonEmpty('pays_image_url')
-        )
-        : (
-          pickFirstNonEmpty('region_image_url')
-          || pickFirstNonEmpty('gouvernerat_image_url')
-          || pickFirstNonEmpty('pays_image_url')
-        );
-    return resolveZoneImageUrl(levelImage || fallback || ZONE_FALLBACK_IMAGE);
+    return resolveZoneImageUrl(levelImage || '');
   };
   const modeProperties = useMemo(
     () => properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode),
@@ -907,10 +882,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     navigate(`/logements?${params.toString()}`);
   };
   const selectedLocationWidgetImage =
-    selectedLocationImages.zone
-    || selectedLocationImages.region
-    || selectedLocationImages.gouvernerat
-    || selectedLocationImages.pays
+    (locationZone && selectedLocationImages.zone)
+    || (locationRegion && selectedLocationImages.region)
+    || (locationGouvernerat && selectedLocationImages.gouvernerat)
+    || (locationPays && selectedLocationImages.pays)
     || null;
 
   useEffect(() => {
