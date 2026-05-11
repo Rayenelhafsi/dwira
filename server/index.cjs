@@ -11324,9 +11324,24 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         return res.status(403).json({ error: 'La modification de statut demandee n est pas autorisee sur cette etape' });
       }
       if (nextStatus === 'client_procede_vers_paiement_en_cours' && !String(current.contract_id || '').trim()) {
-        const autoContract = await ensureAutoContractForDemand(current, body.actor_id || requester?.id || requester?.email || 'client');
-        if (autoContract?.contractId) {
-          current.contract_id = autoContract.contractId;
+        try {
+          const autoContract = await ensureAutoContractForDemand(
+            current,
+            body.actor_id || requester?.id || requester?.email || 'client'
+          );
+          if (autoContract?.contractId) {
+            current.contract_id = autoContract.contractId;
+          }
+        } catch (autoContractError) {
+          // Non-blocking: clients must still be able to continue their payment flow.
+          console.warn(
+            'auto_contract_generation_failed_on_client_transition:',
+            autoContractError?.message || autoContractError
+          );
+          logMobileFlow('reservation_auto_contract_non_blocking_error', req, {
+            demandId,
+            error: String(autoContractError?.message || autoContractError),
+          });
         }
       }
     }
