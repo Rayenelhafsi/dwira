@@ -1204,7 +1204,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         <div className="flex items-center justify-between mb-4">
                           <button 
                             onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
-                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <ChevronLeft size={20} />
                           </button>
@@ -1213,7 +1213,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           </h3>
                           <button 
                             onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <ChevronRight size={20} />
                           </button>
@@ -1639,11 +1639,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={calendarMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-4">
-                <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
                   <ChevronLeft size={20} />
                 </button>
                 <h3 className="font-bold text-gray-900 capitalize">{format(currentMonth, "MMMM yyyy", { locale: fr })}</h3>
-                <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
                   <ChevronRight size={20} />
                 </button>
               </div>

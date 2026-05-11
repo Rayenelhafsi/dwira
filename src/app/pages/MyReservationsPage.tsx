@@ -96,6 +96,20 @@ function resolveAssetUrl(url?: string) {
   return `${window.location.origin}${url}`;
 }
 
+function printVoucherUrl(voucherUrl: string) {
+  const popup = window.open("", "_blank");
+  if (!popup) {
+    window.location.href = voucherUrl;
+    toast.info("Popup bloquee. Voucher ouvert dans l onglet courant pour impression.");
+    return;
+  }
+  popup.addEventListener("load", () => {
+    popup.focus();
+    popup.print();
+  }, { once: true });
+  popup.location.href = voucherUrl;
+}
+
 type ContractApi = {
   id: string;
   url_pdf?: string;
@@ -483,6 +497,26 @@ export default function MyReservationsPage() {
                           </button>
                         </>
                       )}
+                      {reservation.voucher_url ? (
+                        <>
+                          <a
+                            href={resolveAssetUrl(reservation.voucher_url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+                          >
+                            Consulter voucher
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => printVoucherUrl(resolveAssetUrl(reservation.voucher_url || ""))}
+                            className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                          >
+                            <Printer className="h-4 w-4" />
+                            Imprimer voucher
+                          </button>
+                        </>
+                      ) : null}
                       {reservation.status === "contrat_realise" && (
                         <Link to={`/mes-reservations/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                           Proceder vers paiement

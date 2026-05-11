@@ -71,6 +71,7 @@ export const router = createBrowserRouter([
       { path: "login", lazy: lazyPage(() => import("./pages/LoginPage")) },
       { path: "agent-amicale/login", lazy: lazyPage(() => import("./pages/AgentAmicaleLoginPage")) },
       { path: "agent-amicale/dashboard", lazy: lazyPage(() => import("./pages/AgentAmicaleDashboardPage")) },
+      { path: ":amicaleSlug/:propertyRef", lazy: lazyPage(() => import("./pages/AmicalePropertyRedirectPage")) },
       { path: ":amicaleSlug", lazy: lazyPage(() => import("./pages/AmicaleLandingPage")) },
       { path: "*", Component: () => <div className="p-20 text-center">Page non trouvee</div> },
     ],

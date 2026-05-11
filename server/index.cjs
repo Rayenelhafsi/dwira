@@ -6817,11 +6817,15 @@ async function generateAmicaleVoucherHtml({
     fs.mkdirSync(vouchersDir, { recursive: true });
   }
   const safeVoucherNumber = String(voucherNumber || '').trim() || `VCH-${String(demand?.id || '').slice(-8).toUpperCase()}`;
-  const fileName = `voucher-${String(demand?.id || 'demand').replace(/[^a-zA-Z0-9_-]/g, '_')}.html`;
+  const safeDemandId = String(demand?.id || 'demand').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `voucher-${safeDemandId}.html`;
+  const pdfFileName = `voucher-${safeDemandId}.pdf`;
   const voucherRelativePath = `/contracts/amicale-vouchers/${fileName}`;
+  const voucherPdfRelativePath = `/contracts/amicale-vouchers/${pdfFileName}`;
   const voucherPublicUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}${voucherRelativePath}`;
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(voucherPublicUrl)}`;
   const filePath = path.join(vouchersDir, fileName);
+  const pdfPath = path.join(vouchersDir, pdfFileName);
   const parseDayMonth = (value) => {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
       return {
@@ -6869,6 +6873,8 @@ async function generateAmicaleVoucherHtml({
   const amicaleLogoUrl = String(amicale?.logoUrl || demand?.amicale_logo_url || '').trim();
   const peopleText = `${totalGuests} (Adultes: ${adultGuests}, Enfants: ${childGuests})`;
   const voucherIdText = String(demand?.id || safeVoucherNumber).trim();
+  const voucherIdUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}${voucherPdfRelativePath}`;
+  const qrCodePdfUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(voucherIdUrl)}`;
 
   const html = `<!doctype html>
 <html lang="fr">
@@ -6910,7 +6916,94 @@ async function generateAmicaleVoucherHtml({
 </html>`;
 
   await fs.promises.writeFile(filePath, html, 'utf8');
-  return voucherRelativePath;
+
+  const sheetWidth = 1536;
+  const sheetHeight = 1024;
+
+  const loadImageBuffer = async (urlValue) => {
+    const raw = String(urlValue || '').trim();
+    if (!raw) return null;
+    if (raw.startsWith('data:')) {
+      const idx = raw.indexOf('base64,');
+      if (idx < 0) return null;
+      return Buffer.from(raw.slice(idx + 7), 'base64');
+    }
+    try {
+      const response = await fetch(raw);
+      if (!response.ok) return null;
+      const arr = await response.arrayBuffer();
+      return Buffer.from(arr);
+    } catch {
+      return null;
+    }
+  };
+
+  try {
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([sheetWidth, sheetHeight]);
+    const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    const bgLocalPath = path.resolve(__dirname, '../public/voucher-template/vide.jpg');
+    if (fs.existsSync(bgLocalPath)) {
+      const bgBytes = await fs.promises.readFile(bgLocalPath);
+      const bgImage = await pdfDoc.embedJpg(bgBytes);
+      page.drawImage(bgImage, { x: 0, y: 0, width: sheetWidth, height: sheetHeight });
+    }
+
+    if (amicaleLogoUrl) {
+      const logoBytes = await loadImageBuffer(amicaleLogoUrl);
+      if (logoBytes) {
+        let logoImage = null;
+        const lower = amicaleLogoUrl.toLowerCase();
+        if (lower.includes('image/png') || lower.endsWith('.png')) {
+          logoImage = await pdfDoc.embedPng(logoBytes).catch(() => null);
+        }
+        if (!logoImage) {
+          logoImage = await pdfDoc.embedJpg(logoBytes).catch(() => null);
+        }
+        if (logoImage) {
+          page.drawImage(logoImage, { x: 70, y: sheetHeight - 120 - 200, width: 200, height: 200 });
+        }
+      }
+    }
+
+    const qrBytes = await loadImageBuffer(qrCodePdfUrl);
+    if (qrBytes) {
+      const qrImage = await pdfDoc.embedPng(qrBytes).catch(() => null);
+      if (qrImage) {
+        page.drawImage(qrImage, { x: 406, y: sheetHeight - 808 - 132, width: 132, height: 132 });
+      }
+    }
+
+    const drawTextTop = (text, left, top, size = 24, bold = true, color = rgb(0.06, 0.09, 0.16)) => {
+      page.drawText(String(text || '-'), {
+        x: left,
+        y: sheetHeight - top - size,
+        size,
+        font: bold ? fontBold : fontRegular,
+        color,
+      });
+    };
+
+    drawTextTop(`Voucher ${safeVoucherNumber} | Genere le ${createdAtLabel}`, 430, 26, 20, true, rgb(0.05, 0.46, 0.43));
+    drawTextTop(String(demand.client_name || '-'), 644, 429, 24);
+    drawTextTop(String(demand.amicale_phone || '-'), 596, 504, 24);
+    drawTextTop(String(bien?.reference || demand.bien_id || '-'), 654, 573, 24);
+    drawTextTop(String(startDay || '--'), 638, 647, 20);
+    drawTextTop(String(startMonth || '--'), 698, 647, 20);
+    drawTextTop(String(endDay || '--'), 845, 649, 20);
+    drawTextTop(String(endMonth || '--'), 909, 648, 20);
+    drawTextTop(peopleText, 675, 719, 20);
+    drawTextTop(voucherIdText, 622, 896, 22, true);
+
+    const pdfBytes = await pdfDoc.save();
+    await fs.promises.writeFile(pdfPath, Buffer.from(pdfBytes));
+    return voucherPdfRelativePath;
+  } catch (pdfError) {
+    console.warn('Voucher PDF generation failed, fallback to HTML:', pdfError?.message || pdfError);
+    return voucherRelativePath;
+  }
 }
 
 async function appendReservationDemandHistory(demandId, status, actorType, actorId, note, createdAt = getAgencySqlDateTime()) {

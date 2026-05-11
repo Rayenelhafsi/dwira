@@ -378,76 +378,60 @@ export default function AgentAmicaleDashboardPage() {
                 placeholder="Filtrer: matricule, nom/prenom, tel, reference logement, statut..."
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               />
-              <div className="overflow-x-auto">
-              <table className="min-w-[1200px] w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 text-left text-gray-600">
-                    <th className="px-3 py-2 font-semibold">Nom / Prenom</th>
-                    <th className="px-3 py-2 font-semibold">Matricule</th>
-                    <th className="px-3 py-2 font-semibold">Telephone</th>
-                    <th className="px-3 py-2 font-semibold">Logement</th>
-                    <th className="px-3 py-2 font-semibold">Periode prise</th>
-                    <th className="px-3 py-2 font-semibold">Total HT</th>
-                    <th className="px-3 py-2 font-semibold">Statut</th>
-                    <th className="px-3 py-2 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDemandRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-3 py-6 text-center text-gray-500">
-                        Aucune demande amicale pour cette amicale.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredDemandRows.map((demand) => {
-                      const consultPath = buildPropertyPath(demand);
-                      const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
-                      const canDecide = demand.status === "attente_validation_amicale";
-                      return (
-                        <tr key={demand.id} className="border-b border-gray-100 align-top">
-                          <td className="px-3 py-3 text-gray-900">{String(demand.client_name || "-")}</td>
-                          <td className="px-3 py-3 text-gray-700">{String(demand.amicale_matricule || "-")}</td>
-                          <td className="px-3 py-3 text-gray-700">{String(demand.amicale_phone || "-")}</td>
-                          <td className="px-3 py-3 text-gray-900">
-                            <div className="font-medium">{String(demand.bien_reference || demand.bien_id || "-")}</div>
-                            <div className="text-xs text-gray-500">{String(demand.bien_titre || "-")}</div>
+              {filteredDemandRows.length === 0 ? (
+                <p className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                  Aucune demande amicale pour cette amicale.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {filteredDemandRows.map((demand) => {
+                    const consultPath = buildPropertyPath(demand);
+                    const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
+                    const canDecide = demand.status === "attente_validation_amicale";
+                    return (
+                      <article key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="grid gap-3 lg:grid-cols-3">
+                          <div className="space-y-1 text-sm">
+                            <p><span className="font-semibold">Nom:</span> {String(demand.client_name || "-")}</p>
+                            <p><span className="font-semibold">Matricule:</span> {String(demand.amicale_matricule || "-")}</p>
+                            <p><span className="font-semibold">Telephone:</span> {String(demand.amicale_phone || "-")}</p>
+                          </div>
+                          <div className="space-y-1 text-sm">
+                            <p className="font-semibold">{String(demand.bien_reference || demand.bien_id || "-")}</p>
+                            <p className="text-gray-600">{String(demand.bien_titre || "-")}</p>
+                            <p>
+                              <span className="font-semibold">Periode:</span> {formatDateOnly(demand.start_date)} au {formatDateOnly(demand.end_date)}
+                            </p>
+                            <p><span className="font-semibold">Total HT:</span> {formatCurrency(demand.total_amount)}</p>
                             <Link
                               to={consultPath}
-                              className="mt-2 inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                              className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
                             >
                               <Eye className="h-3.5 w-3.5" />
                               Consulter
                             </Link>
-                          </td>
-                          <td className="px-3 py-3 text-gray-700">
-                            <div>{formatDateOnly(demand.start_date)}</div>
-                            <div className="text-xs text-gray-500">au {formatDateOnly(demand.end_date)}</div>
-                          </td>
-                          <td className="px-3 py-3 font-semibold text-gray-900">{formatCurrency(demand.total_amount)}</td>
-                          <td className="px-3 py-3">
+                          </div>
+                          <div className="space-y-2">
                             <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${demandStatusTone(demand.status)}`}>
                               {demandStatusLabel(demand.status)}
                             </span>
                             {demand.amicale_validation_at ? (
-                              <div className="mt-1 text-xs text-gray-500">Validee amicale le {formatDateTime(demand.amicale_validation_at)}</div>
+                              <p className="text-xs text-gray-500">Validee amicale le {formatDateTime(demand.amicale_validation_at)}</p>
                             ) : null}
                             {demand.agency_validation_at ? (
-                              <div className="mt-1 text-xs text-gray-500">Validee agence le {formatDateTime(demand.agency_validation_at)}</div>
+                              <p className="text-xs text-gray-500">Validee agence le {formatDateTime(demand.agency_validation_at)}</p>
                             ) : null}
                             {voucherUrl ? (
                               <a
                                 href={voucherUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="mt-2 block text-xs font-medium text-indigo-700 hover:underline"
+                                className="block text-xs font-medium text-indigo-700 hover:underline"
                               >
                                 Ouvrir voucher
                               </a>
                             ) : null}
-                          </td>
-                          <td className="px-3 py-3">
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-2 pt-1">
                               {canDecide ? (
                                 <>
                                   <button
@@ -474,14 +458,13 @@ export default function AgentAmicaleDashboardPage() {
                                 </span>
                               )}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

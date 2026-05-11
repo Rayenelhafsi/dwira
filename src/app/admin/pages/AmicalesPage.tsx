@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronRight, Code2, Eye, FileText, RefreshCw, Ticket, Trash2, Users } from "lucide-react";
+import { CheckCircle2, ChevronRight, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Users } from "lucide-react";
 import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, type AmicaleItem } from "../../utils/amicales";
 import type { ReservationDemand, ReservationDemandStatus } from "../types";
 
@@ -81,6 +81,20 @@ function resolveAssetUrl(url?: string | null) {
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
   return `${window.location.origin}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
+function printVoucherUrl(voucherUrl: string) {
+  const popup = window.open("", "_blank");
+  if (!popup) {
+    window.location.href = voucherUrl;
+    toast.info("Popup bloquee. Voucher ouvert dans l onglet courant pour impression.");
+    return;
+  }
+  popup.addEventListener("load", () => {
+    popup.focus();
+    popup.print();
+  }, { once: true });
+  popup.location.href = voucherUrl;
 }
 
 function isAmicaleDemand(demand: ReservationDemand) {
@@ -466,106 +480,91 @@ export default function AmicalesPage() {
           {filteredDemands.length === 0 ? (
             <p className="text-sm text-gray-500">Aucune demande amicale pour le moment.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-[1320px] w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 text-left text-gray-600">
-                    <th className="px-3 py-2 font-semibold">Amicale</th>
-                    <th className="px-3 py-2 font-semibold">Nom / Prenom</th>
-                    <th className="px-3 py-2 font-semibold">Matricule</th>
-                    <th className="px-3 py-2 font-semibold">Telephone</th>
-                    <th className="px-3 py-2 font-semibold">Logement</th>
-                    <th className="px-3 py-2 font-semibold">Periode prise</th>
-                    <th className="px-3 py-2 font-semibold">Total HT</th>
-                    <th className="px-3 py-2 font-semibold">Statut</th>
-                    <th className="px-3 py-2 font-semibold">Validation agence</th>
-                    <th className="px-3 py-2 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDemands.map((demand) => {
-                    const consultPath = buildPropertyPath(demand);
-                    const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
-                    return (
-                      <tr key={demand.id} className="border-b border-gray-100 align-top">
-                        <td className="px-3 py-3 text-gray-900">
-                          <div className="font-medium">
-                            {String(demand.amicale_name || amicaleNameById.get(String(demand.pricing_amicale_id || "").trim()) || "-")}
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 text-gray-900">{String(demand.client_name || "-")}</td>
-                        <td className="px-3 py-3 text-gray-700">{String(demand.amicale_matricule || "-")}</td>
-                        <td className="px-3 py-3 text-gray-700">{String(demand.amicale_phone || "-")}</td>
-                        <td className="px-3 py-3 text-gray-900">
-                          <div className="font-medium">{String(demand.bien_reference || demand.bien_id || "-")}</div>
-                          <div className="text-xs text-gray-500">{String(demand.bien_titre || "-")}</div>
-                          <Link
-                            to={consultPath}
-                            className="mt-2 inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            Consulter
-                          </Link>
-                        </td>
-                        <td className="px-3 py-3 text-gray-700">
-                          <div>{formatDateOnly(demand.start_date)}</div>
-                          <div className="text-xs text-gray-500">au {formatDateOnly(demand.end_date)}</div>
-                        </td>
-                        <td className="px-3 py-3 text-gray-900 font-semibold">{formatCurrency(demand.total_amount)}</td>
-                        <td className="px-3 py-3">
-                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${demandStatusTone(demand.status)}`}>
-                            {demandStatusLabel(demand.status)}
-                          </span>
-                          {voucherUrl ? (
+            <div className="space-y-3">
+              {filteredDemands.map((demand) => {
+                const consultPath = buildPropertyPath(demand);
+                const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
+                return (
+                  <article key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="grid gap-3 lg:grid-cols-3">
+                      <div className="space-y-1 text-sm">
+                        <p><span className="font-semibold">Amicale:</span> {String(demand.amicale_name || amicaleNameById.get(String(demand.pricing_amicale_id || "").trim()) || "-")}</p>
+                        <p><span className="font-semibold">Nom:</span> {String(demand.client_name || "-")}</p>
+                        <p><span className="font-semibold">Matricule:</span> {String(demand.amicale_matricule || "-")}</p>
+                        <p><span className="font-semibold">Telephone:</span> {String(demand.amicale_phone || "-")}</p>
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <p className="font-semibold">{String(demand.bien_reference || demand.bien_id || "-")}</p>
+                        <p className="text-gray-600">{String(demand.bien_titre || "-")}</p>
+                        <p><span className="font-semibold">Periode:</span> {formatDateOnly(demand.start_date)} au {formatDateOnly(demand.end_date)}</p>
+                        <p><span className="font-semibold">Total HT:</span> {formatCurrency(demand.total_amount)}</p>
+                        <p><span className="font-semibold">Validation agence:</span> {demand.agency_validation_at ? formatDateTime(demand.agency_validation_at) : "-"}</p>
+                        <Link
+                          to={consultPath}
+                          className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Consulter
+                        </Link>
+                      </div>
+                      <div className="space-y-2">
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${demandStatusTone(demand.status)}`}>
+                          {demandStatusLabel(demand.status)}
+                        </span>
+                        {voucherUrl ? (
+                          <div className="flex flex-wrap items-center gap-2">
                             <a
                               href={voucherUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="mt-2 block text-xs font-medium text-indigo-700 hover:underline"
+                              className="text-xs font-medium text-indigo-700 hover:underline"
                             >
                               Ouvrir voucher
                             </a>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-3 text-gray-700">
-                          {demand.agency_validation_at ? formatDateTime(demand.agency_validation_at) : "-"}
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
-                              disabled={savingId === demand.id}
-                              onClick={() => void handleDemandAction(demand, "voucher_en_cours")}
-                              className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                              onClick={() => printVoucherUrl(voucherUrl)}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                             >
-                              <CheckCircle2 className="h-4 w-4" />
-                              Valider
+                              <Printer className="h-3.5 w-3.5" />
+                              Imprimer voucher
                             </button>
-                            <button
-                              type="button"
-                              disabled={savingId === demand.id}
-                              onClick={() => void handleDemandAction(demand, "rejete_par_agence")}
-                              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
-                            >
-                              Rejeter
-                            </button>
-                            {String(demand.status || "") === "voucher_en_cours" ? (
-                              <button
-                                type="button"
-                                disabled={savingId === demand.id}
-                                onClick={() => void handleRegenerateVoucher(demand)}
-                                className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
-                              >
-                                Regenerer voucher
-                              </button>
-                            ) : null}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={savingId === demand.id}
+                            onClick={() => void handleDemandAction(demand, "voucher_en_cours")}
+                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Valider
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingId === demand.id}
+                            onClick={() => void handleDemandAction(demand, "rejete_par_agence")}
+                            className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                          >
+                            Rejeter
+                          </button>
+                          {String(demand.status || "") === "voucher_en_cours" ? (
+                            <button
+                              type="button"
+                              disabled={savingId === demand.id}
+                              onClick={() => void handleRegenerateVoucher(demand)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+                            >
+                              Regenerer voucher
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>
