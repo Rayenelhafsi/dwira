@@ -16097,6 +16097,9 @@ app.post('/api/amicales', requireAdminSession, async (req, res) => {
     res.status(201).json(rows?.[0] || null);
   } catch (error) {
     console.error('Error creating amicale:', error);
+    if (String(error?.code || '') === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Ce nom d amicale existe deja' });
+    }
     res.status(500).json({ error: 'Failed to create amicale' });
   }
 });

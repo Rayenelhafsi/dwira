@@ -82,7 +82,11 @@ export async function createAmicaleApi(payload: { name: string; code: string; lo
       logo_url: payload.logoUrl || null,
     }),
   });
-  if (!response.ok) throw new Error("Ajout amicale impossible");
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    const message = String(data?.error || data?.message || "").trim();
+    throw new Error(message || "Ajout amicale impossible");
+  }
   return normalizeApiRow(await response.json());
 }
 
