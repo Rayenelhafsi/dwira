@@ -68,6 +68,13 @@ const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
   immeuble: "Immeuble",
   autre: "Autre",
 };
+const MAIN_TYPE_DISPLAY_ORDER: PropertyMainType[] = [
+  "appartement",
+  "villa_maison",
+  "studio",
+  "immeuble",
+  "autre",
+];
 
 type FeatureApiRow = {
   id: string;
@@ -180,6 +187,7 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
   if (Number.isFinite(bedrooms) && bedrooms > 0) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
   return "";
 };
+const normalizeTypeToken = (value?: string | null) => String(value || "").trim().toLowerCase();
 
 const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKey) => {
   const textBlob = normalizeFeatureName(
@@ -519,13 +527,13 @@ export default function PropertiesPage() {
   const availableTypeOptions = useMemo(() => {
     const byCategory = new Map<string, { label: string; imageUrl: string }>();
     for (const property of modeProperties) {
-      const category = String(property.category || "").trim();
+      const category = getResolvedPropertyCategoryLabel(property);
       if (!category) continue;
       if (!byCategory.has(category)) {
         const firstImage = Array.isArray(property.images) ? String(property.images[0] || "").trim() : "";
         const imageFromAdmin = typeFilterImageRows.find((row) =>
           String(row.mode_bien || "").trim() === selectedMode
-          && normalizeFeatureName(row.sub_type || "") === normalizeFeatureName(category)
+          && normalizeTypeToken(row.sub_type) === normalizeTypeToken(category)
         )?.image_url || "";
         byCategory.set(category, {
           label: category,
@@ -537,27 +545,51 @@ export default function PropertiesPage() {
   }, [modeProperties, selectedMode, typeFilterImageRows]);
   const groupedTypeOptions = useMemo(() => {
     const groups = new Map<PropertyMainType, { mainType: PropertyMainType; label: string; imageUrl: string; subTypes: Array<{ label: string; imageUrl: string }> }>();
+    const modeRows = typeFilterImageRows.filter((row) => String(row.mode_bien || "").trim() === selectedMode);
+
+    for (const mainType of Object.keys(MAIN_TYPE_LABELS) as PropertyMainType[]) {
+      const mainImageFromAdmin = modeRows.find(
+        (row) => normalizeTypeToken(row.main_type) === normalizeTypeToken(mainType) && !String(row.sub_type || "").trim()
+      )?.image_url || "";
+      groups.set(mainType, {
+        mainType,
+        label: MAIN_TYPE_LABELS[mainType],
+        imageUrl: mainImageFromAdmin || TYPE_FALLBACK_IMAGE,
+        subTypes: [],
+      });
+    }
+
+    for (const row of modeRows) {
+      const subType = String(row.sub_type || "").trim();
+      if (!subType) continue;
+      const mainType = getMainTypeFromCategory(String(row.main_type || ""));
+      const group = groups.get(mainType);
+      if (!group) continue;
+      const canonicalSubType = getCanonicalSubTypeKey(subType);
+      if (!group.subTypes.some((item) => getCanonicalSubTypeKey(item.label) === canonicalSubType)) {
+        group.subTypes.push({ label: subType, imageUrl: row.image_url || TYPE_FALLBACK_IMAGE });
+      }
+      if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
+        group.imageUrl = row.image_url || group.imageUrl;
+      }
+    }
+
     for (const option of availableTypeOptions) {
       const mainType = getMainTypeFromCategory(option.label);
-      const existing = groups.get(mainType);
-      const mainImageFromAdmin = typeFilterImageRows.find((row) =>
-        String(row.mode_bien || "").trim() === selectedMode
-        && normalizeFeatureName(row.main_type || "") === normalizeFeatureName(mainType)
-        && !String(row.sub_type || "").trim()
-      )?.image_url || "";
-      if (!existing) {
-        groups.set(mainType, {
-          mainType,
-          label: MAIN_TYPE_LABELS[mainType],
-          imageUrl: mainImageFromAdmin || option.imageUrl,
-          subTypes: [{ label: option.label, imageUrl: option.imageUrl }],
-        });
-        continue;
+      const group = groups.get(mainType);
+      if (!group) continue;
+      const canonicalSubType = getCanonicalSubTypeKey(option.label);
+      if (!group.subTypes.some((item) => getCanonicalSubTypeKey(item.label) === canonicalSubType)) {
+        group.subTypes.push({ label: option.label, imageUrl: option.imageUrl });
       }
-      existing.subTypes.push({ label: option.label, imageUrl: option.imageUrl });
-      if (!existing.imageUrl && (mainImageFromAdmin || option.imageUrl)) existing.imageUrl = mainImageFromAdmin || option.imageUrl;
+      if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
+        group.imageUrl = option.imageUrl || group.imageUrl;
+      }
     }
-    return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
+
+    return Array.from(groups.values())
+      .filter((group) => group.subTypes.length > 0 || group.imageUrl !== TYPE_FALLBACK_IMAGE)
+      .sort((a, b) => MAIN_TYPE_DISPLAY_ORDER.indexOf(a.mainType) - MAIN_TYPE_DISPLAY_ORDER.indexOf(b.mainType));
   }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
   const secondaryTypeOptions = useMemo(() => {
     if (!selectedMainType) return availableTypeOptions;
