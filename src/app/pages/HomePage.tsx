@@ -100,10 +100,22 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
   return "autre";
 };
 const getCanonicalSubTypeKey = (value?: string | null) => {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
   if (!raw) return "";
-  const sPlusMatch = raw.match(/s\+\d+/);
-  if (sPlusMatch?.[0]) return sPlusMatch[0];
+  const sPlusMatch = raw.match(/s\s*\+\s*(\d+)/);
+  if (sPlusMatch?.[1]) return `s+${sPlusMatch[1]}`;
+  const numericBedroomMatch = raw.match(/(\d+)\s*chambre/);
+  if (numericBedroomMatch?.[1]) return `s+${numericBedroomMatch[1]}`;
+  if (/\b(une|un)\s+chambre/.test(raw)) return "s+1";
+  if (/\bdeux\s+chambre/.test(raw)) return "s+2";
+  if (/\btrois\s+chambre/.test(raw)) return "s+3";
+  if (/\bquatre\s+chambre/.test(raw)) return "s+4";
+  if (/\bcinq\s+chambre/.test(raw)) return "s+5";
+  if (/\bsix\s+chambre/.test(raw)) return "s+6";
   return raw.replace(/\s+/g, " ");
 };
 const getResolvedPropertyCategoryLabel = (property: any): string => {
@@ -657,8 +669,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [selectedMode]);
 
   useEffect(() => {
-    const allowed = new Set(availableTypeOptions.map((item) => item.label));
-    setSelectedCategories((prev) => prev.filter((cat) => allowed.has(cat)));
+    const canonicalToLabel = new Map(
+      availableTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
+    );
+    setSelectedCategories((prev) => {
+      const remapped = prev
+        .map((cat) => canonicalToLabel.get(getCanonicalSubTypeKey(cat)) || "")
+        .filter(Boolean);
+      return Array.from(new Set(remapped));
+    });
     const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
     setSelectedMainType((prev) => {
       return prev && mainTypeAllowed.has(prev) ? prev : "";
@@ -673,8 +692,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
   useEffect(() => {
     if (!selectedMainType) return;
-    const allowedSecondary = new Set(secondaryTypeOptions.map((item) => item.label));
-    setSelectedCategories((prev) => prev.filter((cat) => allowedSecondary.has(cat)));
+    const canonicalToLabel = new Map(
+      secondaryTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
+    );
+    setSelectedCategories((prev) => {
+      const remapped = prev
+        .map((cat) => canonicalToLabel.get(getCanonicalSubTypeKey(cat)) || "")
+        .filter(Boolean);
+      return Array.from(new Set(remapped));
+    });
   }, [selectedMainType, secondaryTypeOptions]);
 
   useEffect(() => {
