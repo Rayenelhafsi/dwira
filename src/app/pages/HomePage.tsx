@@ -806,12 +806,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   };
 
   const filteredProperties = useMemo(() => {
+    const selectedSubTypeKeys = selectedCategories
+      .map((item) => getCanonicalSubTypeKey(item))
+      .filter(Boolean);
     const baseProperties = hasSearched
       ? modeProperties.filter((property) => {
           const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
-          const propertyMainType = getMainTypeFromCategory(String(property.category || ""));
+          const resolvedCategory = getResolvedPropertyCategoryLabel(property);
+          const propertyMainType = getMainTypeFromCategory(String(resolvedCategory || property.category || ""));
+          const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategory || property.category || "");
           const matchMainType = !selectedMainType || propertyMainType === selectedMainType;
-          const matchSubType = selectedCategories.length === 0 || selectedCategories.includes(property.category);
+          const matchSubType = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
           const matchSeaside = selectedSeasideOptions.every((option) => propertyMatchesSeasideOption(property, option));
           const matchComfort = selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
           return matchLocation && matchMainType && matchSubType && matchSeaside && matchComfort;
