@@ -139,10 +139,46 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
   if (normalized.includes("appartement")) return "appartement";
   if (normalized.startsWith("s+")) return "appartement";
+  if (normalized.includes("bungalow")) return "villa_maison";
   if (normalized.includes("villa")) return "villa_maison";
   if (normalized.includes("studio")) return "studio";
   if (normalized.includes("immeuble")) return "immeuble";
   return "autre";
+};
+const getCanonicalSubTypeKey = (value?: string | null) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  const sPlusMatch = raw.match(/s\+\d+/);
+  if (sPlusMatch?.[0]) return sPlusMatch[0];
+  return raw.replace(/\s+/g, " ");
+};
+const getResolvedPropertyCategoryLabel = (property: any): string => {
+  const rawCategory = String(property?.category || "").trim();
+  const title = String(property?.title || "").trim();
+  const titleSPlus = title.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
+  const rawSPlus = rawCategory.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
+  const resolvedSPlus = rawSPlus || titleSPlus;
+  const bedrooms = Number(property?.bedrooms || 0);
+  const normalizedCategory = rawCategory.toLowerCase().replace(/\s+/g, " ");
+  const hasUnknownSPlus = /\bs\+\s*\?/i.test(rawCategory) || normalizedCategory.includes("s+?");
+  const inferredMainType = getMainTypeFromCategory(rawCategory || title);
+  const mainLabelByType: Record<PropertyMainType, string> = {
+    appartement: "Appartement",
+    villa_maison: "Villa",
+    studio: "Studio",
+    immeuble: "Immeuble",
+    autre: "Autre",
+  };
+  const mainLabel = mainLabelByType[inferredMainType];
+
+  if (hasUnknownSPlus) {
+    if (resolvedSPlus) return `${mainLabel} ${resolvedSPlus}`;
+    if (Number.isFinite(bedrooms) && bedrooms > 0) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
+  }
+  if (rawCategory) return rawCategory;
+  if (resolvedSPlus) return `${mainLabel} ${resolvedSPlus}`;
+  if (Number.isFinite(bedrooms) && bedrooms > 0) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
+  return "";
 };
 
 const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKey) => {
@@ -299,6 +335,7 @@ export default function PropertiesPage() {
   );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAllResults, setShowAllResults] = useState(false);
+  const [showAlternatives, setShowAlternatives] = useState(false);
   const isAnnualComingSoon = PUBLIC_COMING_SOON.locationAnnuelle && selectedMode === "location_annuelle";
 
   useEffect(() => {
@@ -932,7 +969,7 @@ export default function PropertiesPage() {
     setSearchParams(next, { replace: true });
   };
 
-  const scoredResults = useMemo(() => {
+  const scoringBuckets = useMemo(() => {
     const toDate = (value: string) => {
       const date = new Date(`${value}T00:00:00`);
       return Number.isNaN(date.getTime()) ? null : date;
@@ -990,6 +1027,12 @@ export default function PropertiesPage() {
       minGuests > 1 ||
       isFeaturedOnly ||
       priceMax < priceCeiling;
+
+    const selectedSubTypeKeys = selectedCategories
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .map((value) => getCanonicalSubTypeKey(value))
+      .filter(Boolean);
 
     const rows = properties
       .filter((property) => {
@@ -1183,11 +1226,18 @@ export default function PropertiesPage() {
           else missing.push("Emplacement partiellement different");
         }
 
-        if (selectedCategories.length > 0) {
+        const resolvedCategoryLabel = getResolvedPropertyCategoryLabel(property);
+        const propertyMainType = getMainTypeFromCategory(resolvedCategoryLabel || property.category || "");
+        const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategoryLabel || property.category || "");
+        if (selectedMainType) {
           maxScore += 16;
-          if (selectedCategories.includes(property.category)) score += 16;
-          else if (selectedCategories.some((item) => String(item || "").charAt(0) === String(property.category || "").charAt(0))) score += 7;
-          else missing.push("Type proche mais different");
+          if (propertyMainType === selectedMainType) score += 16;
+          else missing.push("Type principal different");
+        }
+        if (selectedSubTypeKeys.length > 0) {
+          maxScore += 16;
+          if (selectedSubTypeKeys.includes(propertySubTypeKey)) score += 16;
+          else missing.push("Sous-type different");
         }
 
         const matchSeaside = selectedSeasideOptions.every((option) => propertyMatchesSeasideOption(property, option));
@@ -1331,9 +1381,12 @@ export default function PropertiesPage() {
         );
         const matchedTabsCount = Array.from(selectedTabsFromFeatures).filter((tab) => propertyFeatureTabs.includes(tab)).length;
         const normalizedScore = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 100;
+        const strictMainTypeMatch = !selectedMainType || propertyMainType === selectedMainType;
+        const strictSubTypeMatch = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
         return {
           property,
           score: normalizedScore,
+          strictTypeMatch: strictMainTypeMatch && strictSubTypeMatch,
           details: {
             amenitiesMatched: selectedFeatureNames.length > 0
               ? `${selectedFeatureNames.filter((am) => matchesAmenity(am)).length}/${selectedFeatureNames.length}`
@@ -1351,15 +1404,25 @@ export default function PropertiesPage() {
       });
 
     const threshold = hasCoreFilters ? smartTolerance : 0;
-    let filtered = rows.filter((row) => row.score >= threshold);
-    if (filtered.length === 0) {
-      filtered = [...rows].sort((a, b) => b.score - a.score).slice(0, 12);
-    }
-    return filtered.sort((a, b) => {
+    let primary = rows.filter((row) => row.strictTypeMatch && row.score >= threshold);
+    const alternatives = rows.filter((row) => !row.strictTypeMatch).sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (a.property.isFeatured !== b.property.isFeatured) return a.property.isFeatured ? -1 : 1;
       return Number(b.property.rating || 0) - Number(a.property.rating || 0);
     });
+    if (primary.length === 0) {
+      primary = rows.filter((row) => row.strictTypeMatch);
+    }
+    if (primary.length === 0) {
+      primary = [...rows].sort((a, b) => b.score - a.score).slice(0, 12);
+    } else {
+      primary = primary.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.property.isFeatured !== b.property.isFeatured) return a.property.isFeatured ? -1 : 1;
+        return Number(b.property.rating || 0) - Number(a.property.rating || 0);
+      });
+    }
+    return { primary, alternatives };
   }, [
       properties,
       selectedMode,
@@ -1387,6 +1450,7 @@ export default function PropertiesPage() {
       checkOut,
       smartTolerance,
       priceCeiling,
+      selectedMainType,
     ]);
 
   const activeFiltersCount =
@@ -1436,7 +1500,7 @@ export default function PropertiesPage() {
   }, [showPaidServicesModal, paidServiceCategories, selectedPaidServiceCategory]);
 
   const sortedScoredResults = useMemo(() => {
-    const list = [...scoredResults];
+    const list = [...scoringBuckets.primary];
     if (sortMode === "price") {
       return list.sort((a, b) => Number(a.property.pricePerNight || 0) - Number(b.property.pricePerNight || 0));
     }
@@ -1447,7 +1511,11 @@ export default function PropertiesPage() {
       });
     }
     return list.sort((a, b) => b.score - a.score);
-  }, [scoredResults, sortMode]);
+  }, [scoringBuckets.primary, sortMode]);
+  const alternativeScoredResults = useMemo(() => {
+    const list = [...scoringBuckets.alternatives];
+    return list.sort((a, b) => b.score - a.score);
+  }, [scoringBuckets.alternatives]);
   const visibleSortedScoredResults = useMemo(
     () => (showAllResults ? sortedScoredResults : sortedScoredResults.slice(0, visibleCount)),
     [showAllResults, sortedScoredResults, visibleCount]
@@ -1457,6 +1525,7 @@ export default function PropertiesPage() {
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
     setShowAllResults(false);
+    setShowAlternatives(false);
   }, [
     selectedMode,
     query,
@@ -2114,6 +2183,15 @@ export default function PropertiesPage() {
               <span className="font-medium text-gray-500">
                 {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
               </span>
+              {alternativeScoredResults.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAlternatives((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                >
+                  {showAlternatives ? "Masquer" : "Montrer"} des choix alternatives ({alternativeScoredResults.length})
+                </button>
+              )}
             </div>
 
             {sortedScoredResults.length > 0 ? (
@@ -2187,6 +2265,30 @@ export default function PropertiesPage() {
                     Voir tout le catalogue
                   </button>
                 )}
+              </div>
+            )}
+            {showAlternatives && alternativeScoredResults.length > 0 && (
+              <div className="mt-10">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Choix alternatives</h3>
+                  <span className="text-sm text-gray-500">{alternativeScoredResults.length} bien(s)</span>
+                </div>
+                <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                  {alternativeScoredResults.slice(0, 12).map((row) => (
+                    <div key={`alt-${row.property.id}`} className="space-y-2">
+                      <PropertyCard property={row.property} searchParams={searchParams.toString()} />
+                      <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                        <div className="mb-1 flex items-center justify-between">
+                          <span className="inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
+                            <Percent size={14} />
+                            Matching {row.score}%
+                          </span>
+                          <span className="text-xs text-amber-700">Alternative</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

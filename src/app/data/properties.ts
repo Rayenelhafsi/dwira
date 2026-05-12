@@ -13,6 +13,7 @@ export interface SeasonalPricingPeriod {
   end: string;
   prix_nuitee: number;
   prix_semaine?: number | null;
+  scope?: 'global' | 'amicales' | 'amicale';
   amicale_id?: string | null;
 }
 

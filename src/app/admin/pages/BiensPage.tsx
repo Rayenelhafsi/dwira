@@ -1747,6 +1747,9 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
           minimum_nuitees: period.minimum_nuitees === null || period.minimum_nuitees === undefined ? null : Number(period.minimum_nuitees || 0),
           checkin_jour: period.checkin_jour || null,
           checkout_jour: period.checkout_jour || null,
+          scope: String(period.scope || '').trim().toLowerCase() === 'amicale'
+            ? 'amicale'
+            : (String(period.scope || '').trim().toLowerCase() === 'amicales' ? 'amicales' : (String(period.amicale_id || '').trim() ? 'amicale' : 'global')),
           amicale_id: period.amicale_id || null,
         }))
       : [],
@@ -8219,6 +8222,7 @@ function AdminCalendar({
   const [periodMinimumNights, setPeriodMinimumNights] = useState<number>(1);
   const [periodCheckinDay, setPeriodCheckinDay] = useState<string>('');
   const [periodCheckoutDay, setPeriodCheckoutDay] = useState<string>('');
+  const [pricingScope, setPricingScope] = useState<'global' | 'amicales' | 'amicale'>('global');
   const [pricingAmicaleId, setPricingAmicaleId] = useState<string>('');
   const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string }>>([]);
   const weekdayOptions = [
@@ -8258,10 +8262,13 @@ function AdminCalendar({
     };
   }, []);
 
-  const resolveAmicaleLabel = useCallback((amicaleId?: string | null) => {
-    const value = String(amicaleId || '').trim();
-    if (!value) return 'Toutes les amicales';
-    return amicaleOptions.find((item) => item.id === value)?.name || value;
+  const resolvePricingScopeLabel = useCallback((period?: SeasonalPricingPeriod | null) => {
+    const scope = String(period?.scope || '').trim().toLowerCase() || (String(period?.amicale_id || '').trim() ? 'amicale' : 'global');
+    if (scope === 'global') return 'Global (tous les clients)';
+    if (scope === 'amicales') return 'Toutes les amicales';
+    const value = String(period?.amicale_id || '').trim();
+    if (!value) return 'Amicale specifique';
+    return `Amicale: ${amicaleOptions.find((item) => item.id === value)?.name || value}`;
   }, [amicaleOptions]);
 
   const getDateStatus = (date: Date): DateStatus | undefined => dates.find((range) => {
@@ -8286,6 +8293,10 @@ function AdminCalendar({
       toast.error('Prix nuitee requis');
       return;
     }
+    if (pricingScope === 'amicale' && !String(pricingAmicaleId || '').trim()) {
+      toast.error('Selectionnez une amicale specifique');
+      return;
+    }
     const newPeriod: SeasonalPricingPeriod = {
       id: `pp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       start,
@@ -8295,7 +8306,8 @@ function AdminCalendar({
       minimum_nuitees: Math.max(1, Math.floor(Number(periodMinimumNights || 1))),
       checkin_jour: periodCheckinDay || null,
       checkout_jour: periodCheckoutDay || null,
-      amicale_id: pricingAmicaleId || null,
+      scope: pricingScope,
+      amicale_id: pricingScope === 'amicale' ? (pricingAmicaleId || null) : null,
     };
     onPricingPeriodsChange([...(Array.isArray(pricingPeriods) ? pricingPeriods : []), newPeriod]);
     toast.success('Periode tarifaire ajoutee');
@@ -8315,9 +8327,20 @@ function AdminCalendar({
     }
     const start = format(selectionStart < selectionEnd ? selectionStart : selectionEnd, 'yyyy-MM-dd');
     const end = format(selectionStart < selectionEnd ? selectionEnd : selectionStart, 'yyyy-MM-dd');
+    if (pricingScope === 'amicale' && !String(pricingAmicaleId || '').trim()) {
+      toast.error('Selectionnez une amicale specifique');
+      return false;
+    }
     const list = Array.isArray(pricingPeriods) ? pricingPeriods : [];
-    const selectedScope = String(pricingAmicaleId || '').trim();
-    const index = list.findIndex((period) => String(period.start || '') === start && String(period.end || '') === end && String(period.amicale_id || '').trim() === selectedScope);
+    const selectedAmicale = String(pricingAmicaleId || '').trim();
+    const index = list.findIndex((period) => {
+      const scope = String(period.scope || '').trim().toLowerCase() || (String(period.amicale_id || '').trim() ? 'amicale' : 'global');
+      const amicale = String(period.amicale_id || '').trim();
+      if (String(period.start || '') !== start || String(period.end || '') !== end) return false;
+      if (scope !== pricingScope) return false;
+      if (scope === 'amicale') return amicale === selectedAmicale;
+      return true;
+    });
     const current = index >= 0 ? list[index] : null;
 
     const nightlyPrice = Math.max(0, Number(periodNightlyPrice || defaultNightlyPrice || 0));
@@ -8340,7 +8363,10 @@ function AdminCalendar({
         : Math.max(1, Number(current?.minimum_nuitees || 1)),
       checkin_jour: options.applyCheckRules ? (periodCheckinDay || null) : (current?.checkin_jour || null),
       checkout_jour: options.applyCheckRules ? (periodCheckoutDay || null) : (current?.checkout_jour || null),
-      amicale_id: current?.amicale_id ?? (pricingAmicaleId || null),
+      scope: (current?.scope as 'global' | 'amicales' | 'amicale' | undefined) ?? pricingScope,
+      amicale_id: ((current?.scope || pricingScope) === 'amicale')
+        ? (current?.amicale_id ?? (pricingAmicaleId || null))
+        : null,
     };
 
     if (index >= 0) {
@@ -8412,18 +8438,32 @@ function AdminCalendar({
             </select>
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Amicale cible</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Portee tarifaire</label>
             <select
-              value={pricingAmicaleId}
-              onChange={(e) => setPricingAmicaleId(e.target.value)}
+              value={pricingScope}
+              onChange={(e) => setPricingScope(e.target.value as 'global' | 'amicales' | 'amicale')}
               className="w-full rounded-lg border-gray-300 border p-2 text-sm"
             >
-              <option value="">Toutes les amicales</option>
-              {amicaleOptions.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
+              <option value="global">Global (tous clients)</option>
+              <option value="amicales">Toutes les amicales</option>
+              <option value="amicale">Amicale specifique</option>
             </select>
           </div>
+          {pricingScope === 'amicale' && (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Amicale specifique</label>
+              <select
+                value={pricingAmicaleId}
+                onChange={(e) => setPricingAmicaleId(e.target.value)}
+                className="w-full rounded-lg border-gray-300 border p-2 text-sm"
+              >
+                <option value="">Selectionner une amicale</option>
+                {amicaleOptions.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="text-xs text-gray-600 rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
             <p>Base actuelle:</p>
             <p>Nuit: <span className="font-semibold text-gray-900">{Math.max(0, Number(defaultNightlyPrice || 0))} DT</span></p>
@@ -8442,7 +8482,7 @@ function AdminCalendar({
       <div className="grid grid-cols-7 gap-1 mb-2">{["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map(day => <div key={day} className="text-center text-xs font-semibold text-gray-500 py-2">{day}</div>)}</div>
       <div className="grid grid-cols-7 gap-1">{days.map((day, idx) => <div key={idx} onClick={() => handleDateClick(day)}><div className={getDayClassName(day)} style={{ backgroundColor: getDayBackground(day) || undefined }}><span>{format(day, "d")}</span></div></div>)}</div>
       {dates.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes indisponibles</h5><div className="space-y-2">{dates.map((date, index) => <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div className="flex items-center gap-3"><div className="w-4 h-4 rounded" style={{ backgroundColor: date.color || '#111827' }}></div><span className="text-sm">{formatDateSafe(date.start)} - {formatDateSafe(date.end)}</span></div><button type="button" onClick={() => handleRemovePeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
-      {pricingPeriods.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes tarifaires</h5><div className="space-y-2">{pricingPeriods.map((period, index) => <div key={period.id || `${period.start}-${period.end}-${index}`} className="flex items-center justify-between p-3 bg-sky-50 rounded-lg border border-sky-100"><div className="space-y-1"><p className="text-sm font-medium text-gray-900">{formatDateSafe(period.start)} - {formatDateSafe(period.end)}</p><p className="text-xs text-gray-600">Amicale: <span className="font-semibold text-gray-900">{resolveAmicaleLabel(period.amicale_id)}</span></p><p className="text-xs text-gray-600">Nuit: <span className="font-semibold text-gray-900">{Number(period.prix_nuitee || 0)} DT</span> | Semaine: <span className="font-semibold text-gray-900">{Number(period.prix_semaine || 0)} DT</span></p><p className="text-xs text-gray-600">Minimum sejour: <span className="font-semibold text-gray-900">{Math.max(1, Number(period.minimum_nuitees || 1))} nuit(s)</span></p><p className="text-xs text-gray-600">Check-in: <span className="font-semibold text-gray-900">{period.checkin_jour || 'Libre'}</span> | Check-out: <span className="font-semibold text-gray-900">{period.checkout_jour || 'Libre'}</span></p></div><button type="button" onClick={() => handleRemovePricingPeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
+      {pricingPeriods.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes tarifaires</h5><div className="space-y-2">{pricingPeriods.map((period, index) => <div key={period.id || `${period.start}-${period.end}-${index}`} className="flex items-center justify-between p-3 bg-sky-50 rounded-lg border border-sky-100"><div className="space-y-1"><p className="text-sm font-medium text-gray-900">{formatDateSafe(period.start)} - {formatDateSafe(period.end)}</p><p className="text-xs text-gray-600">Portee: <span className="font-semibold text-gray-900">{resolvePricingScopeLabel(period)}</span></p><p className="text-xs text-gray-600">Nuit: <span className="font-semibold text-gray-900">{Number(period.prix_nuitee || 0)} DT</span> | Semaine: <span className="font-semibold text-gray-900">{Number(period.prix_semaine || 0)} DT</span></p><p className="text-xs text-gray-600">Minimum sejour: <span className="font-semibold text-gray-900">{Math.max(1, Number(period.minimum_nuitees || 1))} nuit(s)</span></p><p className="text-xs text-gray-600">Check-in: <span className="font-semibold text-gray-900">{period.checkin_jour || 'Libre'}</span> | Check-out: <span className="font-semibold text-gray-900">{period.checkout_jour || 'Libre'}</span></p></div><button type="button" onClick={() => handleRemovePricingPeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
     </div>
   );
 }

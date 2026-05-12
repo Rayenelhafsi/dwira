@@ -5246,6 +5246,7 @@ async function ensureSeasonalPricingSchema() {
     CREATE TABLE IF NOT EXISTS bien_pricing_periods (
       id VARCHAR(120) NOT NULL PRIMARY KEY,
       bien_id VARCHAR(120) NOT NULL,
+      scope VARCHAR(24) NOT NULL DEFAULT 'global',
       amicale_id VARCHAR(64) NULL,
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
@@ -5276,6 +5277,9 @@ async function ensureSeasonalPricingSchema() {
       }
       if (!(await columnExists('bien_pricing_periods', 'amicale_id'))) {
         await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN amicale_id VARCHAR(64) NULL DEFAULT NULL AFTER bien_id');
+      }
+      if (!(await columnExists('bien_pricing_periods', 'scope'))) {
+        await pool.query("ALTER TABLE bien_pricing_periods ADD COLUMN scope VARCHAR(24) NOT NULL DEFAULT 'global' AFTER bien_id");
       }
       if (!(await columnExists('bien_pricing_periods', 'checkin_jour'))) {
         await pool.query('ALTER TABLE bien_pricing_periods ADD COLUMN checkin_jour VARCHAR(20) NULL DEFAULT NULL AFTER minimum_nuitees');
@@ -5426,7 +5430,10 @@ function injectPaidServicesIntoConfig(rawConfig, services) {
 function toSqlDateOnly(value) {
   if (!value) return '';
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    const yyyy = value.getFullYear();
+    const mm = String(value.getMonth() + 1).padStart(2, '0');
+    const dd = String(value.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   }
   const text = String(value).trim();
   const direct = text.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -5458,6 +5465,17 @@ function normalizeSeasonalPricingPeriod(period, index = 0) {
   const checkinDay = normalizeWeekday(period?.checkin_jour);
   const checkoutDay = normalizeWeekday(period?.checkout_jour);
   const amicaleId = String(period?.amicale_id || period?.amicaleId || '').trim() || null;
+  const normalizePricingScope = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'amicales' || normalized === 'amicale' || normalized === 'global') return normalized;
+    if (normalized === 'all_amicales' || normalized === 'toutes_amicales' || normalized === 'toutes les amicales') return 'amicales';
+    return null;
+  };
+  let scope = normalizePricingScope(period?.scope);
+  if (!scope) {
+    scope = amicaleId ? 'amicale' : 'global';
+  }
+  if (scope === 'amicale' && !amicaleId) return null;
   if (!start || !end || !isValidIsoDate(start) || !isValidIsoDate(end) || end < start || nightly <= 0) return null;
   return {
     id: String(period?.id || `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`),
@@ -5468,6 +5486,7 @@ function normalizeSeasonalPricingPeriod(period, index = 0) {
     minimum_nuitees: minimumNights,
     checkin_jour: checkinDay,
     checkout_jour: checkoutDay,
+    scope,
     amicale_id: amicaleId,
   };
 }
@@ -5505,7 +5524,10 @@ async function listPricingPeriodsForBienIds(bienIds) {
   if (ids.length === 0) return byBienId;
   const placeholders = ids.map(() => '?').join(', ');
   const [rows] = await pool.query(
-    `SELECT id, bien_id, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
+    `SELECT id, bien_id, scope, amicale_id,
+            DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+            prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
      FROM bien_pricing_periods
      WHERE bien_id IN (${placeholders})
      ORDER BY start_date ASC, end_date ASC`,
@@ -5521,6 +5543,7 @@ async function listPricingPeriodsForBienIds(bienIds) {
       minimum_nuitees: row.minimum_nuitees === null || row.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
       checkin_jour: row.checkin_jour ? String(row.checkin_jour).toLowerCase() : null,
       checkout_jour: row.checkout_jour ? String(row.checkout_jour).toLowerCase() : null,
+      scope: String(row.scope || '').trim().toLowerCase() || (row.amicale_id ? 'amicale' : 'global'),
       amicale_id: row.amicale_id ? String(row.amicale_id).trim() : null,
     };
     if (!byBienId.has(row.bien_id)) byBienId.set(row.bien_id, []);
@@ -5541,9 +5564,9 @@ async function syncBienPricingPeriods(bienId, periods) {
   for (const period of normalized) {
     await pool.query(
       `INSERT INTO bien_pricing_periods (
-         id, bien_id, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [period.id, normalizedBienId, period.amicale_id || null, period.start, period.end, period.prix_nuitee, period.prix_semaine, period.minimum_nuitees, period.checkin_jour, period.checkout_jour, now, now]
+         id, bien_id, scope, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [period.id, normalizedBienId, period.scope || 'global', period.amicale_id || null, period.start, period.end, period.prix_nuitee, period.prix_semaine, period.minimum_nuitees, period.checkin_jour, period.checkout_jour, now, now]
     );
   }
 }
@@ -8282,7 +8305,15 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       (resolvedMode === 'vente' || prix_semaine === undefined || prix_semaine === null || Number(prix_semaine) <= 0) ? null : Number(prix_semaine),
       req.params.id,
     ]);
-    if (pricingPeriodsPayload.hasExplicitPayload) {
+    // Keep DB pricing periods as single source of truth for listing/public reads.
+    // For admin PUT payloads, sync even when scope comes only from nested config payload.
+    if (
+      pricingPeriodsPayload.hasExplicitPayload
+      || Array.isArray(req.body?.pricing_periods)
+      || Array.isArray(req.body?.pricingPeriods)
+      || Array.isArray(location_saisonniere_config?.pricing_periods)
+      || (resolvedMode === 'location_saisonniere' && Array.isArray(effectivePricingPeriods))
+    ) {
       await syncBienPricingPeriods(req.params.id, effectivePricingPeriods || []);
     }
 
@@ -10979,14 +11010,20 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
       checkin_jour: row?.checkin_jour ? String(row.checkin_jour).trim().toLowerCase() : null,
       checkout_jour: row?.checkout_jour ? String(row.checkout_jour).trim().toLowerCase() : null,
+      scope: String(row?.scope || '').trim().toLowerCase() || (row?.amicale_id ? 'amicale' : 'global'),
       amicale_id: row?.amicale_id ? String(row.amicale_id).trim() : null,
     });
     const getReservationPeriodScopeRank = (period, targetAmicaleId) => {
       const target = String(targetAmicaleId || '').trim();
+      const scope = String(period?.scope || '').trim().toLowerCase() || (String(period?.amicale_id || '').trim() ? 'amicale' : 'global');
       const periodAmicaleId = String(period?.amicale_id || '').trim();
-      if (!target) return periodAmicaleId ? 0 : 1;
-      if (!periodAmicaleId) return 1;
-      return periodAmicaleId === target ? 2 : 0;
+      if (!target) {
+        return scope === 'global' ? 1 : 0;
+      }
+      if (scope === 'amicale' && periodAmicaleId === target) return 3;
+      if (scope === 'amicales') return 2;
+      if (scope === 'global') return 1;
+      return 0;
     };
     const findReservationPeriodForDate = (periods, date, targetAmicaleId) => {
       const target = toSqlDateOnly(date);
@@ -11014,7 +11051,10 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       return toSqlDateOnly(next);
     };
     const [periodRules] = await pool.query(
-      `SELECT minimum_nuitees, checkin_jour, checkout_jour, start_date, end_date, amicale_id
+      `SELECT minimum_nuitees, checkin_jour, checkout_jour,
+              DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+              DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+              scope, amicale_id
        FROM bien_pricing_periods
        WHERE bien_id = ?
          AND start_date <= ?
@@ -14059,7 +14099,10 @@ app.get('/api/pricing-periods/:bien_id', async (req, res) => {
     const bienId = String(req.params.bien_id || '').trim();
     if (!bienId) return res.status(400).json({ error: 'bien_id requis' });
     const [rows] = await pool.query(
-      `SELECT id, bien_id, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
+      `SELECT id, bien_id, scope, amicale_id,
+              DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+              DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+              prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour
        FROM bien_pricing_periods
        WHERE bien_id = ?
        ORDER BY start_date ASC, end_date ASC`,
@@ -14075,6 +14118,7 @@ app.get('/api/pricing-periods/:bien_id', async (req, res) => {
       minimum_nuitees: row.minimum_nuitees === null || row.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(row.minimum_nuitees || 0))),
       checkin_jour: row.checkin_jour ? String(row.checkin_jour).toLowerCase() : null,
       checkout_jour: row.checkout_jour ? String(row.checkout_jour).toLowerCase() : null,
+      scope: String(row.scope || '').trim().toLowerCase() || (row.amicale_id ? 'amicale' : 'global'),
       amicale_id: row.amicale_id ? String(row.amicale_id).trim() : null,
     }));
     res.json(data);

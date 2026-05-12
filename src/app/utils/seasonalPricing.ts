@@ -9,6 +9,7 @@ export type SeasonalPricingPeriod = {
   minimum_nuitees?: number | null;
   checkin_jour?: string | null;
   checkout_jour?: string | null;
+  scope?: 'global' | 'amicales' | 'amicale';
   amicale_id?: string | null;
 };
 
@@ -71,16 +72,24 @@ function getPeriodAmicaleId(period?: SeasonalPricingPeriod | null): string | nul
     ?? null);
 }
 
+function getPeriodScope(period?: SeasonalPricingPeriod | null): 'global' | 'amicales' | 'amicale' {
+  if (!period || typeof period !== 'object') return 'global';
+  const explicit = String((period as SeasonalPricingPeriod).scope || '').trim().toLowerCase();
+  if (explicit === 'global' || explicit === 'amicales' || explicit === 'amicale') return explicit;
+  return getPeriodAmicaleId(period) ? 'amicale' : 'global';
+}
+
 function getPeriodScopeRank(period: SeasonalPricingPeriod, amicaleId?: string | null): number {
   const targetAmicaleId = normalizeAmicaleId(amicaleId);
+  const scope = getPeriodScope(period);
   const periodAmicaleId = getPeriodAmicaleId(period);
   if (!targetAmicaleId) {
-    return periodAmicaleId ? 0 : 1;
+    return scope === 'global' ? 1 : 0;
   }
-  if (!periodAmicaleId) {
-    return 1;
-  }
-  return periodAmicaleId === targetAmicaleId ? 2 : 0;
+  if (scope === 'amicale' && periodAmicaleId === targetAmicaleId) return 3;
+  if (scope === 'amicales') return 2;
+  if (scope === 'global') return 1;
+  return 0;
 }
 
 function toDateKey(value: Date): string {
@@ -302,7 +311,8 @@ export function calculateAccommodationPricing(params: {
     const period = findPeriodForNight(sortedPeriods, day, params.amicaleId);
     const nightlyPrice = normalizePrice(period?.prix_nuitee) || defaultNightly;
     const weeklyPrice = normalizePrice(period?.prix_semaine) || defaultWeekly || (nightlyPrice * 7);
-    const periodAmicaleId = getPeriodAmicaleId(period) || 'global';
+    const periodScope = getPeriodScope(period);
+    const periodAmicaleId = periodScope === 'amicale' ? (getPeriodAmicaleId(period) || 'amicale') : periodScope;
     const key = period?.id
       ? `period:${period.id}:${periodAmicaleId}`
       : period
@@ -327,7 +337,7 @@ export function calculateAccommodationPricing(params: {
     const startDate = toDateKey(segmentStart);
     const endDate = toDateKey(segmentEnd);
     const isPeriod = segment.key.startsWith('period:');
-    const isAmicale = isPeriod && segment.key.includes(':global') === false;
+    const isAmicale = isPeriod && (segment.key.includes(':amicales') || segment.key.includes(':amicale'));
     segments.push({
       key: segment.key,
       label: isPeriod

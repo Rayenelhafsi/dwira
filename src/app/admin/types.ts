@@ -164,6 +164,7 @@ export interface SeasonalPricingPeriod {
   minimum_nuitees?: number | null;
   checkin_jour?: 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi' | 'samedi' | 'dimanche' | null;
   checkout_jour?: 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi' | 'samedi' | 'dimanche' | null;
+  scope?: 'global' | 'amicales' | 'amicale';
   amicale_id?: string | null;
 }
 
