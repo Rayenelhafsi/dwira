@@ -820,8 +820,18 @@ export default function PropertiesPage() {
   }, [groupedTypeOptions]);
   useEffect(() => {
     if (!selectedMainType) return;
-    const allowedSecondary = new Set(secondaryTypeOptions.map((item) => item.label));
-    setSelectedCategories((prev) => prev.filter((cat) => allowedSecondary.has(cat)));
+    const canonicalToLabel = new Map(
+      secondaryTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
+    );
+    setSelectedCategories((prev) => {
+      const remapped = prev
+        .map((cat) => {
+          const key = getCanonicalSubTypeKey(cat);
+          return canonicalToLabel.get(key) || "";
+        })
+        .filter(Boolean);
+      return Array.from(new Set(remapped));
+    });
   }, [selectedMainType, secondaryTypeOptions]);
   useEffect(() => {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
