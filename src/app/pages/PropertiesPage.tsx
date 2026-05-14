@@ -148,6 +148,7 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
   if (normalized.startsWith("s+")) return "appartement";
   if (normalized.includes("bungalow")) return "villa_maison";
   if (normalized.includes("villa")) return "villa_maison";
+  if (normalized.includes("maison")) return "villa_maison";
   if (normalized.includes("studio")) return "studio";
   if (normalized.includes("immeuble")) return "immeuble";
   return "autre";
@@ -171,6 +172,17 @@ const getCanonicalSubTypeKey = (value?: string | null) => {
   if (/\bsix\s+chambre/.test(raw)) return "s+6";
   return raw.replace(/\s+/g, " ");
 };
+const isGenericPropertySubtype = (label?: string | null) => {
+  const normalized = String(label || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return ["appartement", "villa", "maison", "villa maison", "bungalow"].includes(normalized);
+};
 const getResolvedPropertyCategoryLabel = (property: any): string => {
   const rawCategory = String(property?.category || "").trim();
   const title = String(property?.title || "").trim();
@@ -181,22 +193,41 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
   const normalizedCategory = rawCategory.toLowerCase().replace(/\s+/g, " ");
   const hasUnknownSPlus = /\bs\+\s*\?/i.test(rawCategory) || normalizedCategory.includes("s+?");
   const inferredMainType = getMainTypeFromCategory(rawCategory || title);
+  const normalizedPlainCategory = rawCategory
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const isGenericMainCategory = [
+    "appartement",
+    "villa",
+    "maison",
+    "villa maison",
+    "bungalow",
+  ].includes(normalizedPlainCategory);
+  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "villa_maison";
   const mainLabelByType: Record<PropertyMainType, string> = {
     appartement: "Appartement",
-    villa_maison: "Villa",
+    villa_maison: normalizedPlainCategory.includes("maison") && !normalizedPlainCategory.includes("villa") ? "Maison" : "Villa",
     studio: "Studio",
     immeuble: "Immeuble",
     autre: "Autre",
   };
   const mainLabel = mainLabelByType[inferredMainType];
 
+  if ((hasUnknownSPlus || isGenericMainCategory) && shouldInferSPlusSubtype) {
+    if (resolvedSPlus) return `${mainLabel} ${resolvedSPlus}`;
+    if (Number.isFinite(bedrooms) && bedrooms > 0) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
+  }
   if (hasUnknownSPlus) {
     if (resolvedSPlus) return `${mainLabel} ${resolvedSPlus}`;
     if (Number.isFinite(bedrooms) && bedrooms > 0) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
   }
   if (rawCategory) return rawCategory;
-  if (resolvedSPlus) return `${mainLabel} ${resolvedSPlus}`;
-  if (Number.isFinite(bedrooms) && bedrooms > 0) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
+  if (resolvedSPlus && shouldInferSPlusSubtype) return `${mainLabel} ${resolvedSPlus}`;
+  if (Number.isFinite(bedrooms) && bedrooms > 0 && shouldInferSPlusSubtype) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
   return "";
 };
 const normalizeTypeToken = (value?: string | null) => String(value || "").trim().toLowerCase();
@@ -600,6 +631,14 @@ export default function PropertiesPage() {
     }
 
     return Array.from(groups.values())
+      .map((group) => {
+        const hasSpecificSPlus = group.subTypes.some((item) => /^s\+\d+$/.test(getCanonicalSubTypeKey(item.label)));
+        if (!hasSpecificSPlus) return group;
+        return {
+          ...group,
+          subTypes: group.subTypes.filter((item) => !isGenericPropertySubtype(item.label)),
+        };
+      })
       .filter((group) => group.subTypes.length > 0 || group.imageUrl !== TYPE_FALLBACK_IMAGE)
       .sort((a, b) => MAIN_TYPE_DISPLAY_ORDER.indexOf(a.mainType) - MAIN_TYPE_DISPLAY_ORDER.indexOf(b.mainType));
   }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
