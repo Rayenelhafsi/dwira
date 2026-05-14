@@ -2,7 +2,7 @@
 > @figma/my-make-file@0.0.1 server
 > node server/index.cjs
 
-[dotenv@17.3.1] injecting env (44) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.3.1] injecting env (44) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
 [OCR] OpenAI OCR enabled: yes (model=gpt-4.1-mini)
 [DB] source=local host=127.0.0.1 db=dwira user=root
 ?? Connecting to database...

@@ -179,6 +179,14 @@ function toSqlDate(value: Date | null): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function parseOptionalAmount(value: string): number | null {
+  const raw = String(value || '').trim().replace(',', '.');
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || numeric < 0) return Number.NaN;
+  return Math.round(numeric * 100) / 100;
+}
+
 function toAbsoluteAssetUrl(value: string): string {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -510,10 +518,13 @@ export default function ContratsPage() {
   const manualChildGuests = Math.max(0, Number(manualDraft.child_guests || 0));
   const manualGuestsTotal = Math.max(1, manualAdultGuests + manualChildGuests);
   const resolvedManualCaution = baseCaution;
-  const resolvedManualTotal = Number(pricingSummary.accommodationTotal || 0);
-  const resolvedManualDueNow = manualDraft.payment_mode === 'totalite'
-    ? resolvedManualTotal
-    : Math.round((resolvedManualTotal * advancePercent) / 100);
+  const autoManualAccommodationTotal = Number(pricingSummary.accommodationTotal || 0);
+  const manualTotalInput = parseOptionalAmount(manualDraft.total_amount);
+  const manualAdvanceInput = parseOptionalAmount(manualDraft.amount_due_now);
+  const hasManualTotalInput = String(manualDraft.total_amount || '').trim() !== '';
+  const hasManualAdvanceInput = String(manualDraft.amount_due_now || '').trim() !== '';
+  const manualTotalInputIsValid = manualTotalInput !== null && Number.isFinite(manualTotalInput) && manualTotalInput > 0;
+  const manualAdvanceInputIsValid = manualAdvanceInput !== null && Number.isFinite(manualAdvanceInput);
 
   const getPdfUrl = (url?: string) => {
     if (!url) return '';
@@ -666,6 +677,13 @@ export default function ContratsPage() {
       .reduce((sum, service) => sum + Number(service.prix || 0), 0),
     [selectedSeasonalServices]
   );
+  const autoManualTotal = autoManualAccommodationTotal + fixedSeasonalServicesTotal;
+  const resolvedManualTotal = manualTotalInputIsValid && manualTotalInput !== null ? manualTotalInput : autoManualTotal;
+  const autoManualDueNow = Math.round((resolvedManualTotal * advancePercent) / 100);
+  const resolvedManualDueNow = manualDraft.payment_mode === 'totalite'
+    ? resolvedManualTotal
+    : (manualAdvanceInputIsValid && manualAdvanceInput !== null ? manualAdvanceInput : autoManualDueNow);
+  const resolvedManualBalance = Math.max(0, Math.round((resolvedManualTotal - resolvedManualDueNow) * 100) / 100);
 
   const handleCreateManualReservation = async () => {
     if (!selectedBienId || !manualStartDateSql || !manualEndDateSql) {
@@ -688,6 +706,18 @@ export default function ContratsPage() {
       toast.error(`Le nombre max d enfants pour ce bien est ${guestCaps.maxChildren}`);
       return;
     }
+    if (hasManualTotalInput && !manualTotalInputIsValid) {
+      toast.error('Le prix total manuel doit etre superieur a 0');
+      return;
+    }
+    if (manualDraft.payment_mode === 'avance' && hasManualAdvanceInput && !manualAdvanceInputIsValid) {
+      toast.error('L avance manuelle doit etre un montant valide');
+      return;
+    }
+    if (manualDraft.payment_mode === 'avance' && resolvedManualDueNow > resolvedManualTotal) {
+      toast.error('L avance a verser ne peut pas depasser le total');
+      return;
+    }
 
     setManualSubmitting(true);
     try {
@@ -704,10 +734,8 @@ export default function ContratsPage() {
           child_guests: manualChildGuests,
           caution_amount: resolvedManualCaution,
           payment_mode: manualDraft.payment_mode,
-          total_amount: resolvedManualTotal + fixedSeasonalServicesTotal,
-          amount_due_now: manualDraft.payment_mode === 'totalite'
-            ? (resolvedManualTotal + fixedSeasonalServicesTotal)
-            : Math.round(((resolvedManualTotal + fixedSeasonalServicesTotal) * advancePercent) / 100),
+          total_amount: resolvedManualTotal,
+          amount_due_now: resolvedManualDueNow,
           client_note: manualDraft.client_note,
           client_first_name: manualDraft.client_first_name,
           client_last_name: manualDraft.client_last_name,
@@ -908,6 +936,33 @@ export default function ContratsPage() {
                 <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
                 <p><strong>Nuits:</strong> {manualNights || 0}</p>
                 <p><strong>Tarif applique:</strong> {pricingSummary.hasPeriodOverride ? 'Periode tarifaire' : 'Tarif standard'} ({baseNightly} DT/nuit{baseWeekly ? `, ${baseWeekly} DT/semaine` : ''})</p>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-bold text-gray-700">Prix total manuel du contrat</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      placeholder={`Auto: ${autoManualTotal} DT`}
+                      value={manualDraft.total_amount}
+                      onChange={(e) => setManualDraft((p) => ({ ...p, total_amount: e.target.value }))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-bold text-gray-700">Avance a verser manuelle</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      disabled={manualDraft.payment_mode === 'totalite'}
+                      className="w-full rounded-lg border px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                      placeholder={`Auto: ${autoManualDueNow} DT`}
+                      value={manualDraft.amount_due_now}
+                      onChange={(e) => setManualDraft((p) => ({ ...p, amount_due_now: e.target.value }))}
+                    />
+                  </label>
+                </div>
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input
                     type="number"
@@ -947,7 +1002,11 @@ export default function ContratsPage() {
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                     value={manualDraft.payment_mode}
                     disabled={!manualPeriodReady}
-                    onChange={(e) => setManualDraft((p) => ({ ...p, payment_mode: e.target.value as ManualReservationDraft['payment_mode'] }))}
+                    onChange={(e) => setManualDraft((p) => ({
+                      ...p,
+                      payment_mode: e.target.value as ManualReservationDraft['payment_mode'],
+                      amount_due_now: e.target.value === 'totalite' ? '' : p.amount_due_now,
+                    }))}
                   >
                     <option value="avance">Avance ({advancePercent}%)</option>
                     <option value="totalite">Totalite</option>
@@ -1026,8 +1085,10 @@ export default function ContratsPage() {
                     Aucun service payant configure pour ce bien.
                   </div>
                 )}
-                <p><strong>Total:</strong> {resolvedManualTotal + fixedSeasonalServicesTotal} DT</p>
-                <p><strong>A payer maintenant:</strong> {manualDraft.payment_mode === 'totalite' ? (resolvedManualTotal + fixedSeasonalServicesTotal) : Math.round(((resolvedManualTotal + fixedSeasonalServicesTotal) * advancePercent) / 100)} DT ({manualDraft.payment_mode === 'totalite' ? 'Totalite' : `Avance ${advancePercent}%`})</p>
+                <p><strong>Total calcule:</strong> {autoManualTotal} DT</p>
+                <p><strong>Total contrat:</strong> {resolvedManualTotal} DT{hasManualTotalInput && manualTotalInputIsValid ? ' (manuel)' : ''}</p>
+                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT ({manualDraft.payment_mode === 'totalite' ? 'Totalite' : (hasManualAdvanceInput && manualAdvanceInputIsValid ? 'Avance manuelle' : `Avance ${advancePercent}%`)})</p>
+                <p><strong>Reste a payer a l'arrivee:</strong> {resolvedManualBalance} DT</p>
                 <p><strong>Caution:</strong> {resolvedManualCaution} DT</p>
               </div>
               <div className="flex items-center justify-between">

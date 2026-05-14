@@ -9380,16 +9380,34 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       ? `${paymentDeadlineDate} ${paymentDeadlineTime || '00:00'}:00`
       : now;
     const nights = computeNights(startDate, endDate);
-    const fallbackTotal = Math.max(0, Number(bien.prix_nuitee || 0) * Math.max(1, nights));
-    const normalizedTotalAmount = Number.isFinite(Number(total_amount)) && Number(total_amount) > 0
-      ? Number(total_amount)
-      : fallbackTotal;
-    const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) && Number(amount_due_now) >= 0
-      ? Number(amount_due_now)
-      : (normalizedPaymentMode === 'totalite'
-        ? normalizedTotalAmount
-        : Math.round((normalizedTotalAmount * 0.3) * 100) / 100);
     const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
+    const fallbackTotal = Math.max(0, Number(bien.prix_nuitee || 0) * Math.max(1, nights));
+    const hasTotalAmountInput = total_amount !== undefined && total_amount !== null && String(total_amount).trim() !== '';
+    const parsedTotalAmount = Number(total_amount);
+    if (hasTotalAmountInput && (!Number.isFinite(parsedTotalAmount) || parsedTotalAmount <= 0)) {
+      return res.status(400).json({ error: 'Le prix total manuel doit etre superieur a 0' });
+    }
+    const normalizedTotalAmount = hasTotalAmountInput
+      ? Math.round(parsedTotalAmount * 100) / 100
+      : fallbackTotal;
+    const advancePercent = Math.min(
+      100,
+      Math.max(1, Number(saisonCfg?.avance_pourcentage ?? saisonCfg?.avancePourcentage ?? 30))
+    );
+    const fallbackAdvanceAmount = normalizedPaymentMode === 'totalite'
+      ? normalizedTotalAmount
+      : Math.round(((normalizedTotalAmount * advancePercent) / 100) * 100) / 100;
+    const hasAmountDueNowInput = amount_due_now !== undefined && amount_due_now !== null && String(amount_due_now).trim() !== '';
+    const parsedAmountDueNow = Number(amount_due_now);
+    if (normalizedPaymentMode === 'avance' && hasAmountDueNowInput && (!Number.isFinite(parsedAmountDueNow) || parsedAmountDueNow < 0)) {
+      return res.status(400).json({ error: 'L avance manuelle doit etre un montant valide' });
+    }
+    const normalizedAmountDueNow = normalizedPaymentMode === 'totalite'
+      ? normalizedTotalAmount
+      : (hasAmountDueNowInput ? Math.round(parsedAmountDueNow * 100) / 100 : fallbackAdvanceAmount);
+    if (normalizedAmountDueNow > normalizedTotalAmount) {
+      return res.status(400).json({ error: 'L avance a verser ne peut pas depasser le total' });
+    }
     const cfgMaxGuestsRaw = Number(
       saisonCfg?.limite_personnes_nuit
       ?? saisonCfg?.limitePersonnesNuit
