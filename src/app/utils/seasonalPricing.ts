@@ -263,6 +263,20 @@ export function getReservationWeekdayRule(params: {
   return { requiredCheckinDay, requiredCheckoutDay };
 }
 
+export function validateCheckinWeekdayRule(params: {
+  startDate: Date | string;
+  periods?: SeasonalPricingPeriod[];
+  amicaleId?: string | null;
+}): { ok: boolean; requiredCheckinDay: string | null; startDay: string | null } {
+  const start = toDateAtMidnight(params.startDate);
+  if (!start) return { ok: true, requiredCheckinDay: null, startDay: null };
+  const periods = Array.isArray(params.periods) ? params.periods : [];
+  const arrivalPeriod = findPeriodForNight(periods, start, params.amicaleId);
+  const requiredCheckinDay = normalizeWeekday(arrivalPeriod?.checkin_jour);
+  const startDay = getWeekdayFr(start);
+  return { ok: !requiredCheckinDay || requiredCheckinDay === startDay, requiredCheckinDay, startDay };
+}
+
 export function validateReservationWeekdayRule(params: {
   startDate: Date | string;
   endDate: Date | string;

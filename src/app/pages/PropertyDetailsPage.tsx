@@ -19,7 +19,7 @@ import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailu
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
-import { calculateAccommodationPricing, getPeriodMinStayForDate, getReservationMinStayRequirement, getReservationWeekdayRule, validateReservationWeekdayRule, resolveCurrentPricing } from "../utils/seasonalPricing";
+import { calculateAccommodationPricing, getPeriodMinStayForDate, getReservationMinStayRequirement, getReservationWeekdayRule, validateCheckinWeekdayRule, validateReservationWeekdayRule, resolveCurrentPricing } from "../utils/seasonalPricing";
 import { computeGuestLimits } from "../utils/guestLimits";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
@@ -2061,9 +2061,8 @@ out body 40;
 
     if (!isSaleProperty && start && !end) {
       const startDate = format(start, 'yyyy-MM-dd');
-      const weekdayRuleCheck = validateReservationWeekdayRule({
+      const weekdayRuleCheck = validateCheckinWeekdayRule({
         startDate,
-        endDate: format(new Date(start.getTime() + (24 * 60 * 60 * 1000)), 'yyyy-MM-dd'),
         periods: property?.pricingPeriods || [],
         amicaleId: pricingAmicaleId,
       });
