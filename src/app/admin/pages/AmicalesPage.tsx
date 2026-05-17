@@ -122,6 +122,7 @@ export default function AmicalesPage() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminAmicaleTab>("amicales");
   const [activeAmicaleFilter, setActiveAmicaleFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -222,6 +223,40 @@ export default function AmicalesPage() {
       toast.success("Amicale ajoutee.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Ajout impossible");
+    }
+  };
+
+  const handleLogoUpload = async (file?: File | null) => {
+    if (!file) return;
+    setLogoUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      formData.append("upload_scope", "amicale");
+      formData.append("amicale_name", name.trim());
+      formData.append("amicale_code", code.trim());
+      const response = await fetch(`${API_URL}/upload`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!response.ok) {
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(String(payload?.error || "Upload logo impossible"));
+        }
+        throw new Error((await response.text().catch(() => "")) || "Upload logo impossible");
+      }
+      const data = await response.json().catch(() => null);
+      const uploadedUrl = String(data?.url || data?.imageUrl || "").trim();
+      if (!uploadedUrl) throw new Error("URL logo manquante apres upload");
+      setLogoUrl(uploadedUrl);
+      toast.success("Logo uploadé.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload logo impossible");
+    } finally {
+      setLogoUploading(false);
     }
   };
 
@@ -351,14 +386,14 @@ export default function AmicalesPage() {
                   type="file"
                   accept="image/*"
                   onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => setLogoUrl(String(reader.result || ""));
-                    reader.readAsDataURL(file);
+                    void handleLogoUpload(event.target.files?.[0] || null);
+                    event.currentTarget.value = "";
                   }}
                   className="w-full text-sm"
                 />
+                {logoUploading ? (
+                  <p className="mt-2 text-xs text-emerald-700">Upload du logo en cours...</p>
+                ) : null}
                 {logoUrl ? (
                   <img src={logoUrl} alt="Logo amicale" className="mt-3 h-16 w-16 rounded-lg border border-gray-200 object-cover" />
                 ) : null}

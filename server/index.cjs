@@ -319,7 +319,11 @@ function buildCloudflareStreamIframeUrl(videoUid) {
 }
 
 function buildR2ObjectKey({ filename, folderKey, uploadScope, mediaType }) {
-  const scopeFolder = String(uploadScope || '').trim().toLowerCase() === 'zone' ? 'zones' : 'biens';
+  const normalizedScope = String(uploadScope || '').trim().toLowerCase();
+  const scopeFolder =
+    normalizedScope === 'zone' ? 'zones'
+    : normalizedScope === 'amicale' ? 'amicales'
+    : 'biens';
   const safeFolderKey = String(folderKey || 'unassigned')
     .trim()
     .toLowerCase()
@@ -14214,14 +14218,22 @@ app.post('/api/upload', requireAuthenticatedSession, uploadMediaMiddleware, asyn
     const uploadScopeRaw = Array.isArray(req.body?.upload_scope) ? req.body.upload_scope[0] : req.body?.upload_scope;
     const zoneIdRaw = Array.isArray(req.body?.zone_id) ? req.body.zone_id[0] : req.body?.zone_id;
     const zoneRefRaw = Array.isArray(req.body?.zone_reference) ? req.body.zone_reference[0] : req.body?.zone_reference;
+    const amicaleIdRaw = Array.isArray(req.body?.amicale_id) ? req.body.amicale_id[0] : req.body?.amicale_id;
+    const amicaleCodeRaw = Array.isArray(req.body?.amicale_code) ? req.body.amicale_code[0] : req.body?.amicale_code;
+    const amicaleNameRaw = Array.isArray(req.body?.amicale_name) ? req.body.amicale_name[0] : req.body?.amicale_name;
     const bienId = String(bienIdRaw || '').trim();
     const bienReference = String(bienRefRaw || '').trim();
     const uploadScope = String(uploadScopeRaw || '').trim().toLowerCase();
     const zoneId = String(zoneIdRaw || '').trim();
     const zoneReference = String(zoneRefRaw || '').trim();
+    const amicaleId = String(amicaleIdRaw || '').trim();
+    const amicaleCode = String(amicaleCodeRaw || '').trim();
+    const amicaleName = String(amicaleNameRaw || '').trim();
     const folderKey = (
       uploadScope === 'zone'
         ? (zoneReference || zoneId || 'unassigned-zone')
+        : uploadScope === 'amicale'
+          ? (amicaleCode || amicaleName || amicaleId || 'unassigned-amicale')
         : (bienReference || bienId || 'unassigned')
     )
       .toLowerCase()
@@ -14229,7 +14241,10 @@ app.post('/api/upload', requireAuthenticatedSession, uploadMediaMiddleware, asyn
       .replace(/-+/g, '-')
       .replace(/^-+|-+$/g, '') || 'unassigned';
 
-    const scopeFolder = uploadScope === 'zone' ? 'zones' : 'biens';
+    const scopeFolder =
+      uploadScope === 'zone' ? 'zones'
+      : uploadScope === 'amicale' ? 'amicales'
+      : 'biens';
     const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}${scopeFolder}/${folderKey}`;
     const candidateProviders = getUploadProviderCandidates(mediaType);
     let lastProviderError = null;
