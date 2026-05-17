@@ -5896,18 +5896,12 @@ async function syncBienPricingPeriods(bienId, periods) {
   const normalized = (Array.isArray(periods) ? periods : [])
     .map((period, index) => normalizeSeasonalPricingPeriod(period, index))
     .filter(Boolean);
-  const usedIds = new Set();
-  const uniquePeriods = normalized.map((period, index) => {
-    let nextId = String(period.id || '').trim();
-    if (!nextId) {
-      nextId = `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`;
-    }
-    while (usedIds.has(nextId)) {
-      nextId = `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`;
-    }
-    usedIds.add(nextId);
-    return { ...period, id: nextId };
-  });
+  const uniquePeriods = normalized.map((period, index) => ({
+    ...period,
+    // Do not trust client-provided IDs here: they can collide with stale or copied rows
+    // from other biens and break the whole save operation.
+    id: `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`,
+  }));
   await pool.query('DELETE FROM bien_pricing_periods WHERE bien_id = ?', [normalizedBienId]);
   for (const period of uniquePeriods) {
     await pool.query(
