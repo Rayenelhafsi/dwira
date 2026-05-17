@@ -25,6 +25,7 @@ import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
+import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 import {
   clearAuthPendingLogin,
   isAuthPendingLogin,
@@ -790,6 +791,7 @@ export default function PropertyDetailsPage() {
   });
   const [pendingDraft, setPendingDraft] = useState<PendingReservationDraft | null>(null);
   const pricingAmicaleId = String(searchParams.get("amicale") || (paymentMode === "amicale" ? amicaleSelectionId : "") || pendingDraft?.pricingAmicaleId || "").trim() || null;
+  const isAmicalePricingActive = Boolean(pricingAmicaleId) && property?.priceContext !== 'sale';
   const [liveUnavailableDates, setLiveUnavailableDates] = useState<Array<{
     start: string;
     end: string;
@@ -1200,6 +1202,8 @@ out body 40;
     }),
     [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
   );
+  const displayedNightlyPrice = applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive);
+  const displayedWeeklyPrice = applyAmicaleTtc(Number(currentDisplayPricing.weeklyPrice || 0), isAmicalePricingActive);
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;
@@ -1474,12 +1478,12 @@ out body 40;
       }
       if (key.includes('tarification')) {
         return [
-          { label: 'Tarif nuit', value: `${currentDisplayPricing.nightlyPrice || 0} TND` },
-          { label: 'Tarif semaine', value: `${currentDisplayPricing.weeklyPrice || 0} TND` },
-          ...(hasCleaningFee ? [{ label: 'Frais de menage', value: `${property?.cleaningFee || 0} TND` }] : []),
-          ...(hasServiceFee ? [{ label: 'Frais de service', value: `${property?.serviceFee || 0} TND` }] : []),
-          ...(hasExtraMattress ? [{ label: 'Matelas supplementaire', value: `${extraMattressPrice} TND / unite` }] : []),
-          ...activePaidServices.map((service) => ({ label: service.label, value: `${Number(service.prix || 0)} TND` })),
+          { label: 'Tarif nuit', value: `${formatTnd(displayedNightlyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}` },
+          { label: 'Tarif semaine', value: `${formatTnd(displayedWeeklyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}` },
+          ...(hasCleaningFee ? [{ label: 'Frais de menage', value: `${formatTnd(applyAmicaleTtc(property?.cleaningFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` }] : []),
+          ...(hasServiceFee ? [{ label: 'Frais de service', value: `${formatTnd(applyAmicaleTtc(property?.serviceFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` }] : []),
+          ...(hasExtraMattress ? [{ label: 'Matelas supplementaire', value: `${formatTnd(applyAmicaleTtc(extraMattressPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} / unite` }] : []),
+          ...activePaidServices.map((service) => ({ label: service.label, value: `${formatTnd(applyAmicaleTtc(Number(service.prix || 0), isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` })),
         ];
       }
       return [];
@@ -1498,6 +1502,7 @@ out body 40;
     hasCleaningFee,
     hasExtraMattress,
     hasServiceFee,
+    isAmicalePricingActive,
     maxGuests,
     maxStay,
     minStay,
@@ -1507,8 +1512,8 @@ out body 40;
     property?.location,
     property?.serviceFee,
     property?.title,
-    currentDisplayPricing.nightlyPrice,
-    currentDisplayPricing.weeklyPrice,
+    displayedNightlyPrice,
+    displayedWeeklyPrice,
     seasonalConfig?.ascenseur,
     seasonalConfig?.checkinHeure,
     seasonalConfig?.checkoutHeure,
@@ -1577,11 +1582,11 @@ out body 40;
     if (startsWith('produits d accueil') || startsWith("produits d'accueil")) {
       return seasonalConfig?.produitsAccueilGratuits ? 'Gratuit' : `${seasonalConfig?.fraisProduitsAccueil || 0} TND`;
     }
-    if (startsWith('frais de menage')) return hasCleaningFee ? `${property?.cleaningFee || 0} TND` : 'Non disponible';
-    if (startsWith('frais de service')) return hasServiceFee ? `${property?.serviceFee || 0} TND` : 'Non disponible';
-    if (startsWith('matelas supplementaire')) return hasExtraMattress ? `${extraMattressPrice} TND / unite` : 'Non disponible';
-    if (startsWith('tarif nuit') || startsWith('prix nuit')) return `${currentDisplayPricing.nightlyPrice || 0} TND`;
-    if (startsWith('tarif semaine') || startsWith('prix semaine')) return `${currentDisplayPricing.weeklyPrice || 0} TND`;
+    if (startsWith('frais de menage')) return hasCleaningFee ? `${formatTnd(applyAmicaleTtc(property?.cleaningFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` : 'Non disponible';
+    if (startsWith('frais de service')) return hasServiceFee ? `${formatTnd(applyAmicaleTtc(property?.serviceFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` : 'Non disponible';
+    if (startsWith('matelas supplementaire')) return hasExtraMattress ? `${formatTnd(applyAmicaleTtc(extraMattressPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} / unite` : 'Non disponible';
+    if (startsWith('tarif nuit') || startsWith('prix nuit')) return `${formatTnd(displayedNightlyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}`;
+    if (startsWith('tarif semaine') || startsWith('prix semaine')) return `${formatTnd(displayedWeeklyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}`;
     return 'Oui';
   }, [
     accesLabel,
@@ -2251,18 +2256,18 @@ out body 40;
     const total = accommodationTotal + extrasTotal;
     return {
       nights,
-      accommodationTotal,
+      accommodationTotal: applyAmicaleTtc(accommodationTotal, isAmicalePricingActive),
       averageNightlyPrice: accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
-      cleaningFee,
-      serviceFee,
-      extraMattressTotal,
-      paidServicesTotal,
+      cleaningFee: applyAmicaleTtc(cleaningFee, isAmicalePricingActive),
+      serviceFee: applyAmicaleTtc(serviceFee, isAmicalePricingActive),
+      extraMattressTotal: applyAmicaleTtc(extraMattressTotal, isAmicalePricingActive),
+      paidServicesTotal: applyAmicaleTtc(paidServicesTotal, isAmicalePricingActive),
       fixedSelectedServices,
       variableSelectedServices,
-      productsAccueilFee,
-      extrasTotal,
-      total
+      productsAccueilFee: applyAmicaleTtc(productsAccueilFee, isAmicalePricingActive),
+      extrasTotal: applyAmicaleTtc(extrasTotal, isAmicalePricingActive),
+      total: applyAmicaleTtc(total, isAmicalePricingActive)
     };
   };
 
@@ -3683,10 +3688,10 @@ out body 40;
             <div className="sticky top-24 bg-white rounded-xl shadow-xl border border-gray-100 p-6">
               <div className="flex justify-between items-baseline mb-6">
                 <div>
-                  <span className="text-2xl font-bold text-gray-900">{currentDisplayPricing.nightlyPrice} TND</span>
+                  <span className="text-2xl font-bold text-gray-900">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
                   {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
-                  {property.priceContext !== 'sale' && Number(currentDisplayPricing.weeklyPrice || 0) > 0 ? (
-                    <p className="mt-1 text-xs text-gray-500">{Number(currentDisplayPricing.weeklyPrice || 0)} TND / semaine</p>
+                  {property.priceContext !== 'sale' && displayedWeeklyPrice > 0 ? (
+                    <p className="mt-1 text-xs text-gray-500">{formatTnd(displayedWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""} / semaine</p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-1 text-sm text-gray-600">
@@ -4120,35 +4125,35 @@ out body 40;
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    <div className="flex justify-between">
                      <span className="underline">
-                       {paymentMode === 'amicale'
-                         ? `${pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight} TND (forfaitaire) x ${pricing.nights} nuits`
-                         : (pricing.hasPeriodOverride ? `${pricing.averageNightlyPrice} TND (moyenne) x ${pricing.nights} nuits` : `${property.pricePerNight} TND x ${pricing.nights} nuits`)}
+                       {isAmicalePricingActive
+                         ? `${formatTnd(applyAmicaleTtc(pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight, true))} TND TTC (forfaitaire) x ${pricing.nights} nuits`
+                         : (pricing.hasPeriodOverride ? `${formatTnd(pricing.averageNightlyPrice)} TND (moyenne) x ${pricing.nights} nuits` : `${formatTnd(property.pricePerNight)} TND x ${pricing.nights} nuits`)}
                      </span>
-                     <span>{pricing.accommodationTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                     <span>{formatTnd(pricing.accommodationTotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                    </div>
                    {pricing.cleaningFee > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Frais de ménage</span>
-                       <span>{pricing.cleaningFee} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                       <span>{formatTnd(pricing.cleaningFee)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                      </div>
                    )}
                    {pricing.serviceFee > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Frais de service</span>
-                       <span>{pricing.serviceFee} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                       <span>{formatTnd(pricing.serviceFee)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                      </div>
                    )}
                    {pricing.extraMattressTotal > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Matelas supplementaires</span>
-                       <span>{pricing.extraMattressTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                       <span>{formatTnd(pricing.extraMattressTotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                      </div>
                    )}
                    {pricing.paidServicesTotal > 0 && (
                      <div className="space-y-2">
                        <div className="flex justify-between">
                          <span className="underline">Services fixes</span>
-                         <span>{pricing.paidServicesTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                         <span>{formatTnd(pricing.paidServicesTotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                        </div>
                        {pricing.fixedSelectedServices?.length > 0 && (
                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
@@ -4165,21 +4170,21 @@ out body 40;
                    {pricing.productsAccueilFee > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Produits d'accueil</span>
-                       <span>{pricing.productsAccueilFee} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                       <span>{formatTnd(pricing.productsAccueilFee)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                      </div>
                    )}
                    <div className="flex justify-between">
                      <span className="underline">Total frais supplementaires</span>
-                     <span>{pricing.extrasTotal} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                     <span>{formatTnd(pricing.extrasTotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                    </div>
                    <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-100 mt-2">
-                     <span>{paymentMode === 'amicale' ? 'Montant total (HT)' : 'Montant total'}</span>
-                     <span>{pricing.total} TND{paymentMode === 'amicale' ? ' (HT)' : ''}</span>
+                     <span>{isAmicalePricingActive ? 'Montant total (TTC)' : 'Montant total'}</span>
+                     <span>{formatTnd(pricing.total)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                    </div>
                    <div className="flex justify-between text-sm text-gray-600">
                      <span className="inline-flex items-center gap-1"><Wallet size={14} />A payer maintenant</span>
                      <span className="font-semibold text-gray-900">
-                       {paymentMode === 'totalite' ? pricing.total : Math.round((pricing.total * advancePercent) / 100)} TND{paymentMode === 'amicale' ? ' (HT)' : ''}
+                       {formatTnd(paymentMode === 'totalite' ? pricing.total : Math.round((pricing.total * advancePercent) / 100))} TND{isAmicalePricingActive ? ' (TTC)' : ''}
                      </span>
                    </div>
                 </div>}
@@ -4352,7 +4357,7 @@ out body 40;
                           {otherProperty.title}
                         </h3>
                         <div className="flex items-baseline gap-1">
-                          <span className="text-lg font-bold text-gray-900">{otherProperty.pricePerNight} TND</span>
+                          <span className="text-lg font-bold text-gray-900">{formatTnd(applyAmicaleTtc(otherProperty.pricePerNight, isAmicalePricingActive))} TND{isAmicalePricingActive ? " TTC" : ""}</span>
                           <span className="text-gray-500 text-sm">{otherProperty.priceContext === 'sale' ? '/ vente' : '/ nuit'}</span>
                         </div>
                         <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">

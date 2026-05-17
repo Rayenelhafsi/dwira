@@ -12,6 +12,7 @@ import { computeGuestLimits } from "../utils/guestLimits";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 import { getAntiBotConfig } from "../services/auth";
 import { buildPropertyDetailsPath, propertyMatchesRouteToken } from "../utils/propertyRouting";
+import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 
 type LocationState = {
   draft?: PendingReservationDraft;
@@ -51,6 +52,7 @@ export default function ReservationConfirmationPage() {
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
   const isAmicaleFlow = draft?.paymentMode === 'amicale';
+  const isAmicalePricingActive = Boolean(pricingAmicaleId) && isAmicaleFlow;
   const seasonalConfig = property?.seasonalConfig;
   const fallbackMaxGuests = Math.max(1, property?.guests || seasonalConfig?.limitePersonnesNuit || 1);
   const { maxGuests, maxAdultGuests, maxChildGuests } = computeGuestLimits({
@@ -98,8 +100,9 @@ export default function ReservationConfirmationPage() {
       : 0;
     const extrasTotal = cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
     const total = accommodationTotal + extrasTotal;
+    const totalTtc = applyAmicaleTtc(total, isAmicalePricingActive);
     const advancePercent = Number(seasonalConfig?.avancePourcentage || 30);
-    const dueNow = draft.paymentMode === 'totalite' ? total : Math.round((total * advancePercent) / 100);
+    const dueNow = draft.paymentMode === 'totalite' ? totalTtc : Math.round((totalTtc * advancePercent) / 100);
     const adultsRaw = Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1));
     const childrenRaw = Math.max(0, Number(draft.childGuests ?? 0));
     const adultGuests = Math.min(maxGuests, maxAdultGuests, adultsRaw);
@@ -110,25 +113,25 @@ export default function ReservationConfirmationPage() {
       adultGuests,
       childGuests,
       nights,
-      accommodationTotal,
+      accommodationTotal: applyAmicaleTtc(accommodationTotal, isAmicalePricingActive),
       accommodationSegments: accommodationPricing.segments,
       averageNightlyPrice: accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
-      cleaningFee,
-      serviceFee,
+      cleaningFee: applyAmicaleTtc(cleaningFee, isAmicalePricingActive),
+      serviceFee: applyAmicaleTtc(serviceFee, isAmicalePricingActive),
       extraMattresses,
-      extraMattressTotal,
-      paidServicesTotal,
+      extraMattressTotal: applyAmicaleTtc(extraMattressTotal, isAmicalePricingActive),
+      paidServicesTotal: applyAmicaleTtc(paidServicesTotal, isAmicalePricingActive),
       fixedPaidServices,
       variablePaidServices,
-      productsAccueilFee,
-      extrasTotal,
-      total,
+      productsAccueilFee: applyAmicaleTtc(productsAccueilFee, isAmicalePricingActive),
+      extrasTotal: applyAmicaleTtc(extrasTotal, isAmicalePricingActive),
+      total: totalTtc,
       dueNow,
       paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : (draft.paymentMode === 'amicale' ? 'amicale' : 'avance'),
       advancePercent,
     };
-  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, maxAdultGuests, maxChildGuests, maxGuests, pricingAmicaleId, property, seasonalConfig]);
+  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, isAmicalePricingActive, maxAdultGuests, maxChildGuests, maxGuests, pricingAmicaleId, property, seasonalConfig]);
 
   useEffect(() => {
     let cancelled = false;
@@ -431,30 +434,30 @@ export default function ReservationConfirmationPage() {
                   </div>}
                   {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Hebergement</span>
-                    <span className="font-semibold text-gray-900">{summary?.accommodationTotal} TND</span>
+                    <span className="font-semibold text-gray-900">{formatTnd(summary?.accommodationTotal || 0)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                   </div>}
                   {!isVisitRequest && summary?.cleaningFee ? (
                     <div className="flex items-center justify-between gap-3">
                       <span>Frais de menage</span>
-                      <span className="font-semibold text-gray-900">{summary.cleaningFee} TND</span>
+                      <span className="font-semibold text-gray-900">{formatTnd(summary.cleaningFee)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                     </div>
                   ) : null}
                   {!isVisitRequest && summary?.serviceFee ? (
                     <div className="flex items-center justify-between gap-3">
                       <span>Frais de service</span>
-                      <span className="font-semibold text-gray-900">{summary.serviceFee} TND</span>
+                      <span className="font-semibold text-gray-900">{formatTnd(summary.serviceFee)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                     </div>
                   ) : null}
                   {!isVisitRequest && summary?.extraMattressTotal ? (
                     <div className="flex items-center justify-between gap-3">
                       <span>Matelas supplementaires</span>
-                      <span className="font-semibold text-gray-900">{summary.extraMattressTotal} TND</span>
+                      <span className="font-semibold text-gray-900">{formatTnd(summary.extraMattressTotal)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                     </div>
                   ) : null}
                   {!isVisitRequest && summary?.paidServicesTotal ? (
                     <div className="flex items-center justify-between gap-3">
                       <span>Services fixes</span>
-                      <span className="font-semibold text-gray-900">{summary.paidServicesTotal} TND</span>
+                      <span className="font-semibold text-gray-900">{formatTnd(summary.paidServicesTotal)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                     </div>
                   ) : null}
                   {!isVisitRequest && summary?.variablePaidServices?.length ? (
@@ -465,23 +468,23 @@ export default function ReservationConfirmationPage() {
                   {!isVisitRequest && summary?.productsAccueilFee ? (
                     <div className="flex items-center justify-between gap-3">
                       <span>Produits d'accueil</span>
-                      <span className="font-semibold text-gray-900">{summary.productsAccueilFee} TND</span>
+                      <span className="font-semibold text-gray-900">{formatTnd(summary.productsAccueilFee)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                     </div>
                   ) : null}
                   {!isVisitRequest && (
                     <div className="flex items-center justify-between gap-3">
                       <span>Total frais supplementaires</span>
-                      <span className="font-semibold text-gray-900">{summary?.extrasTotal || 0} TND</span>
+                      <span className="font-semibold text-gray-900">{formatTnd(summary?.extrasTotal || 0)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                     </div>
                   )}
                   {!isVisitRequest && <div className="border-t border-emerald-100 pt-4">
                     <div className="flex items-center justify-between gap-3 text-base">
-                      <span className="font-semibold text-gray-900">Montant total</span>
-                      <span className="text-xl font-bold text-emerald-700">{summary?.total} TND</span>
+                      <span className="font-semibold text-gray-900">{isAmicalePricingActive ? 'Montant total TTC' : 'Montant total'}</span>
+                      <span className="text-xl font-bold text-emerald-700">{formatTnd(summary?.total || 0)} TND{isAmicalePricingActive ? ' TTC' : ''}</span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-3 text-sm">
                     <span className="text-gray-600">A payer maintenant</span>
-                    <span className="font-semibold text-gray-900">{summary?.dueNow} TND ({summary?.paymentMode === 'totalite' ? 'Totalite' : summary?.paymentMode === 'amicale' ? 'Amicale' : `Avance ${summary?.advancePercent || 30}%`})</span>
+                    <span className="font-semibold text-gray-900">{formatTnd(summary?.dueNow || 0)} TND{isAmicalePricingActive ? ' TTC' : ''} ({summary?.paymentMode === 'totalite' ? 'Totalite' : summary?.paymentMode === 'amicale' ? 'Amicale' : `Avance ${summary?.advancePercent || 30}%`})</span>
                   </div>
                 </div>}
                 </div>
@@ -590,7 +593,7 @@ export default function ReservationConfirmationPage() {
               </div>
             ) : (
               <div className="mt-6 space-y-4 text-sm text-gray-700">
-                <Line label={summary?.hasPeriodOverride ? `${summary?.averageNightlyPrice || 0} TND (moyenne) x ${summary?.nights || 0} nuits` : `${property.pricePerNight} TND x ${summary?.nights || 0} nuits`} value={`${summary?.accommodationTotal || 0} TND`} />
+                <Line label={summary?.hasPeriodOverride ? `${formatTnd(applyAmicaleTtc(summary?.averageNightlyPrice || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} (moyenne) x ${summary?.nights || 0} nuits` : `${formatTnd(applyAmicaleTtc(property.pricePerNight, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${summary?.nights || 0} nuits`} value={`${formatTnd(summary?.accommodationTotal || 0)} TND${isAmicalePricingActive ? ' TTC' : ''}`} />
                 {summary?.accommodationSegments?.length ? (
                   <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Detail par periode</p>
@@ -598,27 +601,27 @@ export default function ReservationConfirmationPage() {
                       {summary.accommodationSegments.map((segment, index) => (
                         <Line
                           key={`${segment.key}-${index}-${segment.startDate}`}
-                          label={`${segment.startDate} -> ${segment.endDate} : ${segment.nightlyPrice} TND x ${segment.nights} nuit(s)`}
-                          value={`${segment.subtotal} TND`}
+                          label={`${segment.startDate} -> ${segment.endDate} : ${formatTnd(applyAmicaleTtc(segment.nightlyPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${segment.nights} nuit(s)`}
+                          value={`${formatTnd(applyAmicaleTtc(segment.subtotal, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}`}
                         />
                       ))}
                     </div>
                   </div>
                 ) : null}
-                {summary?.cleaningFee ? <Line label="Frais de menage" value={`${summary.cleaningFee} TND`} /> : null}
-                {summary?.serviceFee ? <Line label="Frais de service" value={`${summary.serviceFee} TND`} /> : null}
-                {summary?.extraMattressTotal ? <Line label="Matelas supplementaires" value={`${summary.extraMattressTotal} TND`} /> : null}
-                {summary?.paidServicesTotal ? <Line label="Services fixes" value={`${summary.paidServicesTotal} TND`} /> : null}
+                {summary?.cleaningFee ? <Line label="Frais de menage" value={`${formatTnd(summary.cleaningFee)} TND${isAmicalePricingActive ? ' TTC' : ''}`} /> : null}
+                {summary?.serviceFee ? <Line label="Frais de service" value={`${formatTnd(summary.serviceFee)} TND${isAmicalePricingActive ? ' TTC' : ''}`} /> : null}
+                {summary?.extraMattressTotal ? <Line label="Matelas supplementaires" value={`${formatTnd(summary.extraMattressTotal)} TND${isAmicalePricingActive ? ' TTC' : ''}`} /> : null}
+                {summary?.paidServicesTotal ? <Line label="Services fixes" value={`${formatTnd(summary.paidServicesTotal)} TND${isAmicalePricingActive ? ' TTC' : ''}`} /> : null}
                 {summary?.variablePaidServices?.length ? (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
                     Services a confirmer: {summary.variablePaidServices.map((service) => `${service.label} (${getServiceDisplayPrice(service)})`).join(', ')}
                   </div>
                 ) : null}
-                {summary?.productsAccueilFee ? <Line label="Produits d'accueil" value={`${summary.productsAccueilFee} TND`} /> : null}
-                <Line label="Total frais supplementaires" value={`${summary?.extrasTotal || 0} TND`} />
+                {summary?.productsAccueilFee ? <Line label="Produits d'accueil" value={`${formatTnd(summary.productsAccueilFee)} TND${isAmicalePricingActive ? ' TTC' : ''}`} /> : null}
+                <Line label="Total frais supplementaires" value={`${formatTnd(summary?.extrasTotal || 0)} TND${isAmicalePricingActive ? ' TTC' : ''}`} />
                 <div className="border-t border-gray-100 pt-4">
-                  <Line label="Montant total" value={`${summary?.total || 0} TND`} strong />
-                  <Line label="A payer maintenant" value={`${summary?.dueNow || 0} TND (${summary?.paymentMode === 'totalite' ? 'Totalite' : summary?.paymentMode === 'amicale' ? 'Amicale' : `Avance ${summary?.advancePercent || 30}%`})`} />
+                  <Line label={isAmicalePricingActive ? "Montant total TTC" : "Montant total"} value={`${formatTnd(summary?.total || 0)} TND${isAmicalePricingActive ? ' TTC' : ''}`} strong />
+                  <Line label="A payer maintenant" value={`${formatTnd(summary?.dueNow || 0)} TND${isAmicalePricingActive ? ' TTC' : ''} (${summary?.paymentMode === 'totalite' ? 'Totalite' : summary?.paymentMode === 'amicale' ? 'Amicale' : `Avance ${summary?.advancePercent || 30}%`})`} />
                 </div>
               </div>
             )}

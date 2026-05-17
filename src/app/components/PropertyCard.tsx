@@ -6,6 +6,7 @@ import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, op
 import { SmartImage } from "./SmartImage";
 import { resolveCurrentPricing } from "../utils/seasonalPricing";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
+import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 
 interface PropertyCardProps {
   property: Property;
@@ -107,12 +108,15 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     pricingPeriods: property.pricingPeriods || [],
     amicaleId: pricingAmicaleId,
   });
+  const isAmicalePricing = Boolean(pricingAmicaleId) && property.priceContext !== "sale";
   const syncedNightlyPrice = property.priceContext === 'sale'
     ? Number(property.pricePerNight || 0)
     : currentPricing.nightlyPrice;
   const syncedWeeklyPrice = property.priceContext === 'sale'
     ? 0
     : currentPricing.weeklyPrice;
+  const displayedNightlyPrice = applyAmicaleTtc(syncedNightlyPrice, isAmicalePricing);
+  const displayedWeeklyPrice = applyAmicaleTtc(syncedWeeklyPrice, isAmicalePricing);
   const mainTypeLabel = resolveMainTypeLabel(property.category || "", property.title || "");
   const subTypeLabel = resolveSubTypeLabel(
     property.category || "",
@@ -186,12 +190,12 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             </div>
             <div className="shrink-0 rounded-2xl bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 shadow-md">
               <div>
-                {syncedNightlyPrice} TND
+                {formatTnd(displayedNightlyPrice)} TND{isAmicalePricing ? " TTC" : ""}
                 {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
               </div>
-              {property.priceContext !== 'sale' && syncedWeeklyPrice > 0 ? (
+              {property.priceContext !== 'sale' && displayedWeeklyPrice > 0 ? (
                 <div className="text-[11px] font-medium text-gray-600">
-                  {syncedWeeklyPrice} TND / semaine
+                  {formatTnd(displayedWeeklyPrice)} TND{isAmicalePricing ? " TTC" : ""} / semaine
                 </div>
               ) : null}
             </div>
