@@ -122,6 +122,7 @@ export default function AmicalesPage() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminAmicaleTab>("amicales");
   const [activeAmicaleFilter, setActiveAmicaleFilter] = useState<string>("all");
@@ -219,6 +220,7 @@ export default function AmicalesPage() {
       setName("");
       setCode("");
       setLogoUrl("");
+      setLogoFile(null);
       await loadData();
       toast.success("Amicale ajoutee.");
     } catch (error) {
@@ -252,6 +254,7 @@ export default function AmicalesPage() {
       const uploadedUrl = String(data?.url || data?.imageUrl || "").trim();
       if (!uploadedUrl) throw new Error("URL logo manquante apres upload");
       setLogoUrl(uploadedUrl);
+      setLogoFile(null);
       toast.success("Logo uploadé.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload logo impossible");
@@ -386,13 +389,31 @@ export default function AmicalesPage() {
                   type="file"
                   accept="image/*"
                   onChange={(event) => {
-                    void handleLogoUpload(event.target.files?.[0] || null);
-                    event.currentTarget.value = "";
+                    const nextFile = event.target.files?.[0] || null;
+                    setLogoFile(nextFile);
+                    if (nextFile) {
+                      setLogoUrl("");
+                      toast.info(`Fichier selectionne: ${nextFile.name}`);
+                    }
                   }}
                   className="w-full text-sm"
                 />
+                {logoFile ? (
+                  <p className="mt-2 text-xs text-gray-600">
+                    Fichier selectionne: <span className="font-semibold">{logoFile.name}</span>
+                  </p>
+                ) : null}
                 {logoUploading ? (
                   <p className="mt-2 text-xs text-emerald-700">Upload du logo en cours...</p>
+                ) : null}
+                {!logoUploading && logoFile ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleLogoUpload(logoFile)}
+                    className="mt-3 inline-flex rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                  >
+                    Uploader le logo
+                  </button>
                 ) : null}
                 {logoUrl ? (
                   <img src={logoUrl} alt="Logo amicale" className="mt-3 h-16 w-16 rounded-lg border border-gray-200 object-cover" />
@@ -402,7 +423,8 @@ export default function AmicalesPage() {
             <button
               type="button"
               onClick={handleAdd}
-              className="mt-4 inline-flex rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              disabled={logoUploading}
+              className="mt-4 inline-flex rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Ajouter
             </button>

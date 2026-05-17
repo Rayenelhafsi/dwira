@@ -14207,6 +14207,14 @@ app.post('/api/biens/:id/caracteristiques', requireAdminSession, async (req, res
 // Upload media endpoint
 app.post('/api/upload', requireAuthenticatedSession, uploadMediaMiddleware, async (req, res) => {
   try {
+    console.log('[UPLOAD] request received', {
+      hasFile: Boolean(req.file),
+      filename: req.file?.originalname || null,
+      mimetype: req.file?.mimetype || null,
+      uploadScope: req.body?.upload_scope || null,
+      amicaleCode: req.body?.amicale_code || null,
+      amicaleName: req.body?.amicale_name || null,
+    });
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
