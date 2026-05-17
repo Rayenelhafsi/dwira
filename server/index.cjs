@@ -5896,8 +5896,20 @@ async function syncBienPricingPeriods(bienId, periods) {
   const normalized = (Array.isArray(periods) ? periods : [])
     .map((period, index) => normalizeSeasonalPricingPeriod(period, index))
     .filter(Boolean);
+  const usedIds = new Set();
+  const uniquePeriods = normalized.map((period, index) => {
+    let nextId = String(period.id || '').trim();
+    if (!nextId) {
+      nextId = `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`;
+    }
+    while (usedIds.has(nextId)) {
+      nextId = `pp_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`;
+    }
+    usedIds.add(nextId);
+    return { ...period, id: nextId };
+  });
   await pool.query('DELETE FROM bien_pricing_periods WHERE bien_id = ?', [normalizedBienId]);
-  for (const period of normalized) {
+  for (const period of uniquePeriods) {
     await pool.query(
       `INSERT INTO bien_pricing_periods (
          id, bien_id, scope, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour, created_at, updated_at
