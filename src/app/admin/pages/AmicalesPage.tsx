@@ -8,6 +8,7 @@ import type { ReservationDemand, ReservationDemandStatus } from "../types";
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 type AdminAmicaleTab = "amicales" | "demandes";
+type DemandSectionTab = "actives" | "rejetees";
 
 type AmicaleDemandRow = ReservationDemand & {
   amicale_name?: string | null;
@@ -101,6 +102,10 @@ function isAmicaleDemand(demand: ReservationDemand) {
   return String(demand.payment_mode || "").trim() === "amicale" || Boolean(String(demand.pricing_amicale_id || "").trim());
 }
 
+function isRejectedAmicaleDemand(status?: ReservationDemandStatus | null) {
+  return ["rejete_par_amicale", "rejete_par_agence", "demande_rejetee_admin"].includes(String(status || "").trim());
+}
+
 function buildPropertyPath(demand: ReservationDemand) {
   const token = String(demand.bien_reference || demand.bien_id || "").trim();
   return token ? `/properties/${encodeURIComponent(token)}` : "/logements";
@@ -125,6 +130,7 @@ export default function AmicalesPage() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminAmicaleTab>("amicales");
+  const [demandSectionTab, setDemandSectionTab] = useState<DemandSectionTab>("actives");
   const [activeAmicaleFilter, setActiveAmicaleFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -167,7 +173,8 @@ export default function AmicalesPage() {
     const waitingAmicale = demandRows.filter((row) => row.status === "attente_validation_amicale").length;
     const waitingAgency = demandRows.filter((row) => row.status === "attente_validation_par_agence").length;
     const voucherCount = demandRows.filter((row) => row.status === "voucher_en_cours" && Boolean(row.voucher_url)).length;
-    return { waitingAmicale, waitingAgency, voucherCount };
+    const rejectedCount = demandRows.filter((row) => isRejectedAmicaleDemand(row.status)).length;
+    return { waitingAmicale, waitingAgency, voucherCount, rejectedCount };
   }, [demandRows]);
 
   const amicaleNameById = useMemo(() => {
@@ -178,9 +185,15 @@ export default function AmicalesPage() {
     return map;
   }, [amicales]);
 
+  const scopedDemandRows = useMemo(() => (
+    demandSectionTab === "rejetees"
+      ? demandRows.filter((row) => isRejectedAmicaleDemand(row.status))
+      : demandRows.filter((row) => !isRejectedAmicaleDemand(row.status))
+  ), [demandRows, demandSectionTab]);
+
   const amicaleTabs = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; count: number }>();
-    for (const row of demandRows) {
+    for (const row of scopedDemandRows) {
       const id = String(row.pricing_amicale_id || "").trim();
       if (!id) continue;
       const current = byId.get(id);
@@ -188,11 +201,11 @@ export default function AmicalesPage() {
       byId.set(id, { id, name, count: (current?.count || 0) + 1 });
     }
     return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  }, [demandRows, amicaleNameById]);
+  }, [scopedDemandRows, amicaleNameById]);
 
   const filteredDemands = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
-    return demandRows.filter((row) => {
+    return scopedDemandRows.filter((row) => {
       const amicaleId = String(row.pricing_amicale_id || "").trim();
       if (activeAmicaleFilter !== "all" && amicaleId !== activeAmicaleFilter) return false;
       if (!needle) return true;
@@ -208,7 +221,7 @@ export default function AmicalesPage() {
       ].map((v) => String(v || "").toLowerCase());
       return bag.some((v) => v.includes(needle));
     });
-  }, [activeAmicaleFilter, demandRows, searchTerm]);
+  }, [activeAmicaleFilter, scopedDemandRows, searchTerm]);
 
   const handleAdd = async () => {
     if (!name.trim() || !code.trim()) {
@@ -308,6 +321,28 @@ export default function AmicalesPage() {
       await loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Regeneration impossible");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleDeleteDemand = async (demand: AmicaleDemandRow) => {
+    const confirmed = window.confirm(`Supprimer definitivement la demande ${demand.id} de la base de donnees ?`);
+    if (!confirmed) return;
+    setSavingId(demand.id);
+    try {
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(String(data?.error || "Suppression impossible"));
+      }
+      toast.success("Demande supprimee de la base.");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Suppression impossible");
     } finally {
       setSavingId(null);
     }
@@ -506,13 +541,29 @@ export default function AmicalesPage() {
           </div>
 
           <div className="flex flex-col gap-3">
+            <div className="inline-flex w-fit rounded-lg border border-gray-200 bg-white p-1">
+              <button
+                type="button"
+                onClick={() => setDemandSectionTab("actives")}
+                className={`rounded-md px-3 py-2 text-sm font-medium ${demandSectionTab === "actives" ? "bg-emerald-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+              >
+                Demandes actives ({demandRows.length - amicaleCounts.rejectedCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setDemandSectionTab("rejetees")}
+                className={`rounded-md px-3 py-2 text-sm font-medium ${demandSectionTab === "rejetees" ? "bg-rose-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+              >
+                Demandes rejetees ({amicaleCounts.rejectedCount})
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setActiveAmicaleFilter("all")}
                 className={`rounded-lg border px-3 py-2 text-xs font-semibold ${activeAmicaleFilter === "all" ? "border-emerald-600 bg-emerald-600 text-white" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
               >
-                Toutes ({demandRows.length})
+                Toutes ({scopedDemandRows.length})
               </button>
               {amicaleTabs.map((tabItem) => (
                 <button
@@ -589,23 +640,27 @@ export default function AmicalesPage() {
                           </div>
                         ) : null}
                         <div className="flex flex-wrap gap-2 pt-1">
-                          <button
-                            type="button"
-                            disabled={savingId === demand.id}
-                            onClick={() => void handleDemandAction(demand, "voucher_en_cours")}
-                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                            Valider
-                          </button>
-                          <button
-                            type="button"
-                            disabled={savingId === demand.id}
-                            onClick={() => void handleDemandAction(demand, "rejete_par_agence")}
-                            className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
-                          >
-                            Rejeter
-                          </button>
+                          {demandSectionTab === "actives" ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={savingId === demand.id}
+                                onClick={() => void handleDemandAction(demand, "voucher_en_cours")}
+                                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                                Valider
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingId === demand.id}
+                                onClick={() => void handleDemandAction(demand, "rejete_par_agence")}
+                                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                              >
+                                Rejeter
+                              </button>
+                            </>
+                          ) : null}
                           {String(demand.status || "") === "voucher_en_cours" ? (
                             <button
                               type="button"
@@ -616,6 +671,15 @@ export default function AmicalesPage() {
                               Regenerer voucher
                             </button>
                           ) : null}
+                          <button
+                            type="button"
+                            disabled={savingId === demand.id}
+                            onClick={() => void handleDeleteDemand(demand)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Supprimer BDD
+                          </button>
                         </div>
                       </div>
                     </div>

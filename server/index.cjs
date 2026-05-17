@@ -6005,6 +6005,115 @@ async function fetchReservationDemandDetailsById(demandId) {
   return formatReservationDemandRow(rows?.[0] || null);
 }
 
+async function deleteLocalFileFromPublicUrl(fileUrl, subdirectory = '') {
+  const normalizedUrl = String(fileUrl || '').trim();
+  if (!normalizedUrl) return;
+  try {
+    const parsed = /^https?:\/\//i.test(normalizedUrl) ? new URL(normalizedUrl) : null;
+    const pathname = parsed ? parsed.pathname : normalizedUrl;
+    const fileName = path.basename(String(pathname || '').trim());
+    if (!fileName) return;
+    const targetDir = subdirectory ? path.join(__dirname, subdirectory) : __dirname;
+    const filePath = path.join(targetDir, fileName);
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+    }
+  } catch (error) {
+    console.warn('Failed to delete local file:', error?.message || error);
+  }
+}
+
+async function deleteReservationDemandArtifacts(connection, demandRow) {
+  const demandId = String(demandRow?.id || '').trim();
+  if (!demandId) return false;
+
+  const contractId = String(demandRow?.contract_id || '').trim();
+  const unavailableDateId = String(demandRow?.unavailable_date_id || '').trim();
+  const paymentIds = [
+    demandRow?.payment_id,
+    demandRow?.reservation_payment_id,
+    demandRow?.services_payment_id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const uniquePaymentIds = Array.from(new Set(paymentIds));
+
+  if (uniquePaymentIds.length > 0) {
+    await connection.query(
+      `DELETE FROM paiements WHERE id IN (${uniquePaymentIds.map(() => '?').join(', ')})`,
+      uniquePaymentIds
+    );
+  }
+  if (contractId) {
+    await connection.query('DELETE FROM paiements WHERE contrat_id = ?', [contractId]);
+    await connection.query('DELETE FROM contrats WHERE id = ?', [contractId]);
+  }
+
+  await connection.query('DELETE FROM reservation_demand_history WHERE demand_id = ?', [demandId]);
+  await connection.query('DELETE FROM unavailable_dates WHERE reservation_demand_id = ?', [demandId]);
+  if (unavailableDateId) {
+    await connection.query('DELETE FROM unavailable_dates WHERE id = ?', [unavailableDateId]);
+  }
+  await connection.query('DELETE FROM reservation_demands WHERE id = ?', [demandId]);
+
+  await deleteLocalFileFromPublicUrl(demandRow?.voucher_url, path.join('contracts', 'amicale-vouchers'));
+  await deleteLocalFileFromPublicUrl(demandRow?.payment_receipt_image_url, 'uploads');
+  await deleteLocalFileFromPublicUrl(demandRow?.identity_document_image_url, 'uploads');
+  return true;
+}
+
+async function cleanupNamelessAmicalesAndTheirDemands() {
+  const [amicaleRows] = await pool.query(
+    `SELECT id
+     FROM amicales
+     WHERE name IS NULL OR TRIM(name) = ''`
+  );
+  const namelessAmicaleIds = (amicaleRows || [])
+    .map((row) => String(row?.id || '').trim())
+    .filter(Boolean);
+  if (namelessAmicaleIds.length === 0) {
+    return { amicalesDeleted: 0, demandsDeleted: 0 };
+  }
+
+  const [demandRows] = await pool.query(
+    `SELECT *
+     FROM reservation_demands
+     WHERE pricing_amicale_id IN (${namelessAmicaleIds.map(() => '?').join(', ')})`,
+    namelessAmicaleIds
+  );
+
+  const connection = await pool.getConnection();
+  let deletedDemands = 0;
+  try {
+    await connection.beginTransaction();
+    for (const demandRow of demandRows || []) {
+      const deleted = await deleteReservationDemandArtifacts(connection, demandRow);
+      if (deleted) deletedDemands += 1;
+    }
+    await connection.query(
+      `DELETE FROM agent_amicale_profiles
+       WHERE amicale_id IN (${namelessAmicaleIds.map(() => '?').join(', ')})`,
+      namelessAmicaleIds
+    );
+    await connection.query(
+      `DELETE FROM amicales
+       WHERE id IN (${namelessAmicaleIds.map(() => '?').join(', ')})`,
+      namelessAmicaleIds
+    );
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  console.log(
+    `[Amicales] Cleaned ${namelessAmicaleIds.length} amicale(s) without name and ${deletedDemands} related demand(s).`
+  );
+  return { amicalesDeleted: namelessAmicaleIds.length, demandsDeleted: deletedDemands };
+}
+
 function normalizeIdentityDocumentType(value, fallback = 'cin_tn') {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'passport_tn' || normalized === 'passport_foreign' || normalized === 'cin_tn') {
@@ -7737,6 +7846,8 @@ async function initializeDatabaseSchema() {
     for (const [label, step] of steps) {
       await runSchemaStepWithRetry(label, step);
     }
+
+    await runSchemaStepWithRetry('cleanupNamelessAmicalesAndTheirDemands', cleanupNamelessAmicalesAndTheirDemands);
 
     console.log('? Auth schema and bien workflow ready');
   } finally {
@@ -11090,6 +11201,7 @@ app.get('/api/caracteristique-onglets', async (req, res) => {
 app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    await cleanupNamelessAmicalesAndTheirDemands();
     const requester = req.authUser || null;
     const where = [];
     const params = [];
@@ -11140,6 +11252,36 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
   } catch (error) {
     console.error('Error fetching reservation demands:', error);
     res.status(500).json({ error: 'Impossible de charger les demandes de reservation' });
+  }
+});
+
+app.delete('/api/reservation-demands/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+
+    const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await deleteReservationDemandArtifacts(connection, current);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    await createAdminNotification('warning', `Demande ${demandId} supprimee de la base par admin.`, getAgencySqlDateTime());
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting reservation demand:', error);
+    res.status(500).json({ error: 'Impossible de supprimer la demande' });
   }
 });
 
@@ -14763,6 +14905,7 @@ app.post('/api/auth/agent-amicale/logout', async (req, res) => {
 app.get('/api/agent-amicale/reservation-demands', requireAgentAmicaleSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    await cleanupNamelessAmicalesAndTheirDemands();
     const amicaleId = String(req.agentSession?.amicaleId || '').trim();
     if (!amicaleId) {
       return res.status(400).json({ error: 'Amicale introuvable' });
@@ -16663,9 +16806,12 @@ app.delete('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
 
 app.get('/api/public/amicales', async (req, res) => {
   try {
+    await cleanupNamelessAmicalesAndTheirDemands();
     const [rows] = await pool.query(
       `SELECT id, name, code, logo_url
        FROM amicales
+       WHERE name IS NOT NULL
+         AND TRIM(name) <> ''
        ORDER BY updated_at DESC, created_at DESC`
     );
     res.json(Array.isArray(rows) ? rows : []);
@@ -16677,9 +16823,12 @@ app.get('/api/public/amicales', async (req, res) => {
 
 app.get('/api/amicales', requireAdminSession, async (req, res) => {
   try {
+    await cleanupNamelessAmicalesAndTheirDemands();
     const [rows] = await pool.query(
       `SELECT id, name, code, logo_url, created_at, updated_at
        FROM amicales
+       WHERE name IS NOT NULL
+         AND TRIM(name) <> ''
        ORDER BY updated_at DESC, created_at DESC`
     );
     res.json(Array.isArray(rows) ? rows : []);
@@ -16740,8 +16889,22 @@ app.delete('/api/amicales/:id', requireAdminSession, async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ error: 'id is required' });
-    await pool.query('DELETE FROM agent_amicale_profiles WHERE amicale_id = ?', [id]);
-    await pool.query('DELETE FROM amicales WHERE id = ?', [id]);
+    const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE pricing_amicale_id = ?', [id]);
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      for (const demandRow of demandRows || []) {
+        await deleteReservationDemandArtifacts(connection, demandRow);
+      }
+      await connection.query('DELETE FROM agent_amicale_profiles WHERE amicale_id = ?', [id]);
+      await connection.query('DELETE FROM amicales WHERE id = ?', [id]);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting amicale:', error);
