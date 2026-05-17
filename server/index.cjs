@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const sharp = require('sharp');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
@@ -55,6 +56,20 @@ const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || process.en
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_OCR_MODEL = String(process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini').trim();
 const CLOUDINARY_UPLOAD_SOURCE_BASE_URL = String(process.env.CLOUDINARY_UPLOAD_SOURCE_BASE_URL || 'https://www.dwiraimmobilier.com').trim().replace(/\/+$/, '');
+const MEDIA_UPLOAD_PROVIDER = String(process.env.MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
+const MEDIA_REQUIRED_UPLOAD = String(
+  process.env.MEDIA_REQUIRED_UPLOAD || process.env.CLOUDINARY_REQUIRED_UPLOAD || ''
+).trim().toLowerCase() === 'true';
+const CLOUDFLARE_ACCOUNT_ID = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+const CLOUDFLARE_API_TOKEN = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+const CLOUDFLARE_IMAGES_VARIANT = String(process.env.CLOUDFLARE_IMAGES_VARIANT || 'public').trim() || 'public';
+const CLOUDFLARE_IMAGES_REQUIRE_SIGNED_URLS = String(process.env.CLOUDFLARE_IMAGES_REQUIRE_SIGNED_URLS || '').trim().toLowerCase() === 'true';
+const CLOUDFLARE_STREAM_CUSTOMER_CODE = String(process.env.CLOUDFLARE_STREAM_CUSTOMER_CODE || '').trim();
+const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || '').trim();
+const R2_BUCKET_NAME = String(process.env.R2_BUCKET_NAME || '').trim();
+const R2_ACCESS_KEY_ID = String(process.env.R2_ACCESS_KEY_ID || '').trim();
+const R2_SECRET_ACCESS_KEY = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
+const R2_PUBLIC_BASE_URL = String(process.env.R2_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
 const SESSION_COOKIE_NAME = 'dwira_session';
 const AGENT_SESSION_COOKIE_NAME = 'dwira_agent_session';
 const DEVICE_COOKIE_NAME = 'dwira_device';
@@ -242,6 +257,215 @@ function parseCloudinaryCredentials() {
 const CLOUDINARY_CREDS = parseCloudinaryCredentials();
 const CLOUDINARY_UPLOAD_FOLDER = String(process.env.CLOUDINARY_UPLOAD_FOLDER || 'dwira_uploads').trim().replace(/^\/+|\/+$/g, '');
 const CLOUDINARY_REQUIRED_UPLOAD = String(process.env.CLOUDINARY_REQUIRED_UPLOAD || '').trim().toLowerCase() === 'true';
+const R2_S3_ENDPOINT = R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : '';
+const R2_CLIENT = (R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY)
+  ? new S3Client({
+      region: 'auto',
+      endpoint: R2_S3_ENDPOINT,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY_ID,
+        secretAccessKey: R2_SECRET_ACCESS_KEY,
+      },
+    })
+  : null;
+
+function hasCloudflareBaseConfig() {
+  return Boolean(CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN);
+}
+
+function hasR2Config() {
+  return Boolean(R2_CLIENT && R2_BUCKET_NAME && R2_PUBLIC_BASE_URL);
+}
+
+function hasCloudflareImagesConfig() {
+  return hasCloudflareBaseConfig();
+}
+
+function hasCloudflareStreamConfig() {
+  return hasCloudflareBaseConfig();
+}
+
+function getCloudflareHeaders() {
+  if (!hasCloudflareBaseConfig()) return null;
+  return {
+    Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+  };
+}
+
+function parseCloudflareApiEnvelope(payload) {
+  if (payload && typeof payload === 'object') return payload;
+  return {};
+}
+
+function extractCloudflareErrorDetail(payload, fallbackMessage) {
+  const envelope = parseCloudflareApiEnvelope(payload);
+  if (Array.isArray(envelope.errors) && envelope.errors.length > 0) {
+    const message = envelope.errors
+      .map((entry) => String(entry?.message || entry?.code || '').trim())
+      .filter(Boolean)
+      .join('; ');
+    if (message) return message;
+  }
+  return String(envelope.message || fallbackMessage || 'Cloudflare request failed').trim();
+}
+
+function buildCloudflareStreamIframeUrl(videoUid) {
+  const uid = String(videoUid || '').trim();
+  if (!uid) return '';
+  if (CLOUDFLARE_STREAM_CUSTOMER_CODE) {
+    return `https://customer-${CLOUDFLARE_STREAM_CUSTOMER_CODE}.cloudflarestream.com/${uid}/iframe`;
+  }
+  return `https://iframe.videodelivery.net/${uid}`;
+}
+
+function buildR2ObjectKey({ filename, folderKey, uploadScope, mediaType }) {
+  const scopeFolder = String(uploadScope || '').trim().toLowerCase() === 'zone' ? 'zones' : 'biens';
+  const safeFolderKey = String(folderKey || 'unassigned')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._/-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-/]+|[-/]+$/g, '') || 'unassigned';
+  const safeFilename = path.basename(String(filename || `media_${Date.now()}`)).replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const mediaFolder = String(mediaType || '').startsWith('video') ? 'videos' : 'images';
+  return `${scopeFolder}/${safeFolderKey}/${mediaFolder}/${safeFilename}`;
+}
+
+function buildR2PublicUrl(objectKey) {
+  const normalizedKey = String(objectKey || '').replace(/^\/+/, '');
+  if (!normalizedKey || !R2_PUBLIC_BASE_URL) return '';
+  return `${R2_PUBLIC_BASE_URL}/${normalizedKey}`;
+}
+
+async function uploadLocalMediaToR2({ localFilePath, filename, mimetype, folderKey, uploadScope, mediaType }) {
+  if (!hasR2Config()) return null;
+  const body = await fs.promises.readFile(localFilePath);
+  const objectKey = buildR2ObjectKey({ filename, folderKey, uploadScope, mediaType });
+  const command = new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: objectKey,
+    Body: body,
+    ContentType: String(mimetype || '').trim() || 'application/octet-stream',
+    CacheControl: String(mediaType || '').startsWith('video') ? 'public, max-age=86400' : 'public, max-age=31536000, immutable',
+  });
+  await R2_CLIENT.send(command);
+  return {
+    provider: 'r2',
+    objectKey,
+    url: buildR2PublicUrl(objectKey),
+  };
+}
+
+async function uploadLocalImageToCloudflare({ localFilePath, filename, folderKey, uploadScope }) {
+  if (!hasCloudflareImagesConfig()) return null;
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(CLOUDFLARE_ACCOUNT_ID)}/images/v1`;
+  const fileBuffer = await fs.promises.readFile(localFilePath);
+  const blob = new Blob([fileBuffer]);
+  const form = new FormData();
+  form.append('file', blob, String(filename || `image_${Date.now()}`));
+  form.append('requireSignedURLs', CLOUDFLARE_IMAGES_REQUIRE_SIGNED_URLS ? 'true' : 'false');
+  form.append('metadata', JSON.stringify({
+    folderKey,
+    scope: String(uploadScope || 'bien'),
+    originalFilename: String(filename || '').trim(),
+  }));
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: getCloudflareHeaders(),
+    body: form,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.success === false) {
+    throw new Error(extractCloudflareErrorDetail(payload, `Cloudflare Images upload failed (${response.status})`));
+  }
+
+  const result = payload?.result || {};
+  const variants = Array.isArray(result?.variants) ? result.variants : [];
+  const preferredVariant = variants.find((url) => {
+    try {
+      const parsed = new URL(String(url || '').trim());
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      return segments[segments.length - 1] === CLOUDFLARE_IMAGES_VARIANT;
+    } catch {
+      return false;
+    }
+  });
+  const url = String(preferredVariant || variants[0] || '').trim();
+  if (!url) {
+    throw new Error('Cloudflare Images upload succeeded but no delivery URL was returned');
+  }
+
+  return {
+    provider: 'cloudflare-images',
+    url,
+    imageId: String(result?.id || '').trim(),
+    filename: String(result?.filename || filename || '').trim(),
+    variants,
+  };
+}
+
+async function uploadLocalVideoToCloudflare({ localFilePath, filename }) {
+  if (!hasCloudflareStreamConfig()) return null;
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(CLOUDFLARE_ACCOUNT_ID)}/stream`;
+  const fileBuffer = await fs.promises.readFile(localFilePath);
+  const blob = new Blob([fileBuffer]);
+  const form = new FormData();
+  form.append('file', blob, String(filename || `video_${Date.now()}`));
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: getCloudflareHeaders(),
+    body: form,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.success === false) {
+    throw new Error(extractCloudflareErrorDetail(payload, `Cloudflare Stream upload failed (${response.status})`));
+  }
+
+  const result = payload?.result || {};
+  const uid = String(result?.uid || '').trim();
+  const iframeUrl = buildCloudflareStreamIframeUrl(uid);
+  if (!uid || !iframeUrl) {
+    throw new Error('Cloudflare Stream upload succeeded but video UID is missing');
+  }
+
+  return {
+    provider: 'cloudflare-stream',
+    url: iframeUrl,
+    videoUid: uid,
+    thumbnail: String(result?.thumbnail || '').trim(),
+    preview: String(result?.preview || '').trim(),
+    status: String(result?.status?.state || result?.readyToStream || '').trim(),
+  };
+}
+
+function canUseProviderForMedia(provider, mediaType) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  const normalizedMediaType = String(mediaType || '').startsWith('video') ? 'video' : 'image';
+  if (normalizedProvider === 'r2') {
+    return hasR2Config();
+  }
+  if (normalizedProvider === 'cloudflare') {
+    return normalizedMediaType === 'video' ? hasCloudflareStreamConfig() : hasCloudflareImagesConfig();
+  }
+  if (normalizedProvider === 'cloudinary') {
+    return Boolean(CLOUDINARY_CREDS);
+  }
+  if (normalizedProvider === 'local') {
+    return true;
+  }
+  return false;
+}
+
+function getUploadProviderCandidates(mediaType) {
+  const normalizedProvider = String(MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
+  if (normalizedProvider && normalizedProvider !== 'auto') {
+    return [normalizedProvider, 'local'];
+  }
+  const orderedProviders = ['r2', 'cloudflare', 'cloudinary', 'local'];
+  return orderedProviders.filter((provider) => canUseProviderForMedia(provider, mediaType));
+}
 
 function signCloudinaryParams(params, apiSecret) {
   const signatureBase = Object.keys(params)
@@ -336,6 +560,62 @@ function isCloudinaryUrl(value) {
   return /(^https?:\/\/)?res\.cloudinary\.com\//i.test(String(value || '').trim());
 }
 
+function isCloudflareImageUrl(value) {
+  return /(^https?:\/\/)?imagedelivery\.net\//i.test(String(value || '').trim());
+}
+
+function isCloudflareStreamUrl(value) {
+  return /(^https?:\/\/)?(?:customer-[a-z0-9_-]+\.cloudflarestream\.com|iframe\.videodelivery\.net)\//i.test(String(value || '').trim());
+}
+
+function isR2PublicUrl(value) {
+  const mediaUrl = String(value || '').trim();
+  if (!mediaUrl || !R2_PUBLIC_BASE_URL) return false;
+  return mediaUrl.startsWith(`${R2_PUBLIC_BASE_URL}/`) || mediaUrl === R2_PUBLIC_BASE_URL;
+}
+
+function extractCloudflareImageIdFromUrl(assetUrl) {
+  const value = String(assetUrl || '').trim();
+  if (!value) return null;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (!/imagedelivery\.net$/i.test(parsed.hostname)) return null;
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length < 3) return null;
+  return String(segments[1] || '').trim() || null;
+}
+
+function extractCloudflareStreamUidFromUrl(assetUrl) {
+  const value = String(assetUrl || '').trim();
+  if (!value) return null;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'iframe.videodelivery.net') {
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    return String(segments[0] || '').trim() || null;
+  }
+  if (!host.endsWith('.cloudflarestream.com')) return null;
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  return String(segments[0] || '').trim() || null;
+}
+
+function extractR2ObjectKeyFromUrl(assetUrl) {
+  const value = String(assetUrl || '').trim();
+  if (!value || !R2_PUBLIC_BASE_URL) return null;
+  if (!value.startsWith(`${R2_PUBLIC_BASE_URL}/`)) return null;
+  const suffix = value.slice(R2_PUBLIC_BASE_URL.length).replace(/^\/+/, '');
+  return suffix || null;
+}
+
 function isCloudinaryTransformationSegment(segment) {
   const value = String(segment || '').trim();
   if (!value) return false;
@@ -407,6 +687,62 @@ async function deleteCloudinaryAssetByUrl(assetUrl, mediaTypeHint = 'image') {
     throw new Error(`Cloudinary destroy failed: ${result || 'unknown result'}`);
   }
   return { publicId, result };
+}
+
+async function deleteCloudflareImageByUrl(assetUrl) {
+  if (!hasCloudflareImagesConfig()) {
+    throw new Error('Cloudflare Images credentials missing');
+  }
+  const imageId = extractCloudflareImageIdFromUrl(assetUrl);
+  if (!imageId) {
+    throw new Error('Unable to extract Cloudflare image ID from URL');
+  }
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(CLOUDFLARE_ACCOUNT_ID)}/images/v1/${encodeURIComponent(imageId)}`;
+  const response = await fetch(endpoint, {
+    method: 'DELETE',
+    headers: getCloudflareHeaders(),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.success === false) {
+    throw new Error(extractCloudflareErrorDetail(payload, `Cloudflare image delete failed (${response.status})`));
+  }
+  return { imageId };
+}
+
+async function deleteCloudflareStreamByUrl(assetUrl) {
+  if (!hasCloudflareStreamConfig()) {
+    throw new Error('Cloudflare Stream credentials missing');
+  }
+  const videoUid = extractCloudflareStreamUidFromUrl(assetUrl);
+  if (!videoUid) {
+    throw new Error('Unable to extract Cloudflare Stream video UID from URL');
+  }
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(CLOUDFLARE_ACCOUNT_ID)}/stream/${encodeURIComponent(videoUid)}`;
+  const response = await fetch(endpoint, {
+    method: 'DELETE',
+    headers: getCloudflareHeaders(),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.success === false) {
+    throw new Error(extractCloudflareErrorDetail(payload, `Cloudflare Stream delete failed (${response.status})`));
+  }
+  return { videoUid };
+}
+
+async function deleteR2ObjectByUrl(assetUrl) {
+  if (!hasR2Config()) {
+    throw new Error('R2 credentials missing');
+  }
+  const objectKey = extractR2ObjectKeyFromUrl(assetUrl);
+  if (!objectKey) {
+    throw new Error('Unable to extract R2 object key from URL');
+  }
+  const command = new DeleteObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: objectKey,
+  });
+  await R2_CLIENT.send(command);
+  return { objectKey };
 }
 const ALLOWED_ORIGINS = [
   ...String(process.env.FRONTEND_URL || CANONICAL_FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean),
@@ -13887,42 +14223,125 @@ app.post('/api/upload', requireAuthenticatedSession, uploadMediaMiddleware, asyn
       .replace(/-+/g, '-')
       .replace(/^-+|-+$/g, '') || 'unassigned';
 
-    if (CLOUDINARY_CREDS) {
-      try {
-        const scopeFolder = uploadScope === 'zone' ? 'zones' : 'biens';
-        const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}${scopeFolder}/${folderKey}`;
-        const uploaded = await uploadLocalMediaToCloudinary({
-          localFilePath: req.file.path,
-          filename: req.file.filename,
-          mimetype: req.file.mimetype,
-          folderPrefix: dynamicFolder,
-        });
+    const scopeFolder = uploadScope === 'zone' ? 'zones' : 'biens';
+    const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}${scopeFolder}/${folderKey}`;
+    const candidateProviders = getUploadProviderCandidates(mediaType);
+    let lastProviderError = null;
 
-        if (uploaded?.url) {
-          try {
-            fs.unlinkSync(req.file.path);
-          } catch {
-            // keep local file if deletion fails
-          }
-          return res.json({
-            success: true,
-            url: uploaded.url,
-            provider: 'cloudinary',
-            publicId: uploaded.publicId,
+    for (const provider of candidateProviders) {
+      if (provider === 'r2') {
+        try {
+          const uploaded = await uploadLocalMediaToR2({
+            localFilePath: req.file.path,
             filename: req.file.filename,
             mimetype: req.file.mimetype,
+            folderKey,
+            uploadScope: uploadScope || 'bien',
             mediaType,
-            scope: uploadScope || 'bien',
           });
-        }
-      } catch (cloudError) {
-        console.error('Cloudinary upload failed, fallback to local:', cloudError?.message || cloudError);
-        if (CLOUDINARY_REQUIRED_UPLOAD) {
-          return res.status(502).json({ error: 'Cloudinary upload failed' });
+          if (uploaded?.url) {
+            try {
+              fs.unlinkSync(req.file.path);
+            } catch {
+              // keep local file if deletion fails
+            }
+            return res.json({
+              success: true,
+              url: uploaded.url,
+              provider: 'r2',
+              objectKey: uploaded.objectKey || null,
+              filename: req.file.filename,
+              mimetype: req.file.mimetype,
+              mediaType,
+              scope: uploadScope || 'bien',
+            });
+          }
+        } catch (r2Error) {
+          lastProviderError = r2Error;
+          console.error('R2 upload failed, trying next provider:', r2Error?.message || r2Error);
+          continue;
         }
       }
-    } else if (CLOUDINARY_REQUIRED_UPLOAD) {
-      return res.status(500).json({ error: 'Cloudinary is required but not configured' });
+
+      if (provider === 'cloudflare') {
+        try {
+          const uploaded = mediaType === 'video'
+            ? await uploadLocalVideoToCloudflare({
+                localFilePath: req.file.path,
+                filename: req.file.filename,
+              })
+            : await uploadLocalImageToCloudflare({
+                localFilePath: req.file.path,
+                filename: req.file.filename,
+                folderKey,
+                uploadScope: uploadScope || 'bien',
+              });
+          if (uploaded?.url) {
+            try {
+              fs.unlinkSync(req.file.path);
+            } catch {
+              // keep local file if deletion fails
+            }
+            return res.json({
+              success: true,
+              url: uploaded.url,
+              provider: uploaded.provider || 'cloudflare',
+              imageId: uploaded.imageId || null,
+              videoUid: uploaded.videoUid || null,
+              filename: req.file.filename,
+              mimetype: req.file.mimetype,
+              mediaType,
+              scope: uploadScope || 'bien',
+            });
+          }
+        } catch (cloudflareError) {
+          lastProviderError = cloudflareError;
+          console.error('Cloudflare upload failed, trying next provider:', cloudflareError?.message || cloudflareError);
+          continue;
+        }
+      }
+
+      if (provider === 'cloudinary') {
+        try {
+          const uploaded = await uploadLocalMediaToCloudinary({
+            localFilePath: req.file.path,
+            filename: req.file.filename,
+            mimetype: req.file.mimetype,
+            folderPrefix: dynamicFolder,
+          });
+
+          if (uploaded?.url) {
+            try {
+              fs.unlinkSync(req.file.path);
+            } catch {
+              // keep local file if deletion fails
+            }
+            return res.json({
+              success: true,
+              url: uploaded.url,
+              provider: 'cloudinary',
+              publicId: uploaded.publicId,
+              filename: req.file.filename,
+              mimetype: req.file.mimetype,
+              mediaType,
+              scope: uploadScope || 'bien',
+            });
+          }
+        } catch (cloudinaryError) {
+          lastProviderError = cloudinaryError;
+          console.error('Cloudinary upload failed, trying next provider:', cloudinaryError?.message || cloudinaryError);
+          continue;
+        }
+      }
+
+      if (provider === 'local') {
+        break;
+      }
+    }
+
+    if (MEDIA_REQUIRED_UPLOAD || CLOUDINARY_REQUIRED_UPLOAD) {
+      const detail = String(lastProviderError?.message || '').trim();
+      return res.status(502).json({ error: detail || 'Remote media upload failed' });
     }
 
     res.json({
@@ -14045,6 +14464,12 @@ app.delete('/api/media/:id', requireAdminSession, async (req, res) => {
     const mediaUrl = String(row.url || '').trim();
     if (isCloudinaryUrl(mediaUrl)) {
       await deleteCloudinaryAssetByUrl(mediaUrl, row.type || 'image');
+    } else if (isR2PublicUrl(mediaUrl)) {
+      await deleteR2ObjectByUrl(mediaUrl);
+    } else if (isCloudflareImageUrl(mediaUrl)) {
+      await deleteCloudflareImageByUrl(mediaUrl);
+    } else if (isCloudflareStreamUrl(mediaUrl)) {
+      await deleteCloudflareStreamByUrl(mediaUrl);
     }
 
     await pool.query('DELETE FROM media WHERE id = ?', [req.params.id]);

@@ -1,4 +1,4 @@
-export type VideoProvider = "youtube" | "facebook";
+export type VideoProvider = "youtube" | "facebook" | "cloudflare";
 
 function extractIframeSrc(input?: string | null): string {
   const value = String(input || "").trim();
@@ -15,6 +15,34 @@ function safeParseUrl(input?: string | null): URL | null {
   } catch {
     return null;
   }
+}
+
+function isCloudflareStreamHost(hostname: string): boolean {
+  const host = String(hostname || "").trim().toLowerCase();
+  return host === "iframe.videodelivery.net" || host.endsWith(".cloudflarestream.com");
+}
+
+function extractCloudflareStreamUid(input?: string | null): string | null {
+  const parsed = safeParseUrl(input);
+  if (!parsed || !isCloudflareStreamHost(parsed.hostname)) return null;
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  return String(segments[0] || "").trim() || null;
+}
+
+export function isCloudflareStreamUrl(input?: string | null): boolean {
+  return extractCloudflareStreamUid(input) !== null;
+}
+
+export function toCloudflareStreamEmbedUrl(input?: string | null): string | null {
+  const parsed = safeParseUrl(input);
+  if (!parsed || !isCloudflareStreamHost(parsed.hostname)) return null;
+  if (parsed.hostname.toLowerCase() === "iframe.videodelivery.net") {
+    const uid = extractCloudflareStreamUid(input);
+    return uid ? `https://iframe.videodelivery.net/${uid}` : null;
+  }
+  const uid = extractCloudflareStreamUid(input);
+  if (!uid) return null;
+  return `${parsed.protocol}//${parsed.hostname}/${uid}/iframe`;
 }
 
 export function extractYouTubeVideoId(input?: string | null): string | null {
@@ -177,6 +205,7 @@ function normalizeFacebookHrefForEmbed(input?: string | null): string {
 export function getVideoProvider(input?: string | null): VideoProvider | null {
   if (isYouTubeUrl(input)) return "youtube";
   if (isFacebookVideoUrl(input)) return "facebook";
+  if (isCloudflareStreamUrl(input)) return "cloudflare";
   return null;
 }
 
@@ -188,6 +217,7 @@ export function toVideoEmbedUrl(input?: string | null): string | null {
   const provider = getVideoProvider(input);
   if (provider === "youtube") return toYouTubeEmbedUrl(input);
   if (provider === "facebook") return toFacebookEmbedUrl(input);
+  if (provider === "cloudflare") return toCloudflareStreamEmbedUrl(input);
   return null;
 }
 
@@ -218,6 +248,9 @@ export function toVideoExternalUrl(input?: string | null): string | null {
   if (provider === "youtube") {
     const videoId = extractYouTubeVideoId(input);
     return videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+  }
+  if (provider === "cloudflare") {
+    return toCloudflareStreamEmbedUrl(input);
   }
   return normalizeFacebookHrefForEmbed(unwrapFacebookPluginHref(input));
 }

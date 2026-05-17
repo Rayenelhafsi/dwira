@@ -46,6 +46,8 @@ An example server block is available in:
 Important for media uploads:
 
 - Nginx must include `client_max_body_size 50M;` or uploads can fail with `413 Request Entity Too Large` before Node receives the file.
+- Cloudflare Images API accepts single-request uploads up to `10 MB` per image. Larger images should be compressed client-side or handled with a different ingestion path.
+- If you use Cloudflare Stream playback in the site and you enforce CSP headers, allow `videodelivery.net` and `*.cloudflarestream.com` in `frame-src`.
 
 Minimum production checks:
 
@@ -55,6 +57,33 @@ Minimum production checks:
 4. `dwiraimmobilier.com` should redirect to `www.dwiraimmobilier.com`.
 
 Do not commit production secrets.
+
+## Hybrid Media Storage
+
+To keep historical Cloudinary URLs while storing only new uploads on Cloudflare:
+
+1. Keep existing `media.url` values in the database unchanged.
+2. Set `MEDIA_UPLOAD_PROVIDER=auto`, `MEDIA_UPLOAD_PROVIDER=r2`, or `MEDIA_UPLOAD_PROVIDER=cloudflare`.
+3. For `R2` object storage, configure:
+   - `R2_ACCOUNT_ID`
+   - `R2_BUCKET_NAME`
+   - `R2_ACCESS_KEY_ID`
+   - `R2_SECRET_ACCESS_KEY`
+   - `R2_PUBLIC_BASE_URL`
+4. For Cloudflare Images/Stream, configure:
+   - `CLOUDFLARE_ACCOUNT_ID`
+   - `CLOUDFLARE_API_TOKEN`
+   - `CLOUDFLARE_IMAGES_VARIANT=public`
+   - optional `CLOUDFLARE_STREAM_CUSTOMER_CODE` if you want the customer-hosted Stream player URL instead of `iframe.videodelivery.net`
+5. Leave old Cloudinary env vars in place only if you want fallback for new uploads or remote deletion support for old assets.
+
+Current behavior:
+
+- Existing Cloudinary image/video URLs continue to render without migration.
+- New uploads can go directly to `R2` and DB stores the public R2 URL.
+- New image uploads go to Cloudflare Images.
+- New video uploads go to Cloudflare Stream and are stored as Cloudflare Stream iframe URLs.
+- If Cloudflare is unavailable and `MEDIA_REQUIRED_UPLOAD=false`, uploads fall back to the next configured provider, then local disk.
 
 ## Passkey + Cloudflare Turnstile Setup
 
