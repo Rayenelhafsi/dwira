@@ -468,29 +468,31 @@ export function Header() {
           ) : (
             <div className="flex items-center gap-2">
               {!isPublicAmicaleFlow ? (
-                <Link
-                  to="/agent-amicale/login"
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                    !useLightText
-                      ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
-                      : "text-white hover:bg-white/20 border border-white/30"
-                  }`}
-                >
-                  <User size={16} />
-                  <span>Login amicale</span>
-                </Link>
+                <>
+                  <Link
+                    to="/agent-amicale/login"
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      !useLightText
+                        ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
+                        : "text-white hover:bg-white/20 border border-white/30"
+                    }`}
+                  >
+                    <User size={16} />
+                    <span>Login amicale</span>
+                  </Link>
+                  <Link
+                    to="/login"
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      !useLightText
+                        ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
+                        : "text-white hover:bg-white/20 border border-white/30"
+                    }`}
+                  >
+                    <User size={16} />
+                    <span>Connexion</span>
+                  </Link>
+                </>
               ) : null}
-              <Link
-                to="/login"
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  !useLightText
-                    ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
-                    : "text-white hover:bg-white/20 border border-white/30"
-                }`}
-              >
-                <User size={16} />
-                <span>Connexion</span>
-              </Link>
             </div>
           )}
           
@@ -594,21 +596,23 @@ export function Header() {
               ) : (
                 <div className="mt-2 flex flex-col items-center gap-3 border-t border-gray-100 pt-6">
                   {!isPublicAmicaleFlow ? (
-                    <Link
-                      to="/agent-amicale/login"
-                      className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
-                    >
-                      <User size={24} />
-                      <span>Login amicale</span>
-                    </Link>
+                    <>
+                      <Link
+                        to="/agent-amicale/login"
+                        className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
+                      >
+                        <User size={24} />
+                        <span>Login amicale</span>
+                      </Link>
+                      <Link
+                        to="/login"
+                        className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
+                      >
+                        <User size={24} />
+                        <span>Connexion</span>
+                      </Link>
+                    </>
                   ) : null}
-                  <Link
-                    to="/login"
-                    className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
-                  >
-                    <User size={24} />
-                    <span>Connexion</span>
-                  </Link>
                 </div>
               )}
               
