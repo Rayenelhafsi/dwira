@@ -380,7 +380,7 @@ export default function PropertiesPage() {
   const [minGuests, setMinGuests] = useState(parseInt(searchParams.get("guestsMin") || "1", 10));
   const [isFeaturedOnly, setIsFeaturedOnly] = useState(searchParams.get("featured") === "true");
   const [priceMax, setPriceMax] = useState(parseInt(searchParams.get("maxPrice") || "1000", 10));
-  const [smartTolerance, setSmartTolerance] = useState(parseInt(searchParams.get("tolerance") || "35", 10));
+  const [smartTolerance, setSmartTolerance] = useState(parseInt(searchParams.get("tolerance") || "75", 10));
   const [sortMode, setSortMode] = useState<"matching" | "price" | "featured">(
     (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured")
   );
@@ -952,7 +952,7 @@ export default function PropertiesPage() {
     if (selectedMode === "location_saisonniere" && minGuests > 1) params.set("guestsMin", String(minGuests));
     if (isFeaturedOnly) params.set("featured", "true");
     if (priceMax < priceCeiling) params.set("maxPrice", String(priceMax));
-    if (smartTolerance !== 35) params.set("tolerance", String(smartTolerance));
+    if (smartTolerance !== 75) params.set("tolerance", String(smartTolerance));
     if (sortMode !== "matching") params.set("sort", sortMode);
     setSearchParams(params, { replace: true });
   }, [
