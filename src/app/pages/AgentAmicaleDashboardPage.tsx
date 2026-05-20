@@ -3,7 +3,6 @@ import { Navigate, Link, useNavigate } from "react-router";
 import { Calculator, FileText, LogOut, RefreshCw, Ticket, CheckCircle2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import type { ReservationDemand, ReservationDemandStatus } from "../admin/types";
-import { applyAmicaleTtc } from "../utils/amicalePricing";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -403,7 +402,7 @@ export default function AgentAmicaleDashboardPage() {
                             <p>
                               <span className="font-semibold">Periode:</span> {formatDateOnly(demand.start_date)} au {formatDateOnly(demand.end_date)}
                             </p>
-                            <p><span className="font-semibold">Total TTC:</span> {formatCurrency(applyAmicaleTtc(Number(demand.total_amount || 0), true))}</p>
+                            <p><span className="font-semibold">Total TTC:</span> {formatCurrency(demand.total_amount)}</p>
                             <Link
                               to={consultPath}
                               className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
