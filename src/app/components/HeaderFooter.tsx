@@ -108,6 +108,8 @@ export function Header() {
   const isPropertyTopHidden = isPropertyDetailsPage && !isOpen && !isScrolled;
   const useLightText = isHomePage && !isScrolled && !isOpen;
   const useSolidHeader = !isHomePage || isScrolled || isOpen;
+  const isPublicAmicaleFlow = Boolean(new URLSearchParams(location.search).get("amicale"))
+    && !location.pathname.startsWith("/agent-amicale");
   const routeMode = resolveRouteMode(location.pathname, location.search);
   const headerContact = getPublicContactForMode(routeMode);
   const facebookUrl = `https://www.facebook.com/${encodeURIComponent(headerContact.messengerPage)}`;
@@ -465,17 +467,19 @@ export function Header() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Link
-                to="/agent-amicale/login"
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  !useLightText
-                    ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
-                    : "text-white hover:bg-white/20 border border-white/30"
-                }`}
-              >
-                <User size={16} />
-                <span>Login amicale</span>
-              </Link>
+              {!isPublicAmicaleFlow ? (
+                <Link
+                  to="/agent-amicale/login"
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    !useLightText
+                      ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
+                      : "text-white hover:bg-white/20 border border-white/30"
+                  }`}
+                >
+                  <User size={16} />
+                  <span>Login amicale</span>
+                </Link>
+              ) : null}
               <Link
                 to="/login"
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
@@ -589,13 +593,15 @@ export function Header() {
                 </div>
               ) : (
                 <div className="mt-2 flex flex-col items-center gap-3 border-t border-gray-100 pt-6">
-                  <Link
-                    to="/agent-amicale/login"
-                    className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
-                  >
-                    <User size={24} />
-                    <span>Login amicale</span>
-                  </Link>
+                  {!isPublicAmicaleFlow ? (
+                    <Link
+                      to="/agent-amicale/login"
+                      className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
+                    >
+                      <User size={24} />
+                      <span>Login amicale</span>
+                    </Link>
+                  ) : null}
                   <Link
                     to="/login"
                     className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
