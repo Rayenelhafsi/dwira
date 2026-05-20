@@ -1198,9 +1198,8 @@ out body 40;
       defaultNightlyPrice: Number(property?.pricePerNight || 0),
       defaultWeeklyPrice: Number(property?.pricePerWeek || 0),
       pricingPeriods: property?.pricingPeriods || [],
-      amicaleId: pricingAmicaleId,
     }),
-    [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
+    [property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
   );
   const displayedNightlyPrice = applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive);
   const displayedWeeklyPrice = applyAmicaleTtc(Number(currentDisplayPricing.weeklyPrice || 0), isAmicalePricingActive);
@@ -2245,7 +2244,6 @@ out body 40;
       defaultNightlyPrice: property!.pricePerNight,
       defaultWeeklyPrice: property!.pricePerWeek,
       pricingPeriods: property!.pricingPeriods,
-      amicaleId: pricingAmicaleId,
     });
     const nights = accommodationPricing.nights;
     const accommodationTotal = accommodationPricing.accommodationTotal;

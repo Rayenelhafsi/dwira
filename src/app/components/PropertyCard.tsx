@@ -106,7 +106,6 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     defaultNightlyPrice: Number(property.pricePerNight || 0),
     defaultWeeklyPrice: Number(property.pricePerWeek || 0),
     pricingPeriods: property.pricingPeriods || [],
-    amicaleId: pricingAmicaleId,
   });
   const isAmicalePricing = Boolean(pricingAmicaleId) && property.priceContext !== "sale";
   const syncedNightlyPrice = property.priceContext === 'sale'
