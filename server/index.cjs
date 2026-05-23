@@ -13676,21 +13676,23 @@ async function pushToOwnerDevices(ownerId, payload) {
     try {
       const message = {
         token,
+        notification: {
+          title: String(payload?.title || 'Dwira'),
+          body: String(payload?.body || ''),
+        },
         data: dataPayload,
-        android: isAvailabilityRequest
-          ? {
-              priority: 'high',
-              ttl: 0,
-            }
-          : {
-              priority: 'high',
-              notification: {
-                channelId: 'owner_notifications',
-                sound: 'default',
-                priority: 'high',
-                defaultSound: true,
-              },
-            },
+        android: {
+          priority: 'high',
+          ttl: 0,
+          notification: {
+            channelId: isAvailabilityRequest
+              ? 'owner_availability_requests'
+              : 'owner_notifications',
+            sound: isAvailabilityRequest ? 'availability_request' : 'default',
+            priority: 'high',
+            defaultSound: !isAvailabilityRequest,
+          },
+        },
         apns: {
           headers: {
             'apns-priority': '10',
@@ -13709,13 +13711,6 @@ async function pushToOwnerDevices(ownerId, payload) {
           },
         },
       };
-
-      if (!isAvailabilityRequest) {
-        message.notification = {
-          title: String(payload?.title || 'Dwira'),
-          body: String(payload?.body || ''),
-        };
-      }
 
       await firebaseMessaging.send(message);
       sent += 1;
