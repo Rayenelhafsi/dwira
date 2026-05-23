@@ -11854,6 +11854,8 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
       title: 'Demande de disponibilite',
       body: notificationMessage,
       data: {
+        title: 'Demande de disponibilite',
+        body: notificationMessage,
         kind: 'reservation_availability_request',
         demandId,
         ownerId,
@@ -13660,22 +13662,62 @@ async function pushToOwnerDevices(ownerId, payload) {
   const tokens = (rows || []).map((row) => String(row.token || '').trim()).filter(Boolean);
   if (tokens.length === 0) return { sent: 0, noTokens: true };
 
+  const dataPayload = Object.fromEntries(
+    Object.entries(payload?.data || {}).map(([key, value]) => [
+      key,
+      String(value == null ? '' : value),
+    ])
+  );
+  const kind = String(dataPayload.kind || '').trim();
+  const isAvailabilityRequest = kind === 'reservation_availability_request';
+
   let sent = 0;
   for (const token of tokens) {
     try {
-      await firebaseMessaging.send({
+      const message = {
         token,
-        notification: {
+        data: dataPayload,
+        android: isAvailabilityRequest
+          ? {
+              priority: 'high',
+              ttl: 0,
+            }
+          : {
+              priority: 'high',
+              notification: {
+                channelId: 'owner_notifications',
+                sound: 'default',
+                priority: 'high',
+                defaultSound: true,
+              },
+            },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title: String(payload?.title || 'Dwira'),
+                body: String(payload?.body || ''),
+              },
+              sound: isAvailabilityRequest
+                ? 'availability_request.wav'
+                : 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      if (!isAvailabilityRequest) {
+        message.notification = {
           title: String(payload?.title || 'Dwira'),
           body: String(payload?.body || ''),
-        },
-        data: Object.fromEntries(
-          Object.entries(payload?.data || {}).map(([key, value]) => [
-            key,
-            String(value == null ? '' : value),
-          ])
-        ),
-      });
+        };
+      }
+
+      await firebaseMessaging.send(message);
       sent += 1;
     } catch (error) {
       const code = String(error?.code || '');
