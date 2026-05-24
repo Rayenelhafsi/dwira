@@ -333,6 +333,7 @@ export default function NotificationsPage() {
   const [expandedDemandIds, setExpandedDemandIds] = useState<Record<string, boolean>>({});
   const hasLoadedOnceRef = useRef(false);
   const isFetchingRef = useRef(false);
+  const isChatFetchingRef = useRef<string | null>(null);
 
   const fetchData = useCallback(async (options?: { background?: boolean }) => {
     if (isFetchingRef.current) return;
@@ -405,10 +406,11 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
+      if (activeView === 'chat' && selectedChatOwner?.id) return;
       void fetchData({ background: true });
     }, 10000);
     return () => window.clearInterval(intervalId);
-  }, [fetchData]);
+  }, [fetchData, activeView, selectedChatOwner?.id]);
 
   const pendingDemands = useMemo(() => {
     return demands
@@ -529,10 +531,16 @@ export default function NotificationsPage() {
     return byOwner;
   }, [pendingCalendarRequests]);
 
-  const loadOwnerChat = useCallback(async (ownerId: string) => {
-    setChatLoading(true);
+  const loadOwnerChat = useCallback(async (ownerId: string, options?: { background?: boolean }) => {
+    const normalizedOwnerId = String(ownerId || '').trim();
+    if (!normalizedOwnerId) return;
+    if (isChatFetchingRef.current === normalizedOwnerId) return;
+    isChatFetchingRef.current = normalizedOwnerId;
+    if (!options?.background) {
+      setChatLoading(true);
+    }
     try {
-      const response = await fetch(`${API_URL}/mobile/owners/${encodeURIComponent(ownerId)}/chat`, {
+      const response = await fetch(`${API_URL}/mobile/owners/${encodeURIComponent(normalizedOwnerId)}/chat`, {
         credentials: 'include',
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Impossible de charger le chat proprietaire'));
@@ -545,10 +553,17 @@ export default function NotificationsPage() {
       }));
       setChatMessages(mapped);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Impossible de charger le chat proprietaire');
-      setChatMessages([]);
+      if (!options?.background) {
+        toast.error(error instanceof Error ? error.message : 'Impossible de charger le chat proprietaire');
+        setChatMessages([]);
+      }
     } finally {
-      setChatLoading(false);
+      if (!options?.background) {
+        setChatLoading(false);
+      }
+      if (isChatFetchingRef.current === normalizedOwnerId) {
+        isChatFetchingRef.current = null;
+      }
     }
   }, []);
 
@@ -563,10 +578,22 @@ export default function NotificationsPage() {
       name: String(demand.proprietaire_nom || ownerId),
       demandId: demand.id,
     };
+    if (selectedChatOwner?.id === owner.id && activeView === 'chat') {
+      return;
+    }
     setSelectedChatOwner(owner);
+    setChatDraft('');
     setActiveView('chat');
     void loadOwnerChat(owner.id);
-  }, [loadOwnerChat]);
+  }, [loadOwnerChat, activeView, selectedChatOwner?.id]);
+
+  useEffect(() => {
+    if (activeView !== 'chat' || !selectedChatOwner?.id) return;
+    const intervalId = window.setInterval(() => {
+      void loadOwnerChat(selectedChatOwner.id, { background: true });
+    }, 10000);
+    return () => window.clearInterval(intervalId);
+  }, [activeView, selectedChatOwner?.id, loadOwnerChat]);
 
   const sendChatMessage = async () => {
     if (!selectedChatOwner) return;
@@ -1287,7 +1314,9 @@ export default function NotificationsPage() {
                   key={owner.id}
                   type="button"
                   onClick={() => {
+                    if (selectedChatOwner?.id === owner.id) return;
                     setSelectedChatOwner(owner);
+                    setChatDraft('');
                     void loadOwnerChat(owner.id);
                   }}
                   className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
