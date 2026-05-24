@@ -49,7 +49,7 @@ function DownloadButton({ label, url }: { label: string; url: string }) {
 }
 
 export default function DeployAppsPage() {
-  if (PUBLIC_COMING_SOON.apps) {
+  if (false) {
     return (
       <div className="mx-auto w-full max-w-6xl px-4 py-10 pt-32 md:px-6">
         <ComingSoonState
