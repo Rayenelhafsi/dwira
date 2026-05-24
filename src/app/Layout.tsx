@@ -1,12 +1,16 @@
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { useEffect, useState } from "react";
 import { Header, Footer } from "./components/HeaderFooter";
 import { ScrollToTop } from "./components/ScrollToTop";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
 import { SiteMaintenancePage } from "./components/SiteMaintenancePage";
 import { getSiteMaintenanceStatus, type SiteMaintenanceStatus } from "./services/siteMaintenance";
+import { useAuth } from "./context/AuthContext";
+import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
 
 export function Layout() {
+  const location = useLocation();
+  const { user, isLoading: authLoading } = useAuth();
   const [maintenance, setMaintenance] = useState<SiteMaintenanceStatus | null>(null);
   const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(true);
 
@@ -63,11 +67,14 @@ export function Layout() {
     return () => window.clearTimeout(timeoutId);
   }, [maintenance?.isActive, maintenance?.resumeAt]);
 
-  if (isLoadingMaintenance) {
+  if (isLoadingMaintenance || authLoading) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-gray-500">Chargement...</div>;
   }
 
-  if (maintenance?.isActive) {
+  const isMaintenanceBypassPath = location.pathname === MAINTENANCE_ACCESS_PATH;
+  const canBypassMaintenance = user?.role === "admin" || isMaintenanceBypassPath;
+
+  if (maintenance?.isActive && !canBypassMaintenance) {
     return <SiteMaintenancePage status={maintenance} />;
   }
 

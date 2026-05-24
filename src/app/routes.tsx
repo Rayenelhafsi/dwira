@@ -4,6 +4,7 @@ import HomePage from "./pages/HomePage";
 import { VentesLayout } from "./ventes/VentesLayout";
 import { AdminLayout } from "./admin/AdminLayout";
 import { PUBLIC_COMING_SOON } from "./config/publicAvailability";
+import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
 
 const CHUNK_RELOAD_KEY = "dwira_chunk_reload_once";
 
@@ -53,6 +54,10 @@ const ventesRoutes = PUBLIC_COMING_SOON.ventes
     ];
 
 export const router = createBrowserRouter([
+  {
+    path: MAINTENANCE_ACCESS_PATH,
+    lazy: lazyPage(() => import("./pages/MaintenanceAccessPage")),
+  },
   {
     path: "/",
     Component: Layout,
