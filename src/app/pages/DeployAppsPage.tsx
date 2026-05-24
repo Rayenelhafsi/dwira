@@ -15,7 +15,7 @@ const appEntries: AppEntry[] = [
     key: "owner",
     title: "Application Proprietaire",
     subtitle: "Suivi des biens, calendrier, notifications et chat admin.",
-    androidUrl: "https://www.dwiraimmobilier.com/deploy-mobile/app-release.apk",
+    androidUrl: "https://drive.usercontent.google.com/download?id=1jWvz0SduPr0lOdNQEFc4-i6kAlyVzs5V&export=download&authuser=0",
     iosUrl: "",
   },
 ];
