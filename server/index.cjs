@@ -10682,6 +10682,34 @@ app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-now', requireAdmin
   }
 });
 
+app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-owner/:ownerId', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const promptDate = String(req.body?.promptDate || '').trim() || getAgencyLocalDate();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const result = await dispatchOwnerCalendarPromptBatch({
+      ownerId,
+      promptDate,
+      source: 'manual_test_individual',
+      forceRedispatch: true,
+    });
+    if (!result.totalOwners) {
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    await createAdminNotification(
+      'info',
+      `Relance calendrier envoyee individuellement a ${ownerIdentity.ownerName} pour ${result.promptDate}`
+    );
+    res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, ...result });
+  } catch (error) {
+    console.error('Error dispatching owner calendar prompt individually:', error);
+    res.status(500).json({ error: 'Failed to dispatch owner calendar prompt individually' });
+  }
+});
+
 app.get('/api/mobile/admin/owner-calendar-prompt-statuses', requireAdminSession, async (req, res) => {
   try {
     const rows = await getOwnerCalendarPromptStatuses();
@@ -14344,16 +14372,26 @@ async function dispatchOwnerCalendarPromptBatch({
   promptDate = getAgencyLocalDate(),
   source = 'scheduled',
   forceRedispatch = false,
+  ownerId = null,
 }) {
   await ensureOwnerCalendarPromptSchema();
   await ensureOwnerMobileNotificationsSchema();
   const normalizedPromptDate = String(promptDate || '').trim() || getAgencyLocalDate();
+  const normalizedOwnerId = String(ownerId || '').trim();
   const now = getAgencySqlDateTime();
-  const [owners] = await pool.query(
-    `SELECT id, nom
-     FROM proprietaires
-     ORDER BY nom ASC, id ASC`
-  );
+  const [owners] = normalizedOwnerId
+    ? await pool.query(
+        `SELECT id, nom
+         FROM proprietaires
+         WHERE id = ?
+         ORDER BY nom ASC, id ASC`,
+        [normalizedOwnerId]
+      )
+    : await pool.query(
+        `SELECT id, nom
+         FROM proprietaires
+         ORDER BY nom ASC, id ASC`
+      );
   let sentOwners = 0;
   let skippedOwners = 0;
   for (const owner of owners || []) {

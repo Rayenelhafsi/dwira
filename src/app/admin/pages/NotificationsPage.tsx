@@ -325,6 +325,7 @@ export default function NotificationsPage() {
   const [calendarActionLoadingId, setCalendarActionLoadingId] = useState<string | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [dispatchingCalendarPrompt, setDispatchingCalendarPrompt] = useState(false);
+  const [dispatchingCalendarPromptOwnerId, setDispatchingCalendarPromptOwnerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -672,6 +673,30 @@ export default function NotificationsPage() {
       toast.error(error instanceof Error ? error.message : 'Impossible d envoyer la relance calendrier');
     } finally {
       setDispatchingCalendarPrompt(false);
+    }
+  };
+
+  const dispatchCalendarPromptToOwner = async (owner: { id: string; name: string }) => {
+    const ownerId = String(owner.id || '').trim();
+    if (!ownerId) return;
+    setDispatchingCalendarPromptOwnerId(ownerId);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/calendar-prompt-schedule/dispatch-owner/${encodeURIComponent(ownerId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Impossible d envoyer la relance calendrier a ce proprietaire'));
+      }
+      const result = await response.json();
+      toast.success(`Relance calendrier envoyee a ${result.ownerName || owner.name}`);
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible d envoyer la relance calendrier a ce proprietaire');
+    } finally {
+      setDispatchingCalendarPromptOwnerId(null);
     }
   };
 
@@ -1424,6 +1449,7 @@ export default function NotificationsPage() {
                   const calendarStatus = ownerCalendarStatuses[owner.id] || null;
                   const statusMeta = getOwnerCalendarStatusMeta(calendarStatus);
                   const pendingCalendarRequest = pendingCalendarRequestByOwner.get(owner.id) || null;
+                  const isDispatchingThisOwner = dispatchingCalendarPromptOwnerId === owner.id;
                   return (
                     <div key={owner.id} className="rounded-xl border border-gray-200 bg-white p-3">
                       <div className="flex items-start justify-between gap-3">
@@ -1434,6 +1460,16 @@ export default function NotificationsPage() {
                         <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusMeta.tone}`}>
                           {statusMeta.label}
                         </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void dispatchCalendarPromptToOwner(owner)}
+                          disabled={isDispatchingThisOwner}
+                          className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                        >
+                          {isDispatchingThisOwner ? 'Envoi...' : (statusMeta.label === 'En attente' ? 'Renvoyer la relance' : 'Envoyer la relance')}
+                        </button>
                       </div>
                       <div className="mt-3 grid gap-1 text-xs">
                         <div className="text-gray-600">{statusMeta.detail}</div>
