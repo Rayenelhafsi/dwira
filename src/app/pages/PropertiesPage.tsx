@@ -1424,27 +1424,26 @@ export default function PropertiesPage() {
           if (hasDateFilter) {
             maxScore += 20;
             exactDateAvailable = !hasBlockingUnavailableDates(property.unavailableDates || [], checkIn, checkOut);
+            stayDateAlternative =
+              findOneNightFlexAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut)
+              || findWeeklyAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut);
             if (exactDateAvailable) {
               score += 20;
-            } else {
-              stayDateAlternative =
-                findOneNightFlexAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut)
-                || findWeeklyAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut);
-              if (stayDateAlternative) {
-                const altLabel =
-                  stayDateAlternative.kind === "shorter"
-                    ? "-1 nuit"
-                    : stayDateAlternative.kind === "longer"
-                      ? "+1 nuit"
-                      : (stayDateAlternative.shiftDays || 0) > 0
-                        ? "+7 j"
-                        : "-7 j";
-                hints.push(
-                  `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)} (${altLabel})`
-                );
-              } else {
-                missing.push("Dates non disponibles");
-              }
+            } else if (!stayDateAlternative) {
+              missing.push("Dates non disponibles");
+            }
+            if (stayDateAlternative) {
+              const altLabel =
+                stayDateAlternative.kind === "shorter"
+                  ? "-1 nuit"
+                  : stayDateAlternative.kind === "longer"
+                    ? "+1 nuit"
+                    : (stayDateAlternative.shiftDays || 0) > 0
+                      ? "+7 j"
+                      : "-7 j";
+              hints.push(
+                `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)} (${altLabel})`
+              );
             }
           }
         }
@@ -1493,7 +1492,7 @@ export default function PropertiesPage() {
     );
     const alternatives = rows.filter((row) => {
       if (hasDateFilter) {
-        return !row.exactDateAvailable && Boolean(row.stayDateAlternative);
+        return Boolean(row.stayDateAlternative);
       }
       return !row.strictTypeMatch;
     }).sort((a, b) => {
@@ -2373,15 +2372,36 @@ export default function PropertiesPage() {
                 <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                   {alternativeScoredResults.slice(0, 12).map((row) => (
                     <div key={`alt-${row.property.id}`} className="space-y-2">
-                      <PropertyCard property={row.property} searchParams={searchParams.toString()} />
+                      <PropertyCard
+                        property={row.property}
+                        searchParams={(() => {
+                          const params = new URLSearchParams(searchParams);
+                          if (row.stayDateAlternative?.start) params.set("checkIn", row.stayDateAlternative.start);
+                          if (row.stayDateAlternative?.end) params.set("checkOut", row.stayDateAlternative.end);
+                          return params.toString();
+                        })()}
+                      />
                       <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
                         <div className="mb-1 flex items-center justify-between">
                           <span className="inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
                             <Percent size={14} />
                             Matching {row.score}%
                           </span>
-                          <span className="text-xs text-amber-700">Alternative</span>
+                          <span className="text-xs text-amber-700">
+                            {row.stayDateAlternative?.kind === "shorter"
+                              ? "-1 nuit"
+                              : row.stayDateAlternative?.kind === "longer"
+                                ? "+1 nuit"
+                                : (row.stayDateAlternative?.shiftDays || 0) > 0
+                                  ? "+7 j"
+                                  : "-7 j"}
+                          </span>
                         </div>
+                        {row.stayDateAlternative && (
+                          <p className="text-xs text-amber-800">
+                            {formatDateLabel(row.stayDateAlternative.start)} - {formatDateLabel(row.stayDateAlternative.end)}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))}
