@@ -15,17 +15,11 @@ const appEntries: AppEntry[] = [
     key: "owner",
     title: "Application Proprietaire",
     subtitle: "Suivi des biens, calendrier, notifications et chat admin.",
-    androidUrl: String(import.meta.env.VITE_OWNER_APP_ANDROID_URL || "").trim(),
-    iosUrl: String(import.meta.env.VITE_OWNER_APP_IOS_URL || "").trim(),
-  },
-  {
-    key: "admin",
-    title: "Application Admin",
-    subtitle: "Validation disponibilite, communication proprietaires et notifications.",
-    androidUrl: String(import.meta.env.VITE_ADMIN_APP_ANDROID_URL || "").trim(),
-    iosUrl: String(import.meta.env.VITE_ADMIN_APP_IOS_URL || "").trim(),
+    androidUrl: "https://www.dwiraimmobilier.com/deploy-mobile/app-release.apk",
+    iosUrl: "",
   },
 ];
+
 
 function qrUrl(target: string) {
   const encoded = encodeURIComponent(target);
@@ -89,9 +83,9 @@ export default function DeployAppsPage() {
 
             <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_190px]">
               <div className="space-y-3">
-                <DownloadButton label="Telecharger Android" url={entry.androidUrl} />
-                <DownloadButton label="Telecharger iOS" url={entry.iosUrl} />
+                <DownloadButton label="Installer app propriétaire Android" url={entry.androidUrl} />
               </div>
+
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
                 {entry.androidUrl || entry.iosUrl ? (
                   <img
