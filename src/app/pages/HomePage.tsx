@@ -24,6 +24,7 @@ import {
   startOfDay
 } from "date-fns";
 import { fr } from "date-fns/locale";
+import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -887,6 +888,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const selectedSubTypeKeys = selectedCategories
       .map((item) => getCanonicalSubTypeKey(item))
       .filter(Boolean);
+    const shouldFilterByStay = hasSearched && isValidStayRange(
+      checkIn ? format(checkIn, "yyyy-MM-dd") : "",
+      checkOut ? format(checkOut, "yyyy-MM-dd") : ""
+    );
     const baseProperties = hasSearched
       ? modeProperties.filter((property) => {
           const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
@@ -897,7 +902,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           const matchSubType = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
           const matchSeaside = selectedSeasideOptions.every((option) => propertyMatchesSeasideOption(property, option));
           const matchComfort = selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
-          return matchLocation && matchMainType && matchSubType && matchSeaside && matchComfort;
+          const matchStay =
+            !shouldFilterByStay
+            || !hasBlockingUnavailableDates(
+              property.unavailableDates || [],
+              checkIn ? format(checkIn, "yyyy-MM-dd") : "",
+              checkOut ? format(checkOut, "yyyy-MM-dd") : ""
+            );
+          return matchLocation && matchMainType && matchSubType && matchSeaside && matchComfort && matchStay;
         })
       : modeProperties;
 

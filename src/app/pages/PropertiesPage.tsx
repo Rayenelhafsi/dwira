@@ -7,6 +7,12 @@ import { PropertyCard } from "../components/PropertyCard";
 import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServicePayant } from "../utils/servicePayants";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
+import {
+  findOneNightFlexAvailabilityAlternative,
+  findWeeklyAvailabilityAlternative,
+  hasBlockingUnavailableDates,
+  isValidStayRange,
+} from "../utils/availability";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -1063,45 +1069,13 @@ export default function PropertiesPage() {
   };
 
   const scoringBuckets = useMemo(() => {
-    const toDate = (value: string) => {
-      const date = new Date(`${value}T00:00:00`);
-      return Number.isNaN(date.getTime()) ? null : date;
+    const formatDateLabel = (value: string) => {
+      const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+      return Number.isNaN(parsed.getTime())
+        ? String(value)
+        : new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" }).format(parsed);
     };
-    const dayDiff = (start: Date, end: Date) => Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
-    const overlaps = (aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) => aStart <= bEnd && bStart <= aEnd;
-    const hasBlockedDates = (property: any, start: Date, end: Date) => {
-      const ranges = Array.isArray(property.unavailableDates) ? property.unavailableDates : [];
-      return ranges.some((range: any) => {
-        const status = String(range?.status || "").toLowerCase();
-        if (!["booked", "pending", "blocked"].includes(status)) return false;
-        const rangeStart = toDate(String(range?.start || ""));
-        const rangeEnd = toDate(String(range?.end || ""));
-        if (!rangeStart || !rangeEnd) return false;
-        return overlaps(start, end, rangeStart, rangeEnd);
-      });
-    };
-    const findNearbyDateAlternative = (property: any, start: Date, end: Date) => {
-      const nights = dayDiff(start, end);
-      for (let offset = 1; offset <= 14; offset += 1) {
-        for (const sign of [-1, 1]) {
-          const delta = offset * sign;
-          const nextStart = new Date(start);
-          nextStart.setDate(nextStart.getDate() + delta);
-          const nextEnd = new Date(nextStart);
-          nextEnd.setDate(nextStart.getDate() + nights);
-          if (!hasBlockedDates(property, nextStart, nextEnd)) {
-            return {
-              shift: delta,
-              start: nextStart,
-              end: nextEnd,
-            };
-          }
-        }
-      }
-      return null;
-    };
-    const formatDateLabel = (date: Date) =>
-      new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" }).format(date);
+    const hasDateFilter = selectedMode === "location_saisonniere" && isValidStayRange(checkIn, checkOut);
     const hasCoreFilters =
       Boolean(query.trim()) ||
       Boolean(location) ||
@@ -1299,6 +1273,10 @@ export default function PropertiesPage() {
         let maxScore = 0;
         const hints: string[] = [];
         const missing: string[] = [];
+        let exactDateAvailable = true;
+        let stayDateAlternative:
+          | { kind: "shorter" | "longer" | "shifted_week"; shiftDays?: number; nightDelta?: number; start: string; end: string }
+          | null = null;
 
         const queryValue = query.trim().toLowerCase();
         if (queryValue) {
@@ -1443,21 +1421,29 @@ export default function PropertiesPage() {
             missing.push("Capacite voyageurs legerement inferieure");
           }
 
-          if (checkIn && checkOut) {
+          if (hasDateFilter) {
             maxScore += 20;
-            const start = toDate(checkIn);
-            const end = toDate(checkOut);
-            if (start && end && start < end) {
-              if (!hasBlockedDates(property, start, end)) {
-                score += 20;
+            exactDateAvailable = !hasBlockingUnavailableDates(property.unavailableDates || [], checkIn, checkOut);
+            if (exactDateAvailable) {
+              score += 20;
+            } else {
+              stayDateAlternative =
+                findOneNightFlexAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut)
+                || findWeeklyAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut);
+              if (stayDateAlternative) {
+                const altLabel =
+                  stayDateAlternative.kind === "shorter"
+                    ? "-1 nuit"
+                    : stayDateAlternative.kind === "longer"
+                      ? "+1 nuit"
+                      : (stayDateAlternative.shiftDays || 0) > 0
+                        ? "+7 j"
+                        : "-7 j";
+                hints.push(
+                  `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)} (${altLabel})`
+                );
               } else {
-                const alt = findNearbyDateAlternative(property, start, end);
-                if (alt) {
-                  score += 10;
-                  hints.push(`Alternative dates: ${formatDateLabel(alt.start)} - ${formatDateLabel(alt.end)} (${alt.shift > 0 ? "+" : ""}${alt.shift} j)`);
-                } else {
-                  missing.push("Dates non disponibles");
-                }
+                missing.push("Dates non disponibles");
               }
             }
           }
@@ -1480,6 +1466,8 @@ export default function PropertiesPage() {
           property,
           score: normalizedScore,
           strictTypeMatch: strictMainTypeMatch && strictSubTypeMatch,
+          exactDateAvailable,
+          stayDateAlternative,
           details: {
             amenitiesMatched: selectedFeatureNames.length > 0
               ? `${selectedFeatureNames.filter((am) => matchesAmenity(am)).length}/${selectedFeatureNames.length}`
@@ -1497,16 +1485,26 @@ export default function PropertiesPage() {
       });
 
     const threshold = hasCoreFilters ? smartTolerance : 0;
-    let primary = rows.filter((row) => row.strictTypeMatch && row.score >= threshold);
-    const alternatives = rows.filter((row) => !row.strictTypeMatch).sort((a, b) => {
+    let primary = rows.filter(
+      (row) =>
+        row.strictTypeMatch
+        && row.score >= threshold
+        && (!hasDateFilter || row.exactDateAvailable)
+    );
+    const alternatives = rows.filter((row) => {
+      if (hasDateFilter) {
+        return !row.exactDateAvailable && Boolean(row.stayDateAlternative);
+      }
+      return !row.strictTypeMatch;
+    }).sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (a.property.isFeatured !== b.property.isFeatured) return a.property.isFeatured ? -1 : 1;
       return Number(b.property.rating || 0) - Number(a.property.rating || 0);
     });
     if (primary.length === 0) {
-      primary = rows.filter((row) => row.strictTypeMatch);
+      primary = rows.filter((row) => row.strictTypeMatch && (!hasDateFilter || row.exactDateAvailable));
     }
-    if (primary.length === 0) {
+    if (primary.length === 0 && !hasDateFilter) {
       primary = [...rows].sort((a, b) => b.score - a.score).slice(0, 12);
     } else {
       primary = primary.sort((a, b) => {
@@ -1609,6 +1607,7 @@ export default function PropertiesPage() {
     const list = [...scoringBuckets.alternatives];
     return list.sort((a, b) => b.score - a.score);
   }, [scoringBuckets.alternatives]);
+  const hasStrictStaySearch = selectedMode === "location_saisonniere" && isValidStayRange(checkIn, checkOut);
   const visibleSortedScoredResults = useMemo(
     () => (showAllResults ? sortedScoredResults : sortedScoredResults.slice(0, visibleCount)),
     [showAllResults, sortedScoredResults, visibleCount]
@@ -1643,6 +1642,11 @@ export default function PropertiesPage() {
     smartTolerance,
     sortMode,
   ]);
+  useEffect(() => {
+    if (hasStrictStaySearch && sortedScoredResults.length === 0 && alternativeScoredResults.length > 0) {
+      setShowAlternatives(true);
+    }
+  }, [hasStrictStaySearch, sortedScoredResults.length, alternativeScoredResults.length]);
   const handleQuickSearch = () => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       setIsFilterOpen(false);
@@ -2363,7 +2367,7 @@ export default function PropertiesPage() {
             {showAlternatives && alternativeScoredResults.length > 0 && (
               <div className="mt-10">
                 <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900">Choix alternatives</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Choix alternatives: -1 nuit / +1 nuit / -7j / +7j</h3>
                   <span className="text-sm text-gray-500">{alternativeScoredResults.length} bien(s)</span>
                 </div>
                 <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
