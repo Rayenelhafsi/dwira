@@ -1425,26 +1425,27 @@ export default function PropertiesPage() {
           if (hasDateFilter) {
             maxScore += 20;
             exactDateAvailable = !hasBlockingUnavailableDates(property.unavailableDates || [], checkIn, checkOut);
-            stayDateAlternative =
-              findOneNightFlexAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut)
-              || findWeeklyAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut);
             if (exactDateAvailable) {
               score += 20;
-            } else if (!stayDateAlternative) {
-              missing.push("Dates non disponibles");
-            }
-            if (stayDateAlternative) {
-              const altLabel =
-                stayDateAlternative.kind === "shorter"
-                  ? "-1 nuit"
-                  : stayDateAlternative.kind === "longer"
-                    ? "+1 nuit"
-                    : (stayDateAlternative.shiftDays || 0) > 0
-                      ? "+7 j"
-                      : "-7 j";
-              hints.push(
-                `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)} (${altLabel})`
-              );
+            } else {
+              stayDateAlternative =
+                findOneNightFlexAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut)
+                || findWeeklyAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut);
+              if (!stayDateAlternative) {
+                missing.push("Dates non disponibles");
+              } else {
+                const altLabel =
+                  stayDateAlternative.kind === "shorter"
+                    ? "-1 nuit"
+                    : stayDateAlternative.kind === "longer"
+                      ? "+1 nuit"
+                      : (stayDateAlternative.shiftDays || 0) > 0
+                        ? "+7 j"
+                        : "-7 j";
+                hints.push(
+                  `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)} (${altLabel})`
+                );
+              }
             }
           }
         }
@@ -1493,7 +1494,7 @@ export default function PropertiesPage() {
     );
     const alternatives = rows.filter((row) => {
       if (hasDateFilter) {
-        return Boolean(row.stayDateAlternative);
+        return !row.exactDateAvailable && Boolean(row.stayDateAlternative);
       }
       return !row.strictTypeMatch;
     }).sort((a, b) => {
