@@ -216,7 +216,8 @@ export default function ParametresPage() {
               type="password"
               value={confirmationPassword}
               onChange={(event) => setConfirmationPassword(event.target.value)}
-              placeholder="D90087579c"
+              placeholder="Saisir le mot de passe de confirmation"
+              autoComplete="new-password"
               className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               disabled={!enabled}
             />
