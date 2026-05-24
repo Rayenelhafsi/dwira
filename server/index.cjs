@@ -804,6 +804,42 @@ function getAgencySqlDateTime(date = new Date()) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
+const SITE_MAINTENANCE_ROW_ID = 'site';
+const SITE_MAINTENANCE_CONFIRMATION_PASSWORD = String(
+  process.env.SITE_MAINTENANCE_CONFIRMATION_PASSWORD || 'D90087579c'
+).trim();
+
+function toPublicIsoDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  return raw.includes('T') ? raw : raw.replace(' ', 'T');
+}
+
+function buildSiteMaintenancePayload(row) {
+  const enabled = Number(row?.enabled || 0) === 1;
+  const resumeAt = toPublicIsoDateTime(row?.resume_at);
+  const resumeTimestamp = resumeAt ? new Date(resumeAt).getTime() : null;
+  const hasFutureResume = Number.isFinite(resumeTimestamp) ? resumeTimestamp > Date.now() : false;
+  const isActive = enabled && (!resumeAt || hasFutureResume);
+  const secondsUntilResume = isActive && Number.isFinite(resumeTimestamp)
+    ? Math.max(0, Math.floor((resumeTimestamp - Date.now()) / 1000))
+    : 0;
+
+  return {
+    enabled,
+    isActive,
+    message: String(row?.message || '').trim() || null,
+    resumeAt,
+    updatedAt: toPublicIsoDateTime(row?.updated_at),
+    updatedBy: String(row?.updated_by || '').trim() || null,
+    secondsUntilResume,
+  };
+}
+
 function getAgencyDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: AGENCY_TIME_ZONE,
@@ -2186,6 +2222,65 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/system/site-maintenance', async (req, res) => {
+  try {
+    const row = await readSiteMaintenanceRow();
+    return res.json(buildSiteMaintenancePayload(row));
+  } catch (error) {
+    console.error('Error fetching site maintenance state:', error);
+    return res.status(500).json({ error: 'Impossible de lire le mode maintenance du site' });
+  }
+});
+
+app.put('/api/system/site-maintenance', requireAdminSession, async (req, res) => {
+  try {
+    const enabled = req.body?.enabled === true || String(req.body?.enabled || '') === 'true';
+    const confirmationPassword = String(req.body?.confirmation_password || '').trim();
+    const message = String(req.body?.message || '').trim() || null;
+    const resumeAtRaw = String(req.body?.resume_at || req.body?.resumeAt || '').trim();
+
+    if (enabled && confirmationPassword !== SITE_MAINTENANCE_CONFIRMATION_PASSWORD) {
+      return res.status(403).json({ error: 'Mot de passe de confirmation maintenance invalide' });
+    }
+
+    let resumeAtSql = null;
+    if (enabled) {
+      if (!resumeAtRaw) {
+        return res.status(400).json({ error: 'La date de reprise est obligatoire pour activer la maintenance' });
+      }
+      const parsedResumeAt = new Date(resumeAtRaw);
+      if (Number.isNaN(parsedResumeAt.getTime())) {
+        return res.status(400).json({ error: 'Date de reprise invalide' });
+      }
+      if (parsedResumeAt.getTime() <= Date.now()) {
+        return res.status(400).json({ error: 'La date de reprise doit etre dans le futur' });
+      }
+      resumeAtSql = getAgencySqlDateTime(parsedResumeAt);
+    }
+
+    await ensureSiteMaintenanceSchema();
+    await pool.query(
+      `UPDATE site_maintenance_state
+       SET enabled = ?, resume_at = ?, message = ?, updated_at = ?, updated_by = ?
+       WHERE id = ?`,
+      [
+        enabled ? 1 : 0,
+        resumeAtSql,
+        message,
+        getAgencySqlDateTime(),
+        String(req.authUser?.id || req.authUser?.email || 'admin').trim() || 'admin',
+        SITE_MAINTENANCE_ROW_ID,
+      ]
+    );
+
+    const row = await readSiteMaintenanceRow();
+    return res.json(buildSiteMaintenancePayload(row));
+  } catch (error) {
+    console.error('Error updating site maintenance state:', error);
+    return res.status(500).json({ error: 'Impossible de mettre a jour le mode maintenance du site' });
+  }
+});
+
 app.get('/api/google-places/nearby', async (req, res) => {
   try {
     if (!GOOGLE_MAPS_API_KEY) {
@@ -3357,6 +3452,18 @@ async function columnExists(tableName, columnName) {
     [tableName, columnName]
   );
   return Number(rows?.[0]?.total || 0) > 0;
+}
+
+async function readSiteMaintenanceRow() {
+  await ensureSiteMaintenanceSchema();
+  const [rows] = await pool.query(
+    `SELECT id, enabled, resume_at, message, updated_at, updated_by
+     FROM site_maintenance_state
+     WHERE id = ?
+     LIMIT 1`,
+    [SITE_MAINTENANCE_ROW_ID]
+  );
+  return rows?.[0] || null;
 }
 
 function toNullableNumber(value) {
@@ -7893,6 +8000,7 @@ async function initializeDatabaseSchema() {
       ['ensureClientInteractionsSchema', ensureClientInteractionsSchema],
       ['ensureClientelesSchema', ensureClientelesSchema],
       ['ensureMaintenanceWorkflowSchema', ensureMaintenanceWorkflowSchema],
+      ['ensureSiteMaintenanceSchema', ensureSiteMaintenanceSchema],
       ['ensureClientelesTasksSchema', ensureClientelesTasksSchema],
       ['ensureReservationDemandSchema', ensureReservationDemandSchema],
       ['ensureContractsSchema', ensureContractsSchema],
@@ -14131,6 +14239,27 @@ async function ensureMaintenanceWorkflowSchema() {
   if (!(await columnExists('maintenance', 'owner_approved_at'))) {
     await pool.query('ALTER TABLE maintenance ADD COLUMN owner_approved_at DATETIME NULL AFTER owner_approval_status');
   }
+}
+
+async function ensureSiteMaintenanceSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS site_maintenance_state (
+      id VARCHAR(32) PRIMARY KEY,
+      enabled TINYINT(1) NOT NULL DEFAULT 0,
+      resume_at DATETIME NULL,
+      message TEXT NULL,
+      updated_at DATETIME NOT NULL,
+      updated_by VARCHAR(64) NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  const now = getAgencySqlDateTime();
+  await pool.query(
+    `INSERT INTO site_maintenance_state (id, enabled, resume_at, message, updated_at, updated_by)
+     VALUES (?, 0, NULL, NULL, ?, NULL)
+     ON DUPLICATE KEY UPDATE id = id`,
+    [SITE_MAINTENANCE_ROW_ID, now]
+  );
 }
 
 async function ensureAdminNotificationsSchema() {
