@@ -1,10 +1,75 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, CheckCircle2, ChevronDown, ChevronUp, History, MessageSquareShare, RefreshCw } from 'lucide-react';
+import { Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, History, MessageSquareShare, RefreshCw } from 'lucide-react';
+import { useRef } from 'react';
 import { toast } from 'sonner';
-import type { Notification, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
+import AvailabilityCalendar from '../../components/AvailabilityCalendar';
+import type { DateStatus, Notification, Proprietaire, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
 import { getServiceDisplayPrice } from '../../utils/servicePayants';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+
+type CalendarPromptSchedule = {
+  enabled: boolean;
+  startDate: string | null;
+  dailyTime: string;
+  dispatchHour: number;
+  dispatchMinute: number;
+  timezoneOffsetLabel: string;
+  lastDispatchedLocalDate?: string | null;
+};
+
+type OwnerCalendarPromptStatus = {
+  promptId: string;
+  ownerId: string;
+  ownerName: string;
+  promptDate?: string | null;
+  status: string;
+  notificationId?: string | null;
+  respondedAt?: string | null;
+  responseMetadata?: {
+    response?: string | null;
+    bienId?: string | null;
+    propertyTitle?: string | null;
+    respondedAt?: string | null;
+  } | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type AdminCalendarRequest = {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  bienId: string;
+  propertyTitle: string;
+  startDate: string;
+  endDate: string;
+  note?: string | null;
+  status: string;
+  requestType: 'open' | 'close';
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  decision?: string | null;
+  reason?: string | null;
+};
+
+type CalendarDiffPayload = {
+  interactionId: string;
+  ownerId: string;
+  ownerName: string;
+  bienId: string;
+  propertyTitle: string;
+  startDate: string;
+  endDate: string;
+  requestType: 'open' | 'close';
+  status: string;
+  note?: string | null;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  currentCalendar: DateStatus[];
+  projectedCalendar: DateStatus[];
+};
 
 const openStatuses = new Set<ReservationDemandStatus>([
   'en_attente_reponse_proprietaire',
@@ -135,15 +200,50 @@ async function getApiErrorMessage(response: Response, fallback: string) {
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
-  const parsed = new Date(String(value).replace(' ', 'T'));
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString('fr-FR', { timeZone: 'Africa/Tunis', hour12: false });
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!match) return value;
+  const [, year, month, day, hour = '00', minute = '00', second = '00'] = match;
+  return `${day}/${month}/${year} ${hour}:${minute}:${second}`;
 }
 function formatStayDate(value?: string | null) {
   if (!value) return '-';
-  const parsed = new Date(String(value).replace(' ', 'T'));
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString('fr-FR', { timeZone: 'Africa/Tunis' });
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+}
+
+function parseDateForRelative(value?: string | null) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!match) return null;
+  const [, year, month, day, hour = '00', minute = '00', second = '00'] = match;
+  const parsed = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second)
+  );
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatRelativeDelay(value?: string | null, suffix = '') {
+  const parsed = parseDateForRelative(value);
+  if (!parsed) return '';
+  const diffMs = Date.now() - parsed.getTime();
+  if (diffMs < 0) return '';
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return `il y a quelques secondes${suffix}`;
+  if (minutes < 60) return `il y a ${minutes} minute${minutes > 1 ? 's' : ''}${suffix}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `il y a ${hours} heure${hours > 1 ? 's' : ''}${suffix}`;
+  const days = Math.floor(hours / 24);
+  return `il y a ${days} jour${days > 1 ? 's' : ''}${suffix}`;
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -153,12 +253,60 @@ function resolveAssetUrl(url?: string | null) {
   return `${window.location.origin}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
+function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null) {
+  const value = String(status?.status || '').trim();
+  const sentAt = value === 'pending'
+    ? status?.updatedAt || status?.createdAt || null
+    : status?.createdAt || status?.updatedAt || null;
+  if (value === 'pending') {
+    return {
+      label: 'En attente',
+      tone: 'border-amber-200 bg-amber-50 text-amber-800',
+      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)} (UTC+01:00)` : (status?.promptDate ? `Relance du ${formatStayDate(status.promptDate)}` : 'Relance envoyee'),
+      helper: sentAt ? formatRelativeDelay(sentAt, ' sans reponse') : 'Sans reponse',
+      sentAt,
+      respondedAt: null,
+    };
+  }
+  if (value === 'confirmed_up_to_date') {
+    const answeredAt = status?.respondedAt || status?.responseMetadata?.respondedAt || null;
+    return {
+      label: 'A jour',
+      tone: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)} (UTC+01:00)` : 'Calendrier confirme a jour',
+      helper: answeredAt ? `Repondu ${formatRelativeDelay(answeredAt).replace(/^il y a /, 'il y a ')}` : 'Calendrier confirme a jour',
+      sentAt,
+      respondedAt: answeredAt,
+    };
+  }
+  if (value === 'update_requested') {
+    const answeredAt = status?.respondedAt || status?.responseMetadata?.respondedAt || null;
+    const propertyTitle = String(status?.responseMetadata?.propertyTitle || '').trim();
+    return {
+      label: 'Mise a jour demandee',
+      tone: 'border-sky-200 bg-sky-50 text-sky-800',
+      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)} (UTC+01:00)` : 'Ouverture calendrier demandee',
+      helper: propertyTitle ? `Bien: ${propertyTitle}` : 'Ouverture calendrier demandee',
+      sentAt,
+      respondedAt: answeredAt,
+    };
+  }
+  return {
+    label: 'Aucune reponse',
+    tone: 'border-gray-200 bg-gray-50 text-gray-600',
+    detail: 'Aucune relance recente',
+    helper: '',
+    sentAt: null,
+    respondedAt: null,
+  };
+}
+
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [demands, setDemands] = useState<ReservationDemand[]>([]);
   const [historyRows, setHistoryRows] = useState<ReservationDemandHistory[]>([]);
   const [historyDemandId, setHistoryDemandId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'demands' | 'chat'>('demands');
+  const [activeView, setActiveView] = useState<'demands' | 'chat' | 'calendars'>('demands');
   const [demandTab, setDemandTab] = useState<'pending' | 'finished_success' | 'finished_cancelled'>('pending');
   const [cancelledSubTab, setCancelledSubTab] = useState<'client' | 'echeance'>('client');
   const [selectedChatOwner, setSelectedChatOwner] = useState<{ id: string; name: string; demandId?: string } | null>(null);
@@ -166,28 +314,87 @@ export default function NotificationsPage() {
   const [chatDraft, setChatDraft] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [owners, setOwners] = useState<Proprietaire[]>([]);
+  const [calendarPromptSchedule, setCalendarPromptSchedule] = useState<CalendarPromptSchedule | null>(null);
+  const [ownerCalendarStatuses, setOwnerCalendarStatuses] = useState<Record<string, OwnerCalendarPromptStatus>>({});
+  const [pendingCalendarRequests, setPendingCalendarRequests] = useState<AdminCalendarRequest[]>([]);
+  const [calendarRequestHistory, setCalendarRequestHistory] = useState<AdminCalendarRequest[]>([]);
+  const [calendarReviewRequest, setCalendarReviewRequest] = useState<AdminCalendarRequest | null>(null);
+  const [calendarReviewDiff, setCalendarReviewDiff] = useState<CalendarDiffPayload | null>(null);
+  const [calendarReviewLoading, setCalendarReviewLoading] = useState(false);
+  const [calendarActionLoadingId, setCalendarActionLoadingId] = useState<string | null>(null);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [dispatchingCalendarPrompt, setDispatchingCalendarPrompt] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [serviceQuoteDrafts, setServiceQuoteDrafts] = useState<Record<string, Record<string, number>>>({});
   const [expandedDemandIds, setExpandedDemandIds] = useState<Record<string, boolean>>({});
+  const hasLoadedOnceRef = useRef(false);
+  const isFetchingRef = useRef(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (options?: { background?: boolean }) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    const shouldShowBlockingLoader = !hasLoadedOnceRef.current && !options?.background;
+    if (shouldShowBlockingLoader) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
-      const [notificationsResponse, demandsResponse] = await Promise.all([
+      const [
+        notificationsResponse,
+        demandsResponse,
+        ownersResponse,
+        calendarPromptScheduleResponse,
+        ownerCalendarStatusesResponse,
+        pendingCalendarRequestsResponse,
+        calendarRequestHistoryResponse,
+      ] = await Promise.all([
         fetch(`${API_URL}/notifications`, { credentials: 'include' }),
         fetch(`${API_URL}/reservation-demands`, { credentials: 'include' }),
+        fetch(`${API_URL}/proprietaires`, { credentials: 'include' }),
+        fetch(`${API_URL}/mobile/admin/calendar-prompt-schedule`, { credentials: 'include' }),
+        fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses`, { credentials: 'include' }),
+        fetch(`${API_URL}/mobile/admin/calendar-requests?statuses=pending`, { credentials: 'include' }),
+        fetch(`${API_URL}/mobile/admin/calendar-requests?statuses=approved,rejected`, { credentials: 'include' }),
       ]);
       if (!notificationsResponse.ok) throw new Error(await getApiErrorMessage(notificationsResponse, 'Impossible de charger les notifications'));
       if (!demandsResponse.ok) throw new Error(await getApiErrorMessage(demandsResponse, 'Impossible de charger les demandes'));
+      if (!ownersResponse.ok) throw new Error(await getApiErrorMessage(ownersResponse, 'Impossible de charger les proprietaires'));
+      if (!calendarPromptScheduleResponse.ok) throw new Error(await getApiErrorMessage(calendarPromptScheduleResponse, 'Impossible de charger la programmation calendrier'));
+      if (!ownerCalendarStatusesResponse.ok) throw new Error(await getApiErrorMessage(ownerCalendarStatusesResponse, 'Impossible de charger les etats calendrier proprietaires'));
+      if (!pendingCalendarRequestsResponse.ok) throw new Error(await getApiErrorMessage(pendingCalendarRequestsResponse, 'Impossible de charger les demandes calendrier en attente'));
+      if (!calendarRequestHistoryResponse.ok) throw new Error(await getApiErrorMessage(calendarRequestHistoryResponse, 'Impossible de charger l historique calendrier'));
       const notificationRows = await notificationsResponse.json();
       const demandRows = await demandsResponse.json();
+      const ownerRows = await ownersResponse.json();
+      const scheduleRow = await calendarPromptScheduleResponse.json();
+      const ownerCalendarStatusRows = await ownerCalendarStatusesResponse.json();
+      const pendingCalendarRows = await pendingCalendarRequestsResponse.json();
+      const historyCalendarRows = await calendarRequestHistoryResponse.json();
+      const mappedOwnerStatuses = Array.isArray(ownerCalendarStatusRows)
+        ? ownerCalendarStatusRows.reduce<Record<string, OwnerCalendarPromptStatus>>((acc, row) => {
+            const ownerId = String(row?.ownerId || '').trim();
+            if (ownerId) acc[ownerId] = row as OwnerCalendarPromptStatus;
+            return acc;
+          }, {})
+        : {};
       setNotifications(Array.isArray(notificationRows) ? notificationRows : []);
       setDemands(Array.isArray(demandRows) ? demandRows : []);
+      setOwners(Array.isArray(ownerRows) ? ownerRows : []);
+      setCalendarPromptSchedule(scheduleRow || null);
+      setOwnerCalendarStatuses(mappedOwnerStatuses);
+      setPendingCalendarRequests(Array.isArray(pendingCalendarRows) ? pendingCalendarRows : []);
+      setCalendarRequestHistory(Array.isArray(historyCalendarRows) ? historyCalendarRows : []);
+      hasLoadedOnceRef.current = true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Impossible de charger les notifications');
     } finally {
       setLoading(false);
+      setRefreshing(false);
+      isFetchingRef.current = false;
     }
   }, []);
 
@@ -197,7 +404,7 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      void fetchData();
+      void fetchData({ background: true });
     }, 10000);
     return () => window.clearInterval(intervalId);
   }, [fetchData]);
@@ -267,6 +474,14 @@ export default function NotificationsPage() {
 
   const chatOwners = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; demandId?: string }>();
+    owners.forEach((owner) => {
+      const ownerId = String(owner.id || '').trim();
+      if (!ownerId) return;
+      byId.set(ownerId, {
+        id: ownerId,
+        name: String(owner.nom || ownerId),
+      });
+    });
     demands.forEach((demand) => {
       if (isAmicaleDemand(demand)) return;
       const ownerId = String(demand.proprietaire_id || '').trim();
@@ -280,7 +495,38 @@ export default function NotificationsPage() {
       }
     });
     return Array.from(byId.values());
-  }, [demands]);
+  }, [demands, owners]);
+
+  const calendarOwners = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    owners.forEach((owner) => {
+      const ownerId = String(owner.id || '').trim();
+      if (!ownerId) return;
+      byId.set(ownerId, {
+        id: ownerId,
+        name: String(owner.nom || ownerId).trim() || ownerId,
+      });
+    });
+    Object.values(ownerCalendarStatuses).forEach((status) => {
+      const ownerId = String(status.ownerId || '').trim();
+      if (!ownerId || byId.has(ownerId)) return;
+      byId.set(ownerId, {
+        id: ownerId,
+        name: String(status.ownerName || ownerId).trim() || ownerId,
+      });
+    });
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  }, [owners, ownerCalendarStatuses]);
+
+  const pendingCalendarRequestByOwner = useMemo(() => {
+    const byOwner = new Map<string, AdminCalendarRequest>();
+    for (const request of pendingCalendarRequests) {
+      const ownerId = String(request.ownerId || '').trim();
+      if (!ownerId || byOwner.has(ownerId)) continue;
+      byOwner.set(ownerId, request);
+    }
+    return byOwner;
+  }, [pendingCalendarRequests]);
 
   const loadOwnerChat = useCallback(async (ownerId: string) => {
     setChatLoading(true);
@@ -367,13 +613,131 @@ export default function NotificationsPage() {
         throw new Error(await getApiErrorMessage(response, 'Envoi demande disponibilite impossible'));
       }
       const updated = await response.json();
-      setDemands((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      toast.success('Demande de disponibilite envoyee au proprietaire');
+      if (updated?.id) {
+        setDemands((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      }
+      toast.success(updated?.pushSkipped ? 'Demande deja envoyee. Reponse proprietaire en attente.' : 'Demande de disponibilite envoyee au proprietaire');
       await fetchData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Envoi demande disponibilite impossible');
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const saveCalendarPromptSchedule = async () => {
+    if (!calendarPromptSchedule) return;
+    setScheduleSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/calendar-prompt-schedule`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          enabled: calendarPromptSchedule.enabled,
+          startDate: calendarPromptSchedule.startDate,
+          dispatchHour: calendarPromptSchedule.dispatchHour,
+          dispatchMinute: calendarPromptSchedule.dispatchMinute,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Impossible de sauvegarder la programmation calendrier'));
+      }
+      const next = await response.json();
+      setCalendarPromptSchedule(next);
+      toast.success('Programmation calendrier enregistree');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de sauvegarder la programmation calendrier');
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
+  const dispatchCalendarPromptNow = async () => {
+    setDispatchingCalendarPrompt(true);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/calendar-prompt-schedule/dispatch-now`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Impossible d envoyer la relance calendrier'));
+      }
+      const result = await response.json();
+      toast.success(`Relance calendrier envoyee (${result.sentOwners ?? 0}/${result.totalOwners ?? 0})`);
+      await fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible d envoyer la relance calendrier');
+    } finally {
+      setDispatchingCalendarPrompt(false);
+    }
+  };
+
+  const openCalendarDiff = async (request: AdminCalendarRequest) => {
+    setCalendarReviewRequest(request);
+    setCalendarReviewDiff(null);
+    setCalendarReviewLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/calendar-requests/${encodeURIComponent(request.id)}/diff`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Impossible de charger la difference calendrier'));
+      }
+      const payload = await response.json();
+      setCalendarReviewDiff(payload || null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de charger la difference calendrier');
+      setCalendarReviewRequest(null);
+    } finally {
+      setCalendarReviewLoading(false);
+    }
+  };
+
+  const approveCalendarRequest = async (request: AdminCalendarRequest) => {
+    setCalendarActionLoadingId(request.id);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/calendar-requests/${encodeURIComponent(request.id)}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Approbation calendrier impossible'));
+      }
+      toast.success('Mise a jour calendrier approuvee');
+      setCalendarReviewRequest(null);
+      setCalendarReviewDiff(null);
+      await fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Approbation calendrier impossible');
+    } finally {
+      setCalendarActionLoadingId(null);
+    }
+  };
+
+  const rejectCalendarRequest = async (request: AdminCalendarRequest) => {
+    const reason = window.prompt('Raison du rejet (optionnel) :', '') ?? '';
+    setCalendarActionLoadingId(request.id);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/calendar-requests/${encodeURIComponent(request.id)}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ reason }),
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Rejet calendrier impossible'));
+      }
+      toast.success('Mise a jour calendrier rejetee');
+      setCalendarReviewRequest(null);
+      setCalendarReviewDiff(null);
+      await fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Rejet calendrier impossible');
+    } finally {
+      setCalendarActionLoadingId(null);
     }
   };
 
@@ -492,11 +856,12 @@ export default function NotificationsPage() {
         </div>
         <button
           type="button"
-          onClick={() => void fetchData()}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          onClick={() => void fetchData({ background: true })}
+          disabled={refreshing}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <RefreshCw className="h-4 w-4" />
-          Recharger
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Rechargement...' : 'Recharger'}
         </button>
       </div>
 
@@ -533,6 +898,13 @@ export default function NotificationsPage() {
           className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'chat' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
         >
           Chat proprietaires
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView('calendars')}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'calendars' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+        >
+          Calendriers
         </button>
       </div>
 
@@ -959,6 +1331,226 @@ export default function NotificationsPage() {
         </section>
       )}
 
+      {activeView === 'calendars' && (
+        <section className="space-y-4">
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Relance quotidienne calendrier proprietaires</h2>
+                <p className="text-sm text-gray-500">Suivi complet des relances calendrier, des reponses proprietaires et des demandes de modification.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void dispatchCalendarPromptNow()}
+                  disabled={dispatchingCalendarPrompt}
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                >
+                  {dispatchingCalendarPrompt ? 'Envoi...' : 'Envoyer maintenant'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveCalendarPromptSchedule()}
+                  disabled={scheduleSaving || !calendarPromptSchedule}
+                  className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {scheduleSaving ? 'Enregistrement...' : 'Enregistrer horaire'}
+                </button>
+              </div>
+            </div>
+            {calendarPromptSchedule && (
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-gray-700">Date de debut</span>
+                  <input
+                    type="date"
+                    value={calendarPromptSchedule.startDate || ''}
+                    onChange={(event) => setCalendarPromptSchedule((prev) => prev ? { ...prev, startDate: event.target.value || null } : prev)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-gray-700">Heure quotidienne ({calendarPromptSchedule.timezoneOffsetLabel})</span>
+                  <input
+                    type="time"
+                    value={calendarPromptSchedule.dailyTime}
+                    onChange={(event) => {
+                      const [hourRaw, minuteRaw] = String(event.target.value || '').split(':');
+                      const hour = Number(hourRaw || 0);
+                      const minute = Number(minuteRaw || 0);
+                      setCalendarPromptSchedule((prev) => prev ? {
+                        ...prev,
+                        dispatchHour: hour,
+                        dispatchMinute: minute,
+                        dailyTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+                      } : prev);
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-gray-700">Etat</span>
+                  <select
+                    value={calendarPromptSchedule.enabled ? 'enabled' : 'disabled'}
+                    onChange={(event) => setCalendarPromptSchedule((prev) => prev ? {
+                      ...prev,
+                      enabled: event.target.value === 'enabled',
+                    } : prev)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  >
+                    <option value="enabled">Active</option>
+                    <option value="disabled">Inactive</option>
+                  </select>
+                </label>
+                <div className="space-y-1 text-sm">
+                  <span className="font-medium text-gray-700">Dernier envoi</span>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700">
+                    {calendarPromptSchedule.lastDispatchedLocalDate || 'Aucun'}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[340px,1fr]">
+            <section className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-emerald-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Etat par proprietaire</h3>
+              </div>
+              <div className="space-y-3">
+                {calendarOwners.length === 0 && <p className="text-sm text-gray-500">Aucun proprietaire disponible.</p>}
+                {calendarOwners.map((owner) => {
+                  const calendarStatus = ownerCalendarStatuses[owner.id] || null;
+                  const statusMeta = getOwnerCalendarStatusMeta(calendarStatus);
+                  const pendingCalendarRequest = pendingCalendarRequestByOwner.get(owner.id) || null;
+                  return (
+                    <div key={owner.id} className="rounded-xl border border-gray-200 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-gray-900">{owner.name}</div>
+                          <div className="mt-1 text-xs text-gray-500">ID: {owner.id}</div>
+                        </div>
+                        <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusMeta.tone}`}>
+                          {statusMeta.label}
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-1 text-xs">
+                        <div className="text-gray-600">{statusMeta.detail}</div>
+                        {statusMeta.helper ? (
+                          <div className="font-medium text-gray-500">{statusMeta.helper}</div>
+                        ) : null}
+                        <div className="text-gray-500">
+                          Reponse:{' '}
+                          <span className="font-medium text-gray-700">
+                            {statusMeta.respondedAt ? formatDateTime(statusMeta.respondedAt) : '-'}
+                          </span>
+                        </div>
+                      </div>
+                      {statusMeta.label === 'Mise a jour demandee' && pendingCalendarRequest ? (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => void openCalendarDiff(pendingCalendarRequest)}
+                            disabled={calendarActionLoadingId === pendingCalendarRequest.id}
+                            className="rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-50"
+                          >
+                            Consulter la difference
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Demandes de mise a jour calendrier</h3>
+                  <p className="text-sm text-gray-500">Approuver ou rejeter les changements demandes par les proprietaires.</p>
+                </div>
+                <div className="flex gap-2 text-sm">
+                  <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">En attente {pendingCalendarRequests.length}</span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">Historique {calendarRequestHistory.length}</span>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-amber-700">En attente</h4>
+                  <div className="space-y-3">
+                    {pendingCalendarRequests.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                        Aucune demande calendrier en attente.
+                      </div>
+                    )}
+                    {pendingCalendarRequests.map((request) => (
+                      <div key={request.id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <div className="text-base font-semibold text-gray-900">{request.ownerName}</div>
+                            <div className="text-xs text-gray-500">ID: {request.ownerId}</div>
+                            <div className="mt-2 text-sm text-gray-700">{request.propertyTitle || 'Bien sans titre'}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {request.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
+                            </div>
+                            <div className="mt-1 text-xs text-gray-500">Envoyee le {formatDateTime(request.submittedAt || request.startDate)} (UTC+01:00)</div>
+                            {request.note ? <div className="mt-2 text-xs text-gray-600">Note: {request.note}</div> : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void openCalendarDiff(request)}
+                              disabled={calendarActionLoadingId === request.id}
+                              className="rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-50"
+                            >
+                              Consulter la difference
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Historique</h4>
+                  <div className="space-y-3">
+                    {calendarRequestHistory.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                        Aucune demande calendrier traitee.
+                      </div>
+                    )}
+                    {calendarRequestHistory.map((request) => (
+                      <div key={request.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <div className="text-base font-semibold text-gray-900">{request.ownerName}</div>
+                            <div className="text-xs text-gray-500">ID: {request.ownerId}</div>
+                            <div className="mt-2 text-sm text-gray-700">{request.propertyTitle || 'Bien sans titre'}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {request.requestType === 'open' ? 'Reouverture' : 'Fermeture'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
+                            </div>
+                            <div className="mt-1 text-xs text-gray-500">Soumise le {formatDateTime(request.submittedAt || request.startDate)} (UTC+01:00)</div>
+                            <div className="mt-1 text-xs text-gray-500">Traitee le {request.reviewedAt ? `${formatDateTime(request.reviewedAt)} (UTC+01:00)` : '-'}</div>
+                            {request.reason ? <div className="mt-1 text-xs text-rose-600">Motif rejet: {request.reason}</div> : null}
+                          </div>
+                          <div className={`rounded-full border px-3 py-1 text-xs font-semibold ${request.status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                            {request.status === 'approved' ? 'Approuvee' : 'Rejetee'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      )}
+
       <section className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="mb-4 flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-emerald-600" />
@@ -992,6 +1584,100 @@ export default function NotificationsPage() {
           ))}
         </div>
       </section>
+
+      {calendarReviewRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[92vh] w-full max-w-7xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Difference calendrier</h3>
+                <p className="text-sm text-gray-500">
+                  {calendarReviewRequest.ownerName} - {calendarReviewRequest.propertyTitle || 'Bien sans titre'}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {calendarReviewRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} du {formatStayDate(calendarReviewRequest.startDate)} au {formatStayDate(calendarReviewRequest.endDate)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCalendarReviewRequest(null);
+                  setCalendarReviewDiff(null);
+                }}
+                className="rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              >
+                Fermer
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              {calendarReviewLoading && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
+                  Chargement de la difference calendrier...
+                </div>
+              )}
+
+              {!calendarReviewLoading && calendarReviewDiff && (
+                <>
+                  {calendarReviewDiff.note ? (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                      Note proprietaire: {calendarReviewDiff.note}
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-xl border border-gray-200 bg-white p-3">
+                      <div className="mb-3">
+                        <div className="text-sm font-semibold text-gray-900">Calendrier avant</div>
+                        <div className="text-xs text-gray-500">Etat actuel du bien avant approbation.</div>
+                      </div>
+                      <AvailabilityCalendar
+                        unavailableDates={calendarReviewDiff.currentCalendar}
+                        onDateRangeSelect={() => {}}
+                        selectedStart={null}
+                        selectedEnd={null}
+                      />
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-3">
+                      <div className="mb-3">
+                        <div className="text-sm font-semibold text-gray-900">Calendrier apres</div>
+                        <div className="text-xs text-gray-500">Projection si l admin confirme cette demande.</div>
+                      </div>
+                      <AvailabilityCalendar
+                        unavailableDates={calendarReviewDiff.projectedCalendar}
+                        onDateRangeSelect={() => {}}
+                        selectedStart={null}
+                        selectedEnd={null}
+                      />
+                    </div>
+                  </div>
+
+                  {calendarReviewRequest.status === 'pending' && (
+                    <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => void rejectCalendarRequest(calendarReviewRequest)}
+                        disabled={calendarActionLoadingId === calendarReviewRequest.id}
+                        className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                      >
+                        {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Rejeter'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void approveCalendarRequest(calendarReviewRequest)}
+                        disabled={calendarActionLoadingId === calendarReviewRequest.id}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                      >
+                        {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Confirmer'}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {historyDemandId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
