@@ -148,6 +148,13 @@ const getPaidServiceCategoryImage = (category: string) => {
   return paidServiceCategoryImages.proA;
 };
 
+const formatDateLabel = (value: string) => {
+  const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? String(value)
+    : new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" }).format(parsed);
+};
+
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
   if (normalized.includes("appartement")) return "appartement";
@@ -1069,12 +1076,6 @@ export default function PropertiesPage() {
   };
 
   const scoringBuckets = useMemo(() => {
-    const formatDateLabel = (value: string) => {
-      const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-      return Number.isNaN(parsed.getTime())
-        ? String(value)
-        : new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" }).format(parsed);
-    };
     const hasDateFilter = selectedMode === "location_saisonniere" && isValidStayRange(checkIn, checkOut);
     const hasCoreFilters =
       Boolean(query.trim()) ||
