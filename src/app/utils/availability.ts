@@ -12,7 +12,17 @@ export interface StayAvailabilityAlternative {
   end: string;
 }
 
+export interface StayAvailabilityResolution {
+  exactAvailable: boolean;
+  alternative: StayAvailabilityAlternative | null;
+  status: "exact" | "alternative" | "unavailable";
+}
+
 const BLOCKING_STATUSES = new Set(["booked", "pending", "blocked"]);
+
+function formatDateOnlyLocal(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 
 export function parseDateOnly(value: string | null | undefined): Date | null {
   const raw = String(value || "").trim().slice(0, 10);
@@ -51,7 +61,7 @@ export function shiftDateOnly(raw: string | null | undefined, deltaDays: number)
   if (!date) return null;
   const next = new Date(date);
   next.setDate(next.getDate() + deltaDays);
-  return next.toISOString().slice(0, 10);
+  return formatDateOnlyLocal(next);
 }
 
 export function computeStayNights(startRaw: string | null | undefined, endRaw: string | null | undefined) {
@@ -128,4 +138,36 @@ export function findOneNightFlexAvailabilityAlternative(
   }
 
   return null;
+}
+
+export function getStayAvailabilityAlternativeLabel(alternative: StayAvailabilityAlternative | null | undefined) {
+  if (!alternative) return null;
+  if (alternative.kind === "shorter") return "-1 nuit";
+  if (alternative.kind === "longer") return "+1 nuit";
+  return (alternative.shiftDays || 0) > 0 ? "+7 j" : "-7 j";
+}
+
+export function resolveStayAvailability(
+  ranges: UnavailableDateRangeLike[] | null | undefined,
+  startRaw: string | null | undefined,
+  endRaw: string | null | undefined
+): StayAvailabilityResolution {
+  const exactAvailable = !hasBlockingUnavailableDates(ranges, startRaw, endRaw);
+  if (exactAvailable) {
+    return {
+      exactAvailable: true,
+      alternative: null,
+      status: "exact",
+    };
+  }
+
+  const alternative =
+    findOneNightFlexAvailabilityAlternative(ranges, startRaw, endRaw)
+    || findWeeklyAvailabilityAlternative(ranges, startRaw, endRaw);
+
+  return {
+    exactAvailable: false,
+    alternative,
+    status: alternative ? "alternative" : "unavailable",
+  };
 }

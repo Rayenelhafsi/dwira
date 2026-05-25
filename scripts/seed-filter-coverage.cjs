@@ -1,5 +1,15 @@
 const mysql = require('mysql2/promise');
 
+function getDbConfig() {
+  return {
+    host: process.env.DB_HOST || '127.0.0.1',
+    port: Number(process.env.DB_PORT || 3306),
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'dwira',
+  };
+}
+
 function nowSql(d = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -10,6 +20,10 @@ function addDays(base, days) {
   d.setDate(d.getDate() + days);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function unavailableDateId(bienId, suffix) {
+  return `${bienId}_${suffix}`;
 }
 
 function seasonConfig({
@@ -73,13 +87,7 @@ function seasonConfig({
 }
 
 (async () => {
-  const conn = await mysql.createConnection({
-    host: '127.0.0.1',
-    port: 3306,
-    user: 'root',
-    password: '',
-    database: 'dwira',
-  });
+  const conn = await mysql.createConnection(getDbConfig());
 
   try {
     await conn.beginTransaction();
@@ -91,7 +99,8 @@ function seasonConfig({
     const ownerA = owners[0].id;
     const ownerB = owners[Math.min(1, owners.length - 1)].id;
 
-    await conn.query("DELETE FROM biens WHERE id LIKE 'test_cov_bien_%'");
+    await conn.query("DELETE FROM unavailable_dates WHERE bien_id LIKE 'test_cov_bien_%' OR bien_id LIKE 'test_stay_bien_%'");
+    await conn.query("DELETE FROM biens WHERE id LIKE 'test_cov_bien_%' OR id LIKE 'test_stay_bien_%'");
     await conn.query("DELETE FROM zones WHERE id LIKE 'test_cov_zone_%'");
 
     const zones = [
@@ -125,6 +134,10 @@ function seasonConfig({
     const pricingB = [
       { id: 'cov_pp_3', start: addDays(today, 2), end: addDays(today, 12), prix_nuitee: 420, prix_semaine: 2600 },
     ];
+    const staySearchWindow = {
+      start: addDays(today, 20),
+      end: addDays(today, 27),
+    };
 
     const biens = [
       {
@@ -349,6 +362,102 @@ function seasonConfig({
         climatisation: false,
         terrasse: true,
       },
+      {
+        id: 'test_stay_bien_1',
+        reference: 'TEST-STAY-001',
+        titre: 'Appartement test sejour disponible exact',
+        description: 'Cas QA: disponible exactement sur la plage de test pour verifier le filtre de date.',
+        type: 'appartement',
+        configuration: 'S+2',
+        zone_id: 'test_cov_zone_1',
+        proprietaire_id: ownerA,
+        prix_nuitee: 330,
+        prix_semaine: 2050,
+        avance: 30,
+        caution: 550,
+        nb_chambres: 2,
+        nb_salle_bain: 1,
+        standing: 'confort',
+        etage: '1',
+        vue: 'ville',
+        maxGuests: 4,
+        maxAdults: 3,
+        maxChildren: 2,
+        climatisation: true,
+        terrasse: true,
+      },
+      {
+        id: 'test_stay_bien_2',
+        reference: 'TEST-STAY-002',
+        titre: 'Appartement test sejour alternative moins une nuit',
+        description: 'Cas QA: indisponible la derniere nuit du sejour de test, doit proposer une alternative -1 nuit.',
+        type: 'appartement',
+        configuration: 'S+2',
+        zone_id: 'test_cov_zone_2',
+        proprietaire_id: ownerA,
+        prix_nuitee: 340,
+        prix_semaine: 2100,
+        avance: 30,
+        caution: 600,
+        nb_chambres: 2,
+        nb_salle_bain: 1,
+        standing: 'confort',
+        etage: '1',
+        vue: 'mer',
+        maxGuests: 4,
+        maxAdults: 3,
+        maxChildren: 2,
+        climatisation: true,
+        terrasse: true,
+      },
+      {
+        id: 'test_stay_bien_3',
+        reference: 'TEST-STAY-003',
+        titre: 'Villa test sejour alternative plus sept jours',
+        description: 'Cas QA: indisponible sur la plage exacte et sur les variantes +/-1 nuit, mais libre a +7 jours.',
+        type: 'villa_maison',
+        configuration: 'S+3',
+        zone_id: 'test_cov_zone_3',
+        proprietaire_id: ownerB,
+        prix_nuitee: 690,
+        prix_semaine: 4350,
+        avance: 30,
+        caution: 1100,
+        nb_chambres: 3,
+        nb_salle_bain: 2,
+        standing: 'premium',
+        etage: 'rdc',
+        vue: 'mer',
+        maxGuests: 7,
+        maxAdults: 5,
+        maxChildren: 3,
+        climatisation: true,
+        terrasse: true,
+      },
+      {
+        id: 'test_stay_bien_4',
+        reference: 'TEST-STAY-004',
+        titre: 'Villa test sejour sans alternative',
+        description: 'Cas QA: indisponible sur la plage exacte et sans solution -1 nuit, +1 nuit, -7 jours ou +7 jours.',
+        type: 'villa_maison',
+        configuration: 'S+3',
+        zone_id: 'z3',
+        proprietaire_id: ownerB,
+        prix_nuitee: 720,
+        prix_semaine: 4550,
+        avance: 30,
+        caution: 1200,
+        nb_chambres: 3,
+        nb_salle_bain: 2,
+        standing: 'premium',
+        etage: '1',
+        vue: 'mer',
+        maxGuests: 7,
+        maxAdults: 5,
+        maxChildren: 3,
+        climatisation: true,
+        terrasse: true,
+      },
     ];
 
     for (const b of biens) {
@@ -409,10 +518,59 @@ function seasonConfig({
       );
     }
 
+    const unavailableDates = [
+      {
+        id: unavailableDateId('test_stay_bien_2', 'booked_last_night'),
+        bien_id: 'test_stay_bien_2',
+        start_date: addDays(today, 26),
+        end_date: addDays(today, 27),
+        status: 'booked',
+      },
+      {
+        id: unavailableDateId('test_stay_bien_3', 'pending_exact_window'),
+        bien_id: 'test_stay_bien_3',
+        start_date: staySearchWindow.start,
+        end_date: staySearchWindow.end,
+        status: 'pending',
+      },
+      {
+        id: unavailableDateId('test_stay_bien_3', 'blocked_previous_week'),
+        bien_id: 'test_stay_bien_3',
+        start_date: addDays(today, 13),
+        end_date: addDays(today, 20),
+        status: 'blocked',
+      },
+      {
+        id: unavailableDateId('test_stay_bien_4', 'blocked_full_window'),
+        bien_id: 'test_stay_bien_4',
+        start_date: addDays(today, 13),
+        end_date: addDays(today, 35),
+        status: 'blocked',
+      },
+    ];
+
+    for (const item of unavailableDates) {
+      await conn.query(
+        `INSERT INTO unavailable_dates (
+          id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline
+        ) VALUES (?, ?, ?, ?, ?, NULL, NULL)
+        ON DUPLICATE KEY UPDATE
+          start_date = VALUES(start_date),
+          end_date = VALUES(end_date),
+          status = VALUES(status),
+          reservation_demand_id = VALUES(reservation_demand_id),
+          payment_deadline = VALUES(payment_deadline)`,
+        [item.id, item.bien_id, item.start_date, item.end_date, item.status]
+      );
+    }
+
     await conn.commit();
     console.log('Seed couverture filtres termine.');
     console.log(`Zones upsert: ${zones.length}`);
     console.log(`Biens upsert: ${biens.length}`);
+    console.log(`Indisponibilites upsert: ${unavailableDates.length}`);
+    console.log(`Plage de test sejour UI: ${staySearchWindow.start} -> ${staySearchWindow.end}`);
+    console.log('Attendus UI: TEST-STAY-001 disponible exact, TEST-STAY-002 alternative -1 nuit, TEST-STAY-003 alternative +7 j, TEST-STAY-004 aucune alternative.');
   } catch (error) {
     await conn.rollback();
     throw error;

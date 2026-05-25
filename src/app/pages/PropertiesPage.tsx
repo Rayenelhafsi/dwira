@@ -8,10 +8,10 @@ import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServiceP
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 import {
-  findOneNightFlexAvailabilityAlternative,
-  findWeeklyAvailabilityAlternative,
+  getStayAvailabilityAlternativeLabel,
   hasBlockingUnavailableDates,
   isValidStayRange,
+  resolveStayAvailability,
 } from "../utils/availability";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
@@ -1424,26 +1424,18 @@ export default function PropertiesPage() {
 
           if (hasDateFilter) {
             maxScore += 20;
-            exactDateAvailable = !hasBlockingUnavailableDates(property.unavailableDates || [], checkIn, checkOut);
+            const stayAvailability = resolveStayAvailability(property.unavailableDates || [], checkIn, checkOut);
+            exactDateAvailable = stayAvailability.exactAvailable;
             if (exactDateAvailable) {
               score += 20;
             } else {
-              stayDateAlternative =
-                findOneNightFlexAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut)
-                || findWeeklyAvailabilityAlternative(property.unavailableDates || [], checkIn, checkOut);
+              stayDateAlternative = stayAvailability.alternative;
               if (!stayDateAlternative) {
                 missing.push("Dates non disponibles");
               } else {
-                const altLabel =
-                  stayDateAlternative.kind === "shorter"
-                    ? "-1 nuit"
-                    : stayDateAlternative.kind === "longer"
-                      ? "+1 nuit"
-                      : (stayDateAlternative.shiftDays || 0) > 0
-                        ? "+7 j"
-                        : "-7 j";
+                const altLabel = getStayAvailabilityAlternativeLabel(stayDateAlternative);
                 hints.push(
-                  `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)} (${altLabel})`
+                  `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)}${altLabel ? ` (${altLabel})` : ""}`
                 );
               }
             }
@@ -2390,13 +2382,7 @@ export default function PropertiesPage() {
                             Matching {row.score}%
                           </span>
                           <span className="text-xs text-amber-700">
-                            {row.stayDateAlternative?.kind === "shorter"
-                              ? "-1 nuit"
-                              : row.stayDateAlternative?.kind === "longer"
-                                ? "+1 nuit"
-                                : (row.stayDateAlternative?.shiftDays || 0) > 0
-                                  ? "+7 j"
-                                  : "-7 j"}
+                            {getStayAvailabilityAlternativeLabel(row.stayDateAlternative) || "Alternative"}
                           </span>
                         </div>
                         {row.stayDateAlternative && (
