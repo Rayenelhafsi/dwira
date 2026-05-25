@@ -736,10 +736,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       .sort((a, b) => MAIN_TYPE_DISPLAY_ORDER.indexOf(a.mainType) - MAIN_TYPE_DISPLAY_ORDER.indexOf(b.mainType));
   }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
   const secondaryTypeOptions = useMemo(() => {
-    if (!selectedMainType) return availableTypeOptions;
-    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === selectedMainType);
-    return selectedGroup?.subTypes || [];
-  }, [availableTypeOptions, groupedTypeOptions, selectedMainType]);
+    if (selectedMainTypes.length === 0) return availableTypeOptions;
+    const merged = new Map<string, { label: string; imageUrl: string }>();
+    groupedTypeOptions
+      .filter((group) => selectedMainTypes.includes(group.mainType))
+      .forEach((group) => {
+        group.subTypes.forEach((subType) => {
+          const key = getCanonicalSubTypeKey(subType.label) || subType.label;
+          if (!merged.has(key)) merged.set(key, subType);
+        });
+      });
+    return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  }, [availableTypeOptions, groupedTypeOptions, selectedMainTypes]);
   const draftSecondaryTypeOptions = useMemo(() => {
     if (!draftMainType) return availableTypeOptions;
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
@@ -857,17 +865,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [availableSeasideOptions, availableComfortOptions]);
 
   useEffect(() => {
-    if (!selectedMainType) return;
+    if (selectedMainTypes.length === 0) return;
     const canonicalToLabel = new Map(
       secondaryTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
     );
     setSelectedCategories((prev) => {
       const remapped = prev
-        .map((cat) => canonicalToLabel.get(getCanonicalSubTypeKey(cat)) || "")
+        .map((cat) => canonicalToLabel.get(getCanonicalSubTypeKey(cat)) || cat)
         .filter(Boolean);
       return Array.from(new Set(remapped));
     });
-  }, [selectedMainType, secondaryTypeOptions]);
+  }, [selectedMainTypes, secondaryTypeOptions]);
   useEffect(() => {
     const firstRange = selectedStayRanges[0];
     if (!firstRange) return;
