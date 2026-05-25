@@ -86,6 +86,7 @@ const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = [
   "piscine_partagee",
 ];
 const POOL_OPTION_KEYS: HomeComfortOptionKey[] = ["piscine_privee", "piscine_partagee"];
+type StayRangeSelection = { start: string; end: string };
 const HERO_IMAGE_URL =
   "https://images.unsplash.com/photo-1690549392404-de10519e6adb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUdW5pc2lhJTIwS2VsaWJpYSUyMGJlYWNoJTIwdmlsbGElMjBtZWRpdGVycmFuZWFuJTIwY29hc3R8ZW58MXx8fHwxNzcxNDEyOTU5fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 const HERO_IMAGE_URL_MOBILE =
@@ -254,6 +255,27 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   return false;
 };
 
+const parseCsvParam = (value: string | null) =>
+  String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const parseStayRangesParam = (value: string | null): StayRangeSelection[] =>
+  String(value || "")
+    .split(";")
+    .map((item) => {
+      const [start, end] = String(item || "").split("_");
+      return { start: String(start || "").trim(), end: String(end || "").trim() };
+    })
+    .filter((item) => item.start && item.end);
+
+const serializeStayRangesParam = (ranges: StayRangeSelection[]) =>
+  ranges
+    .filter((item) => item.start && item.end)
+    .map((item) => `${item.start}_${item.end}`)
+    .join(";");
+
 type HomePageProps = {
   forcedAmicaleId?: string | null;
 };
@@ -279,10 +301,25 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   
   // Filter states
   const [location, setLocation] = useState("");
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(
+    parseCsvParam(searchParams.get("locations") || searchParams.get("location"))
+  );
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedMainType, setSelectedMainType] = useState<PropertyMainType | "">("");
+  const [selectedMainTypes, setSelectedMainTypes] = useState<PropertyMainType[]>(
+    parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[]
+  );
   const [checkIn, setCheckIn] = useState<Date | null>(null);
   const [checkOut, setCheckOut] = useState<Date | null>(null);
+  const [selectedStayRanges, setSelectedStayRanges] = useState<StayRangeSelection[]>(
+    (() => {
+      const parsed = parseStayRangesParam(searchParams.get("stayRanges"));
+      if (parsed.length > 0) return parsed;
+      const start = String(searchParams.get("checkIn") || "").trim();
+      const end = String(searchParams.get("checkOut") || "").trim();
+      return start && end ? [{ start, end }] : [];
+    })()
+  );
   const [showCalendar, setShowCalendar] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
@@ -423,6 +460,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       .trim();
   const resetLocationFilters = () => {
     setLocation("");
+    setSelectedLocations([]);
     setLocationPays("");
     setLocationGouvernerat("");
     setLocationRegion("");
@@ -434,7 +472,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       || String(locationRegion || '').trim()
       || String(locationGouvernerat || '').trim()
       || String(locationPays || '').trim();
-    setLocation(selectedValue);
+    if (selectedValue) {
+      setSelectedLocations((prev) => (prev.includes(selectedValue) ? prev : [...prev, selectedValue]));
+    }
     setShowCalendar(true);
     setShowCategoryDropdown(false);
     setShowLocationDropdown(false);
@@ -461,6 +501,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     ? getHomeFilterOptionImage("comfort", selectedComfortOptions[0])
     : null;
   const confirmCalendarSelection = () => {
+    if (checkIn && checkOut) {
+      const range = {
+        start: format(checkIn, 'yyyy-MM-dd'),
+        end: format(checkOut, 'yyyy-MM-dd'),
+      };
+      setSelectedStayRanges((prev) =>
+        prev.some((item) => item.start === range.start && item.end === range.end) ? prev : [...prev, range]
+      );
+    }
     setShowLocationDropdown(false);
     setShowCalendar(false);
     openCategoryDropdown();
@@ -652,9 +701,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
     return selectedGroup?.subTypes || [];
   }, [availableTypeOptions, groupedTypeOptions, draftMainType]);
-  const selectedMainTypeLabel = selectedMainType ? MAIN_TYPE_LABELS[selectedMainType] : "";
-  const selectedTypeSummaryText = selectedMainTypeLabel
-    ? (selectedCategories.length > 0 ? `${selectedMainTypeLabel} • ${selectedCategories.join(", ")}` : selectedMainTypeLabel)
+  const selectedMainTypeLabels = selectedMainTypes.map((item) => MAIN_TYPE_LABELS[item]).filter(Boolean);
+  const selectedTypeSummaryText = selectedMainTypeLabels.length > 0
+    ? (selectedCategories.length > 0 ? `${selectedMainTypeLabels.join(", ")} • ${selectedCategories.join(", ")}` : selectedMainTypeLabels.join(", "))
     : (selectedCategories.length > 0 ? selectedCategories.join(", ") : "Tous les types");
   const selectedTypeImage = useMemo(() => {
     if (selectedCategories.length === 1) {
@@ -668,12 +717,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       const selected = availableTypeOptions.find((item) => getCanonicalSubTypeKey(item.label) === selectedCategoryKey);
       if (selected?.imageUrl) return selected.imageUrl;
     }
-    if (selectedMainType) {
-      const group = groupedTypeOptions.find((item) => item.mainType === selectedMainType);
+    if (selectedMainTypes.length > 0) {
+      const group = groupedTypeOptions.find((item) => item.mainType === selectedMainTypes[0]);
       return group?.imageUrl || null;
     }
     return null;
-  }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainType, selectedMode, typeFilterImageRows]);
+  }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainTypes, selectedMode, typeFilterImageRows]);
 
   useEffect(() => {
     if (!locationPays && cascadePaysOptions.some((item) => item.toLowerCase() === 'tunisie')) {
@@ -735,6 +784,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setSelectedMainType((prev) => {
       return prev && mainTypeAllowed.has(prev) ? prev : "";
     });
+    setSelectedMainTypes((prev) => prev.filter((item) => mainTypeAllowed.has(item)));
   }, [availableTypeOptions, groupedTypeOptions]);
   useEffect(() => {
     const allowedSeaside = new Set(availableSeasideOptions);
@@ -755,6 +805,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       return Array.from(new Set(remapped));
     });
   }, [selectedMainType, secondaryTypeOptions]);
+  useEffect(() => {
+    const firstRange = selectedStayRanges[0];
+    if (!firstRange) return;
+    setCheckIn(firstRange.start ? parseISO(firstRange.start) : null);
+    setCheckOut(firstRange.end ? parseISO(firstRange.end) : null);
+  }, []);
+  useEffect(() => {
+    if (selectedLocations.length === 0) {
+      setLocation("");
+      return;
+    }
+    setLocation(selectedLocations.join(", "));
+  }, [selectedLocations]);
 
   useEffect(() => {
     if (loading) {
@@ -796,9 +859,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setTypeSelectionStep("sub");
   };
   const toggleDraftCategory = (cat: string) => {
-    setDraftCategories((prev) => (prev.includes(cat) ? [] : [cat]));
+    setDraftCategories((prev) => (prev.includes(cat) ? prev.filter((item) => item !== cat) : [...prev, cat]));
   };
   const confirmTypeSelection = () => {
+    if (draftMainType) {
+      setSelectedMainTypes((prev) => (prev.includes(draftMainType) ? prev : [...prev, draftMainType]));
+    }
     setSelectedMainType(draftMainType);
     setSelectedCategories(draftCategories);
     setShowCategoryDropdown(false);
@@ -806,7 +872,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setShowComfortDropdown(false);
   };
   const toggleSeasideOption = (key: HomeSeasideOptionKey) => {
-    setSelectedSeasideOptions((prev) => (prev.includes(key) ? [] : [key]));
+    setSelectedSeasideOptions((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
   };
   const toggleComfortOption = (key: HomeComfortOptionKey) => {
     setSelectedComfortOptions((prev) => {
@@ -869,13 +935,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     
     const params = applyAmicaleParam(new URLSearchParams(searchParams));
     params.set("mode", selectedMode);
-    if (location) params.set("location", location);
-    if (selectedMainType) params.set("mainType", selectedMainType);
+    params.delete("location");
+    params.delete("locations");
+    params.delete("mainType");
+    params.delete("mainTypes");
+    params.delete("checkIn");
+    params.delete("checkOut");
+    params.delete("stayRanges");
+    if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
+    if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
-    if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
-    if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
+    if (selectedStayRanges.length > 0) {
+      params.set("stayRanges", serializeStayRangesParam(selectedStayRanges));
+      params.set("checkIn", selectedStayRanges[0].start);
+      params.set("checkOut", selectedStayRanges[0].end);
+    }
     
     navigate(selectedMode === "vente" ? `/ventes` : `/logements?${params.toString()}`);
     
@@ -888,27 +964,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const selectedSubTypeKeys = selectedCategories
       .map((item) => getCanonicalSubTypeKey(item))
       .filter(Boolean);
-    const shouldFilterByStay = hasSearched && isValidStayRange(
-      checkIn ? format(checkIn, "yyyy-MM-dd") : "",
-      checkOut ? format(checkOut, "yyyy-MM-dd") : ""
-    );
+    const validStayRanges = selectedStayRanges.filter((range) => isValidStayRange(range.start, range.end));
+    const shouldFilterByStay = hasSearched && validStayRanges.length > 0;
     const baseProperties = hasSearched
       ? modeProperties.filter((property) => {
-          const matchLocation = !location || property.location.toLowerCase().includes(location.toLowerCase());
+          const matchLocation =
+            selectedLocations.length === 0
+            || selectedLocations.some((item) => property.location.toLowerCase().includes(item.toLowerCase()));
           const resolvedCategory = getResolvedPropertyCategoryLabel(property);
           const propertyMainType = getMainTypeFromCategory(String(resolvedCategory || property.category || ""));
           const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategory || property.category || "");
-          const matchMainType = !selectedMainType || propertyMainType === selectedMainType;
+          const matchMainType = selectedMainTypes.length === 0 || selectedMainTypes.includes(propertyMainType);
           const matchSubType = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
-          const matchSeaside = selectedSeasideOptions.every((option) => propertyMatchesSeasideOption(property, option));
-          const matchComfort = selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
+          const matchSeaside = selectedSeasideOptions.length === 0 || selectedSeasideOptions.some((option) => propertyMatchesSeasideOption(property, option));
+          const matchComfort = selectedComfortOptions.length === 0 || selectedComfortOptions.some((option) => propertyMatchesComfortOption(property, option));
           const matchStay =
             !shouldFilterByStay
-            || !hasBlockingUnavailableDates(
-              property.unavailableDates || [],
-              checkIn ? format(checkIn, "yyyy-MM-dd") : "",
-              checkOut ? format(checkOut, "yyyy-MM-dd") : ""
-            );
+            || validStayRanges.some((range) => !hasBlockingUnavailableDates(property.unavailableDates || [], range.start, range.end));
           return matchLocation && matchMainType && matchSubType && matchSeaside && matchComfort && matchStay;
         })
       : modeProperties;
@@ -917,7 +989,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
       return b.rating - a.rating;
     });
-  }, [hasSearched, location, selectedMainType, selectedCategories, selectedSeasideOptions, selectedComfortOptions, modeProperties]);
+  }, [hasSearched, selectedLocations, selectedMainTypes, selectedCategories, selectedSeasideOptions, selectedComfortOptions, selectedStayRanges, modeProperties]);
   const visibleFilteredProperties = useMemo(
     () => (showAllProperties ? filteredProperties : filteredProperties.slice(0, visiblePropertiesCount)),
     [filteredProperties, showAllProperties, visiblePropertiesCount]
@@ -930,18 +1002,21 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [
     selectedMode,
     hasSearched,
-    location,
-    selectedMainType,
+    selectedLocations,
+    selectedMainTypes,
     selectedCategories,
     selectedSeasideOptions,
     selectedComfortOptions,
-    checkIn,
-    checkOut,
+    selectedStayRanges,
   ]);
 
   const dateRangeText = () => {
-    if (checkIn && checkOut) {
-      return `${format(checkIn, "d MMM", { locale: fr })} - ${format(checkOut, "d MMM yyyy", { locale: fr })}`;
+    if (selectedStayRanges.length > 1) {
+      return `${selectedStayRanges.length} periodes`;
+    }
+    if (selectedStayRanges.length === 1) {
+      const [range] = selectedStayRanges;
+      return `${format(parseISO(range.start), "d MMM", { locale: fr })} - ${format(parseISO(range.end), "d MMM yyyy", { locale: fr })}`;
     }
     if (checkIn) {
       return `Du ${format(checkIn, "d MMM", { locale: fr })}...`;
@@ -967,21 +1042,32 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const params = applyAmicaleParam(new URLSearchParams(searchParams));
     const logementsMode = selectedMode === "location_annuelle" ? "location_annuelle" : "location_saisonniere";
     params.set("mode", logementsMode);
-    if (location) params.set("location", location);
-    if (selectedMainType) params.set("mainType", selectedMainType);
+    params.delete("location");
+    params.delete("locations");
+    params.delete("mainType");
+    params.delete("mainTypes");
+    params.delete("checkIn");
+    params.delete("checkOut");
+    params.delete("stayRanges");
+    if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
+    if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
-    if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
-    if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
+    if (selectedStayRanges.length > 0) {
+      params.set("stayRanges", serializeStayRangesParam(selectedStayRanges));
+      params.set("checkIn", selectedStayRanges[0].start);
+      params.set("checkOut", selectedStayRanges[0].end);
+    }
     navigate(`/logements?${params.toString()}`);
   };
   const selectedLocationWidgetImage =
-    (locationZone && selectedLocationImages.zone)
-    || (locationRegion && selectedLocationImages.region)
-    || (locationGouvernerat && selectedLocationImages.gouvernerat)
-    || (locationPays && selectedLocationImages.pays)
+    selectedLocationImages.zone
+    || selectedLocationImages.region
+    || selectedLocationImages.gouvernerat
+    || selectedLocationImages.pays
     || null;
+  const selectedLocationSummary = selectedLocations.length > 0 ? selectedLocations.join(", ") : "Tous les emplacements";
 
   useEffect(() => {
     if (!showLocationDropdown && !showCalendar && !showCategoryDropdown && !showSeasideDropdown && !showComfortDropdown) return;
@@ -1103,7 +1189,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     {selectedLocationWidgetImage && (
                       <img
                         src={resolveZoneImageUrl(selectedLocationWidgetImage)}
-                        alt={locationRegion || locationZone || location || "Region selectionnee"}
+                        alt={selectedLocationSummary}
                         className="pointer-events-none absolute inset-0 h-full w-full object-cover"
                       />
                     )}
@@ -1112,7 +1198,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <div className="relative z-10 flex-1 min-w-0">
                       <p className={`text-xs font-medium ${selectedLocationWidgetImage ? "text-white/90" : "text-gray-500"}`}>Où cherchez-vous ?</p>
                       <p className={`truncate text-sm font-semibold ${selectedLocationWidgetImage ? "text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]" : "text-gray-800"}`}>
-                        {location || "Tous les emplacements"}
+                        {selectedLocationSummary}
                       </p>
                     </div>
                   </button>
@@ -1250,7 +1336,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <button
-                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
+                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
                             onClick={() => { resetLocationFilters(); setShowLocationDropdown(false); }}
                           >
                             Tous les emplacements
@@ -1593,28 +1679,34 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               </div>
 
               {/* Selected Filters Display - moved under controls */}
-              {(location || selectedMainType || selectedCategories.length > 0 || selectedSeasideOptions.length > 0 || selectedComfortOptions.length > 0 || (checkIn && checkOut)) && (
+              {(selectedLocations.length > 0 || selectedMainTypes.length > 0 || selectedCategories.length > 0 || selectedSeasideOptions.length > 0 || selectedComfortOptions.length > 0 || selectedStayRanges.length > 0) && (
                 <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 border border-emerald-100">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold text-emerald-700 uppercase">Filtres actifs:</span>
-                    {location && (
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                    {selectedLocations.map((item) => (
+                      <span key={`chip-location-${item}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <MapPin size={12} />
-                        {location}
-                        <button onClick={() => setLocation("")} className="ml-1 hover:text-emerald-200">
+                        {item}
+                        <button onClick={() => setSelectedLocations((prev) => prev.filter((value) => value !== item))} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
-                    )}
-                    {selectedMainType && (
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                    ))}
+                    {selectedMainTypes.map((item) => (
+                      <span key={`chip-main-type-${item}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
-                        {MAIN_TYPE_LABELS[selectedMainType]}
-                        <button onClick={() => { setSelectedMainType(""); setSelectedCategories([]); }} className="ml-1 hover:text-emerald-200">
+                        {MAIN_TYPE_LABELS[item]}
+                        <button onClick={() => {
+                          setSelectedMainTypes((prev) => prev.filter((value) => value !== item));
+                          if (selectedMainType === item) {
+                            setSelectedMainType("");
+                            setSelectedCategories([]);
+                          }
+                        }} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
-                    )}
+                    ))}
                     {selectedCategories.map(cat => (
                       <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
@@ -1642,15 +1734,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         </button>
                       </span>
                     ))}
-                    {checkIn && checkOut && (
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                    {selectedStayRanges.map((range) => (
+                      <span key={`chip-stay-${range.start}-${range.end}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Calendar size={12} />
-                        {format(checkIn, "d MMM", { locale: fr })} - {format(checkOut, "d MMM", { locale: fr })}
-                        <button onClick={() => { setCheckIn(null); setCheckOut(null); }} className="ml-1 hover:text-emerald-200">
+                        {format(parseISO(range.start), "d MMM", { locale: fr })} - {format(parseISO(range.end), "d MMM", { locale: fr })}
+                        <button onClick={() => {
+                          setSelectedStayRanges((prev) => prev.filter((item) => item.start !== range.start || item.end !== range.end));
+                        }} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
-                    )}
+                    ))}
                   </div>
                 </div>
               )}
@@ -1713,7 +1807,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </div>
               </div>
               <button
-                className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${!location ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
                 onClick={() => { resetLocationFilters(); setShowLocationDropdown(false); }}
               >
                 Tous les emplacements
@@ -1948,13 +2042,24 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   searchParams={(() => {
                     const params = applyAmicaleParam(new URLSearchParams(searchParams));
                     params.set("mode", selectedMode);
-                    if (location) params.set("location", location);
-                    if (selectedMainType) params.set("mainType", selectedMainType);
+                    params.delete("location");
+                    params.delete("locations");
+                    params.delete("mainType");
+                    params.delete("mainTypes");
+                    params.delete("stayRanges");
+                    if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
+                    if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
                     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
                     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
                     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
-                    if (checkIn) params.set("checkIn", format(checkIn, 'yyyy-MM-dd'));
-                    if (checkOut) params.set("checkOut", format(checkOut, 'yyyy-MM-dd'));
+                    if (selectedStayRanges.length > 0) {
+                      params.set("stayRanges", serializeStayRangesParam(selectedStayRanges));
+                      params.set("checkIn", selectedStayRanges[0].start);
+                      params.set("checkOut", selectedStayRanges[0].end);
+                    } else {
+                      params.delete("checkIn");
+                      params.delete("checkOut");
+                    }
                     return params.toString();
                   })()}
                 />
@@ -2086,6 +2191,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     </div>
   );
 }
+
+
 
 
 

@@ -141,6 +141,37 @@ const propertyMatchesLocation = (
   return { exact: false, partial };
 };
 
+type StayRangeSelection = {
+  start: string;
+  end: string;
+};
+
+const parseCsvParam = (value: string | null) =>
+  String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const parseStayRangesParam = (value: string | null): StayRangeSelection[] => {
+  const parsed = String(value || "")
+    .split(";")
+    .map((item) => {
+      const [start, end] = String(item || "").split("_");
+      return {
+        start: String(start || "").trim(),
+        end: String(end || "").trim(),
+      };
+    })
+    .filter((item) => item.start || item.end);
+  return parsed;
+};
+
+const serializeStayRangesParam = (ranges: StayRangeSelection[]) =>
+  ranges
+    .map((range) => `${String(range.start || "").trim()}_${String(range.end || "").trim()}`)
+    .filter((item) => item !== "_")
+    .join(";");
+
 const cleanFeatureTabName = (value: string) =>
   String(value || "")
     .replace(/^\s*\d+\s*[\.\-:)]\s*/g, "")
@@ -443,14 +474,23 @@ export default function PropertiesPage() {
   };
 
   const [query, setQuery] = useState(searchParams.get("q") || "");
-  const [location, setLocation] = useState(searchParams.get("location") || "");
-  const [checkIn, setCheckIn] = useState(searchParams.get("checkIn") || "");
-  const [checkOut, setCheckOut] = useState(searchParams.get("checkOut") || "");
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(
+    parseCsvParam(searchParams.get("locations") || searchParams.get("location"))
+  );
+  const initialStayRanges = parseStayRangesParam(searchParams.get("stayRanges"));
+  const [stayRanges, setStayRanges] = useState<StayRangeSelection[]>(
+    initialStayRanges.length > 0
+      ? initialStayRanges
+      : [{
+          start: searchParams.get("checkIn") || "",
+          end: searchParams.get("checkOut") || "",
+        }]
+  );
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
     searchParams.get("categories")?.split(",").filter(Boolean) || []
   );
-  const [selectedMainType, setSelectedMainType] = useState<PropertyMainType | "">(
-    (String(searchParams.get("mainType") || "").trim() as PropertyMainType) || ""
+  const [selectedMainTypes, setSelectedMainTypes] = useState<PropertyMainType[]>(
+    parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[]
   );
   const [selectedFeatureNames, setSelectedFeatureNames] = useState<string[]>(
     () => searchParams.get("features")?.split(",").map((item) => item.trim()).filter(Boolean) || []
@@ -487,6 +527,9 @@ export default function PropertiesPage() {
   const [showAllResults, setShowAllResults] = useState(false);
   const [showAlternatives, setShowAlternatives] = useState(false);
   const isAnnualComingSoon = PUBLIC_COMING_SOON.locationAnnuelle && selectedMode === "location_annuelle";
+  const primaryStayRange = stayRanges[0] || { start: "", end: "" };
+  const checkIn = primaryStayRange.start;
+  const checkOut = primaryStayRange.end;
 
   useEffect(() => {
     if (loading) return;
@@ -502,9 +545,9 @@ export default function PropertiesPage() {
     setSearchParams(params, { replace: true });
   }, [loading, orderedModeTabs, searchParams, setSearchParams]);
   useEffect(() => {
-    const mainType = String(searchParams.get("mainType") || "").trim() as PropertyMainType;
-    if (!mainType) return;
-    setSelectedMainType(mainType);
+    const mainTypes = parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[];
+    if (mainTypes.length === 0) return;
+    setSelectedMainTypes(mainTypes);
   }, [searchParams]);
   useEffect(() => {
     let cancelled = false;
@@ -670,9 +713,9 @@ export default function PropertiesPage() {
     return next;
   }, [zones, uniqueLocations]);
   const selectedLocationImage = useMemo(() => {
-    if (!location) return null;
-    return locationImageMap.get(location) || null;
-  }, [location, locationImageMap]);
+    if (selectedLocations.length === 0) return null;
+    return locationImageMap.get(selectedLocations[0]) || null;
+  }, [selectedLocations, locationImageMap]);
   const availableTypeOptions = useMemo(() => {
     const byCategory = new Map<string, { label: string; imageUrl: string }>();
     for (const property of modeProperties) {
@@ -749,10 +792,18 @@ export default function PropertiesPage() {
       .sort((a, b) => MAIN_TYPE_DISPLAY_ORDER.indexOf(a.mainType) - MAIN_TYPE_DISPLAY_ORDER.indexOf(b.mainType));
   }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
   const secondaryTypeOptions = useMemo(() => {
-    if (!selectedMainType) return availableTypeOptions;
-    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === selectedMainType);
-    return selectedGroup?.subTypes || [];
-  }, [availableTypeOptions, groupedTypeOptions, selectedMainType]);
+    if (selectedMainTypes.length === 0) return availableTypeOptions;
+    const merged = new Map<string, { label: string; imageUrl: string }>();
+    groupedTypeOptions
+      .filter((group) => selectedMainTypes.includes(group.mainType))
+      .forEach((group) => {
+        group.subTypes.forEach((subType) => {
+          const key = getCanonicalSubTypeKey(subType.label) || subType.label;
+          if (!merged.has(key)) merged.set(key, subType);
+        });
+      });
+    return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  }, [availableTypeOptions, groupedTypeOptions, selectedMainTypes]);
   const availableStandingOptions = useMemo(() => {
     const standingSet = new Set<string>();
     modeProperties.forEach((property) => {
@@ -973,10 +1024,10 @@ export default function PropertiesPage() {
 
   useEffect(() => {
     const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
-    setSelectedMainType((prev) => (prev && mainTypeAllowed.has(prev) ? prev : ""));
+    setSelectedMainTypes((prev) => prev.filter((item) => mainTypeAllowed.has(item)));
   }, [groupedTypeOptions]);
   useEffect(() => {
-    if (!selectedMainType) return;
+    if (selectedMainTypes.length === 0) return;
     const canonicalToLabel = new Map(
       secondaryTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
     );
@@ -989,7 +1040,7 @@ export default function PropertiesPage() {
         .filter(Boolean);
       return Array.from(new Set(remapped));
     });
-  }, [selectedMainType, secondaryTypeOptions]);
+  }, [selectedMainTypes, secondaryTypeOptions]);
   useEffect(() => {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
     setSelectedFeatureNames((prev) => prev.filter((item) => allowedFeatures.has(item)));
@@ -1018,9 +1069,12 @@ export default function PropertiesPage() {
       "mode",
       "q",
       "location",
+      "locations",
       "checkIn",
       "checkOut",
+      "stayRanges",
       "mainType",
+      "mainTypes",
       "categories",
       "features",
       "doubleRoomsMin",
@@ -1040,10 +1094,16 @@ export default function PropertiesPage() {
     ].forEach((key) => params.delete(key));
     params.set("mode", selectedMode);
     if (query.trim()) params.set("q", query.trim());
-    if (location) params.set("location", location);
-    if (selectedMode === "location_saisonniere" && checkIn) params.set("checkIn", checkIn);
-    if (selectedMode === "location_saisonniere" && checkOut) params.set("checkOut", checkOut);
-    if (selectedMainType) params.set("mainType", selectedMainType);
+    if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
+    if (selectedMode === "location_saisonniere") {
+      const validRanges = stayRanges.filter((range) => range.start || range.end);
+      if (validRanges.length > 0) {
+        params.set("stayRanges", serializeStayRangesParam(validRanges));
+        if (validRanges[0]?.start) params.set("checkIn", validRanges[0].start);
+        if (validRanges[0]?.end) params.set("checkOut", validRanges[0].end);
+      }
+    }
+    if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
     if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
     if (selectedFeatureNames.length > 0) params.set("features", selectedFeatureNames.join(","));
     if (minDoubleRooms > 0) params.set("doubleRoomsMin", String(minDoubleRooms));
@@ -1064,10 +1124,9 @@ export default function PropertiesPage() {
   }, [
     selectedMode,
     query,
-    location,
-    checkIn,
-    checkOut,
-    selectedMainType,
+    selectedLocations,
+    stayRanges,
+    selectedMainTypes,
     selectedCategories,
     selectedFeatureNames,
     minDoubleRooms,
@@ -1091,6 +1150,24 @@ export default function PropertiesPage() {
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) => (prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]));
   };
+  const toggleLocation = (loc: string) => {
+    setSelectedLocations((prev) => (prev.includes(loc) ? prev.filter((item) => item !== loc) : [...prev, loc]));
+  };
+  const toggleMainType = (mainType: PropertyMainType) => {
+    setSelectedMainTypes((prev) => (prev.includes(mainType) ? prev.filter((item) => item !== mainType) : [...prev, mainType]));
+  };
+  const updateStayRange = (index: number, key: "start" | "end", value: string) => {
+    setStayRanges((prev) => prev.map((range, rangeIndex) => (rangeIndex === index ? { ...range, [key]: value } : range)));
+  };
+  const addStayRange = () => {
+    setStayRanges((prev) => [...prev, { start: "", end: "" }]);
+  };
+  const removeStayRange = (index: number) => {
+    setStayRanges((prev) => {
+      if (prev.length <= 1) return [{ start: "", end: "" }];
+      return prev.filter((_, rangeIndex) => rangeIndex !== index);
+    });
+  };
 
   const toggleFeatureName = (name: string) => {
     setSelectedFeatureNames((prev) => (prev.includes(name) ? prev.filter((item) => item !== name) : [...prev, name]));
@@ -1102,7 +1179,7 @@ export default function PropertiesPage() {
     setSelectedPaidServices((prev) => (prev.includes(label) ? prev.filter((item) => item !== label) : [...prev, label]));
   };
   const toggleSeasideOption = (key: HomeSeasideOptionKey) => {
-    setSelectedSeasideOptions((prev) => (prev.includes(key) ? [] : [key]));
+    setSelectedSeasideOptions((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
   };
   const toggleComfortOption = (key: HomeComfortOptionKey) => {
     setSelectedComfortOptions((prev) => {
@@ -1116,11 +1193,10 @@ export default function PropertiesPage() {
 
   const clearFilters = () => {
     setQuery("");
-    setLocation("");
-    setCheckIn("");
-    setCheckOut("");
+    setSelectedLocations([]);
+    setStayRanges([{ start: "", end: "" }]);
     setSelectedCategories([]);
-    setSelectedMainType("");
+    setSelectedMainTypes([]);
     setSelectedFeatureNames([]);
     setMinDoubleRooms(0);
     setMinParentRooms(0);
@@ -1144,9 +1220,12 @@ export default function PropertiesPage() {
     [
       "q",
       "location",
+      "locations",
       "checkIn",
       "checkOut",
+      "stayRanges",
       "mainType",
+      "mainTypes",
       "categories",
       "features",
       "doubleRoomsMin",
@@ -1169,12 +1248,14 @@ export default function PropertiesPage() {
   };
 
   const scoringBuckets = useMemo(() => {
-    const hasDateFilter = selectedMode === "location_saisonniere" && isValidStayRange(checkIn, checkOut);
+    const validStayRanges = selectedMode === "location_saisonniere"
+      ? stayRanges.filter((range) => isValidStayRange(range.start, range.end))
+      : [];
+    const hasDateFilter = validStayRanges.length > 0;
     const hasCoreFilters =
       Boolean(query.trim()) ||
-      Boolean(location) ||
-      Boolean(checkIn) ||
-      Boolean(checkOut) ||
+      selectedLocations.length > 0 ||
+      validStayRanges.length > 0 ||
       selectedCategories.length > 0 ||
       selectedSeasideOptions.length > 0 ||
       selectedComfortOptions.length > 0 ||
@@ -1383,20 +1464,20 @@ export default function PropertiesPage() {
           if (inText) score += 10;
         }
 
-        if (location) {
+        if (selectedLocations.length > 0) {
           maxScore += 18;
-          const locationMatch = propertyMatchesLocation(property, location);
-          if (locationMatch.exact) score += 18;
-          else if (locationMatch.partial) score += 8;
+          const locationMatches = selectedLocations.map((item) => propertyMatchesLocation(property, item));
+          if (locationMatches.some((item) => item.exact)) score += 18;
+          else if (locationMatches.some((item) => item.partial)) score += 8;
           else missing.push("Emplacement partiellement different");
         }
 
         const resolvedCategoryLabel = getResolvedPropertyCategoryLabel(property);
         const propertyMainType = getMainTypeFromCategory(resolvedCategoryLabel || property.category || "");
         const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategoryLabel || property.category || "");
-        if (selectedMainType) {
+        if (selectedMainTypes.length > 0) {
           maxScore += 16;
-          if (propertyMainType === selectedMainType) score += 16;
+          if (selectedMainTypes.includes(propertyMainType)) score += 16;
           else missing.push("Type principal different");
         }
         if (selectedSubTypeKeys.length > 0) {
@@ -1405,14 +1486,14 @@ export default function PropertiesPage() {
           else missing.push("Sous-type different");
         }
 
-        const matchSeaside = selectedSeasideOptions.every((option) => propertyMatchesSeasideOption(property, option));
+        const matchSeaside = selectedSeasideOptions.some((option) => propertyMatchesSeasideOption(property, option));
         if (selectedSeasideOptions.length > 0) {
           maxScore += 10;
           if (matchSeaside) score += 10;
           else missing.push("Critere bord de mer incomplet");
         }
 
-        const matchComfort = selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
+        const matchComfort = selectedComfortOptions.some((option) => propertyMatchesComfortOption(property, option));
         if (selectedComfortOptions.length > 0) {
           maxScore += 10;
           if (matchComfort) score += 10;
@@ -1517,20 +1598,29 @@ export default function PropertiesPage() {
 
           if (hasDateFilter) {
             maxScore += 20;
-            const stayValidation = evaluatePropertyStayBookability(property, checkIn, checkOut);
-            exactDateAvailable = stayValidation.ok;
+            const exactRange = validStayRanges.find((range) => evaluatePropertyStayBookability(property, range.start, range.end).ok);
+            exactDateAvailable = Boolean(exactRange);
             if (exactDateAvailable) {
               score += 20;
             } else {
-              stayDateAlternative = findBestStayRangeAlternative({
-                startRaw: checkIn,
-                endRaw: checkOut,
-                isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd).ok,
-                maxShiftDays: 7,
-                maxNightDelta: 7,
-              });
+              let failureReason = "Dates non disponibles";
+              const alternatives = validStayRanges
+                .map((range) => {
+                  const stayValidation = evaluatePropertyStayBookability(property, range.start, range.end);
+                  if (stayValidation.reason) failureReason = stayValidation.reason;
+                  const alternative = findBestStayRangeAlternative({
+                    startRaw: range.start,
+                    endRaw: range.end,
+                    isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd).ok,
+                    maxShiftDays: 7,
+                    maxNightDelta: 7,
+                  });
+                  return alternative;
+                })
+                .filter(Boolean) as NonNullable<typeof stayDateAlternative>[];
+              stayDateAlternative = alternatives[0] || null;
               if (!stayDateAlternative) {
-                missing.push(stayValidation.reason || "Dates non disponibles");
+                missing.push(failureReason || "Dates non disponibles");
               } else {
                 const altLabel = getStayAvailabilityAlternativeLabel(stayDateAlternative);
                 hints.push(
@@ -1552,7 +1642,7 @@ export default function PropertiesPage() {
         );
         const matchedTabsCount = Array.from(selectedTabsFromFeatures).filter((tab) => propertyFeatureTabs.includes(tab)).length;
         const normalizedScore = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 100;
-        const strictMainTypeMatch = !selectedMainType || propertyMainType === selectedMainType;
+        const strictMainTypeMatch = selectedMainTypes.length === 0 || selectedMainTypes.includes(propertyMainType);
         const strictSubTypeMatch = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
         return {
           property,
@@ -1610,7 +1700,7 @@ export default function PropertiesPage() {
       properties,
       selectedMode,
       query,
-      location,
+      selectedLocations,
       selectedCategories,
       selectedFeatureNames,
       minDoubleRooms,
@@ -1629,18 +1719,17 @@ export default function PropertiesPage() {
       isFeaturedOnly,
       selectedStanding,
       minGuests,
-      checkIn,
-      checkOut,
+      stayRanges,
       smartTolerance,
       priceCeiling,
-      selectedMainType,
+      selectedMainTypes,
     ]);
 
   const activeFiltersCount =
     Number(Boolean(query.trim())) +
-    Number(Boolean(location)) +
-    Number(Boolean(checkIn)) +
-    Number(Boolean(checkOut)) +
+    selectedLocations.length +
+    stayRanges.filter((range) => range.start || range.end).length +
+    selectedMainTypes.length +
     selectedCategories.length +
     selectedFeatureNames.length +
     Number(minDoubleRooms > 0) +
@@ -1699,7 +1788,7 @@ export default function PropertiesPage() {
     const list = [...scoringBuckets.alternatives];
     return list.sort((a, b) => b.score - a.score);
   }, [scoringBuckets.alternatives]);
-  const hasStrictStaySearch = selectedMode === "location_saisonniere" && isValidStayRange(checkIn, checkOut);
+  const hasStrictStaySearch = selectedMode === "location_saisonniere" && stayRanges.some((range) => isValidStayRange(range.start, range.end));
   const visibleSortedScoredResults = useMemo(
     () => (showAllResults ? sortedScoredResults : sortedScoredResults.slice(0, visibleCount)),
     [showAllResults, sortedScoredResults, visibleCount]
@@ -1713,9 +1802,9 @@ export default function PropertiesPage() {
   }, [
     selectedMode,
     query,
-    location,
+    selectedLocations,
     selectedCategories,
-    selectedMainType,
+    selectedMainTypes,
     selectedFeatureNames,
     minDoubleRooms,
     minParentRooms,
@@ -1728,8 +1817,7 @@ export default function PropertiesPage() {
     selectedStanding,
     minGuests,
     isFeaturedOnly,
-    checkIn,
-    checkOut,
+    stayRanges,
     priceMax,
     smartTolerance,
     sortMode,
@@ -1927,21 +2015,24 @@ export default function PropertiesPage() {
                     {selectedLocationImage && (
                       <img
                         src={resolveZoneImageUrl(selectedLocationImage)}
-                        alt={location || "Emplacement"}
+                        alt={selectedLocations[0] || "Emplacement"}
                         className="pointer-events-none absolute inset-0 h-full w-full object-cover"
                       />
                     )}
                     {selectedLocationImage && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
                     <select
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
+                      value=""
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value) toggleLocation(value);
+                      }}
                       className={`relative z-10 w-full rounded-xl border p-2.5 text-sm outline-none ${
                         selectedLocationImage
                           ? "border-white/70 bg-transparent font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]"
                           : "border-gray-200 bg-white text-gray-700 focus:border-emerald-500"
                       }`}
                     >
-                      <option value="">Tous les emplacements</option>
+                      <option value="">Ajouter un emplacement</option>
                       {uniqueLocations.map((loc) => (
                         <option key={loc} value={loc}>
                           {loc}
@@ -1953,8 +2044,8 @@ export default function PropertiesPage() {
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => setLocation("")}
-                        className={`relative h-16 overflow-hidden rounded-xl border px-3 text-left ${!location ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                        onClick={() => setSelectedLocations([])}
+                        className={`relative h-16 overflow-hidden rounded-xl border px-3 text-left ${selectedLocations.length === 0 ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                       >
                         <img src={resolveZoneImageUrl(null)} alt="Tous les emplacements" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/30" />
@@ -1964,8 +2055,8 @@ export default function PropertiesPage() {
                         <button
                           key={`location-card-${loc}`}
                           type="button"
-                          onClick={() => setLocation(loc)}
-                          className={`relative h-16 overflow-hidden rounded-xl border px-3 text-left ${location === loc ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                          onClick={() => toggleLocation(loc)}
+                          className={`relative h-16 overflow-hidden rounded-xl border px-3 text-left ${selectedLocations.includes(loc) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                         >
                           <img src={resolveZoneImageUrl(locationImageMap.get(loc) || null)} alt={loc} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                           <div className="pointer-events-none absolute inset-0 bg-black/35" />
@@ -1978,22 +2069,46 @@ export default function PropertiesPage() {
                   {selectedMode === "location_saisonniere" && (
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="mb-1 block text-xs font-bold text-gray-700">Arrivee</label>
-                        <input
-                          type="date"
-                          value={checkIn}
-                          onChange={(e) => setCheckIn(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm outline-none focus:border-emerald-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-bold text-gray-700">Depart</label>
-                        <input
-                          type="date"
-                          value={checkOut}
-                          onChange={(e) => setCheckOut(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm outline-none focus:border-emerald-500"
-                        />
+                        <div className="col-span-2 space-y-2">
+                          {stayRanges.map((range, index) => (
+                            <div key={`stay-range-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                              <div>
+                                <label className="mb-1 block text-xs font-bold text-gray-700">Arrivee {index + 1}</label>
+                                <input
+                                  type="date"
+                                  value={range.start}
+                                  onChange={(e) => updateStayRange(index, "start", e.target.value)}
+                                  className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm outline-none focus:border-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-bold text-gray-700">Depart {index + 1}</label>
+                                <input
+                                  type="date"
+                                  value={range.end}
+                                  onChange={(e) => updateStayRange(index, "end", e.target.value)}
+                                  className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm outline-none focus:border-emerald-500"
+                                />
+                              </div>
+                              <div className="flex items-end">
+                                <button
+                                  type="button"
+                                  onClick={() => removeStayRange(index)}
+                                  className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                                >
+                                  Suppr.
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addStayRange}
+                            className="rounded-lg border border-dashed border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                          >
+                            Ajouter une periode
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2005,11 +2120,10 @@ export default function PropertiesPage() {
                         key={`main-type-${group.mainType}`}
                         type="button"
                         onClick={() => {
-                          setSelectedMainType(group.mainType);
-                          setSelectedCategories([]);
+                          toggleMainType(group.mainType);
                         }}
                         className={`relative h-24 overflow-hidden rounded-xl border text-left ${
-                          selectedMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"
+                          selectedMainTypes.includes(group.mainType) ? "ring-2 ring-emerald-400" : "border-gray-200"
                         }`}
                       >
                         <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -2487,6 +2601,12 @@ export default function PropertiesPage() {
                           const params = new URLSearchParams(searchParams);
                           if (row.stayDateAlternative?.start) params.set("checkIn", row.stayDateAlternative.start);
                           if (row.stayDateAlternative?.end) params.set("checkOut", row.stayDateAlternative.end);
+                          if (row.stayDateAlternative?.start || row.stayDateAlternative?.end) {
+                            params.set("stayRanges", serializeStayRangesParam([{
+                              start: row.stayDateAlternative?.start || "",
+                              end: row.stayDateAlternative?.end || "",
+                            }]));
+                          }
                           return params.toString();
                         })()}
                       />
