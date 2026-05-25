@@ -276,6 +276,9 @@ const serializeStayRangesParam = (ranges: StayRangeSelection[]) =>
     .map((item) => `${item.start}_${item.end}`)
     .join(";");
 
+const toggleStringInList = (items: string[], value: string) =>
+  items.includes(value) ? items.filter((item) => item !== value) : [...items, value];
+
 type HomePageProps = {
   forcedAmicaleId?: string | null;
 };
@@ -327,8 +330,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [showSeasideDropdown, setShowSeasideDropdown] = useState(false);
   const [showComfortDropdown, setShowComfortDropdown] = useState(false);
   const [typeSelectionStep, setTypeSelectionStep] = useState<"main" | "sub">("main");
+  const [draftSelectedLocations, setDraftSelectedLocations] = useState<string[]>([]);
+  const [draftSelectedStayRanges, setDraftSelectedStayRanges] = useState<StayRangeSelection[]>([]);
   const [draftMainType, setDraftMainType] = useState<PropertyMainType | "">("");
+  const [draftSelectedMainTypes, setDraftSelectedMainTypes] = useState<PropertyMainType[]>([]);
   const [draftCategories, setDraftCategories] = useState<string[]>([]);
+  const [draftSeasideOptions, setDraftSeasideOptions] = useState<HomeSeasideOptionKey[]>([]);
+  const [draftComfortOptions, setDraftComfortOptions] = useState<HomeComfortOptionKey[]>([]);
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [hasSearched, setHasSearched] = useState(false);
@@ -461,20 +469,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const resetLocationFilters = () => {
     setLocation("");
     setSelectedLocations([]);
+    setDraftSelectedLocations([]);
     setLocationPays("");
     setLocationGouvernerat("");
     setLocationRegion("");
     setLocationZone("");
   };
+  const openLocationSelector = () => {
+    setDraftSelectedLocations(selectedLocations);
+    setShowLocationDropdown(true);
+  };
+  const toggleDraftLocationSelection = (value: string) => {
+    const nextValue = String(value || "").trim();
+    if (!nextValue) return;
+    setDraftSelectedLocations((prev) => toggleStringInList(prev, nextValue));
+  };
   const confirmLocationSelection = () => {
-    const selectedValue =
-      String(locationZone || '').trim()
-      || String(locationRegion || '').trim()
-      || String(locationGouvernerat || '').trim()
-      || String(locationPays || '').trim();
-    if (selectedValue) {
-      setSelectedLocations((prev) => (prev.includes(selectedValue) ? prev : [...prev, selectedValue]));
-    }
+    setSelectedLocations(draftSelectedLocations);
     setShowCalendar(true);
     setShowCategoryDropdown(false);
     setShowLocationDropdown(false);
@@ -500,16 +511,34 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const selectedComfortImage = selectedComfortOptions.length > 0
     ? getHomeFilterOptionImage("comfort", selectedComfortOptions[0])
     : null;
+  const openCalendarSelector = () => {
+    setDraftSelectedStayRanges(selectedStayRanges);
+    setShowCalendar(true);
+  };
+  const addDraftStayRange = () => {
+    if (!checkIn || !checkOut) return;
+    const range = {
+      start: format(checkIn, 'yyyy-MM-dd'),
+      end: format(checkOut, 'yyyy-MM-dd'),
+    };
+    setDraftSelectedStayRanges((prev) =>
+      prev.some((item) => item.start === range.start && item.end === range.end) ? prev : [...prev, range]
+    );
+    setCheckIn(null);
+    setCheckOut(null);
+  };
   const confirmCalendarSelection = () => {
+    const nextRanges = [...draftSelectedStayRanges];
     if (checkIn && checkOut) {
       const range = {
         start: format(checkIn, 'yyyy-MM-dd'),
         end: format(checkOut, 'yyyy-MM-dd'),
       };
-      setSelectedStayRanges((prev) =>
-        prev.some((item) => item.start === range.start && item.end === range.end) ? prev : [...prev, range]
-      );
+      if (!nextRanges.some((item) => item.start === range.start && item.end === range.end)) {
+        nextRanges.push(range);
+      }
     }
+    setSelectedStayRanges(nextRanges);
     setShowLocationDropdown(false);
     setShowCalendar(false);
     openCategoryDropdown();
@@ -723,6 +752,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     }
     return null;
   }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainTypes, selectedMode, typeFilterImageRows]);
+  const removeCategoriesForMainType = (categories: string[], mainType: PropertyMainType) => {
+    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === mainType);
+    if (!selectedGroup) return categories;
+    const blockedSubTypes = new Set(selectedGroup.subTypes.map((item) => getCanonicalSubTypeKey(item.label)));
+    return categories.filter((item) => !blockedSubTypes.has(getCanonicalSubTypeKey(item)));
+  };
 
   useEffect(() => {
     if (!locationPays && cascadePaysOptions.some((item) => item.toLowerCase() === 'tunisie')) {
@@ -849,39 +884,72 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
   const openCategoryDropdown = () => {
     setDraftMainType(selectedMainType);
+    setDraftSelectedMainTypes(selectedMainTypes);
     setDraftCategories(selectedCategories);
     setTypeSelectionStep(selectedMainType ? "sub" : "main");
     setShowCategoryDropdown(true);
   };
   const chooseDraftMainType = (mainType: PropertyMainType) => {
     setDraftMainType(mainType);
-    setDraftCategories([]);
+    setTypeSelectionStep("sub");
+  };
+  const toggleDraftMainTypeSelection = (mainType: PropertyMainType) => {
+    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === mainType);
+    const nextSelectedMainTypes = draftSelectedMainTypes.includes(mainType)
+      ? draftSelectedMainTypes.filter((item) => item !== mainType)
+      : [...draftSelectedMainTypes, mainType];
+    setDraftSelectedMainTypes(nextSelectedMainTypes);
+    if (draftSelectedMainTypes.includes(mainType) && selectedGroup) {
+      const blockedSubTypes = new Set(selectedGroup.subTypes.map((item) => getCanonicalSubTypeKey(item.label)));
+      setDraftCategories((prev) => prev.filter((item) => !blockedSubTypes.has(getCanonicalSubTypeKey(item))));
+      if (draftMainType === mainType) {
+        setDraftMainType(nextSelectedMainTypes[0] || "");
+        setTypeSelectionStep(nextSelectedMainTypes.length > 0 ? "sub" : "main");
+      }
+      return;
+    }
+    setDraftMainType(mainType);
     setTypeSelectionStep("sub");
   };
   const toggleDraftCategory = (cat: string) => {
     setDraftCategories((prev) => (prev.includes(cat) ? prev.filter((item) => item !== cat) : [...prev, cat]));
   };
   const confirmTypeSelection = () => {
-    if (draftMainType) {
-      setSelectedMainTypes((prev) => (prev.includes(draftMainType) ? prev : [...prev, draftMainType]));
-    }
+    setSelectedMainTypes(draftSelectedMainTypes);
     setSelectedMainType(draftMainType);
     setSelectedCategories(draftCategories);
     setShowCategoryDropdown(false);
     setShowSeasideDropdown(true);
     setShowComfortDropdown(false);
   };
-  const toggleSeasideOption = (key: HomeSeasideOptionKey) => {
-    setSelectedSeasideOptions((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
+  const openSeasideSelector = () => {
+    setDraftSeasideOptions(selectedSeasideOptions);
+    setShowSeasideDropdown(true);
   };
-  const toggleComfortOption = (key: HomeComfortOptionKey) => {
-    setSelectedComfortOptions((prev) => {
+  const toggleDraftSeasideOption = (key: HomeSeasideOptionKey) => {
+    setDraftSeasideOptions((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
+  };
+  const confirmSeasideSelection = () => {
+    setSelectedSeasideOptions(draftSeasideOptions);
+    setShowSeasideDropdown(false);
+    setShowComfortDropdown(true);
+  };
+  const openComfortSelector = () => {
+    setDraftComfortOptions(selectedComfortOptions);
+    setShowComfortDropdown(true);
+  };
+  const toggleDraftComfortOption = (key: HomeComfortOptionKey) => {
+    setDraftComfortOptions((prev) => {
       if (POOL_OPTION_KEYS.includes(key)) {
         const withoutPool = prev.filter((item) => !POOL_OPTION_KEYS.includes(item));
         return prev.includes(key) ? withoutPool : [...withoutPool, key];
       }
       return prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
     });
+  };
+  const confirmComfortSelection = () => {
+    setSelectedComfortOptions(draftComfortOptions);
+    setShowComfortDropdown(false);
   };
 
   const handleDateClick = (date: Date) => {
@@ -1180,7 +1248,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         setOpenLocationLevel(null);
                         return;
                       }
-                      setShowLocationDropdown(!showLocationDropdown);
+                      if (showLocationDropdown) setShowLocationDropdown(false);
+                      else openLocationSelector();
                       setOpenLocationLevel(null);
                       setShowCategoryDropdown(false);
                       setShowCalendar(false);
@@ -1206,29 +1275,35 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   {showLocationDropdown && (
                     <div ref={locationDesktopPopupRef} className="absolute top-full left-0 mt-2 z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block md:w-[760px]">
                       <div className="p-4 space-y-4">
+                        {draftSelectedLocations.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {draftSelectedLocations.map((item) => (
+                              <span key={`draft-location-${item}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                                {item}
+                                <button type="button" onClick={() => toggleDraftLocationSelection(item)} className="text-emerald-700">
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <div className="grid grid-cols-4 gap-3">
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "pays"
-                                ? [{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationPays) || { label: "Tous pays", value: "" })]
-                              ).map((item) => {
-                                const selected = locationPays === item.value;
+                              {[{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = draftSelectedLocations.includes(item.value);
                                 return (
                                   <button
                                     key={`home-pays-card-${item.label}`}
                                     type="button"
                                     onClick={() => {
-                                      if (openLocationLevel !== "pays") {
-                                        setOpenLocationLevel("pays");
-                                        return;
-                                      }
                                       setLocationPays(item.value);
                                       setLocationGouvernerat("");
                                       setLocationRegion("");
                                       setLocationZone("");
-                                      setOpenLocationLevel(null);
+                                      setOpenLocationLevel("pays");
+                                      if (item.value) toggleDraftLocationSelection(item.value);
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
@@ -1243,24 +1318,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "gouvernerat"
-                                ? [{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationGouvernerat) || { label: "Tous gouvernorats", value: "" })]
-                              ).map((item) => {
-                                const selected = locationGouvernerat === item.value;
+                              {[{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = draftSelectedLocations.includes(item.value);
                                 return (
                                   <button
                                     key={`home-gouv-card-${item.label}`}
                                     type="button"
                                     onClick={() => {
-                                      if (openLocationLevel !== "gouvernerat") {
-                                        setOpenLocationLevel("gouvernerat");
-                                        return;
-                                      }
                                       setLocationGouvernerat(item.value);
                                       setLocationRegion("");
                                       setLocationZone("");
-                                      setOpenLocationLevel(null);
+                                      setOpenLocationLevel("gouvernerat");
+                                      if (item.value) toggleDraftLocationSelection(item.value);
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
@@ -1275,23 +1344,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "region"
-                                ? [{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationRegion) || { label: "Toutes regions", value: "" })]
-                              ).map((item) => {
-                                const selected = locationRegion === item.value;
+                              {[{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = draftSelectedLocations.includes(item.value);
                                 return (
                                   <button
                                     key={`home-region-card-${item.label}`}
                                     type="button"
                                     onClick={() => {
-                                      if (openLocationLevel !== "region") {
-                                        setOpenLocationLevel("region");
-                                        return;
-                                      }
                                       setLocationRegion(item.value);
                                       setLocationZone("");
-                                      setOpenLocationLevel(null);
+                                      setOpenLocationLevel("region");
+                                      if (item.value) toggleDraftLocationSelection(item.value);
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
@@ -1306,22 +1369,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           <div className="space-y-1.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
                             <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "zone"
-                                ? [{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationZone) || { label: "Toutes zones", value: "" })]
-                              ).map((item) => {
-                                const selected = locationZone === item.value;
+                              {[{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].map((item) => {
+                                const selected = draftSelectedLocations.includes(item.value);
                                 return (
                                   <button
                                     key={`home-zone-card-${item.label}`}
                                     type="button"
                                     onClick={() => {
-                                      if (openLocationLevel !== "zone") {
-                                        setOpenLocationLevel("zone");
-                                        return;
-                                      }
                                       setLocationZone(item.value);
-                                      setOpenLocationLevel(null);
+                                      setOpenLocationLevel("zone");
+                                      if (item.value) toggleDraftLocationSelection(item.value);
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
@@ -1336,8 +1393,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <button
-                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
-                            onClick={() => { resetLocationFilters(); setShowLocationDropdown(false); }}
+                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${draftSelectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
+                            onClick={() => { setDraftSelectedLocations([]); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); }}
                           >
                             Tous les emplacements
                           </button>
@@ -1366,7 +1423,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         setOpenLocationLevel(null);
                         return;
                       }
-                      setShowCalendar(!showCalendar);
+                      if (showCalendar) setShowCalendar(false);
+                      else openCalendarSelector();
                       setShowLocationDropdown(false);
                       setShowCategoryDropdown(false);
                     }}
@@ -1382,6 +1440,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
                   {showCalendar && (
                     <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 md:w-[400px] md:left-auto md:right-0 hidden md:block">
+                        {draftSelectedStayRanges.length > 0 && (
+                          <div className="mb-4 flex flex-wrap gap-2">
+                            {draftSelectedStayRanges.map((range) => (
+                              <span key={`draft-stay-${range.start}-${range.end}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                                {format(parseISO(range.start), "d MMM", { locale: fr })} - {format(parseISO(range.end), "d MMM", { locale: fr })}
+                                <button type="button" onClick={() => setDraftSelectedStayRanges((prev) => prev.filter((item) => item.start !== range.start || item.end !== range.end))}>
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between mb-4">
                           <button 
                             onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
@@ -1420,7 +1490,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           ))}
                         </div>
 
-                      <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                      <div className="mt-4 space-y-3 pt-4 border-t border-gray-100">
+                        <button
+                          type="button"
+                          onClick={addDraftStayRange}
+                          disabled={!checkIn || !checkOut}
+                          className="w-full rounded-xl border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Ajouter cette periode
+                        </button>
+                      <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2 text-xs">
                           <div className="flex items-center gap-1">
                             <div className="w-3 h-3 rounded-full bg-emerald-600"></div>
@@ -1433,6 +1512,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         >
                           Valider
                         </button>
+                      </div>
                       </div>
                     </div>
                   )}
@@ -1477,11 +1557,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
                       <div className="p-2">
                         <button
-                          className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && !draftMainType ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                          onClick={() => { setDraftMainType(""); setDraftCategories([]); setTypeSelectionStep("main"); }}
+                          className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && draftSelectedMainTypes.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                          onClick={() => { setDraftMainType(""); setDraftSelectedMainTypes([]); setDraftCategories([]); setTypeSelectionStep("main"); }}
                         >
                           Tous les types
                         </button>
+                        {draftSelectedMainTypes.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2 px-2">
+                            {draftSelectedMainTypes.map((item) => (
+                              <span key={`draft-main-${item}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                                {MAIN_TYPE_LABELS[item]}
+                                <button type="button" onClick={() => toggleDraftMainTypeSelection(item)}>
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <div className="relative mt-3 overflow-hidden min-h-[230px]">
                           <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</div>
                           <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
@@ -1490,8 +1582,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               <button
                                 key={`home-main-${group.mainType}`}
                                 type="button"
-                                onClick={() => chooseDraftMainType(group.mainType)}
-                                className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                onClick={() => toggleDraftMainTypeSelection(group.mainType)}
+                                className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftSelectedMainTypes.includes(group.mainType) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
                                 <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
@@ -1556,7 +1648,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         setOpenLocationLevel(null);
                         return;
                       }
-                      setShowSeasideDropdown(!showSeasideDropdown);
+                      if (showSeasideDropdown) setShowSeasideDropdown(false);
+                      else openSeasideSelector();
                       setShowLocationDropdown(false);
                       setShowCalendar(false);
                       setShowCategoryDropdown(false);
@@ -1577,12 +1670,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <div ref={seasideDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
                       {availableSeasideOptions.map((key) => {
                         const image = getHomeFilterOptionImage("seaside", key);
-                        const selected = selectedSeasideOptions.includes(key);
+                        const selected = draftSeasideOptions.includes(key);
                         return (
                           <button
                             key={`seaside-desktop-${key}`}
                             type="button"
-                            onClick={() => toggleSeasideOption(key)}
+                            onClick={() => toggleDraftSeasideOption(key)}
                             className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : "hover:bg-gray-50"}`}
                           >
                             <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={SEASIDE_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -1594,10 +1687,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       })}
                       <button
                         type="button"
-                        onClick={() => {
-                          setShowSeasideDropdown(false);
-                          setShowComfortDropdown(true);
-                        }}
+                        onClick={confirmSeasideSelection}
                         className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
                       >
                         Confirmer bord de mer
@@ -1616,7 +1706,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         setOpenLocationLevel(null);
                         return;
                       }
-                      setShowComfortDropdown(!showComfortDropdown);
+                      if (showComfortDropdown) setShowComfortDropdown(false);
+                      else openComfortSelector();
                       setShowLocationDropdown(false);
                       setShowCalendar(false);
                       setShowCategoryDropdown(false);
@@ -1637,12 +1728,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <div ref={comfortDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
                       {availableComfortOptions.map((key) => {
                         const image = getHomeFilterOptionImage("comfort", key);
-                        const selected = selectedComfortOptions.includes(key);
+                        const selected = draftComfortOptions.includes(key);
                         return (
                           <button
                             key={`comfort-desktop-${key}`}
                             type="button"
-                            onClick={() => toggleComfortOption(key)}
+                            onClick={() => toggleDraftComfortOption(key)}
                             className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : "hover:bg-gray-50"}`}
                           >
                             <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={COMFORT_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -1652,7 +1743,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           </button>
                         );
                       })}
-                      <button type="button" onClick={() => setShowComfortDropdown(false)} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
+                      <button type="button" onClick={confirmComfortSelection} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
                         Confirmer confort
                       </button>
                     </div>
@@ -1700,8 +1791,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           setSelectedMainTypes((prev) => prev.filter((value) => value !== item));
                           if (selectedMainType === item) {
                             setSelectedMainType("");
-                            setSelectedCategories([]);
                           }
+                          setSelectedCategories((prev) => removeCategoriesForMainType(prev, item));
                         }} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
@@ -1720,7 +1811,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       <span key={`chip-seaside-${key}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Waves size={12} />
                         {SEASIDE_OPTION_LABELS[key]}
-                        <button onClick={() => toggleSeasideOption(key)} className="ml-1 hover:text-emerald-200">
+                        <button onClick={() => setSelectedSeasideOptions((prev) => prev.filter((item) => item !== key))} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
@@ -1729,7 +1820,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       <span key={`chip-comfort-${key}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Wind size={12} />
                         {COMFORT_OPTION_LABELS[key]}
-                        <button onClick={() => toggleComfortOption(key)} className="ml-1 hover:text-emerald-200">
+                        <button onClick={() => setSelectedComfortOptions((prev) => prev.filter((item) => item !== key))} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
@@ -1756,12 +1847,24 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={locationMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-3 space-y-3">
+              {draftSelectedLocations.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {draftSelectedLocations.map((item) => (
+                    <span key={`mobile-draft-location-${item}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                      {item}
+                      <button type="button" onClick={() => toggleDraftLocationSelection(item)}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="space-y-3">
                 <div>
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {[{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].map((item) => (
-                      <button key={`mobile-pays-card-${item.label}`} type="button" onClick={() => { setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); }} className={`relative h-24 min-w-[140px] overflow-hidden rounded-xl border ${locationPays === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-pays-card-${item.label}`} type="button" onClick={() => { setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); if (item.value) toggleDraftLocationSelection(item.value); }} className={`relative h-24 min-w-[140px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("pays", item.value || cascadePaysOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -1773,7 +1876,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {[{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].map((item) => (
-                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${locationGouvernerat === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); if (item.value) toggleDraftLocationSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -1785,7 +1888,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {[{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].map((item) => (
-                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { setLocationRegion(item.value); setLocationZone(""); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${locationRegion === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { setLocationRegion(item.value); setLocationZone(""); if (item.value) toggleDraftLocationSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -1797,7 +1900,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {[{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].map((item) => (
-                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => setLocationZone(item.value)} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${locationZone === item.value ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => { setLocationZone(item.value); if (item.value) toggleDraftLocationSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -1807,8 +1910,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </div>
               </div>
               <button
-                className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${selectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => { resetLocationFilters(); setShowLocationDropdown(false); }}
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${draftSelectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setDraftSelectedLocations([]); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); }}
               >
                 Tous les emplacements
               </button>
@@ -1827,6 +1930,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={calendarMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-4">
+              {draftSelectedStayRanges.length > 0 && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {draftSelectedStayRanges.map((range) => (
+                    <span key={`mobile-draft-stay-${range.start}-${range.end}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                      {format(parseISO(range.start), "d MMM", { locale: fr })} - {format(parseISO(range.end), "d MMM", { locale: fr })}
+                      <button type="button" onClick={() => setDraftSelectedStayRanges((prev) => prev.filter((item) => item.start !== range.start || item.end !== range.end))}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center justify-between mb-4">
                 <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
                   <ChevronLeft size={20} />
@@ -1848,7 +1963,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   </button>
                 ))}
               </div>
-              <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+              <div className="mt-4 space-y-3 pt-4 border-t border-gray-100">
+                <button type="button" onClick={addDraftStayRange} disabled={!checkIn || !checkOut} className="w-full rounded-xl border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  Ajouter cette periode
+                </button>
+              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2 text-xs">
                   <div className="w-3 h-3 rounded-full bg-emerald-600" />
                   <span className="text-gray-600">Selectionne</span>
@@ -1856,6 +1975,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 <button onClick={confirmCalendarSelection} className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
                   Valider
                 </button>
+              </div>
               </div>
             </div>
           </div>
@@ -1866,11 +1986,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={categoryMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
               <button
-                className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && !draftMainType ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => { setDraftMainType(""); setDraftCategories([]); setTypeSelectionStep("main"); }}
+                className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && draftSelectedMainTypes.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setDraftMainType(""); setDraftSelectedMainTypes([]); setDraftCategories([]); setTypeSelectionStep("main"); }}
               >
                 Tous les types
               </button>
+              {draftSelectedMainTypes.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2 px-2">
+                  {draftSelectedMainTypes.map((item) => (
+                    <span key={`mobile-draft-main-${item}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                      {MAIN_TYPE_LABELS[item]}
+                      <button type="button" onClick={() => toggleDraftMainTypeSelection(item)}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="relative mt-3 overflow-hidden min-h-[230px]">
                 <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</p>
                 <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 opacity-0 pointer-events-none absolute inset-0"}`}>
@@ -1879,8 +2011,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <button
                       key={`mobile-main-${group.mainType}`}
                       type="button"
-                      onClick={() => chooseDraftMainType(group.mainType)}
-                      className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftMainType === group.mainType ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      onClick={() => toggleDraftMainTypeSelection(group.mainType)}
+                      className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftSelectedMainTypes.includes(group.mainType) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
                       <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
@@ -1937,12 +2069,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             <div ref={seasideMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
               {availableSeasideOptions.map((key) => {
                 const image = getHomeFilterOptionImage("seaside", key);
-                const selected = selectedSeasideOptions.includes(key);
+                const selected = draftSeasideOptions.includes(key);
                 return (
                   <button
                     key={`seaside-mobile-${key}`}
                     type="button"
-                    onClick={() => toggleSeasideOption(key)}
+                    onClick={() => toggleDraftSeasideOption(key)}
                     className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : ""}`}
                   >
                     <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={SEASIDE_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -1954,10 +2086,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               })}
               <button
                 type="button"
-                onClick={() => {
-                  setShowSeasideDropdown(false);
-                  setShowComfortDropdown(true);
-                }}
+                onClick={confirmSeasideSelection}
                 className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
               >
                 Confirmer bord de mer
@@ -1971,12 +2100,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             <div ref={comfortMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
               {availableComfortOptions.map((key) => {
                 const image = getHomeFilterOptionImage("comfort", key);
-                const selected = selectedComfortOptions.includes(key);
+                const selected = draftComfortOptions.includes(key);
                 return (
                   <button
                     key={`comfort-mobile-${key}`}
                     type="button"
-                    onClick={() => toggleComfortOption(key)}
+                    onClick={() => toggleDraftComfortOption(key)}
                     className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : ""}`}
                   >
                     <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={COMFORT_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -1986,7 +2115,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   </button>
                 );
               })}
-              <button type="button" onClick={() => setShowComfortDropdown(false)} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
+              <button type="button" onClick={confirmComfortSelection} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
                 Confirmer confort
               </button>
             </div>
