@@ -17,6 +17,26 @@ export interface SeasonalPricingPeriod {
   amicale_id?: string | null;
 }
 
+export interface PropertyFilterProfile {
+  mode: 'vente' | 'location_annuelle' | 'location_saisonniere';
+  propertyType: string;
+  category: string;
+  locationLabel: string;
+  locationTokens: string[];
+  locationHierarchy: {
+    pays: string | null;
+    gouvernerat: string | null;
+    region: string | null;
+    quartier: string | null;
+  };
+  stayRules: {
+    unavailableDates: DateStatus[];
+    pricingPeriods: SeasonalPricingPeriod[];
+    minStayNights: number;
+    maxStayNights: number;
+  };
+}
+
 export interface Property {
   id: string;
   reference?: string;
@@ -43,6 +63,7 @@ export interface Property {
   pricingPeriods?: SeasonalPricingPeriod[];
   cleaningFee?: number;
   serviceFee?: number;
+  filterProfile?: PropertyFilterProfile;
   seasonalConfig?: {
     categorieStanding?: 'economique' | 'confort' | 'premium' | 'luxe' | null;
     etage?: 'rdc' | '1' | '2' | '3' | '4' | '5_plus' | null;

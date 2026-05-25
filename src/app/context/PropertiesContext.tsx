@@ -1,9 +1,10 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig, SeasonalPricingPeriod } from '../admin/types';
-import { Property } from '../data/properties';
+import { Property, PropertyFilterProfile } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
 import { extractGuestLimitsFromCharacteristicLines, resolveBienCapacity } from '../utils/bienCapacity';
 import { buildPropertyDetailsPath } from '../utils/propertyRouting';
+import { normalizeDateOnlyInput } from '../utils/availability';
 
 // API Base URL
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -152,8 +153,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
         pricingPeriodsFromDb = parsed
           .map((item: any) => ({
             id: item?.id ? String(item.id) : undefined,
-            start: String(item?.start || item?.start_date || '').slice(0, 10),
-            end: String(item?.end || item?.end_date || '').slice(0, 10),
+            start: normalizeDateOnlyInput(item?.start || item?.start_date),
+            end: normalizeDateOnlyInput(item?.end || item?.end_date),
             prix_nuitee: Number(item?.prix_nuitee || 0),
             prix_semaine: item?.prix_semaine === null || item?.prix_semaine === undefined ? null : Number(item.prix_semaine || 0),
             minimum_nuitees: item?.minimum_nuitees === null || item?.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(item.minimum_nuitees || 0))),
@@ -180,8 +181,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     pricingPeriodsFromDb = ((locationSaisonniereConfig as any).pricing_periods as any[])
       .map((item: any) => ({
         id: item?.id ? String(item.id) : undefined,
-        start: String(item?.start || item?.start_date || '').slice(0, 10),
-        end: String(item?.end || item?.end_date || '').slice(0, 10),
+        start: normalizeDateOnlyInput(item?.start || item?.start_date),
+        end: normalizeDateOnlyInput(item?.end || item?.end_date),
         prix_nuitee: Number(item?.prix_nuitee || 0),
         prix_semaine: item?.prix_semaine === null || item?.prix_semaine === undefined ? null : Number(item.prix_semaine || 0),
         minimum_nuitees: item?.minimum_nuitees === null || item?.minimum_nuitees === undefined ? null : Math.max(1, Math.floor(Number(item.minimum_nuitees || 0))),
@@ -418,8 +419,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
 
     unavailableDates: (Array.isArray(unavailableDates) ? unavailableDates : []).map(ud => ({
       id: ud.id ? String(ud.id) : undefined,
-      start: ud.start_date,
-      end: ud.end_date,
+      start: normalizeDateOnlyInput(ud.start || ud.start_date),
+      end: normalizeDateOnlyInput(ud.end || ud.end_date),
       status: ud.status,
       color: ud.color || (ud.status === 'booked' ? '#ef4444' : ud.status === 'pending' ? '#f97316' : '#111827'),
       paymentDeadline: ud.paymentDeadline || ud.payment_deadline || undefined,
@@ -437,7 +438,7 @@ function isValidSqlDate(value: string): boolean {
 }
 
 // Convert Bien (Admin format) to Property (Site format)
-function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Property {
+function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Property {
   const typeToCategory: Record<string, string> = {
     'S1': 'S+1',
     'S2': 'S+2',
@@ -528,6 +529,15 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
   const seasonalCleaningFee = Number(bien.location_saisonniere_config?.frais_menage ?? 0);
   const seasonalServiceFee = Number(bien.location_saisonniere_config?.frais_service ?? 0);
   const normalizedConfiguration = String(bien.configuration || '').trim();
+  const resolvedZone = zonesById[bien.zone_id || ''] || null;
+  const normalizedLocationLabel = String(
+    resolvedZone?.quartier
+    || resolvedZone?.nom
+    || resolvedZone?.region
+    || resolvedZone?.gouvernerat
+    || resolvedZone?.pays
+    || 'KÃ©libia'
+  );
   const categoryFromType = typeToCategory[bien.type] || 'S+1';
   const mainTypeLabel = typeToMainLabel[bien.type] || categoryFromType;
   const normalizeLabelToken = (value: string) => String(value || '').toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
@@ -545,6 +555,48 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     resolvedCategory = categoryFromType;
   }
 
+  const rawLocationValues = [
+    resolvedZone?.pays,
+    resolvedZone?.gouvernerat,
+    resolvedZone?.region,
+    resolvedZone?.quartier,
+    resolvedZone?.nom,
+    normalizedLocationLabel,
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  const locationTokens = Array.from(new Set(
+    rawLocationValues.flatMap((value) =>
+      value
+        .toLowerCase()
+        .split(/[^a-z0-9\u00c0-\u024f]+/i)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  ));
+  const propertyFilterProfile: PropertyFilterProfile = {
+    mode: bien.mode,
+    propertyType: String(bien.type || '').trim().toLowerCase(),
+    category: resolvedCategory,
+    locationLabel: normalizedLocationLabel,
+    locationTokens,
+    locationHierarchy: {
+      pays: resolvedZone?.pays ? String(resolvedZone.pays) : null,
+      gouvernerat: resolvedZone?.gouvernerat ? String(resolvedZone.gouvernerat) : null,
+      region: resolvedZone?.region ? String(resolvedZone.region) : null,
+      quartier: resolvedZone?.quartier ? String(resolvedZone.quartier) : null,
+    },
+    stayRules: {
+      unavailableDates: Array.isArray(bien.unavailableDates) ? bien.unavailableDates : [],
+      pricingPeriods: Array.isArray(bien.pricing_periods) ? bien.pricing_periods : [],
+      minStayNights: Math.max(1, Number(bien.location_saisonniere_config?.duree_min_sejour_nuits ?? 1)),
+      maxStayNights: Math.max(
+        Math.max(1, Number(bien.location_saisonniere_config?.duree_min_sejour_nuits ?? 1)),
+        Number(bien.location_saisonniere_config?.duree_max_sejour_nuits ?? 365)
+      ),
+    },
+  };
+
   return {
     id: bien.id,
     reference: bien.reference,
@@ -552,7 +604,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     slug: bien.titre.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     detailPath,
     mode: bien.mode,
-    location: zoneNames[bien.zone_id || ''] || 'KÃ©libia',
+    location: normalizedLocationLabel,
     pricePerNight: bien.prix_nuitee,
     pricePerWeek: bien.prix_semaine ?? null,
     priceContext: bien.mode === 'vente' ? 'sale' : 'night',
@@ -569,6 +621,7 @@ function bienToProperty(bien: Bien, zoneNames: Record<string, string> = {}): Pro
     isFeatured: bien.is_featured === true,
     unavailableDates: bien.unavailableDates || [],
     pricingPeriods: Array.isArray(bien.pricing_periods) ? bien.pricing_periods : [],
+    filterProfile: propertyFilterProfile,
     cleaningFee: isCleaningAvailable && seasonalCleaningFee > 0 ? seasonalCleaningFee : 0,
     serviceFee: isServiceAvailable && seasonalServiceFee > 0 ? seasonalServiceFee : 0,
     seasonalConfig: {
@@ -745,9 +798,9 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   const [properties, setProperties] = useState<Property[]>(() => {
     const cachedBiens = initialCache?.biens || [];
     const cachedZones = initialCache?.zones || [];
-    const zoneNameById: Record<string, string> = {};
-    for (const zone of cachedZones) zoneNameById[zone.id] = zone.nom;
-    return cachedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zoneNameById));
+    const zonesById: Record<string, Zone> = {};
+    for (const zone of cachedZones) zonesById[zone.id] = zone;
+    return cachedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zonesById));
   });
   const [zones, setZones] = useState<Zone[]>(initialCache?.zones || []);
   const [proprietaires, setProprietaires] = useState<Proprietaire[]>(initialCache?.proprietaires || []);
@@ -761,13 +814,13 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     propsData: Proprietaire[],
     modePrioritiesData: any
   ) => {
-    const zoneNameById: Record<string, string> = {};
+    const zonesById: Record<string, Zone> = {};
     for (const zone of Array.isArray(zonesData) ? zonesData : []) {
-      zoneNameById[zone.id] = zone.nom;
+      zonesById[zone.id] = zone;
     }
 
     setBiens(mappedBiens);
-    setProperties(mappedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zoneNameById)));
+    setProperties(mappedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zonesById)));
     setZones(Array.isArray(zonesData) ? zonesData : []);
     setProprietaires(Array.isArray(propsData) ? propsData : []);
     setModePriorities({
@@ -886,12 +939,12 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       }
       if (initialCache?.biens?.length) {
         setBiens(initialCache.biens);
-        const zoneNameById: Record<string, string> = {};
-        for (const zone of initialCache.zones || []) zoneNameById[zone.id] = zone.nom;
+        const zonesById: Record<string, Zone> = {};
+        for (const zone of initialCache.zones || []) zonesById[zone.id] = zone;
         setProperties(
           initialCache.biens
             .filter((bien) => bien.visible_sur_site !== false)
-            .map((bien) => bienToProperty(bien, zoneNameById))
+            .map((bien) => bienToProperty(bien, zonesById))
         );
         setZones(initialCache.zones || []);
         setProprietaires(initialCache.proprietaires || []);

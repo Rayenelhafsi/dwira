@@ -100,6 +100,7 @@ function seasonConfig({
     const ownerB = owners[Math.min(1, owners.length - 1)].id;
 
     await conn.query("DELETE FROM unavailable_dates WHERE bien_id LIKE 'test_cov_bien_%' OR bien_id LIKE 'test_stay_bien_%'");
+    await conn.query("DELETE FROM bien_pricing_periods WHERE bien_id LIKE 'test_cov_bien_%' OR bien_id LIKE 'test_stay_bien_%'");
     await conn.query("DELETE FROM biens WHERE id LIKE 'test_cov_bien_%' OR id LIKE 'test_stay_bien_%'");
     await conn.query("DELETE FROM zones WHERE id LIKE 'test_cov_zone_%'");
 
@@ -458,7 +459,83 @@ function seasonConfig({
         climatisation: true,
         terrasse: true,
       },
-    ];
+      {
+        id: 'test_stay_bien_master',
+        reference: 'TEST-STAY-900',
+        titre: 'Bien maitre tests sejour multi-regles',
+        description: 'Cas QA maitre: minimum de nuitees, check-in/check-out obligatoires, indisponibilites, alternatives -1 nuit, +1 nuit, +7 jours et absence d alternative.',
+        type: 'villa_maison',
+        configuration: 'S+3',
+        zone_id: 'z3',
+        proprietaire_id: ownerB,
+        prix_nuitee: 760,
+        prix_semaine: 4800,
+        avance: 30,
+        caution: 1400,
+        nb_chambres: 3,
+        nb_salle_bain: 2,
+        standing: 'premium',
+        etage: 'rdc',
+        vue: 'mer',
+        maxGuests: 8,
+        maxAdults: 5,
+        maxChildren: 4,
+        climatisation: true,
+        terrasse: true,
+        pricingPeriods: [
+          {
+            id: 'stay_master_p1',
+            start: '2026-07-05',
+            end: '2026-07-19',
+            prix_nuitee: 760,
+            prix_semaine: 4800,
+            minimum_nuitees: 1,
+            checkin_jour: 'dimanche',
+            checkout_jour: 'dimanche',
+          },
+          {
+            id: 'stay_master_p2',
+            start: '2026-07-19',
+            end: '2026-07-31',
+            prix_nuitee: 760,
+            prix_semaine: 4800,
+            minimum_nuitees: 6,
+            checkin_jour: null,
+            checkout_jour: null,
+          },
+          {
+            id: 'stay_master_p3',
+            start: '2026-07-31',
+            end: '2026-08-23',
+            prix_nuitee: 760,
+            prix_semaine: 4800,
+            minimum_nuitees: 1,
+            checkin_jour: null,
+            checkout_jour: null,
+          },
+          {
+            id: 'stay_master_p4',
+            start: '2026-08-23',
+            end: '2026-09-14',
+            prix_nuitee: 760,
+            prix_semaine: 4800,
+            minimum_nuitees: 7,
+            checkin_jour: 'dimanche',
+            checkout_jour: 'dimanche',
+          },
+          {
+            id: 'stay_master_p5',
+            start: '2026-09-14',
+            end: '2026-09-28',
+            prix_nuitee: 760,
+            prix_semaine: 4800,
+            minimum_nuitees: 6,
+            checkin_jour: null,
+            checkout_jour: null,
+          },
+        ],
+      },
+    ].filter((bien) => String(bien.reference || '').startsWith('TEST-STAY-'));
 
     for (const b of biens) {
       const cfg = seasonConfig({
@@ -516,6 +593,28 @@ function seasonConfig({
           b.configuration, null, JSON.stringify(cfg), b.climatisation ? 1 : 0, b.terrasse ? 1 : 0, b.vue === 'mer' ? 1 : 0, 1, 1,
         ]
       );
+
+      await conn.query('DELETE FROM bien_pricing_periods WHERE bien_id = ?', [b.id]);
+      for (const period of Array.isArray(b.pricingPeriods) ? b.pricingPeriods : []) {
+        await conn.query(
+          `INSERT INTO bien_pricing_periods (
+            id, bien_id, scope, amicale_id, start_date, end_date, prix_nuitee, prix_semaine, minimum_nuitees, checkin_jour, checkout_jour, created_at, updated_at
+          ) VALUES (?, ?, 'global', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            period.id || `${b.id}_${period.start}_${period.end}`,
+            b.id,
+            period.start,
+            period.end,
+            period.prix_nuitee,
+            period.prix_semaine ?? null,
+            period.minimum_nuitees ?? null,
+            period.checkin_jour ?? null,
+            period.checkout_jour ?? null,
+            createdAt,
+            createdAt,
+          ]
+        );
+      }
     }
 
     const unavailableDates = [
@@ -547,6 +646,27 @@ function seasonConfig({
         end_date: addDays(today, 35),
         status: 'blocked',
       },
+      {
+        id: unavailableDateId('test_stay_bien_master', 'blocked_week_minus7'),
+        bien_id: 'test_stay_bien_master',
+        start_date: '2026-07-19',
+        end_date: '2026-07-26',
+        status: 'blocked',
+      },
+      {
+        id: unavailableDateId('test_stay_bien_master', 'blocked_exact_week'),
+        bien_id: 'test_stay_bien_master',
+        start_date: '2026-07-26',
+        end_date: '2026-08-02',
+        status: 'pending',
+      },
+      {
+        id: unavailableDateId('test_stay_bien_master', 'booked_last_night_august'),
+        bien_id: 'test_stay_bien_master',
+        start_date: '2026-08-15',
+        end_date: '2026-08-16',
+        status: 'booked',
+      },
     ];
 
     for (const item of unavailableDates) {
@@ -571,6 +691,7 @@ function seasonConfig({
     console.log(`Indisponibilites upsert: ${unavailableDates.length}`);
     console.log(`Plage de test sejour UI: ${staySearchWindow.start} -> ${staySearchWindow.end}`);
     console.log('Attendus UI: TEST-STAY-001 disponible exact, TEST-STAY-002 alternative -1 nuit, TEST-STAY-003 alternative +7 j, TEST-STAY-004 aucune alternative.');
+    console.log('Bien maitre UI: TEST-STAY-900');
   } catch (error) {
     await conn.rollback();
     throw error;

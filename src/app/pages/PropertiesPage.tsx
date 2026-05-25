@@ -104,6 +104,43 @@ const normalizeFeatureName = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const getPropertyLocationValues = (property: any): string[] => {
+  const hierarchy = property?.filterProfile?.locationHierarchy;
+  return [
+    property?.filterProfile?.locationLabel,
+    hierarchy?.pays,
+    hierarchy?.gouvernerat,
+    hierarchy?.region,
+    hierarchy?.quartier,
+    property?.location,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+};
+
+const propertyMatchesLocation = (
+  property: any,
+  selectedLocation: string
+): { exact: boolean; partial: boolean } => {
+  const normalizedSelected = normalizeFeatureName(selectedLocation);
+  if (!normalizedSelected) return { exact: false, partial: false };
+
+  const normalizedValues = Array.from(
+    new Set(getPropertyLocationValues(property).map((value) => normalizeFeatureName(value)).filter(Boolean))
+  );
+  if (normalizedValues.includes(normalizedSelected)) {
+    return { exact: true, partial: true };
+  }
+
+  const selectedFirstToken = normalizedSelected.split(" ")[0] || "";
+  const partial = normalizedValues.some((value) =>
+    value.includes(normalizedSelected)
+    || normalizedSelected.includes(value)
+    || (selectedFirstToken ? value.includes(selectedFirstToken) : false)
+  );
+  return { exact: false, partial };
+};
+
 const cleanFeatureTabName = (value: string) =>
   String(value || "")
     .replace(/^\s*\d+\s*[\.\-:)]\s*/g, "")
@@ -317,14 +354,15 @@ const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw
     return { ok: false, reason: "Plage de sejour invalide." };
   }
 
+  const stayRules = property?.filterProfile?.stayRules || null;
   const seasonalConfig = property?.seasonalConfig || {};
-  const minStay = Math.max(1, Number(seasonalConfig?.dureeMinSejourNuits || 1));
-  const maxStay = Math.max(minStay, Number(seasonalConfig?.dureeMaxSejourNuits || 365));
+  const minStay = Math.max(1, Number(stayRules?.minStayNights || seasonalConfig?.dureeMinSejourNuits || 1));
+  const maxStay = Math.max(minStay, Number(stayRules?.maxStayNights || seasonalConfig?.dureeMaxSejourNuits || 365));
   const start = new Date(`${startRaw}T00:00:00`);
   const end = new Date(`${endRaw}T00:00:00`);
   const nights = Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
 
-  const stayAvailability = resolveStayAvailability(property?.unavailableDates || [], startRaw, endRaw);
+  const stayAvailability = resolveStayAvailability(stayRules?.unavailableDates || property?.unavailableDates || [], startRaw, endRaw);
   if (!stayAvailability.exactAvailable) {
     return { ok: false, reason: "Dates non disponibles." };
   }
@@ -332,7 +370,7 @@ const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw
   const requiredMinStay = getReservationMinStayRequirement({
     startDate: startRaw,
     endDate: endRaw,
-    periods: property?.pricingPeriods || [],
+    periods: stayRules?.pricingPeriods || property?.pricingPeriods || [],
     fallbackMinStay: minStay,
   });
   if (nights < requiredMinStay) {
@@ -345,7 +383,7 @@ const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw
   const weekdayRuleCheck = validateReservationWeekdayRule({
     startDate: startRaw,
     endDate: endRaw,
-    periods: property?.pricingPeriods || [],
+    periods: stayRules?.pricingPeriods || property?.pricingPeriods || [],
   });
   if (!weekdayRuleCheck.ok) {
     const detail = [
@@ -596,10 +634,17 @@ export default function PropertiesPage() {
     setPriceMax((prev) => Math.min(Math.max(prev, 0), priceCeiling));
   }, [priceCeiling]);
 
-  const uniqueLocations = useMemo(
-    () => Array.from(new Set(modeProperties.map((p) => p.location))).sort(),
-    [modeProperties]
-  );
+  const uniqueLocations = useMemo(() => {
+    const values = new Map<string, string>();
+    modeProperties.forEach((property) => {
+      getPropertyLocationValues(property).forEach((value) => {
+        const normalized = normalizeFeatureName(value);
+        if (!normalized || values.has(normalized)) return;
+        values.set(normalized, value);
+      });
+    });
+    return Array.from(values.values()).sort((a, b) => a.localeCompare(b, "fr"));
+  }, [modeProperties]);
   const locationImageMap = useMemo(() => {
     const next = new Map<string, string>();
     uniqueLocations.forEach((loc) => {
@@ -1340,9 +1385,9 @@ export default function PropertiesPage() {
 
         if (location) {
           maxScore += 18;
-          const exact = property.location.toLowerCase().includes(location.toLowerCase());
-          if (exact) score += 18;
-          else if (normalizeFeatureName(property.location).includes(normalizeFeatureName(location).split(" ")[0] || "")) score += 8;
+          const locationMatch = propertyMatchesLocation(property, location);
+          if (locationMatch.exact) score += 18;
+          else if (locationMatch.partial) score += 8;
           else missing.push("Emplacement partiellement different");
         }
 

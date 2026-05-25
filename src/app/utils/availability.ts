@@ -1,6 +1,8 @@
 export interface UnavailableDateRangeLike {
   start?: string | null;
   end?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   status?: string | null;
 }
 
@@ -24,9 +26,26 @@ function formatDateOnlyLocal(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export function parseDateOnly(value: string | null | undefined): Date | null {
-  const raw = String(value || "").trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+export function normalizeDateOnlyInput(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "" : formatDateOnlyLocal(value);
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return formatDateOnlyLocal(parsed);
+
+  const fallback = raw.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(fallback) ? fallback : "";
+}
+
+export function parseDateOnly(value: string | Date | null | undefined): Date | null {
+  const raw = normalizeDateOnlyInput(value);
+  if (!raw) return null;
   const date = new Date(`${raw}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -49,8 +68,8 @@ export function hasBlockingUnavailableDates(
   return (Array.isArray(ranges) ? ranges : []).some((range) => {
     const status = String(range?.status || "").trim().toLowerCase();
     if (!BLOCKING_STATUSES.has(status)) return false;
-    const rangeStart = parseDateOnly(range?.start);
-    const rangeEnd = parseDateOnly(range?.end);
+    const rangeStart = parseDateOnly(range?.start || range?.start_date);
+    const rangeEnd = parseDateOnly(range?.end || range?.end_date);
     if (!rangeStart || !rangeEnd) return false;
     return rangeStart < stayEnd && rangeEnd > stayStart;
   });
@@ -197,45 +216,38 @@ export function findBestStayRangeAlternative(params: {
   const { startRaw, endRaw, isRangeValid } = params;
   if (!isValidStayRange(startRaw, endRaw)) return null;
 
+  const requestedStart = normalizeDateOnlyInput(startRaw);
+  const requestedEnd = normalizeDateOnlyInput(endRaw);
   const maxShiftDays = Math.max(0, Number(params.maxShiftDays ?? 7));
   const maxNightDelta = Math.max(0, Number(params.maxNightDelta ?? 7));
-  const requestedNights = computeStayNights(startRaw, endRaw);
-  const requestedStart = String(startRaw).slice(0, 10);
-  const requestedEnd = String(endRaw).slice(0, 10);
 
-  const candidates: Array<{
-    score: number;
-    alternative: StayAvailabilityAlternative;
-  }> = [];
+  const candidateRanges: Array<{ start: string | null; end: string | null }> = [];
 
-  for (let startShift = -maxShiftDays; startShift <= maxShiftDays; startShift += 1) {
-    for (let endShift = -maxShiftDays; endShift <= maxShiftDays; endShift += 1) {
-      if (startShift === 0 && endShift === 0) continue;
-      const candidateStart = shiftDateOnly(requestedStart, startShift);
-      const candidateEnd = shiftDateOnly(requestedEnd, endShift);
-      if (!candidateStart || !candidateEnd) continue;
-      if (!isValidStayRange(candidateStart, candidateEnd)) continue;
-
-      const candidateNights = computeStayNights(candidateStart, candidateEnd);
-      const nightDelta = candidateNights - requestedNights;
-      if (Math.abs(nightDelta) > maxNightDelta) continue;
-      if (!isRangeValid(candidateStart, candidateEnd)) continue;
-
-      const alternative = buildStayAvailabilityAlternative(requestedStart, requestedEnd, candidateStart, candidateEnd);
-      if (!alternative) continue;
-
-      const shiftMagnitude = Math.abs(startShift) + Math.abs(endShift);
-      const durationPenalty = Math.abs(nightDelta) * 3;
-      const preserveStartBonus = startShift === 0 ? -1 : 0;
-      const preserveEndBonus = endShift === 0 ? -1 : 0;
-      const weeklyShiftBonus = startShift === endShift && Math.abs(startShift) === 7 ? -2 : 0;
-      const score = shiftMagnitude * 10 + durationPenalty + preserveStartBonus + preserveEndBonus + weeklyShiftBonus;
-      candidates.push({ score, alternative });
-    }
+  if (maxNightDelta >= 1) {
+    candidateRanges.push(
+      { start: requestedStart, end: shiftDateOnly(requestedEnd, -1) },
+      { start: shiftDateOnly(requestedStart, 1), end: requestedEnd },
+      { start: shiftDateOnly(requestedStart, -1), end: requestedEnd },
+      { start: requestedStart, end: shiftDateOnly(requestedEnd, 1) }
+    );
   }
 
-  candidates.sort((a, b) => a.score - b.score);
-  return candidates[0]?.alternative || null;
+  if (maxShiftDays >= 7) {
+    candidateRanges.push(
+      { start: shiftDateOnly(requestedStart, -7), end: shiftDateOnly(requestedEnd, -7) },
+      { start: shiftDateOnly(requestedStart, 7), end: shiftDateOnly(requestedEnd, 7) }
+    );
+  }
+
+  for (const candidate of candidateRanges) {
+    if (!candidate.start || !candidate.end) continue;
+    if (!isValidStayRange(candidate.start, candidate.end)) continue;
+    if (!isRangeValid(candidate.start, candidate.end)) continue;
+    const alternative = buildStayAvailabilityAlternative(requestedStart, requestedEnd, candidate.start, candidate.end);
+    if (alternative) return alternative;
+  }
+
+  return null;
 }
 
 export function resolveStayAvailability(
