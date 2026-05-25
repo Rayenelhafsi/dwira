@@ -142,9 +142,100 @@ export function findOneNightFlexAvailabilityAlternative(
 
 export function getStayAvailabilityAlternativeLabel(alternative: StayAvailabilityAlternative | null | undefined) {
   if (!alternative) return null;
-  if (alternative.kind === "shorter") return "-1 nuit";
-  if (alternative.kind === "longer") return "+1 nuit";
+  if (alternative.kind === "shorter") {
+    const delta = Math.max(1, Math.abs(Number(alternative.nightDelta || 1)));
+    return `-${delta} nuit${delta > 1 ? "s" : ""}`;
+  }
+  if (alternative.kind === "longer") {
+    const delta = Math.max(1, Math.abs(Number(alternative.nightDelta || 1)));
+    return `+${delta} nuit${delta > 1 ? "s" : ""}`;
+  }
   return (alternative.shiftDays || 0) > 0 ? "+7 j" : "-7 j";
+}
+
+function buildStayAvailabilityAlternative(
+  requestedStart: string,
+  requestedEnd: string,
+  candidateStart: string,
+  candidateEnd: string
+): StayAvailabilityAlternative | null {
+  const requestedNights = computeStayNights(requestedStart, requestedEnd);
+  const candidateNights = computeStayNights(candidateStart, candidateEnd);
+  if (requestedNights <= 0 || candidateNights <= 0) return null;
+
+  const requestedStartDate = parseDateOnly(requestedStart);
+  const requestedEndDate = parseDateOnly(requestedEnd);
+  const candidateStartDate = parseDateOnly(candidateStart);
+  const candidateEndDate = parseDateOnly(candidateEnd);
+  if (!requestedStartDate || !requestedEndDate || !candidateStartDate || !candidateEndDate) return null;
+
+  const startShiftDays = Math.round((candidateStartDate.getTime() - requestedStartDate.getTime()) / 86400000);
+  const endShiftDays = Math.round((candidateEndDate.getTime() - requestedEndDate.getTime()) / 86400000);
+  const nightDelta = candidateNights - requestedNights;
+
+  if (nightDelta < 0) {
+    return { kind: "shorter", nightDelta, start: candidateStart, end: candidateEnd };
+  }
+  if (nightDelta > 0) {
+    return { kind: "longer", nightDelta, start: candidateStart, end: candidateEnd };
+  }
+  return {
+    kind: "shifted_week",
+    shiftDays: startShiftDays === endShiftDays ? startShiftDays : startShiftDays || endShiftDays,
+    start: candidateStart,
+    end: candidateEnd,
+  };
+}
+
+export function findBestStayRangeAlternative(params: {
+  startRaw: string | null | undefined;
+  endRaw: string | null | undefined;
+  isRangeValid: (start: string, end: string) => boolean;
+  maxShiftDays?: number;
+  maxNightDelta?: number;
+}): StayAvailabilityAlternative | null {
+  const { startRaw, endRaw, isRangeValid } = params;
+  if (!isValidStayRange(startRaw, endRaw)) return null;
+
+  const maxShiftDays = Math.max(0, Number(params.maxShiftDays ?? 7));
+  const maxNightDelta = Math.max(0, Number(params.maxNightDelta ?? 7));
+  const requestedNights = computeStayNights(startRaw, endRaw);
+  const requestedStart = String(startRaw).slice(0, 10);
+  const requestedEnd = String(endRaw).slice(0, 10);
+
+  const candidates: Array<{
+    score: number;
+    alternative: StayAvailabilityAlternative;
+  }> = [];
+
+  for (let startShift = -maxShiftDays; startShift <= maxShiftDays; startShift += 1) {
+    for (let endShift = -maxShiftDays; endShift <= maxShiftDays; endShift += 1) {
+      if (startShift === 0 && endShift === 0) continue;
+      const candidateStart = shiftDateOnly(requestedStart, startShift);
+      const candidateEnd = shiftDateOnly(requestedEnd, endShift);
+      if (!candidateStart || !candidateEnd) continue;
+      if (!isValidStayRange(candidateStart, candidateEnd)) continue;
+
+      const candidateNights = computeStayNights(candidateStart, candidateEnd);
+      const nightDelta = candidateNights - requestedNights;
+      if (Math.abs(nightDelta) > maxNightDelta) continue;
+      if (!isRangeValid(candidateStart, candidateEnd)) continue;
+
+      const alternative = buildStayAvailabilityAlternative(requestedStart, requestedEnd, candidateStart, candidateEnd);
+      if (!alternative) continue;
+
+      const shiftMagnitude = Math.abs(startShift) + Math.abs(endShift);
+      const durationPenalty = Math.abs(nightDelta) * 3;
+      const preserveStartBonus = startShift === 0 ? -1 : 0;
+      const preserveEndBonus = endShift === 0 ? -1 : 0;
+      const weeklyShiftBonus = startShift === endShift && Math.abs(startShift) === 7 ? -2 : 0;
+      const score = shiftMagnitude * 10 + durationPenalty + preserveStartBonus + preserveEndBonus + weeklyShiftBonus;
+      candidates.push({ score, alternative });
+    }
+  }
+
+  candidates.sort((a, b) => a.score - b.score);
+  return candidates[0]?.alternative || null;
 }
 
 export function resolveStayAvailability(

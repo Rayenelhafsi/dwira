@@ -8,10 +8,12 @@ import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServiceP
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 import {
+  findBestStayRangeAlternative,
   getStayAvailabilityAlternativeLabel,
   isValidStayRange,
   resolveStayAvailability,
 } from "../utils/availability";
+import { getReservationMinStayRequirement, validateReservationWeekdayRule } from "../utils/seasonalPricing";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -310,6 +312,52 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   return false;
 };
 
+const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw: string) => {
+  if (!isValidStayRange(startRaw, endRaw)) {
+    return { ok: false, reason: "Plage de sejour invalide." };
+  }
+
+  const seasonalConfig = property?.seasonalConfig || {};
+  const minStay = Math.max(1, Number(seasonalConfig?.dureeMinSejourNuits || 1));
+  const maxStay = Math.max(minStay, Number(seasonalConfig?.dureeMaxSejourNuits || 365));
+  const start = new Date(`${startRaw}T00:00:00`);
+  const end = new Date(`${endRaw}T00:00:00`);
+  const nights = Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
+
+  const stayAvailability = resolveStayAvailability(property?.unavailableDates || [], startRaw, endRaw);
+  if (!stayAvailability.exactAvailable) {
+    return { ok: false, reason: "Dates non disponibles." };
+  }
+
+  const requiredMinStay = getReservationMinStayRequirement({
+    startDate: startRaw,
+    endDate: endRaw,
+    periods: property?.pricingPeriods || [],
+    fallbackMinStay: minStay,
+  });
+  if (nights < requiredMinStay) {
+    return { ok: false, reason: `Sejour minimum ${requiredMinStay} nuit(s).` };
+  }
+  if (nights > maxStay) {
+    return { ok: false, reason: `Sejour maximum ${maxStay} nuit(s).` };
+  }
+
+  const weekdayRuleCheck = validateReservationWeekdayRule({
+    startDate: startRaw,
+    endDate: endRaw,
+    periods: property?.pricingPeriods || [],
+  });
+  if (!weekdayRuleCheck.ok) {
+    const detail = [
+      weekdayRuleCheck.requiredCheckinDay ? `check-in ${weekdayRuleCheck.requiredCheckinDay}` : null,
+      weekdayRuleCheck.requiredCheckoutDay ? `check-out ${weekdayRuleCheck.requiredCheckoutDay}` : null,
+    ].filter(Boolean).join(" | ");
+    return { ok: false, reason: detail ? `Regle de periode: ${detail}.` : "Regle de reservation non respectee." };
+  }
+
+  return { ok: true, reason: "" };
+};
+
 export default function PropertiesPage() {
   const PAGE_SIZE = 10;
   const { properties, biens, zones, modePriorities, loading } = useProperties();
@@ -319,6 +367,7 @@ export default function PropertiesPage() {
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
   const resultsAnchorRef = useRef<HTMLDivElement | null>(null);
   const filtersAnchorRef = useRef<HTMLDivElement | null>(null);
+  const alternativesAnchorRef = useRef<HTMLDivElement | null>(null);
   const [modeFeaturesByType, setModeFeaturesByType] = useState<Record<string, FeatureApiRow[]>>({});
   const [modeFeatureTabsByType, setModeFeatureTabsByType] = useState<Record<string, FeatureTabApiRow[]>>({});
   const [advancedPanel, setAdvancedPanel] = useState<"tabs" | "services">("tabs");
@@ -1423,14 +1472,20 @@ export default function PropertiesPage() {
 
           if (hasDateFilter) {
             maxScore += 20;
-            const stayAvailability = resolveStayAvailability(property.unavailableDates || [], checkIn, checkOut);
-            exactDateAvailable = stayAvailability.exactAvailable;
+            const stayValidation = evaluatePropertyStayBookability(property, checkIn, checkOut);
+            exactDateAvailable = stayValidation.ok;
             if (exactDateAvailable) {
               score += 20;
             } else {
-              stayDateAlternative = stayAvailability.alternative;
+              stayDateAlternative = findBestStayRangeAlternative({
+                startRaw: checkIn,
+                endRaw: checkOut,
+                isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd).ok,
+                maxShiftDays: 7,
+                maxNightDelta: 7,
+              });
               if (!stayDateAlternative) {
-                missing.push("Dates non disponibles");
+                missing.push(stayValidation.reason || "Dates non disponibles");
               } else {
                 const altLabel = getStayAvailabilityAlternativeLabel(stayDateAlternative);
                 hints.push(
@@ -1678,6 +1733,22 @@ export default function PropertiesPage() {
     clearFilters();
     setIsFilterOpen(true);
     setTimeout(() => scrollToFilters(), 80);
+  };
+  const scrollToAlternatives = () => {
+    if (alternativesAnchorRef.current) {
+      alternativesAnchorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const handleToggleAlternatives = () => {
+    setShowAlternatives((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => scrollToAlternatives(), 80);
+      }
+      return next;
+    });
   };
 
   return (
@@ -2275,7 +2346,7 @@ export default function PropertiesPage() {
               {alternativeScoredResults.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setShowAlternatives((prev) => !prev)}
+                  onClick={handleToggleAlternatives}
                   className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
                 >
                   {showAlternatives ? "Masquer" : "Montrer"} des choix alternatives ({alternativeScoredResults.length})
@@ -2357,13 +2428,13 @@ export default function PropertiesPage() {
               </div>
             )}
             {showAlternatives && alternativeScoredResults.length > 0 && (
-              <div className="mt-10">
+              <div ref={alternativesAnchorRef} className="mt-10">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-gray-900">Choix alternatives: -1 nuit / +1 nuit / -7j / +7j</h3>
                   <span className="text-sm text-gray-500">{alternativeScoredResults.length} bien(s)</span>
                 </div>
                 <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-                  {alternativeScoredResults.slice(0, 12).map((row) => (
+                  {alternativeScoredResults.map((row) => (
                     <div key={`alt-${row.property.id}`} className="space-y-2">
                       <PropertyCard
                         property={row.property}
