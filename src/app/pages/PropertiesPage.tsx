@@ -9,7 +9,6 @@ import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 import {
   getStayAvailabilityAlternativeLabel,
-  hasBlockingUnavailableDates,
   isValidStayRange,
   resolveStayAvailability,
 } from "../utils/availability";
