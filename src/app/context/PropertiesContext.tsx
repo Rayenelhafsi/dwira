@@ -177,6 +177,14 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       }
     }
   } catch {}
+  let unavailableDatesFromRow: any[] = [];
+  try {
+    const rawUnavailableDates = (row as any).unavailableDates ?? (row as any).unavailable_dates_json;
+    if (rawUnavailableDates) {
+      const parsed = typeof rawUnavailableDates === 'string' ? JSON.parse(rawUnavailableDates) : rawUnavailableDates;
+      if (Array.isArray(parsed)) unavailableDatesFromRow = parsed;
+    }
+  } catch {}
   if (pricingPeriodsFromDb.length === 0 && Array.isArray((locationSaisonniereConfig as any)?.pricing_periods)) {
     pricingPeriodsFromDb = ((locationSaisonniereConfig as any).pricing_periods as any[])
       .map((item: any) => ({
@@ -417,7 +425,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       }))
       .sort((a, b) => (a.position || 0) - (b.position || 0)),
 
-    unavailableDates: (Array.isArray(unavailableDates) ? unavailableDates : []).map(ud => ({
+    unavailableDates: (Array.isArray(unavailableDates) && unavailableDates.length > 0 ? unavailableDates : unavailableDatesFromRow).map(ud => ({
       id: ud.id ? String(ud.id) : undefined,
       start: normalizeDateOnlyInput(ud.start || ud.start_date),
       end: normalizeDateOnlyInput(ud.end || ud.end_date),

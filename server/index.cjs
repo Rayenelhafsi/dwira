@@ -6061,6 +6061,43 @@ async function listPricingPeriodsForBienIds(bienIds) {
   return byBienId;
 }
 
+async function listUnavailableDatesForBienIds(bienIds) {
+  await ensureReservationDemandSchema();
+  const ids = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const byBienId = new Map();
+  if (ids.length === 0) return byBienId;
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await pool.query(
+    `SELECT
+       id,
+       bien_id,
+       DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+       DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+       status,
+       reservation_demand_id,
+       color,
+       DATE_FORMAT(payment_deadline, '%Y-%m-%d %H:%i:%s') AS paymentDeadline
+     FROM unavailable_dates
+     WHERE bien_id IN (${placeholders})
+     ORDER BY start_date ASC, end_date ASC`,
+    ids
+  );
+  for (const row of rows || []) {
+    const item = {
+      id: String(row.id),
+      start_date: toSqlDateOnly(row.start_date),
+      end_date: toSqlDateOnly(row.end_date),
+      status: String(row.status || '').trim().toLowerCase() || 'blocked',
+      reservation_demand_id: row.reservation_demand_id ? String(row.reservation_demand_id).trim() : null,
+      color: row.color ? String(row.color).trim() : null,
+      paymentDeadline: row.paymentDeadline || null,
+    };
+    if (!byBienId.has(row.bien_id)) byBienId.set(row.bien_id, []);
+    byBienId.get(row.bien_id).push(item);
+  }
+  return byBienId;
+}
+
 async function syncBienPricingPeriods(bienId, periods) {
   await ensureSeasonalPricingSchema();
   const normalizedBienId = String(bienId || '').trim();
@@ -8402,6 +8439,7 @@ app.get('/api/biens', async (req, res) => {
     const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
     const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
       try {
@@ -8418,6 +8456,7 @@ app.get('/api/biens', async (req, res) => {
         ...row,
         location_saisonniere_config_json: JSON.stringify(nextConfig),
         pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
+        unavailableDates: unavailableDatesByBienId.get(row.id) || [],
       };
     });
     res.json(enrichedRows);
@@ -8445,6 +8484,7 @@ app.get('/api/biens/:id', async (req, res) => {
     const row = (await enrichBiensWithCaracteristiques(rows))[0];
     const servicesByBienId = await listPaidServicesForBienIds([row.id]);
     const pricingPeriodsByBienId = await listPricingPeriodsForBienIds([row.id]);
+    const unavailableDatesByBienId = await listUnavailableDatesForBienIds([row.id]);
     let config = null;
     try {
       config = row.location_saisonniere_config_json
@@ -8459,6 +8499,7 @@ app.get('/api/biens/:id', async (req, res) => {
       ...row,
       location_saisonniere_config_json: JSON.stringify(injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || [])),
       pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
+      unavailableDates: unavailableDatesByBienId.get(row.id) || [],
     });
   } catch (error) {
     console.error('Error fetching bien:', error);
@@ -9042,6 +9083,7 @@ app.get('/api/biens-lite', async (req, res) => {
     `);
     const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rows || []).map((row) => row.id));
     const servicesByBienId = await listPaidServicesForBienIds((rows || []).map((row) => row.id));
+    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rows || []).map((row) => row.id));
     const enrichedRows = (rows || []).map((row) => {
       let config = null;
       try {
@@ -9058,6 +9100,7 @@ app.get('/api/biens-lite', async (req, res) => {
         ...row,
         location_saisonniere_config_json: JSON.stringify(nextConfig),
         pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
+        unavailableDates: unavailableDatesByBienId.get(row.id) || [],
       };
     });
     res.json(enrichedRows);
