@@ -122,13 +122,24 @@ const propertyMatchesLocation = (
   property: any,
   selectedLocation: string
 ): { exact: boolean; partial: boolean } => {
-  const normalizedSelected = normalizeFeatureName(selectedLocation);
+  const selectedParts = String(selectedLocation || "")
+    .split("/")
+    .map((item) => normalizeFeatureName(item))
+    .filter(Boolean);
+  const normalizedSelected = selectedParts[selectedParts.length - 1] || normalizeFeatureName(selectedLocation);
   if (!normalizedSelected) return { exact: false, partial: false };
 
   const normalizedValues = Array.from(
     new Set(getPropertyLocationValues(property).map((value) => normalizeFeatureName(value)).filter(Boolean))
   );
-  if (normalizedValues.includes(normalizedSelected)) {
+  if (selectedParts.length > 1) {
+    const allPartsMatch = selectedParts.every((part) =>
+      normalizedValues.some((value) => value === part || value.includes(part) || part.includes(value))
+    );
+    if (allPartsMatch) {
+      return { exact: true, partial: true };
+    }
+  } else if (normalizedValues.includes(normalizedSelected)) {
     return { exact: true, partial: true };
   }
 
