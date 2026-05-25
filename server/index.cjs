@@ -8451,12 +8451,13 @@ app.get('/api/biens', async (req, res) => {
       } catch {
         config = null;
       }
-      const nextConfig = injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || []);
-      return {
-        ...row,
-        location_saisonniere_config_json: JSON.stringify(nextConfig),
-        pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
-        unavailableDates: unavailableDatesByBienId.get(row.id) || [],
+    const nextConfig = injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || []);
+    return {
+      ...row,
+      nom_bien_mobile: String(nextConfig?.nom_bien_mobile || '').trim() || null,
+      location_saisonniere_config_json: JSON.stringify(nextConfig),
+      pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
+      unavailableDates: unavailableDatesByBienId.get(row.id) || [],
       };
     });
     res.json(enrichedRows);
@@ -8497,6 +8498,7 @@ app.get('/api/biens/:id', async (req, res) => {
     }
     res.json({
       ...row,
+      nom_bien_mobile: String(injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || [])?.nom_bien_mobile || '').trim() || null,
       location_saisonniere_config_json: JSON.stringify(injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || [])),
       pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
       unavailableDates: unavailableDatesByBienId.get(row.id) || [],
@@ -8513,7 +8515,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     await ensureSeasonalPricingSchema();
     const {
       id,
-      reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
+      reference, titre, nom_bien_mobile, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
       prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
@@ -8648,14 +8650,23 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     }
     const pricingPeriodsPayload = readEffectivePricingPeriods(req.body, location_saisonniere_config);
     const effectivePricingPeriods = pricingPeriodsPayload.periods;
+    const normalizedNomBienMobile = String(nom_bien_mobile || '').trim();
     const effectiveLocationSaisonniereConfig = location_saisonniere_config && typeof location_saisonniere_config === 'object'
       ? {
           ...location_saisonniere_config,
+          ...(normalizedNomBienMobile ? { nom_bien_mobile: normalizedNomBienMobile } : {}),
           ...(pricingPeriodsPayload.hasConfigPeriods || pricingPeriodsPayload.hasExplicitPayload
             ? { pricing_periods: effectivePricingPeriods }
             : {}),
         }
-      : null;
+      : (normalizedNomBienMobile
+          ? {
+              nom_bien_mobile: normalizedNomBienMobile,
+              ...(pricingPeriodsPayload.hasConfigPeriods || pricingPeriodsPayload.hasExplicitPayload
+                ? { pricing_periods: effectivePricingPeriods }
+                : {}),
+            }
+          : null);
 
     await pool.query(
       `INSERT INTO biens (id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain, 
@@ -8737,7 +8748,10 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     await syncBienPricingPeriods(bienId, effectivePricingPeriods || []);
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
-    res.status(201).json(newBien[0]);
+    res.status(201).json({
+      ...newBien[0],
+      nom_bien_mobile: normalizedNomBienMobile || null,
+    });
   } catch (error) {
     console.error('Error creating bien:', error);
     if (String(error?.message || '').includes('Invalid caracteristique_ids')) {
@@ -8753,7 +8767,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureSeasonalPricingSchema();
     const {
-      reference, titre, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
+      reference, titre, nom_bien_mobile, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
       prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
@@ -8887,14 +8901,23 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
     }
     const pricingPeriodsPayload = readEffectivePricingPeriods(req.body, location_saisonniere_config);
     const effectivePricingPeriods = pricingPeriodsPayload.periods;
+    const normalizedNomBienMobile = String(nom_bien_mobile || '').trim();
     const effectiveLocationSaisonniereConfig = location_saisonniere_config && typeof location_saisonniere_config === 'object'
       ? {
           ...location_saisonniere_config,
+          ...(normalizedNomBienMobile ? { nom_bien_mobile: normalizedNomBienMobile } : {}),
           ...(pricingPeriodsPayload.hasConfigPeriods || pricingPeriodsPayload.hasExplicitPayload
             ? { pricing_periods: effectivePricingPeriods }
             : {}),
         }
-      : null;
+      : (normalizedNomBienMobile
+          ? {
+              nom_bien_mobile: normalizedNomBienMobile,
+              ...(pricingPeriodsPayload.hasConfigPeriods || pricingPeriodsPayload.hasExplicitPayload
+                ? { pricing_periods: effectivePricingPeriods }
+                : {}),
+            }
+          : null);
 
     await pool.query(
       `UPDATE biens SET 
@@ -8987,7 +9010,10 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
     }
 
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
-    res.json(updatedBien[0]);
+    res.json({
+      ...updatedBien[0],
+      nom_bien_mobile: normalizedNomBienMobile || null,
+    });
   } catch (error) {
     console.error('Error updating bien:', error);
     if (String(error?.message || '').includes('Invalid caracteristique_ids')) {

@@ -1,0 +1,1 @@
+mysql -u root -N -e "USE dwira; SELECT reference, JSON_EXTRACT(location_saisonniere_config_json, '$.nom_bien_mobile') AS nom_bien_mobile, location_saisonniere_config_json FROM biens WHERE reference='REF-289';"

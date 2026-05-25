@@ -290,6 +290,8 @@ export interface Bien {
   id: string;
   reference: string;
   titre: string;
+  nom_bien_mobile?: string | null;
+  nom_application?: string | null;
   description?: string;
   mode: BienMode;
   type: BienType;

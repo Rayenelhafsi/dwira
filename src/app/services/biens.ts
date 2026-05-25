@@ -9,6 +9,7 @@ export interface CreateBienInput {
   id: string;
   reference: string;
   titre: string;
+  nom_bien_mobile?: string | null;
   description?: string;
   mode: 'vente' | 'location_annuelle' | 'location_saisonniere';
   type: 'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
@@ -88,6 +89,7 @@ export interface CreateBienInput {
 export interface UpdateBienInput {
   reference?: string;
   titre?: string;
+  nom_bien_mobile?: string | null;
   description?: string;
   mode?: 'vente' | 'location_annuelle' | 'location_saisonniere';
   type?: 'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
