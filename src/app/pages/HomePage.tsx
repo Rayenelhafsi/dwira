@@ -773,6 +773,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const blockedSubTypes = new Set(selectedGroup.subTypes.map((item) => getCanonicalSubTypeKey(item.label)));
     return categories.filter((item) => !blockedSubTypes.has(getCanonicalSubTypeKey(item)));
   };
+  const selectedTypeChipGroups = useMemo(() => {
+    const grouped = new Map<PropertyMainType, string[]>();
+    selectedMainTypes.forEach((mainType) => grouped.set(mainType, []));
+    selectedCategories.forEach((category) => {
+      const mainType = getMainTypeFromCategory(category);
+      if (!grouped.has(mainType)) grouped.set(mainType, []);
+      grouped.get(mainType)?.push(category);
+    });
+    return Array.from(grouped.entries()).map(([mainType, categories]) => ({
+      mainType,
+      categories,
+    }));
+  }, [selectedMainTypes, selectedCategories]);
 
   useEffect(() => {
     if (!locationPays && cascadePaysOptions.some((item) => item.toLowerCase() === 'tunisie')) {
@@ -1799,22 +1812,24 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         </button>
                       </span>
                     ))}
-                    {selectedMainTypes.map((item) => (
-                      <span key={`chip-main-type-${item}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                    {selectedTypeChipGroups.map(({ mainType, categories }) => (
+                      <span key={`chip-main-type-${mainType}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
-                        {MAIN_TYPE_LABELS[item]}
+                        {categories.length > 0 ? `${MAIN_TYPE_LABELS[mainType]} : ${categories.join(", ")}` : MAIN_TYPE_LABELS[mainType]}
                         <button onClick={() => {
-                          setSelectedMainTypes((prev) => prev.filter((value) => value !== item));
-                          if (selectedMainType === item) {
+                          setSelectedMainTypes((prev) => prev.filter((value) => value !== mainType));
+                          if (selectedMainType === mainType) {
                             setSelectedMainType("");
                           }
-                          setSelectedCategories((prev) => removeCategoriesForMainType(prev, item));
+                          setSelectedCategories((prev) => removeCategoriesForMainType(prev, mainType));
                         }} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
                     ))}
-                    {selectedCategories.map(cat => (
+                    {selectedCategories
+                      .filter((cat) => !selectedMainTypes.includes(getMainTypeFromCategory(cat)))
+                      .map(cat => (
                       <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
                         {cat}
