@@ -1302,19 +1302,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               <div className="border-b border-sky-100 bg-[linear-gradient(135deg,#eff6ff,#f8fafc)] px-5 py-5 md:px-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Nouveau parcours</p>
-                    <h3 className="mt-2 text-2xl font-semibold text-slate-900">Recherche hôtelière partenaire</h3>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Séjours & hôtels</p>
+                    <h3 className="mt-2 text-2xl font-semibold text-slate-900">Découvrez notre sélection d'hôtels</h3>
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                      L&apos;offre hôtelière s&apos;ouvre sur une page dédiée avec les villes MyGo, les dates de séjour et les tarifs renvoyés par le partenaire.
+                      Accédez à une page dédiée pour explorer les destinations, consulter les disponibilités et comparer les offres selon vos dates de séjour.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Link to="/hotels" className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700">
-                      Ouvrir l&apos;hôtellerie <ArrowRight size={18} />
+                      Voir les hôtels <ArrowRight size={18} />
                     </Link>
                     <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-4 py-3 text-sm font-medium text-slate-600">
                       <Star size={16} className="text-amber-500" />
-                      Hotels, pensions et details partenaires
+                      Hôtels, pensions et séjours
                     </span>
                   </div>
                 </div>
@@ -2229,7 +2229,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               </h2>
               <p className="text-gray-600 max-w-xl">
                 {isHotelMode
-                  ? "La section hotellerie utilise un flux partenaire separe pour la recherche, les details et les tarifs."
+                  ? "Consultez une sélection d'hôtels avec leurs disponibilités, leurs informations pratiques et leurs tarifs."
                   : hasSearched
                     ? `${filteredProperties.length} bien${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
                     : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
@@ -2246,7 +2246,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 })()}
                 className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group"
               >
-                {isHotelMode ? "Ouvrir la recherche hôtelière" : "Voir tout le catalogue"} <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                {isHotelMode ? "Voir la sélection d'hôtels" : "Voir tout le catalogue"} <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </Link>
             )}
           </div>
@@ -2264,14 +2264,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             <div className="rounded-[30px] border border-sky-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
               <div className="grid gap-5 lg:grid-cols-[1.2fr,0.8fr]">
                 <div className="rounded-[28px] border border-slate-100 bg-[linear-gradient(135deg,#f8fafc,#eff6ff)] p-6">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Hôtellerie connectée</p>
-                  <h3 className="mt-3 text-3xl font-semibold text-slate-900">Hotels, pensions et details partenaires dans un parcours dédié.</h3>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Séjours hôteliers</p>
+                  <h3 className="mt-3 text-3xl font-semibold text-slate-900">Hôtels, pensions et séjours dans un espace dédié.</h3>
                   <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-                    La nouvelle section hôtellerie sépare clairement les offres immobilières classiques des offres MyGo. Vous y trouverez la sélection par ville, les dates de séjour, les voyageurs et les fiches hôtels.
+                    Cette section réunit les offres d'hébergement avec un parcours clair pour choisir la destination, les dates de séjour et consulter les fiches hôtels.
                   </p>
                   <div className="mt-6 flex flex-wrap gap-3">
                     <Link to="/hotels" className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700">
-                      Ouvrir l&apos;hôtellerie <ArrowRight size={18} />
+                      Voir les hôtels <ArrowRight size={18} />
                     </Link>
                     <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-4 py-3 text-sm font-medium text-slate-600">
                       <Calendar size={16} className="text-sky-600" />
@@ -2281,11 +2281,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </div>
 
                 <div className="rounded-[28px] border border-slate-100 bg-slate-950 p-6 text-white">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-200">Ce qui change</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-200">Pourquoi choisir cette section</p>
                   <div className="mt-5 space-y-4 text-sm leading-6 text-sky-50/88">
-                    <p><span className="font-semibold text-white">Parcours dédié:</span> les offres hôtelières ne sont plus mélangées avec les appartements et villas saisonnières.</p>
-                    <p><span className="font-semibold text-white">Source partenaire:</span> les résultats, photos et tarifs remontent directement du flux MyGo via le backend Dwira.</p>
-                    <p><span className="font-semibold text-white">Évolution prévue:</span> la base est prête pour brancher ensuite le pré-booking et la réservation finale.</p>
+                    <p><span className="font-semibold text-white">Parcours dédié :</span> toutes les offres d'hébergement sont regroupées dans un espace simple à parcourir.</p>
+                    <p><span className="font-semibold text-white">Recherche rapide :</span> filtrez par destination, dates de séjour et nombre de voyageurs.</p>
+                    <p><span className="font-semibold text-white">Détails utiles :</span> consultez les informations essentielles avant de choisir l'offre qui vous convient.</p>
                   </div>
                 </div>
               </div>
@@ -2386,7 +2386,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           {!isSelectedModeComingSoon && (
             <div className="mt-12 text-center md:hidden">
               <Link to={isHotelMode ? "/hotels" : selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
-                {isHotelMode ? "Ouvrir l’hôtellerie" : "Voir tous les logements"} <ArrowRight size={20} />
+                {isHotelMode ? "Voir les hôtels" : "Voir tous les logements"} <ArrowRight size={20} />
               </Link>
             </div>
           )}

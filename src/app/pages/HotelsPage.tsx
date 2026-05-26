@@ -45,6 +45,27 @@ function buildMapsLink(hotel: HotelSummary) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
 }
 
+function getClientFacingHotelError(message: string) {
+  const normalized = String(message || "").toLowerCase();
+  if (!normalized) {
+    return "Notre sélection d'hôtels est temporairement indisponible. Merci de réessayer un peu plus tard.";
+  }
+  if (
+    normalized.includes("not configured")
+    || normalized.includes("configuration")
+    || normalized.includes("deactivated")
+    || normalized.includes("désactive")
+    || normalized.includes("desactive")
+    || normalized.includes("auth")
+    || normalized.includes("provider")
+    || normalized.includes("mygo")
+    || normalized.includes("partenaire")
+  ) {
+    return "Notre sélection d'hôtels est temporairement indisponible. Merci de réessayer un peu plus tard.";
+  }
+  return "Impossible de charger les offres pour le moment. Merci de réessayer dans quelques instants.";
+}
+
 export default function HotelsPage() {
   const defaults = useMemo(() => buildDefaultSearch(), []);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -142,6 +163,7 @@ export default function HotelsPage() {
   }, [loadingCities]);
 
   const selectedCity = cities.find((item) => Number(item.Id) === Number(cityId)) || null;
+  const publicErrorMessage = providerError ? getClientFacingHotelError(providerError) : "";
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_35%,#ffffff_100%)]">
@@ -151,13 +173,13 @@ export default function HotelsPage() {
           <div className="max-w-3xl">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-sky-100 backdrop-blur">
               <Sparkles size={14} />
-              Partenariat hotellerie
+              Selection sejours
             </span>
             <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
-              Recherchez des hotels via notre connecteur MyGo.
+              Trouvez l'hotel ideal pour votre prochain sejour.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-sky-50/88 md:text-lg">
-              Cette section ajoute l&apos;offre hoteliere partenaire a Dwira. La recherche se fait par ville, dates et composition des voyageurs, avec details et tarifs renvoyes par MyGo.
+              Explorez notre selection d'hotels, comparez les disponibilites et consultez les details essentiels pour organiser votre voyage en toute simplicite.
             </p>
           </div>
         </div>
@@ -244,7 +266,7 @@ export default function HotelsPage() {
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-slate-500">
-              {selectedCity ? `Recherche ciblee sur ${selectedCity.Name}.` : "Selectionnez une ville pour lancer la recherche."}
+              {selectedCity ? `Destination selectionnee : ${selectedCity.Name}.` : "Selectionnez une destination pour lancer votre recherche."}
             </div>
             <button
               type="button"
@@ -257,21 +279,21 @@ export default function HotelsPage() {
             </button>
           </div>
 
-          {providerError && (
+          {publicErrorMessage && (
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               <div className="flex items-start gap-3">
                 <AlertCircle size={18} className="mt-0.5 shrink-0" />
                 <div>
-                  <p className="font-semibold">Flux partenaire indisponible</p>
-                  <p className="mt-1">{providerError}</p>
+                  <p className="font-semibold">Offres temporairement indisponibles</p>
+                  <p className="mt-1">{publicErrorMessage}</p>
                 </div>
               </div>
             </div>
           )}
 
-          {configReady === false && !providerError && (
+          {configReady === false && !publicErrorMessage && (
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              La configuration hoteliere n&apos;est pas encore active sur ce serveur.
+              Les offres hôtelières seront disponibles très prochainement.
             </div>
           )}
         </div>
@@ -286,7 +308,7 @@ export default function HotelsPage() {
             </h2>
           </div>
           <p className="max-w-xl text-sm text-slate-500">
-            Les tarifs et disponibilites sont retournes par le partenaire MyGo pour les dates choisies.
+            Consultez les disponibilites et les informations utiles pour les dates selectionnees.
           </p>
         </div>
 
@@ -308,9 +330,9 @@ export default function HotelsPage() {
 
         {!loadingResults && results.length === 0 && (
           <div className="rounded-[32px] border border-dashed border-slate-200 bg-white/90 px-6 py-14 text-center shadow-sm">
-            <p className="text-lg font-semibold text-slate-900">Aucun hotel affiche pour le moment.</p>
+            <p className="text-lg font-semibold text-slate-900">Aucun hotel disponible pour cette recherche.</p>
             <p className="mt-2 text-sm text-slate-500">
-              Lancez une recherche avec une ville et des dates valides. Si le flux partenaire est coupe, le message ci-dessus vous donnera la raison exacte.
+              Essayez une autre destination ou modifiez vos dates pour découvrir davantage d'offres.
             </p>
           </div>
         )}
