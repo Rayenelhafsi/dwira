@@ -88,6 +88,16 @@ function getClientFacingHotelError(message: string) {
   return "Impossible de charger les offres pour le moment. Merci de reessayer dans quelques instants.";
 }
 
+function hasHotelPromotion(hotel: HotelSummary) {
+  const promotion = hotel?.Promotion;
+  if (!promotion || typeof promotion !== "object") return false;
+  return Boolean(
+    String(promotion.Title || "").trim()
+    || String(promotion.Description || "").trim()
+    || Number(promotion.Rate || 0) > 0
+  );
+}
+
 export default function HotelsPage() {
   const defaults = useMemo(() => buildDefaultSearch(), []);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -194,6 +204,30 @@ export default function HotelsPage() {
 
   const selectedCity = cities.find((item) => Number(item.Id) === Number(cityId)) || null;
   const publicErrorMessage = providerError ? getClientFacingHotelError(providerError) : "";
+  const sortedResults = useMemo(
+    () => [...results].sort((left, right) => {
+      const leftPromotion = hasHotelPromotion(left) ? 1 : 0;
+      const rightPromotion = hasHotelPromotion(right) ? 1 : 0;
+      if (leftPromotion !== rightPromotion) {
+        return rightPromotion - leftPromotion;
+      }
+
+      const leftRecommended = Number(left?.Recommended || 0);
+      const rightRecommended = Number(right?.Recommended || 0);
+      if (leftRecommended !== rightRecommended) {
+        return rightRecommended - leftRecommended;
+      }
+
+      const leftPrice = extractHotelMinPrice(left) ?? Number.POSITIVE_INFINITY;
+      const rightPrice = extractHotelMinPrice(right) ?? Number.POSITIVE_INFINITY;
+      if (leftPrice !== rightPrice) {
+        return leftPrice - rightPrice;
+      }
+
+      return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
+    }),
+    [results]
+  );
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_35%,#ffffff_100%)]">
@@ -336,7 +370,7 @@ export default function HotelsPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">Resultats hotels</p>
               <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
-                {loadingResults ? "Recherche en cours..." : `${results.length} hotel${results.length > 1 ? "s" : ""} trouve${results.length > 1 ? "s" : ""}`}
+                {loadingResults ? "Recherche en cours..." : `${sortedResults.length} hotel${sortedResults.length > 1 ? "s" : ""} trouve${sortedResults.length > 1 ? "s" : ""}`}
               </h2>
             </div>
             <p className="max-w-xl text-sm text-slate-500">
@@ -369,16 +403,16 @@ export default function HotelsPage() {
             </div>
           )}
 
-          {!loadingResults && results.length > 0 && (
+          {!loadingResults && sortedResults.length > 0 && (
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {results.map((hotel) => {
+              {sortedResults.map((hotel) => {
                 const minPrice = extractHotelMinPrice(hotel);
                 const roomOffers = flattenHotelRoomOffers(hotel);
                 const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room) !== null) || roomOffers[0] || null;
                 const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room) : null;
                 const boardings = extractHotelBoardingNames(hotel).slice(0, 2);
                 const facilities = getHotelFacilityTitles(hotel.Facilities, 5);
-                const hasPromotion = Boolean(String(hotel.Promotion || "").trim());
+                const hasPromotion = hasHotelPromotion(hotel);
                 const hasRefundableOffer = roomOffers.some((offer) => !offer.room?.NotRefundable);
                 const totalAvailability = roomOffers.reduce((sum, offer) => sum + Math.max(0, Number(offer.room?.Quantity || 0)), 0);
 
@@ -391,7 +425,11 @@ export default function HotelsPage() {
                 return (
                   <article
                     key={hotel.Id}
-                    className="group overflow-hidden rounded-[30px] border border-slate-100 bg-white shadow-[0_18px_48px_rgba(15,23,42,0.08)] transition hover:-translate-y-1 hover:shadow-[0_28px_60px_rgba(15,23,42,0.12)]"
+                    className={`group overflow-hidden rounded-[30px] bg-white transition hover:-translate-y-1 ${
+                      hasPromotion
+                        ? "border border-amber-200 shadow-[0_18px_48px_rgba(217,119,6,0.18)] hover:shadow-[0_30px_70px_rgba(217,119,6,0.28)]"
+                        : "border border-slate-100 shadow-[0_18px_48px_rgba(15,23,42,0.08)] hover:shadow-[0_28px_60px_rgba(15,23,42,0.12)]"
+                    }`}
                   >
                     <Link to={linkTo} className="block">
                       <div className="relative aspect-[16/10] overflow-hidden">
@@ -407,6 +445,12 @@ export default function HotelsPage() {
                           <Star size={13} className="fill-current" />
                           {formatHotelStarLabel(hotel.Star)}
                         </div>
+                        {hasPromotion && (
+                          <div className="absolute right-4 top-4 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-400/95 px-3 py-1 text-xs font-semibold text-slate-950 shadow-md">
+                            <Sparkles size={13} />
+                            Promotion
+                          </div>
+                        )}
                         {(leadOfferPrice !== null || minPrice !== null) && (
                           <div className="absolute bottom-4 right-4 rounded-2xl bg-white px-3 py-2 text-right text-sm font-semibold text-slate-900 shadow-md">
                             A partir de {formatPrice(leadOfferPrice ?? minPrice)} TND
