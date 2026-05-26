@@ -19,19 +19,35 @@ export function extractHotelMinPrice(hotel?: HotelSummary | HotelDetail | null) 
 
   const visitRoom = (room: any) => {
     if (!room || typeof room !== "object") return;
+    pushPrice(room.PriceWithAffiliateMarkup);
     pushPrice(room.Price);
+    const views = Array.isArray(room.View) ? room.View : [];
+    views.forEach((view) => {
+      pushPrice(view?.PriceWithAffiliateMarkup);
+      pushPrice(view?.Price);
+    });
     const supplements = Array.isArray(room.Supplement) ? room.Supplement : [];
-    supplements.forEach((supplement) => pushPrice(supplement?.Price));
+    supplements.forEach((supplement) => {
+      pushPrice(supplement?.PriceWithAffiliateMarkup);
+      pushPrice(supplement?.Price);
+    });
   };
 
   const visitBoarding = (boarding: any) => {
     if (!boarding || typeof boarding !== "object") return;
+    pushPrice(boarding.PriceWithAffiliateMarkup);
     pushPrice(boarding.Price);
-    const rooms = Array.isArray(boarding.Rooms) ? boarding.Rooms : [];
-    rooms.forEach(visitRoom);
+    const paxRows = Array.isArray(boarding.Pax) ? boarding.Pax : [];
+    paxRows.forEach((paxRow) => {
+      const rooms = Array.isArray(paxRow?.Rooms) ? paxRow.Rooms : [];
+      rooms.forEach(visitRoom);
+    });
+    const directRooms = Array.isArray(boarding.Rooms) ? boarding.Rooms : [];
+    directRooms.forEach(visitRoom);
   };
 
   if (priceNode && typeof priceNode === "object") {
+    pushPrice(priceNode.PriceWithAffiliateMarkup);
     const boardings = Array.isArray(priceNode.Boarding) ? priceNode.Boarding : [];
     boardings.forEach(visitBoarding);
   }
@@ -108,6 +124,22 @@ export function renderHotelRichText(value?: string | null) {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+export function getHotelCardDescription(hotel?: HotelSummary | HotelDetail | null) {
+  const candidates = [
+    (hotel as any)?.ShortDescription,
+    (hotel as any)?.HotelDescription,
+    (hotel as any)?.Note,
+    hotel?.Adress,
+  ];
+
+  for (const candidate of candidates) {
+    const text = renderHotelRichText(String(candidate || ""));
+    if (text) return text;
+  }
+
+  return "Consultez le detail pour voir les photos, les installations et les conditions de reservation.";
 }
 
 export function splitHotelTextParagraphs(value?: string | null) {

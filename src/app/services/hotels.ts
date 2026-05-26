@@ -27,6 +27,7 @@ export type HotelSummary = {
   Star?: string | number | null;
   City?: { Id?: number | null; Name?: string | null; ShortDescription?: string | null } | null;
   ShortDescription?: string | null;
+  HotelDescription?: string | null;
   Adress?: string | null;
   Localization?: { Longitude?: string | null; Latitude?: string | null } | null;
   Image?: string | null;

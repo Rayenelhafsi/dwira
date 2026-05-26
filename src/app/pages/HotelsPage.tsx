@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import { AlertCircle, BedDouble, CalendarDays, ExternalLink, LoaderCircle, MapPin, Search, Sparkles, Star, Users } from "lucide-react";
 import { SmartImage } from "../components/SmartImage";
 import { getHotelConfig, listHotelCities, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
-import { extractHotelBoardingNames, extractHotelMinPrice, formatHotelStarLabel, getHotelFacilityTitles } from "../utils/hotelHelpers";
+import { extractHotelBoardingNames, extractHotelMinPrice, formatHotelStarLabel, getHotelCardDescription, getHotelFacilityTitles } from "../utils/hotelHelpers";
 
 const HOTEL_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
@@ -386,8 +386,8 @@ export default function HotelsPage() {
                         {hotel.City?.Name || "Destination"}
                       </p>
                       <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{hotel.Name}</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-500">
-                        {hotel.ShortDescription || hotel.Adress || "Consultez le detail pour voir les photos, les installations et les conditions de reservation."}
+                      <p className="mt-2 line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-500">
+                        {getHotelCardDescription(hotel)}
                       </p>
                     </div>
 
