@@ -31,13 +31,16 @@ function resolveRouteMode(pathname: string, search: string) {
   if (pathname.startsWith("/ventes") || pathname.startsWith("/vente/")) {
     return "vente";
   }
+  if (pathname.startsWith("/hotels")) {
+    return "hotellerie";
+  }
   if (pathname.startsWith("/logements") || pathname.startsWith("/properties")) {
     if (modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
       return modeParam;
     }
     return "location_saisonniere";
   }
-  if (modeParam === "vente" || modeParam === "location_annuelle" || modeParam === "location_saisonniere") {
+  if (modeParam === "vente" || modeParam === "location_annuelle" || modeParam === "location_saisonniere" || modeParam === "hotellerie") {
     return modeParam;
   }
   return null;
@@ -117,6 +120,11 @@ export function Header() {
   const handleLogout = () => {
     logout();
     navigate('/');
+  };
+
+  const isNavLinkActive = (path: string) => {
+    const [pathname] = String(path || "").split("?");
+    return location.pathname === pathname || location.pathname.startsWith(`${pathname}/`);
   };
 
   useEffect(() => {
@@ -373,7 +381,8 @@ export function Header() {
 
   const navLinks = [
     { name: "Accueil", path: "/" },
-    { name: "Logements", path: "/logements" },
+    { name: "Locations saisonnieres", path: "/logements?mode=location_saisonniere" },
+    { name: "Hotellerie", path: "/hotels" },
     { name: "Ventes", path: "/ventes" },
     { name: "Apps", path: "/deploy-mobile" },
     { name: "Contact", path: "/contact" },
@@ -409,7 +418,7 @@ export function Header() {
               to={link.path}
               className={`text-sm font-medium transition-colors hover:text-emerald-500 ${
                 useLightText ? "text-white/90 drop-shadow-sm" : "text-gray-700"
-              } ${location.pathname === link.path ? "text-emerald-500 font-bold" : ""}`}
+              } ${isNavLinkActive(link.path) ? "text-emerald-500 font-bold" : ""}`}
             >
               {link.name}
             </Link>

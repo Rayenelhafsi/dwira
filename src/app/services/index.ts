@@ -35,3 +35,6 @@ export * from './notifications';
 
 // Unavailable Dates
 export * from './unavailableDates';
+
+// Hotels
+export * from './hotels';

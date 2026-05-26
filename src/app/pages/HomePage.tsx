@@ -26,7 +26,7 @@ import {
 import { fr } from "date-fns/locale";
 import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
 
-type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
+type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
 type HomeSeasideOptionKey = "pied_dans_eau" | "vue_sur_mer" | "pres_plage";
 type HomeComfortOptionKey =
@@ -39,6 +39,7 @@ type HomeComfortOptionKey =
   | "terrasse";
 const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean }> = [
   { value: "location_saisonniere", label: "Location saisonniere", comingSoon: false },
+  { value: "hotellerie", label: "Hotellerie", comingSoon: false },
   { value: "vente", label: "Vente", comingSoon: PUBLIC_COMING_SOON.ventes },
   { value: "location_annuelle", label: "Location annuelle", comingSoon: PUBLIC_COMING_SOON.locationAnnuelle },
 ];
@@ -366,13 +367,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   };
 
   const today = startOfDay(new Date());
+  const getModeTabPriority = (mode: ListingMode) => {
+    if (mode === "hotellerie") return 1.5;
+    return modePriorities[mode as Exclude<ListingMode, "hotellerie">] || 99;
+  };
   const orderedModeTabs = useMemo(
     () =>
       [...MODE_TABS].sort(
-        (a, b) => (modePriorities[a.value] || 99) - (modePriorities[b.value] || 99)
+        (a, b) => getModeTabPriority(a.value) - getModeTabPriority(b.value)
       ),
     [modePriorities]
   );
+  const isHotelMode = selectedMode === "hotellerie";
   const isSelectedModeComingSoon =
     (selectedMode === "vente" && PUBLIC_COMING_SOON.ventes)
     || (selectedMode === "location_annuelle" && PUBLIC_COMING_SOON.locationAnnuelle);
@@ -803,6 +809,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
   useEffect(() => {
     let cancelled = false;
+    if (isHotelMode) {
+      setTypeFilterImageRows([]);
+      return () => {
+        cancelled = true;
+      };
+    }
     void (async () => {
       try {
         const response = await fetch(
@@ -819,10 +831,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [selectedMode]);
+  }, [isHotelMode, selectedMode]);
 
   useEffect(() => {
     let cancelled = false;
+    if (isHotelMode) {
+      setHomeFilterOptionImageRows([]);
+      return () => {
+        cancelled = true;
+      };
+    }
     void (async () => {
       try {
         const response = await fetch(
@@ -839,7 +857,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [selectedMode]);
+  }, [isHotelMode, selectedMode]);
 
   useEffect(() => {
     const canonicalToLabel = new Map(
@@ -895,7 +913,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       return;
     }
     const requestedMode = searchParams.get("mode");
-    if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere") {
+    if (requestedMode === "vente" || requestedMode === "location_annuelle" || requestedMode === "location_saisonniere" || requestedMode === "hotellerie") {
       const requestedTab = orderedModeTabs.find((tab) => tab.value === requestedMode);
       if (requestedTab && !requestedTab.comingSoon) {
         setSelectedMode(requestedMode);
@@ -1038,7 +1056,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
   const handleSearch = () => {
     setHasSearched(true);
-    
+    if (isHotelMode) {
+      navigate("/hotels");
+      return;
+    }
+
     const params = applyAmicaleParam(new URLSearchParams(searchParams));
     params.set("mode", selectedMode);
     params.delete("location");
@@ -1245,7 +1267,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
           {/* Filter Bar */}
           <div className="relative z-10 -mb-3 px-4 pb-0 md:px-6">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {orderedModeTabs.map((tab) => (
               <button
                 key={tab.value}
@@ -1276,6 +1298,28 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
           <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
             {/* Filter Controls */}
+            {isHotelMode && (
+              <div className="border-b border-sky-100 bg-[linear-gradient(135deg,#eff6ff,#f8fafc)] px-5 py-5 md:px-6">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Nouveau parcours</p>
+                    <h3 className="mt-2 text-2xl font-semibold text-slate-900">Recherche hôtelière partenaire</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                      L&apos;offre hôtelière s&apos;ouvre sur une page dédiée avec les villes MyGo, les dates de séjour et les tarifs renvoyés par le partenaire.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Link to="/hotels" className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700">
+                      Ouvrir l&apos;hôtellerie <ArrowRight size={18} />
+                    </Link>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-4 py-3 text-sm font-medium text-slate-600">
+                      <Star size={16} className="text-amber-500" />
+                      Hotels, pensions et details partenaires
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="p-4 md:p-6">
               <div ref={filterControlsRef} className="grid grid-cols-1 gap-4 md:grid-cols-12">
                 
@@ -1792,17 +1836,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-2xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 duration-200 flex items-center justify-center gap-2"
                   >
                     <Search size={20} />
-                    <span>Rechercher</span>
+                    <span>{isHotelMode ? "Ouvrir l’hôtellerie" : "Rechercher"}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleOpenAdvancedFilters}
-                    aria-label="Ouvrir filtres avances"
-                    title="Filtres avances"
-                    className="shrink-0 rounded-2xl border border-emerald-200 bg-white px-4 text-emerald-700 transition-colors hover:bg-emerald-50"
-                  >
-                    <SlidersHorizontal size={18} />
-                  </button>
+                  {!isHotelMode && (
+                    <button
+                      type="button"
+                      onClick={handleOpenAdvancedFilters}
+                      aria-label="Ouvrir filtres avances"
+                      title="Filtres avances"
+                      className="shrink-0 rounded-2xl border border-emerald-200 bg-white px-4 text-emerald-700 transition-colors hover:bg-emerald-50"
+                    >
+                      <SlidersHorizontal size={18} />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -2182,14 +2228,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 {hasSearched ? "Résultats de la recherche" : "Catalogue des biens"}
               </h2>
               <p className="text-gray-600 max-w-xl">
-                {hasSearched 
-                  ? `${filteredProperties.length} bien${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
-                  : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
+                {isHotelMode
+                  ? "La section hotellerie utilise un flux partenaire separe pour la recherche, les details et les tarifs."
+                  : hasSearched
+                    ? `${filteredProperties.length} bien${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
+                    : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
             {!isSelectedModeComingSoon && (
               <Link
                 to={(() => {
+                  if (isHotelMode) return "/hotels";
                   if (selectedMode === "vente") return "/ventes";
                   const params = applyAmicaleParam(new URLSearchParams(searchParams));
                   params.set("mode", selectedMode);
@@ -2197,7 +2246,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 })()}
                 className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group"
               >
-                Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                {isHotelMode ? "Ouvrir la recherche hôtelière" : "Voir tout le catalogue"} <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </Link>
             )}
           </div>
@@ -2211,7 +2260,39 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             />
           )}
 
-          {!isSelectedModeComingSoon && (<div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
+          {!isSelectedModeComingSoon && isHotelMode && (
+            <div className="rounded-[30px] border border-sky-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
+              <div className="grid gap-5 lg:grid-cols-[1.2fr,0.8fr]">
+                <div className="rounded-[28px] border border-slate-100 bg-[linear-gradient(135deg,#f8fafc,#eff6ff)] p-6">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Hôtellerie connectée</p>
+                  <h3 className="mt-3 text-3xl font-semibold text-slate-900">Hotels, pensions et details partenaires dans un parcours dédié.</h3>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+                    La nouvelle section hôtellerie sépare clairement les offres immobilières classiques des offres MyGo. Vous y trouverez la sélection par ville, les dates de séjour, les voyageurs et les fiches hôtels.
+                  </p>
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <Link to="/hotels" className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700">
+                      Ouvrir l&apos;hôtellerie <ArrowRight size={18} />
+                    </Link>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-4 py-3 text-sm font-medium text-slate-600">
+                      <Calendar size={16} className="text-sky-600" />
+                      Recherche par ville et dates
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-slate-100 bg-slate-950 p-6 text-white">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-200">Ce qui change</p>
+                  <div className="mt-5 space-y-4 text-sm leading-6 text-sky-50/88">
+                    <p><span className="font-semibold text-white">Parcours dédié:</span> les offres hôtelières ne sont plus mélangées avec les appartements et villas saisonnières.</p>
+                    <p><span className="font-semibold text-white">Source partenaire:</span> les résultats, photos et tarifs remontent directement du flux MyGo via le backend Dwira.</p>
+                    <p><span className="font-semibold text-white">Évolution prévue:</span> la base est prête pour brancher ensuite le pré-booking et la réservation finale.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isSelectedModeComingSoon && !isHotelMode && (<div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
               {visibleFilteredProperties.map((property) => (
                 <PropertyCard
@@ -2282,7 +2363,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             )}
           </div>)}
           
-          {filteredProperties.length === 0 && hasSearched && !isSelectedModeComingSoon && (
+          {filteredProperties.length === 0 && hasSearched && !isSelectedModeComingSoon && !isHotelMode && (
             <div className="text-center py-16">
               <p className="text-gray-500 text-lg mb-4">Aucun bien ne correspond à vos critères pour ce mode</p>
               <button 
@@ -2304,8 +2385,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           
           {!isSelectedModeComingSoon && (
             <div className="mt-12 text-center md:hidden">
-              <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
-                Voir tous les logements <ArrowRight size={20} />
+              <Link to={isHotelMode ? "/hotels" : selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
+                {isHotelMode ? "Ouvrir l’hôtellerie" : "Voir tous les logements"} <ArrowRight size={20} />
               </Link>
             </div>
           )}

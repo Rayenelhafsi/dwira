@@ -7,7 +7,7 @@ export const LOCATION_MESSENGER_PAGE_ID = '163909273467177';
 
 export function getPublicContactForMode(mode?: string | null) {
   const normalizedMode = String(mode || '').trim();
-  if (normalizedMode === 'location_saisonniere' || normalizedMode === 'location_annuelle') {
+  if (normalizedMode === 'location_saisonniere' || normalizedMode === 'location_annuelle' || normalizedMode === 'hotellerie') {
     return {
       phone: LOCATION_CONTACT_PHONE,
       messengerPage: LOCATION_MESSENGER_PAGE,

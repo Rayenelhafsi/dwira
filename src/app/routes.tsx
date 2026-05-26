@@ -64,6 +64,8 @@ export const router = createBrowserRouter([
     HydrateFallback: () => <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>,
     children: [
       { index: true, Component: HomePage },
+      { path: "hotels", lazy: lazyPage(() => import("./pages/HotelsPage")) },
+      { path: "hotels/:id", lazy: lazyPage(() => import("./pages/HotelDetailsPage")) },
       { path: "logements", lazy: lazyPage(() => import("./pages/PropertiesPage")) },
       { path: "properties/:slug", lazy: lazyPage(() => import("./pages/PropertyDetailsPage")) },
       { path: "reservation/confirmation/:slug", lazy: lazyPage(() => import("./pages/ReservationConfirmationPage")) },
