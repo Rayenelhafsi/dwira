@@ -69,3 +69,72 @@ export function getHotelAlbum(detail?: HotelDetail | null) {
   const cover = String(detail?.Image || "").trim();
   return Array.from(new Set([cover, ...urls].filter(Boolean)));
 }
+
+function decodeHtmlEntities(value: string) {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return value
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&rsquo;/gi, "'")
+      .replace(/&lsquo;/gi, "'")
+      .replace(/&rdquo;/gi, '"')
+      .replace(/&ldquo;/gi, '"')
+      .replace(/&eacute;/gi, "e")
+      .replace(/&egrave;/gi, "e")
+      .replace(/&ecirc;/gi, "e")
+      .replace(/&agrave;/gi, "a")
+      .replace(/&ocirc;/gi, "o");
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
+}
+
+export function renderHotelRichText(value?: string | null) {
+  const source = String(value || "").trim();
+  if (!source) return "";
+
+  return decodeHtmlEntities(source)
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<li>/gi, "- ")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+export function splitHotelTextParagraphs(value?: string | null) {
+  return renderHotelRichText(value)
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function getHotelTagTitles(detail?: HotelDetail | null, max = 12) {
+  const tags = Array.isArray(detail?.Tag) ? detail.Tag : [];
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => String(tag?.Title || "").trim())
+        .filter(Boolean)
+    )
+  ).slice(0, max);
+}
+
+export function getHotelOptionTitles(detail?: HotelDetail | null, max = 8) {
+  const options = Array.isArray(detail?.Option) ? detail.Option : [];
+  return Array.from(
+    new Set(
+      options
+        .map((option) => String(option?.Title || "").trim())
+        .filter(Boolean)
+    )
+  ).slice(0, max);
+}

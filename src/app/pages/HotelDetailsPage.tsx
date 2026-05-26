@@ -1,9 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { AlertCircle, ChevronLeft, ExternalLink, LoaderCircle, MapPin, ShieldCheck, Star } from "lucide-react";
+import {
+  AlertCircle,
+  BedDouble,
+  CheckCircle2,
+  ChevronLeft,
+  Clock3,
+  ExternalLink,
+  LoaderCircle,
+  Mail,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  Tags,
+  UtensilsCrossed,
+} from "lucide-react";
 import { SmartImage } from "../components/SmartImage";
 import { getHotelDetail, type HotelDetail } from "../services/hotels";
-import { extractHotelBoardingNames, extractHotelMinPrice, formatHotelStarLabel, getHotelAlbum, getHotelFacilityTitles } from "../utils/hotelHelpers";
+import {
+  extractHotelBoardingNames,
+  extractHotelMinPrice,
+  formatHotelStarLabel,
+  getHotelAlbum,
+  getHotelFacilityTitles,
+  getHotelOptionTitles,
+  getHotelTagTitles,
+  renderHotelRichText,
+  splitHotelTextParagraphs,
+} from "../utils/hotelHelpers";
 
 const HOTEL_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
@@ -62,8 +88,48 @@ export default function HotelDetailsPage() {
   const minPrice = useMemo(() => extractHotelMinPrice(hotel), [hotel]);
   const boardings = useMemo(() => extractHotelBoardingNames(hotel), [hotel]);
   const facilities = useMemo(() => getHotelFacilityTitles(hotel?.Facilities, 24), [hotel]);
+  const tags = useMemo(() => getHotelTagTitles(hotel, 16), [hotel]);
+  const options = useMemo(() => getHotelOptionTitles(hotel, 8), [hotel]);
+  const presentationParagraphs = useMemo(
+    () => splitHotelTextParagraphs(hotel?.LongDescription || hotel?.ShortDescription || ""),
+    [hotel]
+  );
+  const practicalNote = useMemo(() => renderHotelRichText(hotel?.Note || ""), [hotel]);
   const mapsLink = useMemo(() => buildMapsLink(hotel), [hotel]);
   const backHref = searchParams.toString() ? `/hotels?${searchParams.toString()}` : "/hotels";
+  const infoCards = useMemo(
+    () => [
+      {
+        key: "category",
+        label: "Categorie",
+        value: hotel?.Category?.Title || hotel?.Type || "-",
+        icon: <Star size={16} className="text-amber-600" />,
+        tone: "bg-amber-50 text-amber-700",
+      },
+      {
+        key: "checkin",
+        label: "Check-in / out",
+        value: hotel?.CheckIn || hotel?.CheckOut ? `${hotel?.CheckIn || "-"} / ${hotel?.CheckOut || "-"}` : "-",
+        icon: <Clock3 size={16} className="text-sky-600" />,
+        tone: "bg-sky-50 text-sky-700",
+      },
+      {
+        key: "phone",
+        label: "Telephone",
+        value: hotel?.Phone || "-",
+        icon: <Phone size={16} className="text-emerald-600" />,
+        tone: "bg-emerald-50 text-emerald-700",
+      },
+      {
+        key: "email",
+        label: "Email",
+        value: hotel?.Email || "-",
+        icon: <Mail size={16} className="text-violet-600" />,
+        tone: "bg-violet-50 text-violet-700",
+      },
+    ],
+    [hotel]
+  );
 
   if (loading) {
     return (
@@ -103,7 +169,8 @@ export default function HotelDetailsPage() {
           <div className="mt-8 grid gap-8 lg:grid-cols-[1.1fr,0.9fr]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-100">
-                {hotel.City?.Name || "Destination"}{hotel.Category?.Title ? ` · ${hotel.Category.Title}` : ""}
+                {hotel.City?.Name || "Destination"}
+                {hotel.Category?.Title ? ` - ${hotel.Category.Title}` : ""}
               </p>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white md:text-6xl">{hotel.Name}</h1>
               <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-sky-50/88">
@@ -183,19 +250,57 @@ export default function HotelDetailsPage() {
           <div className="space-y-6">
             <div className="rounded-[30px] border border-slate-100 bg-white p-6 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
               <h2 className="text-2xl font-semibold text-slate-900">Presentation</h2>
-              <p className="mt-4 text-sm leading-7 text-slate-600">
-                {hotel.LongDescription || hotel.ShortDescription || "Le partenaire n'a pas fourni de description longue pour cet hotel."}
-              </p>
+              <div className="mt-5 space-y-4 text-sm leading-7 text-slate-600">
+                {(presentationParagraphs.length > 0 ? presentationParagraphs : ["Le partenaire n'a pas fourni de description longue pour cet hotel."]).map((paragraph, index) => (
+                  <p key={`presentation-${index}`}>{paragraph}</p>
+                ))}
+              </div>
             </div>
 
-            {facilities.length > 0 && (
+            {(tags.length > 0 || boardings.length > 0 || options.length > 0 || facilities.length > 0) && (
               <div className="rounded-[30px] border border-slate-100 bg-white p-6 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
-                <h2 className="text-2xl font-semibold text-slate-900">Equipements</h2>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+                    <Sparkles size={20} />
+                  </span>
+                  <div>
+                    <h2 className="text-2xl font-semibold text-slate-900">Caracteristiques</h2>
+                    <p className="text-sm text-slate-500">Services, ambiances et options proposes par l'etablissement.</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  {tags.map((item) => (
+                    <div key={`${hotel.Id}-tag-${item}`} className="flex items-center gap-3 rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                        <Tags size={18} />
+                      </span>
+                      <span className="text-sm font-medium text-slate-800">{item}</span>
+                    </div>
+                  ))}
                   {facilities.map((item) => (
-                    <span key={`${hotel.Id}-${item}`} className="rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700">
-                      {item}
-                    </span>
+                    <div key={`${hotel.Id}-facility-${item}`} className="flex items-center gap-3 rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                        <CheckCircle2 size={18} />
+                      </span>
+                      <span className="text-sm font-medium text-slate-800">{item}</span>
+                    </div>
+                  ))}
+                  {boardings.map((item) => (
+                    <div key={`${hotel.Id}-boarding-${item}`} className="flex items-center gap-3 rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-700">
+                        <UtensilsCrossed size={18} />
+                      </span>
+                      <span className="text-sm font-medium text-slate-800">{item}</span>
+                    </div>
+                  ))}
+                  {options.map((item) => (
+                    <div key={`${hotel.Id}-option-${item}`} className="flex items-center gap-3 rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+                        <BedDouble size={18} />
+                      </span>
+                      <span className="text-sm font-medium text-slate-800">{item}</span>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -203,13 +308,50 @@ export default function HotelDetailsPage() {
 
             <div className="rounded-[30px] border border-slate-100 bg-white p-6 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
               <h2 className="text-2xl font-semibold text-slate-900">Infos pratiques</h2>
-              <div className="mt-4 space-y-3 text-sm text-slate-600">
-                <p><span className="font-semibold text-slate-900">Ville:</span> {hotel.City?.Name || "-"}</p>
-                <p><span className="font-semibold text-slate-900">Adresse:</span> {hotel.Adress || "-"}</p>
-                <p><span className="font-semibold text-slate-900">Categorie:</span> {hotel.Category?.Title || "-"}</p>
-                <p><span className="font-semibold text-slate-900">Classement:</span> {formatHotelStarLabel(hotel.Star)}</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 sm:col-span-2">
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    <MapPin size={14} />
+                    Adresse
+                  </span>
+                  <p className="mt-2 text-sm font-medium leading-6 text-slate-800">{hotel.Adress || hotel.City?.Name || "-"}</p>
+                </div>
+                {infoCards.map((item) => (
+                  <div key={item.key} className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
+                    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl ${item.tone}`}>
+                      {item.icon}
+                    </span>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{item.label}</p>
+                    <p className="mt-1 text-sm font-medium leading-6 text-slate-800 break-words">{item.value}</p>
+                  </div>
+                ))}
               </div>
+              {practicalNote && (
+                <div className="mt-5 rounded-[22px] border border-amber-200 bg-amber-50/80 p-4">
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
+                    <AlertCircle size={14} />
+                    A noter
+                  </span>
+                  <div className="mt-3 space-y-2 text-sm leading-6 text-amber-900">
+                    {practicalNote.split(/\n+/).map((line, index) => (
+                      <p key={`note-${index}`}>{line}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {mapsLink && (
+                <a
+                  href={mapsLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-5 inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+                >
+                  Voir l'emplacement sur la carte
+                  <ExternalLink size={15} />
+                </a>
+              )}
             </div>
+
           </div>
         </div>
       </section>

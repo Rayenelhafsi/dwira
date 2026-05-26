@@ -38,6 +38,15 @@ export type HotelSummary = {
 export type HotelDetail = HotelSummary & {
   LongDescription?: string | null;
   Album?: HotelImage[] | null;
+  Tag?: Array<{ Id?: number; Title?: string | null; Image?: string | null }> | null;
+  Option?: Array<{ Id?: number; Title?: string | null }> | null;
+  Boarding?: Array<{ Id?: number; Code?: string | null; Name?: string | null; Description?: string | null }> | null;
+  Note?: string | null;
+  Email?: string | null;
+  Phone?: string | null;
+  CheckIn?: string | null;
+  CheckOut?: string | null;
+  Type?: string | null;
 };
 
 export type HotelProviderConfig = {
