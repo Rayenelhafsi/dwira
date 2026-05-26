@@ -69,12 +69,17 @@ function getClientFacingHotelError(message: string) {
 export default function HotelsPage() {
   const defaults = useMemo(() => buildDefaultSearch(), []);
   const [searchParams, setSearchParams] = useSearchParams();
+  const initialHasSearchParams = useMemo(
+    () => Boolean(searchParams.get("cityId") && searchParams.get("checkIn") && searchParams.get("checkOut")),
+    [searchParams]
+  );
   const [configReady, setConfigReady] = useState<boolean | null>(null);
   const [providerError, setProviderError] = useState("");
   const [cities, setCities] = useState<HotelCity[]>([]);
   const [results, setResults] = useState<HotelSummary[]>([]);
   const [loadingCities, setLoadingCities] = useState(true);
   const [loadingResults, setLoadingResults] = useState(false);
+  const [hasSearched, setHasSearched] = useState(initialHasSearchParams);
   const [cityId, setCityId] = useState<number>(() => Number(searchParams.get("cityId") || 0) || 0);
   const [checkIn, setCheckIn] = useState(() => searchParams.get("checkIn") || defaults.checkIn);
   const [checkOut, setCheckOut] = useState(() => searchParams.get("checkOut") || defaults.checkOut);
@@ -127,6 +132,7 @@ export default function HotelsPage() {
 
   const runSearch = async (options?: { replace?: boolean }) => {
     const nextChildAges = parseChildAges(childAgesText);
+    setHasSearched(true);
     setLoadingResults(true);
     setProviderError("");
     try {
@@ -299,6 +305,7 @@ export default function HotelsPage() {
         </div>
       </section>
 
+      {hasSearched && (
       <section className="container mx-auto px-4 pb-20 md:px-6">
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
@@ -425,6 +432,7 @@ export default function HotelsPage() {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }
