@@ -371,6 +371,24 @@ function extractMyGoHotelData(payload, key) {
   return [];
 }
 
+function normalizeMyGoHotelSearchResults(payload) {
+  const entries = Array.isArray(payload?.HotelSearch) ? payload.HotelSearch : [];
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const hotel = entry.Hotel && typeof entry.Hotel === 'object' ? { ...entry.Hotel } : null;
+      if (!hotel) return null;
+      if (entry.Token !== undefined) hotel.Token = entry.Token;
+      if (entry.Price !== undefined) hotel.Price = entry.Price;
+      if (entry.Source !== undefined) hotel.Source = entry.Source;
+      if (entry.Currency !== undefined) hotel.Currency = entry.Currency;
+      if (entry.Promotion !== undefined) hotel.Promotion = entry.Promotion;
+      if (entry.Recommended !== undefined) hotel.Recommended = entry.Recommended;
+      return hotel;
+    })
+    .filter(Boolean);
+}
+
 async function callMyGoHotelService(serviceName, payload = {}) {
   if (!isMyGoHotelConfigured()) {
     throw createMyGoHotelError(
@@ -2433,7 +2451,7 @@ app.post('/api/hotels/search', async (req, res) => {
     });
 
     return res.json({
-      hotels: extractMyGoHotelData(payload, 'Hotel'),
+      hotels: normalizeMyGoHotelSearchResults(payload),
       countResults: Number(payload?.CountResults || 0),
     });
   } catch (error) {
