@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import {
   AlertCircle,
   BedDouble,
+  CircleDollarSign,
   CheckCircle2,
   ChevronLeft,
   Clock3,
@@ -12,21 +13,26 @@ import {
   MapPin,
   Phone,
   ShieldCheck,
+  ShieldX,
   Sparkles,
   Star,
   Tags,
+  TicketPercent,
   UtensilsCrossed,
 } from "lucide-react";
 import { SmartImage } from "../components/SmartImage";
-import { getHotelDetail, type HotelDetail } from "../services/hotels";
+import { getHotelDetail, searchHotels, type HotelDetail, type HotelSummary } from "../services/hotels";
 import {
   extractHotelBoardingNames,
   extractHotelMinPrice,
+  flattenHotelRoomOffers,
+  formatHotelCancellationPolicy,
   formatHotelStarLabel,
   getHotelAlbum,
   getHotelFacilityTitles,
   getHotelOptionTitles,
   getHotelTagTitles,
+  pickHotelDisplayedPrice,
   renderHotelRichText,
   splitHotelTextParagraphs,
 } from "../utils/hotelHelpers";
@@ -46,10 +52,19 @@ function buildMapsLink(detail?: HotelDetail | null) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
 }
 
+function parseChildAgesParam(value: string | null) {
+  return String(value || "")
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
+}
+
 export default function HotelDetailsPage() {
   const params = useParams();
   const [searchParams] = useSearchParams();
   const [hotel, setHotel] = useState<HotelDetail | null>(null);
+  const [searchHotel, setSearchHotel] = useState<HotelSummary | null>(null);
+  const [loadingOffers, setLoadingOffers] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -84,9 +99,55 @@ export default function HotelDetailsPage() {
     };
   }, [params.id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const hotelId = Number(params.id || 0);
+    const checkIn = String(searchParams.get("checkIn") || "").trim();
+    const checkOut = String(searchParams.get("checkOut") || "").trim();
+    if (hotelId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
+      setSearchHotel(null);
+      setLoadingOffers(false);
+      return;
+    }
+
+    const cityId = Number(searchParams.get("cityId") || 0) || undefined;
+    const adults = Math.max(1, Number(searchParams.get("adults") || 2) || 2);
+    const childAges = parseChildAgesParam(searchParams.get("children"));
+
+    setLoadingOffers(true);
+    void (async () => {
+      try {
+        const hotels = await searchHotels({
+          cityId,
+          hotelIds: [hotelId],
+          checkIn,
+          checkOut,
+          adults,
+          childAges,
+          onlyAvailable: true,
+        });
+        if (cancelled) return;
+        setSearchHotel(hotels.find((item) => Number(item?.Id) === hotelId) || null);
+      } catch {
+        if (!cancelled) {
+          setSearchHotel(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingOffers(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [params.id, searchParams]);
+
   const gallery = useMemo(() => getHotelAlbum(hotel), [hotel]);
-  const minPrice = useMemo(() => extractHotelMinPrice(hotel), [hotel]);
-  const boardings = useMemo(() => extractHotelBoardingNames(hotel), [hotel]);
+  const activeHotel = searchHotel || hotel;
+  const minPrice = useMemo(() => extractHotelMinPrice(activeHotel), [activeHotel]);
+  const boardings = useMemo(() => extractHotelBoardingNames(activeHotel), [activeHotel]);
   const facilities = useMemo(() => getHotelFacilityTitles(hotel?.Facilities, 24), [hotel]);
   const tags = useMemo(() => getHotelTagTitles(hotel, 16), [hotel]);
   const options = useMemo(() => getHotelOptionTitles(hotel, 8), [hotel]);
@@ -95,6 +156,7 @@ export default function HotelDetailsPage() {
     [hotel]
   );
   const practicalNote = useMemo(() => renderHotelRichText(hotel?.Note || ""), [hotel]);
+  const roomOffers = useMemo(() => flattenHotelRoomOffers(searchHotel), [searchHotel]);
   const mapsLink = useMemo(() => buildMapsLink(hotel), [hotel]);
   const backHref = searchParams.toString() ? `/hotels?${searchParams.toString()}` : "/hotels";
   const infoCards = useMemo(
@@ -305,6 +367,129 @@ export default function HotelDetailsPage() {
                 </div>
               </div>
             )}
+
+            <div className="rounded-[30px] border border-slate-100 bg-white p-6 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-semibold text-slate-900">Offres pour ce sejour</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {searchHotel
+                      ? "Chambres, pensions et conditions retournees pour les dates de votre recherche."
+                      : "Lancez une recherche avec vos dates pour afficher les chambres et tarifs exacts."}
+                  </p>
+                </div>
+                {loadingOffers ? <LoaderCircle size={18} className="animate-spin text-slate-400" /> : null}
+              </div>
+
+              {!loadingOffers && roomOffers.length === 0 && (
+                <div className="mt-5 rounded-[22px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-6 text-sm text-slate-500">
+                  Les tarifs detailles s'affichent apres une recherche avec ville, arrivee et depart.
+                </div>
+              )}
+
+              {roomOffers.length > 0 && (
+                <div className="mt-5 space-y-4">
+                  {roomOffers.map((offer, index) => {
+                    const room = offer.room;
+                    const displayedPrice = pickHotelDisplayedPrice(room);
+                    const cancellationLines = formatHotelCancellationPolicy(room?.CancellationPolicy);
+                    const supplements = Array.isArray(room?.Supplement) ? room.Supplement : [];
+                    const views = Array.isArray(room?.View) ? room.View : [];
+                    return (
+                      <div key={`${offer.boardingId}-${room?.Id}-${index}`} className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">
+                              {offer.boardingName || "Pension"}
+                            </p>
+                            <h3 className="mt-2 text-lg font-semibold text-slate-900">{room?.Name || "Chambre"}</h3>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {room?.NotRefundable ? (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                                  <ShieldX size={13} />
+                                  Non remboursable
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                  <ShieldCheck size={13} />
+                                  Conditions d'annulation disponibles
+                                </span>
+                              )}
+                              {room?.OnRequest || room?.StopReservation ? (
+                                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                                  Sur demande
+                                </span>
+                              ) : null}
+                              {Number(room?.Quantity) > 0 ? (
+                                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                                  {Number(room?.Quantity)} dispo
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="min-w-[160px] rounded-[20px] bg-white px-4 py-3 text-right shadow-sm">
+                            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              <CircleDollarSign size={14} />
+                              Prix client
+                            </span>
+                            <div className="mt-2 text-2xl font-semibold text-slate-900">
+                              {displayedPrice !== null ? `${formatPrice(displayedPrice)} TND` : "Sur demande"}
+                            </div>
+                            {room?.BasePrice && Number(room?.BasePrice) > 0 && Number(room?.BasePrice) !== displayedPrice ? (
+                              <p className="mt-1 text-xs text-slate-500">Base: {formatPrice(Number(room?.BasePrice))} TND</p>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {views.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Vues disponibles</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {views.map((view, viewIndex) => (
+                                <span key={`${room?.Id}-view-${view?.Id || viewIndex}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                                  {String(view?.Name || "").trim() || "Vue"}
+                                  {pickHotelDisplayedPrice(view) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(view))} TND` : ""}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {supplements.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Supplements</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {supplements.map((supplement, supplementIndex) => (
+                                <span key={`${room?.Id}-supp-${supplement?.Id || supplementIndex}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                                  {String(supplement?.Name || "").trim() || "Supplement"}
+                                  {pickHotelDisplayedPrice(supplement) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(supplement))} TND` : ""}
+                                  {supplement?.Required ? " · obligatoire" : ""}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {cancellationLines.length > 0 && (
+                          <div className="mt-4 rounded-[18px] border border-slate-200 bg-white px-4 py-3">
+                            <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              <TicketPercent size={14} />
+                              Annulation
+                            </p>
+                            <div className="mt-2 space-y-2 text-sm text-slate-600">
+                              {cancellationLines.map((line, lineIndex) => (
+                                <p key={`${room?.Id}-cancel-${lineIndex}`}>{line}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             <div className="rounded-[30px] border border-slate-100 bg-white p-6 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
               <h2 className="text-2xl font-semibold text-slate-900">Infos pratiques</h2>

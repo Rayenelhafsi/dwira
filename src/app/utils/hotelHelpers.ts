@@ -1,4 +1,12 @@
-import type { HotelDetail, HotelFacility, HotelSummary } from "../services/hotels";
+import type {
+  HotelBoardingOffer,
+  HotelCancellationPolicy,
+  HotelDetail,
+  HotelFacility,
+  HotelPaxOffer,
+  HotelRoomOffer,
+  HotelSummary,
+} from "../services/hotels";
 
 export function formatHotelStarLabel(value?: string | number | null) {
   const normalized = String(value ?? "").trim();
@@ -169,4 +177,72 @@ export function getHotelOptionTitles(detail?: HotelDetail | null, max = 8) {
         .filter(Boolean)
     )
   ).slice(0, max);
+}
+
+export type HotelFlattenedRoomOffer = {
+  boardingId: number | null;
+  boardingCode: string;
+  boardingName: string;
+  room: HotelRoomOffer;
+  pax: HotelPaxOffer | null;
+};
+
+export function flattenHotelRoomOffers(hotel?: HotelSummary | HotelDetail | null) {
+  const boardings = Array.isArray((hotel as any)?.Price?.Boarding) ? ((hotel as any).Price.Boarding as HotelBoardingOffer[]) : [];
+  const offers: HotelFlattenedRoomOffer[] = [];
+
+  boardings.forEach((boarding) => {
+    const paxRows = Array.isArray(boarding?.Pax) ? boarding.Pax : [];
+    if (paxRows.length > 0) {
+      paxRows.forEach((pax) => {
+        const rooms = Array.isArray(pax?.Rooms) ? pax.Rooms : [];
+        rooms.forEach((room) => {
+          offers.push({
+            boardingId: Number(boarding?.Id ?? 0) || null,
+            boardingCode: String(boarding?.Code || "").trim(),
+            boardingName: String(boarding?.Name || "").trim(),
+            room,
+            pax: pax || null,
+          });
+        });
+      });
+      return;
+    }
+
+    const directRooms = Array.isArray(boarding?.Rooms) ? boarding.Rooms : [];
+    directRooms.forEach((room) => {
+      offers.push({
+        boardingId: Number(boarding?.Id ?? 0) || null,
+        boardingCode: String(boarding?.Code || "").trim(),
+        boardingName: String(boarding?.Name || "").trim(),
+        room,
+        pax: null,
+      });
+    });
+  });
+
+  return offers;
+}
+
+export function pickHotelDisplayedPrice(value: { PriceWithAffiliateMarkup?: unknown; Price?: unknown; BasePrice?: unknown } | null | undefined) {
+  const candidates = [value?.PriceWithAffiliateMarkup, value?.Price, value?.BasePrice];
+  for (const candidate of candidates) {
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return null;
+}
+
+export function formatHotelCancellationPolicy(policy?: HotelCancellationPolicy[] | null) {
+  const rows = Array.isArray(policy) ? policy : [];
+  return rows
+    .map((item) => {
+      const fees = String(item?.Fees ?? "").trim();
+      const type = String(item?.Type || "").trim();
+      const nature = String(item?.Nature || "").trim();
+      const fromDate = String(item?.FromDate || "").trim();
+      const parts = [fees && type ? `${fees} ${type}` : fees || type, nature, fromDate ? `a partir du ${fromDate}` : ""].filter(Boolean);
+      return parts.join(" - ");
+    })
+    .filter(Boolean);
 }

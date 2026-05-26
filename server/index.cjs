@@ -389,6 +389,158 @@ function normalizeMyGoHotelSearchResults(payload) {
     .filter(Boolean);
 }
 
+function isMyGoHotelIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+}
+
+function normalizeMyGoHotelBoolean(value) {
+  if (value === true || value === false) return value;
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
+function normalizeMyGoHotelBookingRoom(room, index = 0) {
+  if (!room || typeof room !== 'object') {
+    throw createMyGoHotelError(`Chambre de reservation invalide a l'index ${index}.`, {
+      status: 400,
+      code: 'INVALID_HOTEL_BOOKING_ROOM',
+    });
+  }
+
+  const roomIdRaw = room.roomId ?? room.Id ?? room.id;
+  const boardingId = Number(room.boardingId ?? room.Boarding ?? room.boarding ?? 0);
+  if ((typeof roomIdRaw !== 'string' && !Number.isFinite(Number(roomIdRaw))) || !String(roomIdRaw).trim()) {
+    throw createMyGoHotelError(`roomId manquant pour la chambre ${index + 1}.`, {
+      status: 400,
+      code: 'INVALID_HOTEL_BOOKING_ROOM_ID',
+    });
+  }
+  if (!Number.isInteger(boardingId) || boardingId <= 0) {
+    throw createMyGoHotelError(`boardingId manquant pour la chambre ${index + 1}.`, {
+      status: 400,
+      code: 'INVALID_HOTEL_BOOKING_BOARDING_ID',
+    });
+  }
+
+  const adults = Array.isArray(room.adults) ? room.adults : Array.isArray(room?.Pax?.Adult) ? room.Pax.Adult : [];
+  if (adults.length === 0) {
+    throw createMyGoHotelError(`Au moins un adulte est requis pour la chambre ${index + 1}.`, {
+      status: 400,
+      code: 'INVALID_HOTEL_BOOKING_ADULTS',
+    });
+  }
+
+  const normalizeAdult = (adult, adultIndex) => {
+    if (!adult || typeof adult !== 'object') {
+      throw createMyGoHotelError(`Adulte invalide pour la chambre ${index + 1}.`, {
+        status: 400,
+        code: 'INVALID_HOTEL_BOOKING_ADULT',
+      });
+    }
+    const civility = String(adult.Civility ?? adult.civility ?? '').trim();
+    const name = String(adult.Name ?? adult.name ?? '').trim();
+    const surname = String(adult.Surname ?? adult.surname ?? '').trim();
+    const holder = adult.Holder === true || adult.holder === true || adultIndex === 0;
+    if (!civility || !name || !surname) {
+      throw createMyGoHotelError(`Civility, Name et Surname sont requis pour chaque adulte (chambre ${index + 1}).`, {
+        status: 400,
+        code: 'INVALID_HOTEL_BOOKING_ADULT_FIELDS',
+      });
+    }
+    return { Civility: civility, Name: name, Surname: surname, Holder: holder };
+  };
+
+  const children = Array.isArray(room.children) ? room.children : Array.isArray(room?.Pax?.Child) ? room.Pax.Child : [];
+  const normalizeChild = (child) => {
+    if (!child || typeof child !== 'object') {
+      throw createMyGoHotelError(`Enfant invalide pour la chambre ${index + 1}.`, {
+        status: 400,
+        code: 'INVALID_HOTEL_BOOKING_CHILD',
+      });
+    }
+    const name = String(child.Name ?? child.name ?? '').trim();
+    const surname = String(child.Surname ?? child.surname ?? '').trim();
+    const age = Number(child.Age ?? child.age);
+    if (!name || !surname || !Number.isInteger(age) || age < 0 || age > 17) {
+      throw createMyGoHotelError(`Name, Surname et Age valide sont requis pour chaque enfant (chambre ${index + 1}).`, {
+        status: 400,
+        code: 'INVALID_HOTEL_BOOKING_CHILD_FIELDS',
+      });
+    }
+    return { Name: name, Surname: surname, Age: age };
+  };
+
+  return {
+    Id: typeof roomIdRaw === 'string' ? roomIdRaw.trim() : Number(roomIdRaw),
+    Boarding: boardingId,
+    ...(parseMyGoHotelIntegerArray(room.viewIds ?? room.View ?? room.views).length > 0
+      ? { View: parseMyGoHotelIntegerArray(room.viewIds ?? room.View ?? room.views) }
+      : {}),
+    ...(parseMyGoHotelIntegerArray(room.supplementIds ?? room.Supplement ?? room.supplements).length > 0
+      ? { Supplement: parseMyGoHotelIntegerArray(room.supplementIds ?? room.Supplement ?? room.supplements) }
+      : {}),
+    Pax: {
+      Adult: adults.map(normalizeAdult),
+      ...(children.length > 0 ? { Child: children.map(normalizeChild) } : {}),
+    },
+  };
+}
+
+function buildMyGoHotelBookingPayload(body, { preBooking = false } = {}) {
+  const token = String(body?.token || body?.Token || '').trim();
+  const cityId = Number(body?.cityId || body?.City || 0);
+  const hotelId = Number(body?.hotelId || body?.Hotel || 0);
+  const checkIn = String(body?.checkIn || body?.CheckIn || '').trim();
+  const checkOut = String(body?.checkOut || body?.CheckOut || '').trim();
+  const currency = String(body?.currency || body?.Currency || '').trim();
+  const methodPayment = Number(body?.methodPayment || body?.MethodPayment || 0);
+  const optionIds = parseMyGoHotelIntegerArray(body?.optionIds ?? body?.Option);
+  const rooms = Array.isArray(body?.rooms) ? body.rooms : Array.isArray(body?.Rooms) ? body.Rooms : [];
+
+  if (!token) {
+    throw createMyGoHotelError('Token MyGo manquant.', { status: 400, code: 'INVALID_HOTEL_BOOKING_TOKEN' });
+  }
+  if (!Number.isInteger(cityId) || cityId <= 0 || !Number.isInteger(hotelId) || hotelId <= 0) {
+    throw createMyGoHotelError('cityId et hotelId sont requis pour la reservation hotel.', {
+      status: 400,
+      code: 'INVALID_HOTEL_BOOKING_SCOPE',
+    });
+  }
+  if (!isMyGoHotelIsoDate(checkIn) || !isMyGoHotelIsoDate(checkOut)) {
+    throw createMyGoHotelError('checkIn et checkOut doivent etre au format YYYY-MM-DD.', {
+      status: 400,
+      code: 'INVALID_HOTEL_BOOKING_DATES',
+    });
+  }
+  if (!Array.isArray(rooms) || rooms.length === 0) {
+    throw createMyGoHotelError('Au moins une chambre est requise pour poursuivre la reservation hotel.', {
+      status: 400,
+      code: 'INVALID_HOTEL_BOOKING_ROOMS',
+    });
+  }
+
+  return {
+    HotelBooking: {
+      ...(preBooking ? { PreBooking: true } : {}),
+      Token: token,
+      ...(Number.isInteger(methodPayment) && methodPayment > 0 ? { MethodPayment: methodPayment } : {}),
+      ...(currency ? { Currency: currency } : {}),
+      City: cityId,
+      Hotel: hotelId,
+      CheckIn: checkIn,
+      CheckOut: checkOut,
+      ...(optionIds.length > 0 ? { Option: optionIds } : {}),
+      Rooms: rooms.map((room, index) => normalizeMyGoHotelBookingRoom(room, index)),
+    },
+  };
+}
+
+function normalizeMyGoHotelBookingResponse(payload) {
+  const booking = payload?.BookingDetail || payload?.BookingCreation || payload?.Booking || payload || {};
+  return booking && typeof booking === 'object' ? booking : {};
+}
+
 async function callMyGoHotelService(serviceName, payload = {}) {
   if (!isMyGoHotelConfigured()) {
     throw createMyGoHotelError(
@@ -2382,6 +2534,54 @@ app.get('/api/hotels/cities', async (req, res) => {
   }
 });
 
+app.get('/api/hotels/boardings', async (req, res) => {
+  try {
+    const payload = await callMyGoHotelService('ListBoarding');
+    return res.json({
+      boardings: extractMyGoHotelData(payload, 'ListBoarding'),
+      countResults: Number(payload?.CountResults || 0),
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Chargement des pensions impossible',
+      code: error?.code || 'MYGO_HOTEL_ERROR',
+      providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
+app.get('/api/hotels/tags', async (req, res) => {
+  try {
+    const payload = await callMyGoHotelService('ListTag');
+    return res.json({
+      tags: extractMyGoHotelData(payload, 'ListTag'),
+      countResults: Number(payload?.CountResults || 0),
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Chargement des tags impossible',
+      code: error?.code || 'MYGO_HOTEL_ERROR',
+      providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
+app.get('/api/hotels/currencies', async (req, res) => {
+  try {
+    const payload = await callMyGoHotelService('ListCurrency');
+    return res.json({
+      currencies: extractMyGoHotelData(payload, 'ListCurrency'),
+      countResults: Number(payload?.CountResults || 0),
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Chargement des devises impossible',
+      code: error?.code || 'MYGO_HOTEL_ERROR',
+      providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
 app.get('/api/hotels/list', async (req, res) => {
   try {
     const cityId = Number(req.query?.cityId || 0);
@@ -2457,6 +2657,103 @@ app.post('/api/hotels/search', async (req, res) => {
   } catch (error) {
     return res.status(Number(error?.status) || 502).json({
       error: error?.message || 'Recherche hoteliere impossible',
+      code: error?.code || 'MYGO_HOTEL_ERROR',
+      providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
+app.post('/api/hotels/prebook', async (req, res) => {
+  try {
+    const payload = await callMyGoHotelService('BookingCreation', buildMyGoHotelBookingPayload(req.body, { preBooking: true }));
+    return res.json({
+      booking: normalizeMyGoHotelBookingResponse(payload),
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Prebooking hotel impossible',
+      code: error?.code || 'MYGO_HOTEL_ERROR',
+      providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
+app.post('/api/hotels/book', async (req, res) => {
+  try {
+    const payload = await callMyGoHotelService('BookingCreation', buildMyGoHotelBookingPayload(req.body, { preBooking: false }));
+    return res.json({
+      booking: normalizeMyGoHotelBookingResponse(payload),
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Creation de reservation hotel impossible',
+      code: error?.code || 'MYGO_HOTEL_ERROR',
+      providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
+app.get('/api/hotels/bookings', async (req, res) => {
+  try {
+    const bookingId = Number(req.query?.bookingId || req.query?.Booking || 0);
+    const hotelId = Number(req.query?.hotelId || req.query?.Hotel || 0);
+    const fromDate = String(req.query?.fromDate || req.query?.FromDate || '').trim();
+    const toDate = String(req.query?.toDate || req.query?.ToDate || '').trim();
+    const state = String(req.query?.state || req.query?.State || '').trim();
+    const currency = String(req.query?.currency || req.query?.Currency || '').trim();
+
+    if (fromDate && !isMyGoHotelIsoDate(fromDate)) {
+      return res.status(400).json({ error: 'fromDate doit etre au format YYYY-MM-DD.', code: 'INVALID_HOTEL_BOOKING_LIST_FROM_DATE' });
+    }
+    if (toDate && !isMyGoHotelIsoDate(toDate)) {
+      return res.status(400).json({ error: 'toDate doit etre au format YYYY-MM-DD.', code: 'INVALID_HOTEL_BOOKING_LIST_TO_DATE' });
+    }
+
+    const payload = await callMyGoHotelService('BookingList', {
+      ...(currency ? { Currency: currency } : {}),
+      Filters: {
+        ...(bookingId > 0 ? { Booking: bookingId } : {}),
+        ...(hotelId > 0 ? { Hotel: hotelId } : {}),
+        ...(fromDate ? { FromDate: fromDate } : {}),
+        ...(toDate ? { ToDate: toDate } : {}),
+        ...(state ? { State: state } : {}),
+      },
+    });
+
+    return res.json({
+      bookings: extractMyGoHotelData(payload, 'BookingDetail'),
+      countResults: Number(payload?.CountResults || 0),
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Chargement des reservations hotel impossible',
+      code: error?.code || 'MYGO_HOTEL_ERROR',
+      providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
+app.post('/api/hotels/bookings/cancel', async (req, res) => {
+  try {
+    const bookingId = Number(req.body?.bookingId || req.body?.Booking || 0);
+    const preCancelled = req.body?.preCancelled === undefined ? undefined : normalizeMyGoHotelBoolean(req.body?.preCancelled);
+    const currency = String(req.body?.currency || req.body?.Currency || '').trim();
+    if (!Number.isInteger(bookingId) || bookingId <= 0) {
+      return res.status(400).json({ error: 'bookingId invalide.', code: 'INVALID_HOTEL_BOOKING_ID' });
+    }
+
+    const payload = await callMyGoHotelService('BookingCancellation', {
+      Booking: bookingId,
+      ...(preCancelled !== undefined ? { PreCancelled: preCancelled } : {}),
+      ...(currency ? { Currency: currency } : {}),
+    });
+
+    return res.json({
+      cancellation: payload && typeof payload === 'object' ? payload : {},
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Annulation de reservation hotel impossible',
       code: error?.code || 'MYGO_HOTEL_ERROR',
       providerCode: error?.providerCode ?? null,
     });
