@@ -2721,7 +2721,7 @@ app.get('/api/hotels/bookings', async (req, res) => {
     });
 
     return res.json({
-      bookings: extractMyGoHotelData(payload, 'BookingDetail'),
+      bookings: extractMyGoHotelData(payload, 'BookingList'),
       countResults: Number(payload?.CountResults || 0),
     });
   } catch (error) {
