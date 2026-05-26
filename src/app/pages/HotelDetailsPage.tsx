@@ -208,7 +208,7 @@ export default function HotelDetailsPage() {
         <div className="mx-auto max-w-3xl rounded-[30px] border border-amber-200 bg-white p-8 text-center shadow-sm">
           <AlertCircle className="mx-auto h-10 w-10 text-amber-600" />
           <h1 className="mt-5 text-3xl font-semibold text-slate-900">Detail hotel indisponible</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-500">{error || "Aucune donnee n'a ete retournee par le partenaire."}</p>
+          <p className="mt-3 text-sm leading-6 text-slate-500">{error || "Aucune donnee detaillee n'est disponible pour cet hotel pour le moment."}</p>
           <Link to={backHref} className="mt-6 inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-700">
             <ChevronLeft size={16} />
             Retour a la recherche
@@ -261,7 +261,7 @@ export default function HotelDetailsPage() {
                 {minPrice !== null ? `${formatPrice(minPrice)} TND` : "Sur demande"}
               </div>
               <p className="mt-2 text-sm leading-6 text-sky-50/82">
-                Le prix exact depend des dates, de la pension, des supplements et des chambres retournes par MyGo.
+                Le prix exact depend des dates, de la pension, des supplements et des chambres disponibles pour votre sejour.
               </p>
               {mapsLink && (
                 <a
@@ -313,7 +313,7 @@ export default function HotelDetailsPage() {
             <div className="rounded-[30px] border border-slate-100 bg-white p-6 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
               <h2 className="text-2xl font-semibold text-slate-900">Presentation</h2>
               <div className="mt-5 space-y-4 text-sm leading-7 text-slate-600">
-                {(presentationParagraphs.length > 0 ? presentationParagraphs : ["Le partenaire n'a pas fourni de description longue pour cet hotel."]).map((paragraph, index) => (
+                {(presentationParagraphs.length > 0 ? presentationParagraphs : ["La description detaillee de cet hotel sera ajoutee prochainement."]).map((paragraph, index) => (
                   <p key={`presentation-${index}`}>{paragraph}</p>
                 ))}
               </div>
