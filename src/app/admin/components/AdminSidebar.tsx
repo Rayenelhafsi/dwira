@@ -15,7 +15,8 @@ import {
   UserCheck,
   Bell,
   ShieldCheck,
-  Handshake
+  Handshake,
+  Hotel
 } from 'lucide-react';
 import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
 
@@ -118,6 +119,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     { name: 'Contrats', path: '/admin/contrats', icon: FileText },
     { name: 'Paiements', path: '/admin/paiements', icon: CreditCard },
     { name: 'Amicales', path: '/admin/amicales', icon: Handshake },
+    { name: 'Reservations hotels', path: '/admin/reservations-hotels', icon: Hotel },
     { name: 'Maintenance', path: '/admin/maintenance', icon: Wrench },
     { name: 'Notifications', path: '/admin/notifications', icon: Bell, badgeCount: notificationAlertCount },
     { name: 'Statistiques', path: '/admin/statistiques', icon: BarChart },

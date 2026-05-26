@@ -557,6 +557,13 @@ export type ReservationDemandStatus =
 
 export type ReservationDemandRequestType = 'reservation' | 'visite';
 
+export type HotelReservationDemandStatus =
+  | 'nouvelle_demande'
+  | 'contact_client'
+  | 'en_cours'
+  | 'confirmee'
+  | 'annulee';
+
 export interface ReservationDemand {
   id: string;
   bien_id: string;
@@ -635,4 +642,33 @@ export interface ReservationDemandHistory {
   actor_id?: string | null;
   note?: string | null;
   created_at: string;
+}
+
+export interface HotelReservationDemand {
+  id: string;
+  client_user_id?: string | null;
+  client_email?: string | null;
+  client_name?: string | null;
+  client_phone?: string | null;
+  hotel_id: string;
+  hotel_name: string;
+  hotel_city_id?: string | null;
+  hotel_city_name?: string | null;
+  hotel_image_url?: string | null;
+  check_in: string;
+  check_out: string;
+  adults: number;
+  child_ages?: number[];
+  boarding_id?: string | null;
+  boarding_name?: string | null;
+  room_id?: string | null;
+  room_name?: string | null;
+  total_price?: number | null;
+  currency?: string | null;
+  status: HotelReservationDemandStatus;
+  client_note?: string | null;
+  admin_note?: string | null;
+  hotel_context?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
 }

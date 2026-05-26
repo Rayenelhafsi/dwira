@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   AlertCircle,
   BedDouble,
@@ -20,8 +20,11 @@ import {
   TicketPercent,
   UtensilsCrossed,
 } from "lucide-react";
+import { toast } from "sonner";
 import { SmartImage } from "../components/SmartImage";
-import { getHotelDetail, searchHotels, type HotelDetail, type HotelSummary } from "../services/hotels";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { useAuth } from "../context/AuthContext";
+import { createHotelReservationDemand, getHotelDetail, searchHotels, type HotelDetail, type HotelSummary } from "../services/hotels";
 import {
   extractHotelBoardingNames,
   extractHotelMinPrice,
@@ -60,6 +63,9 @@ function parseChildAgesParam(value: string | null) {
 }
 
 export default function HotelDetailsPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const params = useParams();
   const [searchParams] = useSearchParams();
   const [hotel, setHotel] = useState<HotelDetail | null>(null);
@@ -67,6 +73,10 @@ export default function HotelDetailsPage() {
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [requestOfferIndex, setRequestOfferIndex] = useState<number | null>(null);
+  const [reservationPhone, setReservationPhone] = useState("");
+  const [reservationNote, setReservationNote] = useState("");
+  const [submittingReservation, setSubmittingReservation] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +167,7 @@ export default function HotelDetailsPage() {
   );
   const practicalNote = useMemo(() => renderHotelRichText(hotel?.Note || ""), [hotel]);
   const roomOffers = useMemo(() => flattenHotelRoomOffers(searchHotel), [searchHotel]);
+  const activeRequestOffer = requestOfferIndex !== null ? roomOffers[requestOfferIndex] || null : null;
   const mapsLink = useMemo(() => buildMapsLink(hotel), [hotel]);
   const backHref = searchParams.toString() ? `/hotels?${searchParams.toString()}` : "/hotels";
   const infoCards = useMemo(
@@ -192,6 +203,73 @@ export default function HotelDetailsPage() {
     ],
     [hotel]
   );
+
+  const openReservationRequest = (offerIndex: number) => {
+    if (!user) {
+      navigate(`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`);
+      return;
+    }
+    setRequestOfferIndex(offerIndex);
+  };
+
+  const submitHotelReservationDemand = async () => {
+    if (!user || !hotel || !activeRequestOffer) {
+      return;
+    }
+    if (!checkIn || !checkOut) {
+      toast.error("Veuillez lancer une recherche avec vos dates avant d'envoyer une demande.");
+      return;
+    }
+    if (!reservationPhone.trim()) {
+      toast.error("Numero de telephone obligatoire.");
+      return;
+    }
+
+    const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room);
+    setSubmittingReservation(true);
+    try {
+      await createHotelReservationDemand({
+        hotelId: hotel.Id,
+        hotelName: hotel.Name,
+        hotelCityId: hotel.City?.Id || null,
+        hotelCityName: hotel.City?.Name || null,
+        hotelImageUrl: gallery[0] || hotel.Image || null,
+        checkIn,
+        checkOut,
+        adults,
+        childAges,
+        boardingId: activeRequestOffer.boardingId,
+        boardingName: activeRequestOffer.boardingName,
+        roomId: activeRequestOffer.room?.Id || null,
+        roomName: activeRequestOffer.room?.Name || null,
+        totalPrice: displayedPrice,
+        currency: "TND",
+        clientPhone: reservationPhone.trim(),
+        clientNote: reservationNote.trim() || null,
+        hotelContext: {
+          token: searchHotel?.Token || null,
+          hotel,
+          offer: activeRequestOffer,
+        },
+      });
+      toast.success("Votre demande hotellerie a ete envoyee. Notre equipe vous contactera rapidement.");
+      setRequestOfferIndex(null);
+      setReservationNote("");
+    } catch (nextError) {
+      toast.error(nextError instanceof Error ? nextError.message : "Impossible d'envoyer la demande hotellerie");
+    } finally {
+      setSubmittingReservation(false);
+    }
+  };
+
+  useEffect(() => {
+    setReservationPhone(String(user?.telephone || ""));
+  }, [user?.telephone]);
+
+  const checkIn = String(searchParams.get("checkIn") || "").trim();
+  const checkOut = String(searchParams.get("checkOut") || "").trim();
+  const childAges = parseChildAgesParam(searchParams.get("children"));
+  const adults = Math.max(1, Number(searchParams.get("adults") || 2) || 2);
 
   if (loading) {
     return (
@@ -484,6 +562,19 @@ export default function HotelDetailsPage() {
                             </div>
                           </div>
                         )}
+
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                          <p className="text-sm text-slate-500">
+                            Envoyez une demande pour cette offre et l'agence vous recontacte pour finaliser la reservation.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => openReservationRequest(index)}
+                            className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
+                          >
+                            Demander cette reservation
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -540,6 +631,83 @@ export default function HotelDetailsPage() {
           </div>
         </div>
       </section>
+
+      <Dialog open={requestOfferIndex !== null} onOpenChange={(open) => !open && !submittingReservation && setRequestOfferIndex(null)}>
+        <DialogContent className="max-w-2xl rounded-[28px] border-0 p-0 shadow-2xl">
+          <DialogHeader className="border-b border-slate-100 px-6 pb-4 pt-6">
+            <DialogTitle className="text-2xl font-semibold text-slate-900">Demande de reservation hotellerie</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Verifiez l'offre choisie puis laissez votre numero pour que l'agence confirme la suite avec vous.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 px-6 py-5">
+            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">{hotel.Name}</p>
+              <p className="mt-2 text-lg font-semibold text-slate-900">{activeRequestOffer?.boardingName || "Pension"} - {activeRequestOffer?.room?.Name || "Chambre"}</p>
+              <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-600">
+                <span className="rounded-full bg-white px-3 py-1">{checkIn} au {checkOut}</span>
+                <span className="rounded-full bg-white px-3 py-1">{adults} adulte(s){childAges.length > 0 ? `, ${childAges.length} enfant(s)` : ""}</span>
+                <span className="rounded-full bg-white px-3 py-1">
+                  {activeRequestOffer ? (pickHotelDisplayedPrice(activeRequestOffer.room) !== null ? `${formatPrice(pickHotelDisplayedPrice(activeRequestOffer.room))} TND` : "Sur demande") : "Sur demande"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Nom</label>
+                <input value={user?.name || ""} readOnly className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
+                <input value={user?.email || ""} readOnly className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Telephone *</label>
+              <input
+                value={reservationPhone}
+                onChange={(event) => setReservationPhone(event.target.value)}
+                placeholder="+216 ..."
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Message complementaire</label>
+              <textarea
+                value={reservationNote}
+                onChange={(event) => setReservationNote(event.target.value)}
+                rows={4}
+                placeholder="Exemple: heure d'arrivee souhaitee, demande particuliere, mode de contact prefere..."
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-slate-100 px-6 py-4">
+            <button
+              type="button"
+              onClick={() => setRequestOfferIndex(null)}
+              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              disabled={submittingReservation}
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitHotelReservationDemand()}
+              disabled={submittingReservation}
+              className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {submittingReservation ? <LoaderCircle size={16} className="animate-spin" /> : null}
+              Envoyer la demande
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -202,6 +202,63 @@ export type HotelBookingFilters = {
   currency?: string;
 };
 
+export type HotelReservationDemandStatus =
+  | "nouvelle_demande"
+  | "contact_client"
+  | "en_cours"
+  | "confirmee"
+  | "annulee";
+
+export type HotelReservationDemand = {
+  id: string;
+  client_user_id?: string | null;
+  client_email?: string | null;
+  client_name?: string | null;
+  client_phone?: string | null;
+  hotel_id: string;
+  hotel_name: string;
+  hotel_city_id?: string | null;
+  hotel_city_name?: string | null;
+  hotel_image_url?: string | null;
+  check_in: string;
+  check_out: string;
+  adults: number;
+  child_ages?: number[];
+  boarding_id?: string | null;
+  boarding_name?: string | null;
+  room_id?: string | null;
+  room_name?: string | null;
+  total_price?: number | null;
+  currency?: string | null;
+  status: HotelReservationDemandStatus;
+  client_note?: string | null;
+  admin_note?: string | null;
+  hotel_context?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateHotelReservationDemandRequest = {
+  hotelId: number | string;
+  hotelName: string;
+  hotelCityId?: number | string | null;
+  hotelCityName?: string | null;
+  hotelImageUrl?: string | null;
+  checkIn: string;
+  checkOut: string;
+  adults: number;
+  childAges?: number[];
+  boardingId?: number | string | null;
+  boardingName?: string | null;
+  roomId?: number | string | null;
+  roomName?: string | null;
+  totalPrice?: number | null;
+  currency?: string | null;
+  clientPhone: string;
+  clientNote?: string | null;
+  hotelContext?: Record<string, unknown> | null;
+};
+
 function buildApiUrl(path: string) {
   const base = String(API_URL || "/api").replace(/\/+$/, "");
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
@@ -318,4 +375,36 @@ export async function cancelHotelBooking(request: { bookingId: number; preCancel
     body: JSON.stringify(request),
   });
   return readApiResponse<any>(response);
+}
+
+export async function createHotelReservationDemand(request: CreateHotelReservationDemandRequest) {
+  const response = await fetch(buildApiUrl("/hotel-reservation-demands"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(request),
+  });
+  return readApiResponse<HotelReservationDemand>(response);
+}
+
+export async function listHotelReservationDemands(status?: string) {
+  const url = new URL(buildApiUrl("/hotel-reservation-demands"), window.location.origin);
+  if (status) {
+    url.searchParams.set("status", status);
+  }
+  const response = await fetch(url.pathname + url.search, { credentials: "include" });
+  return readApiResponse<HotelReservationDemand[]>(response);
+}
+
+export async function updateHotelReservationDemand(
+  demandId: string,
+  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note">>
+) {
+  const response = await fetch(buildApiUrl(`/hotel-reservation-demands/${encodeURIComponent(demandId)}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(patch),
+  });
+  return readApiResponse<HotelReservationDemand>(response);
 }

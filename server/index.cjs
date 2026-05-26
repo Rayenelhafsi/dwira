@@ -541,6 +541,76 @@ function normalizeMyGoHotelBookingResponse(payload) {
   return booking && typeof booking === 'object' ? booking : {};
 }
 
+async function ensureHotelReservationDemandSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hotel_reservation_demands (
+      id VARCHAR(100) PRIMARY KEY,
+      client_user_id VARCHAR(100) NULL,
+      client_email VARCHAR(255) NULL,
+      client_name VARCHAR(255) NULL,
+      client_phone VARCHAR(40) NULL,
+      hotel_id VARCHAR(80) NOT NULL,
+      hotel_name VARCHAR(255) NOT NULL,
+      hotel_city_id VARCHAR(80) NULL,
+      hotel_city_name VARCHAR(255) NULL,
+      hotel_image_url VARCHAR(700) NULL,
+      check_in DATE NOT NULL,
+      check_out DATE NOT NULL,
+      adults INT NOT NULL DEFAULT 1,
+      child_ages_json LONGTEXT NULL,
+      boarding_id VARCHAR(80) NULL,
+      boarding_name VARCHAR(255) NULL,
+      room_id VARCHAR(80) NULL,
+      room_name VARCHAR(255) NULL,
+      total_price DECIMAL(12,2) NULL,
+      currency VARCHAR(10) NULL,
+      status VARCHAR(40) NOT NULL,
+      client_note TEXT NULL,
+      admin_note TEXT NULL,
+      hotel_context_json LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_hotel_reservation_demands_client (client_user_id, client_email),
+      KEY idx_hotel_reservation_demands_status (status),
+      KEY idx_hotel_reservation_demands_hotel (hotel_id),
+      KEY idx_hotel_reservation_demands_dates (check_in, check_out)
+    )
+  `);
+
+  if (!(await columnExists('hotel_reservation_demands', 'hotel_context_json'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN hotel_context_json LONGTEXT NULL AFTER admin_note');
+  }
+}
+
+function formatHotelReservationDemandRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    adults: Math.max(1, Number(row.adults || 1)),
+    total_price: row.total_price === null || row.total_price === undefined ? null : Number(row.total_price),
+    child_ages: parseJsonArray(row.child_ages_json),
+    hotel_context: (() => {
+      try {
+        return row.hotel_context_json ? JSON.parse(row.hotel_context_json) : null;
+      } catch {
+        return null;
+      }
+    })(),
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function canAccessHotelReservationDemand(authUser, demand) {
+  if (!authUser || !demand) return false;
+  if (String(authUser.role || '').trim() === 'admin') return true;
+  const requesterId = String(authUser.id || '').trim();
+  const requesterEmail = normalizeEmailForCompare(authUser.email);
+  const demandUserId = String(demand.client_user_id || '').trim();
+  const demandEmail = normalizeEmailForCompare(demand.client_email);
+  return Boolean((requesterId && requesterId === demandUserId) || (requesterEmail && requesterEmail === demandEmail));
+}
+
 async function callMyGoHotelService(serviceName, payload = {}) {
   if (!isMyGoHotelConfigured()) {
     throw createMyGoHotelError(
@@ -2757,6 +2827,186 @@ app.post('/api/hotels/bookings/cancel', async (req, res) => {
       code: error?.code || 'MYGO_HOTEL_ERROR',
       providerCode: error?.providerCode ?? null,
     });
+  }
+});
+
+app.get('/api/hotel-reservation-demands', requireAuthenticatedSession, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const requester = req.authUser || null;
+    const where = [];
+    const params = [];
+
+    if (String(requester?.role || '').trim() === 'admin') {
+      const status = String(req.query?.status || '').trim();
+      if (status) {
+        where.push('status = ?');
+        params.push(status);
+      }
+    } else {
+      where.push('(client_user_id = ? OR (client_email IS NOT NULL AND LOWER(TRIM(client_email)) = ?))');
+      params.push(String(requester?.id || '').trim(), normalizeEmailForCompare(requester?.email));
+    }
+
+    const [rows] = await pool.query(
+      `SELECT
+         *,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY created_at DESC`,
+      params
+    );
+
+    return res.json((rows || []).map((row) => formatHotelReservationDemandRow(row)));
+  } catch (error) {
+    console.error('Error fetching hotel reservation demands:', error);
+    return res.status(500).json({ error: 'Impossible de charger les demandes hotellerie' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+
+    const requester = req.authUser || null;
+    const now = getAgencySqlDateTime();
+    const childAges = Array.isArray(req.body?.childAges) ? req.body.childAges.map((age) => Number(age)).filter((age) => Number.isInteger(age) && age >= 0 && age <= 17) : [];
+    const adults = Math.max(1, Number(req.body?.adults || 1));
+    const totalPriceRaw = Number(req.body?.totalPrice);
+    const demandId = `hotel_req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const hotelId = String(req.body?.hotelId || '').trim();
+    const hotelName = String(req.body?.hotelName || '').trim();
+    const hotelCityId = String(req.body?.hotelCityId || '').trim() || null;
+    const hotelCityName = String(req.body?.hotelCityName || '').trim() || null;
+    const hotelImageUrl = String(req.body?.hotelImageUrl || '').trim() || null;
+    const checkIn = String(req.body?.checkIn || '').trim();
+    const checkOut = String(req.body?.checkOut || '').trim();
+    const boardingId = String(req.body?.boardingId || '').trim() || null;
+    const boardingName = String(req.body?.boardingName || '').trim() || null;
+    const roomId = String(req.body?.roomId || '').trim() || null;
+    const roomName = String(req.body?.roomName || '').trim() || null;
+    const currency = String(req.body?.currency || '').trim() || 'TND';
+    const clientPhone = String(req.body?.clientPhone || requester?.telephone || '').trim();
+    const clientNote = String(req.body?.clientNote || '').trim() || null;
+    const hotelContext = req.body?.hotelContext && typeof req.body.hotelContext === 'object' ? req.body.hotelContext : null;
+    const totalPrice = Number.isFinite(totalPriceRaw) && totalPriceRaw > 0 ? totalPriceRaw : null;
+
+    if (!hotelId || !hotelName) {
+      return res.status(400).json({ error: 'Hotel invalide.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
+      return res.status(400).json({ error: 'Dates hotel invalides.' });
+    }
+    if (!clientPhone) {
+      return res.status(400).json({ error: 'Numero de telephone obligatoire.' });
+    }
+
+    await pool.query(
+      `INSERT INTO hotel_reservation_demands (
+         id, client_user_id, client_email, client_name, client_phone,
+         hotel_id, hotel_name, hotel_city_id, hotel_city_name, hotel_image_url,
+         check_in, check_out, adults, child_ages_json,
+         boarding_id, boarding_name, room_id, room_name,
+         total_price, currency, status, client_note, admin_note, hotel_context_json, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        demandId,
+        String(requester?.id || '').trim() || null,
+        String(requester?.email || '').trim().toLowerCase() || null,
+        String(requester?.name || '').trim() || String(requester?.email || '').trim() || 'Client',
+        clientPhone,
+        hotelId,
+        hotelName,
+        hotelCityId,
+        hotelCityName,
+        hotelImageUrl,
+        checkIn,
+        checkOut,
+        adults,
+        JSON.stringify(childAges),
+        boardingId,
+        boardingName,
+        roomId,
+        roomName,
+        totalPrice,
+        currency,
+        'nouvelle_demande',
+        clientNote,
+        null,
+        JSON.stringify(hotelContext),
+        now,
+        now,
+      ]
+    );
+
+    await createAdminNotification(
+      'warning',
+      `Nouvelle demande hotellerie: ${String(requester?.name || requester?.email || 'Client')} pour ${hotelName} du ${checkIn} au ${checkOut}`,
+      now
+    );
+
+    const [rows] = await pool.query(
+      `SELECT
+         *,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands
+       WHERE id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+
+    return res.status(201).json(formatHotelReservationDemandRow(rows?.[0] || null));
+  } catch (error) {
+    console.error('Error creating hotel reservation demand:', error);
+    return res.status(500).json({ error: 'Impossible de creer la demande hotellerie' });
+  }
+});
+
+app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!canAccessHotelReservationDemand(req.authUser, current)) {
+      return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    }
+
+    const requesterIsAdmin = String(req.authUser?.role || '').trim() === 'admin';
+    const nextStatus = requesterIsAdmin ? String(req.body?.status || current.status || '').trim() || current.status : current.status;
+    const nextAdminNote = requesterIsAdmin ? (String(req.body?.admin_note || '').trim() || null) : (current.admin_note || null);
+    const nextClientNote = !requesterIsAdmin && req.body?.client_note !== undefined
+      ? (String(req.body?.client_note || '').trim() || null)
+      : (current.client_note || null);
+    const now = getAgencySqlDateTime();
+
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET status = ?, admin_note = ?, client_note = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, nextAdminNote, nextClientNote, now, demandId]
+    );
+
+    const [updatedRows] = await pool.query(
+      `SELECT
+         *,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands
+       WHERE id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+    return res.json(formatHotelReservationDemandRow(updatedRows?.[0] || null));
+  } catch (error) {
+    console.error('Error updating hotel reservation demand:', error);
+    return res.status(500).json({ error: 'Impossible de mettre a jour la demande hotellerie' });
   }
 });
 
