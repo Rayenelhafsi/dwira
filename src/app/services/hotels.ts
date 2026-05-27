@@ -255,12 +255,34 @@ export type HotelReservationDemand = {
   voucher_generated_at?: string | null;
   voucher_sent_at?: string | null;
   voucher_qr_payload?: string | null;
+  voucher_qr_image_url?: string | null;
   status: HotelReservationDemandStatus;
   client_note?: string | null;
   admin_note?: string | null;
   hotel_context?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+};
+
+export type HotelVoucherLayoutField = {
+  kind: "text" | "image";
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize?: number;
+  fontWeight?: number;
+  textAlign?: "left" | "center" | "right";
+  color?: string;
+};
+
+export type HotelVoucherLayout = {
+  version: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  templateUrl: string;
+  fields: Record<string, HotelVoucherLayoutField>;
 };
 
 export type CreateHotelReservationDemandRequest = {
@@ -423,7 +445,9 @@ export async function listHotelReservationDemands(status?: string) {
 
 export async function updateHotelReservationDemand(
   demandId: string,
-  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "voucher_id" | "voucher_number" | "voucher_qr_payload">>
+  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> & {
+    force_generate_voucher?: boolean;
+  }
 ) {
   const response = await fetch(buildApiUrl(`/hotel-reservation-demands/${encodeURIComponent(demandId)}`), {
     method: "PUT",
@@ -432,4 +456,32 @@ export async function updateHotelReservationDemand(
     body: JSON.stringify(patch),
   });
   return readApiResponse<HotelReservationDemand>(response);
+}
+
+export async function uploadHotelVoucherQr(demandId: string, file: File) {
+  const formData = new FormData();
+  formData.append("qr", file);
+  const response = await fetch(buildApiUrl(`/hotel-reservation-demands/${encodeURIComponent(demandId)}/upload-voucher-qr`), {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  return readApiResponse<HotelReservationDemand>(response);
+}
+
+export async function getHotelVoucherLayout() {
+  const response = await fetch(buildApiUrl("/hotel-voucher-layout"), {
+    credentials: "include",
+  });
+  return readApiResponse<HotelVoucherLayout>(response);
+}
+
+export async function saveHotelVoucherLayout(layout: HotelVoucherLayout) {
+  const response = await fetch(buildApiUrl("/hotel-voucher-layout"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(layout),
+  });
+  return readApiResponse<HotelVoucherLayout>(response);
 }

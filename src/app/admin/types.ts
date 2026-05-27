@@ -690,6 +690,7 @@ export interface HotelReservationDemand {
   voucher_generated_at?: string | null;
   voucher_sent_at?: string | null;
   voucher_qr_payload?: string | null;
+  voucher_qr_image_url?: string | null;
   status: HotelReservationDemandStatus;
   client_note?: string | null;
   admin_note?: string | null;

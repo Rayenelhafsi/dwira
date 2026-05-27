@@ -84,6 +84,9 @@ const WEBAUTHN_RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim().toLowerCa
 const TURNSTILE_SECRET_KEY = String(process.env.TURNSTILE_SECRET_KEY || '').trim();
 const TURNSTILE_SITE_KEY = String(process.env.TURNSTILE_SITE_KEY || '').trim();
 const FLOUCI_ENABLED = Boolean(FLOUCI_PUBLIC_KEY && FLOUCI_PRIVATE_KEY);
+const HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH = '/voucher-template/hotel-voucher.png';
+const HOTEL_VOUCHER_TEMPLATE_FS_PATH = path.resolve(__dirname, `..${HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH}`);
+const HOTEL_VOUCHER_LAYOUT_PATH = path.join(__dirname, 'contracts', 'hotel-voucher-layout.json');
 if (!String(process.env.SESSION_SECRET || '').trim()) {
   console.warn('[Auth] SESSION_SECRET missing. Using ephemeral in-memory secret; sessions reset on server restart.');
 }
@@ -586,6 +589,7 @@ async function ensureHotelReservationDemandSchema() {
       voucher_generated_at DATETIME NULL,
       voucher_sent_at DATETIME NULL,
       voucher_qr_payload TEXT NULL,
+      voucher_qr_image_url VARCHAR(700) NULL,
       status VARCHAR(40) NOT NULL,
       client_note TEXT NULL,
       admin_note TEXT NULL,
@@ -668,6 +672,134 @@ async function ensureHotelReservationDemandSchema() {
   if (!(await columnExists('hotel_reservation_demands', 'voucher_qr_payload'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_qr_payload TEXT NULL AFTER voucher_sent_at');
   }
+  if (!(await columnExists('hotel_reservation_demands', 'voucher_qr_image_url'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_qr_image_url VARCHAR(700) NULL AFTER voucher_qr_payload');
+  }
+}
+
+const DEFAULT_HOTEL_VOUCHER_LAYOUT = {
+  version: 1,
+  canvasWidth: 1536,
+  canvasHeight: 1024,
+  templateUrl: HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH,
+  fields: {
+    client_name: { kind: 'text', label: 'Nom & Prenom', x: 474, y: 432, width: 540, height: 38, fontSize: 24, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    client_phone: { kind: 'text', label: 'Telephone', x: 474, y: 503, width: 520, height: 38, fontSize: 24, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    hotel_reference: { kind: 'text', label: 'Hotel / Reference', x: 474, y: 575, width: 525, height: 38, fontSize: 22, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    checkin_day: { kind: 'text', label: 'Jour arrivee', x: 644, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
+    checkin_month: { kind: 'text', label: 'Mois arrivee', x: 715, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
+    checkout_day: { kind: 'text', label: 'Jour depart', x: 867, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
+    checkout_month: { kind: 'text', label: 'Mois depart', x: 944, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
+    guests: { kind: 'text', label: 'Nombre de personnes', x: 474, y: 717, width: 535, height: 34, fontSize: 20, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    room_type: { kind: 'text', label: 'Type de chambre', x: 474, y: 783, width: 520, height: 34, fontSize: 20, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    voucher_id: { kind: 'text', label: 'Voucher ID', x: 574, y: 897, width: 430, height: 36, fontSize: 22, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    qr_image: { kind: 'image', label: 'QR code', x: 406, y: 829, width: 146, height: 146 },
+  },
+};
+
+function deepCloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function mergeHotelVoucherField(defaultField, candidateField) {
+  const merged = {
+    ...defaultField,
+    ...(candidateField && typeof candidateField === 'object' ? candidateField : {}),
+  };
+  merged.kind = defaultField.kind === 'image' ? 'image' : 'text';
+  merged.label = String(merged.label || defaultField.label || '').trim() || defaultField.label || '';
+  merged.x = Number.isFinite(Number(merged.x)) ? Number(merged.x) : Number(defaultField.x || 0);
+  merged.y = Number.isFinite(Number(merged.y)) ? Number(merged.y) : Number(defaultField.y || 0);
+  merged.width = Math.max(24, Number.isFinite(Number(merged.width)) ? Number(merged.width) : Number(defaultField.width || 120));
+  merged.height = Math.max(24, Number.isFinite(Number(merged.height)) ? Number(merged.height) : Number(defaultField.height || 36));
+  if (merged.kind === 'text') {
+    merged.fontSize = Math.max(10, Number.isFinite(Number(merged.fontSize)) ? Number(merged.fontSize) : Number(defaultField.fontSize || 20));
+    merged.fontWeight = Number(merged.fontWeight) >= 700 ? 700 : 400;
+    merged.textAlign = ['left', 'center', 'right'].includes(String(merged.textAlign || '').trim()) ? String(merged.textAlign).trim() : (defaultField.textAlign || 'left');
+    merged.color = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(merged.color || '').trim()) ? String(merged.color).trim() : (defaultField.color || '#172033');
+  }
+  return merged;
+}
+
+function normalizeHotelVoucherLayout(candidateLayout) {
+  const defaults = DEFAULT_HOTEL_VOUCHER_LAYOUT;
+  const fields = {};
+  const sourceFields = candidateLayout && typeof candidateLayout === 'object' && candidateLayout.fields && typeof candidateLayout.fields === 'object'
+    ? candidateLayout.fields
+    : {};
+  const legacyStayPeriodField = sourceFields.stay_period && typeof sourceFields.stay_period === 'object'
+    ? sourceFields.stay_period
+    : null;
+  const migratedSourceFields = { ...sourceFields };
+  if (legacyStayPeriodField) {
+    delete migratedSourceFields.stay_period;
+    if (!migratedSourceFields.checkin_day) {
+      migratedSourceFields.checkin_day = {
+        ...defaults.fields.checkin_day,
+        x: Number(legacyStayPeriodField.x || defaults.fields.checkin_day.x),
+        y: Number(legacyStayPeriodField.y || defaults.fields.checkin_day.y),
+      };
+    }
+    if (!migratedSourceFields.checkin_month) {
+      migratedSourceFields.checkin_month = {
+        ...defaults.fields.checkin_month,
+        x: Number(legacyStayPeriodField.x || defaults.fields.checkin_day.x) + 71,
+        y: Number(legacyStayPeriodField.y || defaults.fields.checkin_month.y),
+      };
+    }
+    if (!migratedSourceFields.checkout_day) {
+      migratedSourceFields.checkout_day = {
+        ...defaults.fields.checkout_day,
+        x: Number(legacyStayPeriodField.x || defaults.fields.checkin_day.x) + 223,
+        y: Number(legacyStayPeriodField.y || defaults.fields.checkout_day.y),
+      };
+    }
+    if (!migratedSourceFields.checkout_month) {
+      migratedSourceFields.checkout_month = {
+        ...defaults.fields.checkout_month,
+        x: Number(legacyStayPeriodField.x || defaults.fields.checkin_day.x) + 300,
+        y: Number(legacyStayPeriodField.y || defaults.fields.checkout_month.y),
+      };
+    }
+  }
+  for (const [fieldKey, defaultField] of Object.entries(defaults.fields)) {
+    fields[fieldKey] = mergeHotelVoucherField(defaultField, migratedSourceFields[fieldKey]);
+  }
+  return {
+    version: 1,
+    canvasWidth: Number.isFinite(Number(candidateLayout?.canvasWidth)) ? Number(candidateLayout.canvasWidth) : defaults.canvasWidth,
+    canvasHeight: Number.isFinite(Number(candidateLayout?.canvasHeight)) ? Number(candidateLayout.canvasHeight) : defaults.canvasHeight,
+    templateUrl: HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH,
+    fields,
+  };
+}
+
+async function readHotelVoucherLayout() {
+  try {
+    if (fs.existsSync(HOTEL_VOUCHER_LAYOUT_PATH)) {
+      const raw = await fs.promises.readFile(HOTEL_VOUCHER_LAYOUT_PATH, 'utf8');
+      return normalizeHotelVoucherLayout(JSON.parse(raw));
+    }
+  } catch (error) {
+    console.warn('Failed to read hotel voucher layout:', error?.message || error);
+  }
+  return normalizeHotelVoucherLayout(deepCloneJson(DEFAULT_HOTEL_VOUCHER_LAYOUT));
+}
+
+async function writeHotelVoucherLayout(layout) {
+  const normalized = normalizeHotelVoucherLayout(layout);
+  await fs.promises.mkdir(path.dirname(HOTEL_VOUCHER_LAYOUT_PATH), { recursive: true });
+  await fs.promises.writeFile(HOTEL_VOUCHER_LAYOUT_PATH, JSON.stringify(normalized, null, 2), 'utf8');
+  return normalized;
+}
+
+function getHotelVoucherTemplateCandidatePaths() {
+  return [
+    HOTEL_VOUCHER_TEMPLATE_FS_PATH,
+    path.resolve(__dirname, `../dist${HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH}`),
+    path.resolve(process.cwd(), `dist${HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH}`),
+    path.resolve(process.cwd(), `public${HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH}`),
+  ];
 }
 
 function formatHotelReservationDemandRow(row) {
@@ -678,6 +810,7 @@ function formatHotelReservationDemandRow(row) {
     total_price: row.total_price === null || row.total_price === undefined ? null : Number(row.total_price),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     child_ages: parseJsonArray(row.child_ages_json),
+    voucher_qr_image_url: row.voucher_qr_image_url || null,
     hotel_context: (() => {
       try {
         return row.hotel_context_json ? JSON.parse(row.hotel_context_json) : null;
@@ -704,74 +837,219 @@ function getHotelReservationPublicRoute(demandId) {
   return `/mes-reservations/hotels/${encodeURIComponent(String(demandId || '').trim())}/paiement`;
 }
 
-async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPayload }) {
+async function fetchHotelReservationDemandRow(demandId) {
+  const [rows] = await pool.query(
+    `SELECT
+       *,
+       DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+       DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+       DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+       DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+       DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+       DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM hotel_reservation_demands
+     WHERE id = ?
+     LIMIT 1`,
+    [String(demandId || '').trim()]
+  );
+  return formatHotelReservationDemandRow(rows?.[0] || null);
+}
+
+async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPayload, qrImageUrl }) {
   const vouchersDir = path.join(__dirname, 'contracts', 'hotel-vouchers');
   if (!fs.existsSync(vouchersDir)) {
     fs.mkdirSync(vouchersDir, { recursive: true });
   }
   const safeDemandId = String(demand?.id || `hotel_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '');
   const fileName = `voucher-${safeDemandId}.html`;
+  const pdfFileName = `voucher-${safeDemandId}.pdf`;
   const filePath = path.join(vouchersDir, fileName);
+  const pdfPath = path.join(vouchersDir, pdfFileName);
   const voucherRelativePath = `/contracts/hotel-vouchers/${fileName}`;
-  const backgroundUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}/voucher-template/vide.jpg`;
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(String(qrPayload || voucherId || voucherNumber || demand?.id || '').trim())}`;
+  const voucherPdfRelativePath = `/contracts/hotel-vouchers/${pdfFileName}`;
+  const backgroundUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}${HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH}`;
+  const layout = await readHotelVoucherLayout();
+  const fallbackQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(String(qrPayload || voucherId || voucherNumber || demand?.id || '').trim())}`;
+  const resolvedQrImageUrl = String(qrImageUrl || '').trim() || fallbackQrCodeUrl;
+  const childCount = Array.isArray(demand?.child_ages) ? demand.child_ages.length : 0;
+  const totalGuests = Math.max(1, Number(demand?.adults || 1)) + childCount;
+  const checkInMatch = String(demand?.check_in || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const checkOutMatch = String(demand?.check_out || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const values = {
+    client_name: String(demand?.client_name || '-'),
+    client_phone: String(demand?.client_phone || '-'),
+    hotel_reference: String(demand?.hotel_name || '-')
+      + (String(voucherNumber || '').trim() ? ` / Ref ${String(voucherNumber).trim()}` : ''),
+    checkin_day: checkInMatch ? checkInMatch[3] : '--',
+    checkin_month: checkInMatch ? checkInMatch[2] : '--',
+    checkout_day: checkOutMatch ? checkOutMatch[3] : '--',
+    checkout_month: checkOutMatch ? checkOutMatch[2] : '--',
+    guests: `${totalGuests} personne(s)${childCount > 0 ? ` dont ${childCount} enfant(s)` : ''}`,
+    room_type: String(demand?.room_name || demand?.boarding_name || '-'),
+    voucher_id: String(voucherId || voucherNumber || demand?.id || '-'),
+  };
+  const renderTextField = (fieldKey, fieldConfig) => {
+    const textValue = escapeHtml(String(values[fieldKey] || '-'));
+    return `<div class="field text-field" style="
+      left:${Number(fieldConfig.x)}px;
+      top:${Number(fieldConfig.y)}px;
+      width:${Number(fieldConfig.width)}px;
+      height:${Number(fieldConfig.height)}px;
+      font-size:${Number(fieldConfig.fontSize || 20)}px;
+      font-weight:${Number(fieldConfig.fontWeight || 700)};
+      text-align:${escapeHtml(String(fieldConfig.textAlign || 'left'))};
+      color:${escapeHtml(String(fieldConfig.color || '#172033'))};
+      line-height:${Math.max(1, Number(fieldConfig.height || 36))}px;
+    ">${textValue}</div>`;
+  };
+  const qrField = layout.fields.qr_image || DEFAULT_HOTEL_VOUCHER_LAYOUT.fields.qr_image;
   const html = `<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Voucher hotel ${escapeHtml(String(voucherNumber || voucherId || demand?.id || ''))}</title>
   <style>
-    body { margin:0; font-family: Arial, sans-serif; background:#f4f7fb; color:#172033; }
-    .page { width:1123px; min-height:794px; margin:0 auto; position:relative; background:#fff; overflow:hidden; }
-    .bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.92; }
-    .overlay { position:relative; z-index:1; padding:56px 64px; }
-    .eyebrow { letter-spacing:.28em; font-size:12px; font-weight:700; color:#0f766e; text-transform:uppercase; }
-    .title { font-size:36px; font-weight:800; margin:12px 0 8px; }
-    .subtitle { font-size:16px; color:#4b5563; margin-bottom:26px; }
-    .grid { display:grid; grid-template-columns: 1.2fr .8fr; gap:24px; }
-    .card { background:rgba(255,255,255,.90); border:1px solid #d9e3f0; border-radius:22px; padding:24px; box-shadow:0 12px 28px rgba(15,23,42,.08); }
-    .label { font-size:11px; text-transform:uppercase; letter-spacing:.18em; color:#64748b; margin-bottom:6px; }
-    .value { font-size:18px; font-weight:700; color:#0f172a; }
-    .stack > div { margin-bottom:16px; }
-    .stack > div:last-child { margin-bottom:0; }
-    .qr { text-align:center; }
-    .qr img { width:220px; height:220px; border-radius:18px; background:#fff; padding:12px; border:1px solid #d9e3f0; }
-    .muted { font-size:14px; line-height:1.6; color:#475569; }
+    body { margin:0; background:#f1f5f9; font-family:Arial, Helvetica, sans-serif; }
+    .sheet { width:${layout.canvasWidth}px; height:${layout.canvasHeight}px; position:relative; margin:0 auto; background:url('${escapeHtml(backgroundUrl)}') no-repeat center/cover; overflow:hidden; }
+    .field { position:absolute; box-sizing:border-box; white-space:pre-wrap; overflow:hidden; }
+    .text-field { z-index:2; }
+    .qr-field { position:absolute; z-index:2; object-fit:contain; }
+    @media print {
+      body { background:#fff; }
+      .sheet { margin:0; }
+    }
   </style>
 </head>
 <body>
-  <div class="page">
-    <img class="bg" src="${backgroundUrl}" alt="" />
-    <div class="overlay">
-      <div class="eyebrow">Dwira Immobilier · Hotellerie</div>
-      <div class="title">Voucher de reservation hotel</div>
-      <div class="subtitle">Document client genere par l'agence apres validation du paiement.</div>
-      <div class="grid">
-        <div class="card stack">
-          <div><div class="label">Hotel</div><div class="value">${escapeHtml(String(demand?.hotel_name || '-'))}</div></div>
-          <div><div class="label">Ville</div><div class="value">${escapeHtml(String(demand?.hotel_city_name || '-'))}</div></div>
-          <div><div class="label">Sejour</div><div class="value">${escapeHtml(String(demand?.check_in || '-'))} au ${escapeHtml(String(demand?.check_out || '-'))}</div></div>
-          <div><div class="label">Client</div><div class="value">${escapeHtml(String(demand?.client_name || '-'))}</div></div>
-          <div><div class="label">Telephone</div><div class="value">${escapeHtml(String(demand?.client_phone || '-'))}</div></div>
-          <div><div class="label">Chambre</div><div class="value">${escapeHtml(String(demand?.room_name || '-'))}</div></div>
-          <div><div class="label">Pension</div><div class="value">${escapeHtml(String(demand?.boarding_name || '-'))}</div></div>
-          <div><div class="label">Voyageurs</div><div class="value">${escapeHtml(String(demand?.adults || 1))} adulte(s)${Array.isArray(demand?.child_ages) && demand.child_ages.length ? `, ${escapeHtml(String(demand.child_ages.length))} enfant(s)` : ''}</div></div>
-          <div><div class="label">Montant regle</div><div class="value">${escapeHtml(String(Number(demand?.amount_due_now || demand?.total_price || 0).toLocaleString('fr-FR')))} ${escapeHtml(String(demand?.currency || 'TND'))}</div></div>
-          <div><div class="label">Identifiant voucher hotel</div><div class="value">${escapeHtml(String(voucherId || '-'))}</div></div>
-          <div><div class="label">Numero voucher</div><div class="value">${escapeHtml(String(voucherNumber || '-'))}</div></div>
-        </div>
-        <div class="card qr">
-          <div class="label">QR Code hotel</div>
-          <img src="${qrCodeUrl}" alt="QR code voucher hotel" />
-          <p class="muted">Le QR code et l'identifiant voucher ont ete fournis manuellement par l'hotel.</p>
-        </div>
-      </div>
-    </div>
-  </div>
+  <main class="sheet">
+    ${Object.entries(layout.fields)
+      .filter(([fieldKey, fieldConfig]) => fieldKey !== 'qr_image' && fieldConfig.kind === 'text')
+      .map(([fieldKey, fieldConfig]) => renderTextField(fieldKey, fieldConfig))
+      .join('\n')}
+    <img
+      class="qr-field"
+      src="${escapeHtml(resolvedQrImageUrl)}"
+      alt="QR voucher hotel"
+      style="left:${Number(qrField.x)}px; top:${Number(qrField.y)}px; width:${Number(qrField.width)}px; height:${Number(qrField.height)}px;"
+    />
+  </main>
 </body>
 </html>`;
   await fs.promises.writeFile(filePath, html, 'utf8');
-  return voucherRelativePath;
+
+  const loadImageBuffer = async (urlValue) => {
+    const raw = String(urlValue || '').trim();
+    if (!raw) return null;
+    if (raw.startsWith('data:')) {
+      const idx = raw.indexOf('base64,');
+      if (idx < 0) return null;
+      return Buffer.from(raw.slice(idx + 7), 'base64');
+    }
+    if (!/^https?:\/\//i.test(raw) && raw.startsWith('/')) {
+      const localPath = path.resolve(__dirname, `..${raw}`);
+      if (fs.existsSync(localPath)) {
+        return fs.promises.readFile(localPath);
+      }
+    }
+    try {
+      const response = await fetch(raw);
+      if (!response.ok) return null;
+      const arr = await response.arrayBuffer();
+      return Buffer.from(arr);
+    } catch {
+      return null;
+    }
+  };
+  const normalizeBufferToPng = async (bufferValue) => {
+    if (!bufferValue) return null;
+    try {
+      return await sharp(bufferValue).png().toBuffer();
+    } catch {
+      return bufferValue;
+    }
+  };
+  const hexToRgb = (hexValue) => {
+    const raw = String(hexValue || '').trim().replace('#', '');
+    const normalized = raw.length === 3 ? raw.split('').map((item) => item + item).join('') : raw;
+    if (!/^[0-9a-f]{6}$/i.test(normalized)) return rgb(0.09, 0.13, 0.2);
+    return rgb(
+      parseInt(normalized.slice(0, 2), 16) / 255,
+      parseInt(normalized.slice(2, 4), 16) / 255,
+      parseInt(normalized.slice(4, 6), 16) / 255,
+    );
+  };
+
+  try {
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([layout.canvasWidth, layout.canvasHeight]);
+    const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    const templatePath = getHotelVoucherTemplateCandidatePaths().find((candidatePath) => fs.existsSync(candidatePath));
+    if (templatePath) {
+      const bgBytes = await fs.promises.readFile(templatePath);
+      const bgNormalized = await normalizeBufferToPng(bgBytes);
+      let bgImage = await pdfDoc.embedPng(bgNormalized).catch(() => null);
+      if (!bgImage) {
+        bgImage = await pdfDoc.embedJpg(bgBytes).catch(() => null);
+      }
+      if (bgImage) {
+        page.drawImage(bgImage, { x: 0, y: 0, width: layout.canvasWidth, height: layout.canvasHeight });
+      } else {
+        console.warn('Hotel voucher template found but could not be embedded in PDF:', templatePath);
+      }
+    } else {
+      console.warn('Hotel voucher template not found for PDF generation.');
+    }
+
+    const qrBytes = await loadImageBuffer(resolvedQrImageUrl);
+    if (qrBytes) {
+      const qrNormalized = await normalizeBufferToPng(qrBytes);
+      let qrImage = await pdfDoc.embedPng(qrNormalized).catch(() => null);
+      if (!qrImage) {
+        qrImage = await pdfDoc.embedJpg(qrBytes).catch(() => null);
+      }
+      if (qrImage) {
+        page.drawImage(qrImage, {
+          x: Number(qrField.x),
+          y: layout.canvasHeight - Number(qrField.y) - Number(qrField.height),
+          width: Number(qrField.width),
+          height: Number(qrField.height),
+        });
+      }
+    }
+
+    for (const [fieldKey, fieldConfig] of Object.entries(layout.fields)) {
+      if (fieldKey === 'qr_image' || fieldConfig.kind !== 'text') continue;
+      const textValue = String(values[fieldKey] || '-');
+      const fontSize = Number(fieldConfig.fontSize || 20);
+      const font = Number(fieldConfig.fontWeight || 700) >= 700 ? fontBold : fontRegular;
+      const textWidth = font.widthOfTextAtSize(textValue, fontSize);
+      let x = Number(fieldConfig.x);
+      if (String(fieldConfig.textAlign || 'left') === 'center') {
+        x += Math.max(0, (Number(fieldConfig.width) - textWidth) / 2);
+      } else if (String(fieldConfig.textAlign || 'left') === 'right') {
+        x += Math.max(0, Number(fieldConfig.width) - textWidth);
+      }
+      page.drawText(textValue, {
+        x,
+        y: layout.canvasHeight - Number(fieldConfig.y) - fontSize,
+        size: fontSize,
+        font,
+        color: hexToRgb(fieldConfig.color),
+      });
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    await fs.promises.writeFile(pdfPath, Buffer.from(pdfBytes));
+    return voucherPdfRelativePath;
+  } catch (pdfError) {
+    console.warn('Hotel voucher PDF generation failed, fallback to HTML:', pdfError?.message || pdfError);
+    return voucherRelativePath;
+  }
 }
 
 async function applyHotelReservationDemandPayment({ current, demandId, method, explicitPaymentIdPrefix = 'hotelpay_' }) {
@@ -3022,6 +3300,26 @@ app.post('/api/hotels/bookings/cancel', async (req, res) => {
   }
 });
 
+app.get('/api/hotel-voucher-layout', requireAdminSession, async (req, res) => {
+  try {
+    const layout = await readHotelVoucherLayout();
+    return res.json(layout);
+  } catch (error) {
+    console.error('Error loading hotel voucher layout:', error);
+    return res.status(500).json({ error: 'Impossible de charger le layout du voucher hotel' });
+  }
+});
+
+app.put('/api/hotel-voucher-layout', requireAdminSession, express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const layout = await writeHotelVoucherLayout(req.body || {});
+    return res.json(layout);
+  } catch (error) {
+    console.error('Error saving hotel voucher layout:', error);
+    return res.status(500).json({ error: 'Impossible d enregistrer le layout du voucher hotel' });
+  }
+});
+
 app.get('/api/hotel-reservation-demands', requireAuthenticatedSession, async (req, res) => {
   try {
     await ensureHotelReservationDemandSchema();
@@ -3056,7 +3354,6 @@ app.get('/api/hotel-reservation-demands', requireAuthenticatedSession, async (re
        ORDER BY created_at DESC`,
       params
     );
-
     return res.json((rows || []).map((row) => formatHotelReservationDemandRow(row)));
   } catch (error) {
     console.error('Error fetching hotel reservation demands:', error);
@@ -3147,24 +3444,7 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
       now
     );
 
-    const [rows] = await pool.query(
-      `SELECT
-         *,
-         DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
-         DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
-         DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
-         DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
-         DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
-         DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
-         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
-       FROM hotel_reservation_demands
-       WHERE id = ?
-       LIMIT 1`,
-      [demandId]
-    );
-
-    return res.status(201).json(formatHotelReservationDemandRow(rows?.[0] || null));
+    return res.status(201).json(await fetchHotelReservationDemandRow(demandId));
   } catch (error) {
     console.error('Error creating hotel reservation demand:', error);
     return res.status(500).json({ error: 'Impossible de creer la demande hotellerie' });
@@ -3193,53 +3473,48 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
     const voucherId = requesterIsAdmin && req.body?.voucher_id !== undefined ? String(req.body?.voucher_id || '').trim() || null : (current.voucher_id || null);
     const voucherNumber = requesterIsAdmin && req.body?.voucher_number !== undefined ? String(req.body?.voucher_number || '').trim() || null : (current.voucher_number || null);
     const voucherQrPayload = requesterIsAdmin && req.body?.voucher_qr_payload !== undefined ? String(req.body?.voucher_qr_payload || '').trim() || null : (current.voucher_qr_payload || null);
+    const voucherQrImageUrl = requesterIsAdmin && req.body?.voucher_qr_image_url !== undefined ? String(req.body?.voucher_qr_image_url || '').trim() || null : (current.voucher_qr_image_url || null);
+    const forceGenerateVoucher = requesterIsAdmin && (req.body?.force_generate_voucher === true || String(req.body?.force_generate_voucher || '').trim() === 'true');
     const now = getAgencySqlDateTime();
 
     let voucherUrl = current.voucher_url || null;
     let voucherGeneratedAt = current.voucher_generated_at || null;
     let voucherSentAt = current.voucher_sent_at || null;
-    if (requesterIsAdmin && nextStatus === 'voucher_envoye') {
-      if (!voucherId || !voucherQrPayload) {
-        return res.status(400).json({ error: 'Identifiant voucher et contenu QR obligatoires pour envoyer le voucher' });
+    if (requesterIsAdmin && (forceGenerateVoucher || nextStatus === 'voucher_en_cours' || nextStatus === 'voucher_envoye')) {
+      if (!voucherId) {
+        return res.status(400).json({ error: 'Identifiant voucher obligatoire pour generer le voucher' });
       }
       const resolvedVoucherNumber = voucherNumber || `HTL-${String(demandId).slice(-8).toUpperCase()}`;
       voucherUrl = await generateHotelVoucherHtml({
-        demand: { ...current, voucher_id: voucherId, voucher_number: resolvedVoucherNumber, voucher_qr_payload: voucherQrPayload },
+        demand: {
+          ...current,
+          voucher_id: voucherId,
+          voucher_number: resolvedVoucherNumber,
+          voucher_qr_payload: voucherQrPayload,
+          voucher_qr_image_url: voucherQrImageUrl,
+        },
         voucherNumber: resolvedVoucherNumber,
         voucherId,
         qrPayload: voucherQrPayload,
+        qrImageUrl: voucherQrImageUrl,
       });
       voucherGeneratedAt = now;
-      voucherSentAt = now;
+      if (nextStatus === 'voucher_envoye') {
+        voucherSentAt = now;
+      }
     }
 
     await pool.query(
       `UPDATE hotel_reservation_demands
        SET status = ?, admin_note = ?, client_note = ?,
-           voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?,
+           voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
            voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?,
            updated_at = ?
        WHERE id = ?`,
-      [nextStatus, nextAdminNote, nextClientNote, voucherId, voucherNumber, voucherQrPayload, voucherUrl, voucherGeneratedAt, voucherSentAt, now, demandId]
+      [nextStatus, nextAdminNote, nextClientNote, voucherId, voucherNumber, voucherQrPayload, voucherQrImageUrl, voucherUrl, voucherGeneratedAt, voucherSentAt, now, demandId]
     );
 
-    const [updatedRows] = await pool.query(
-      `SELECT
-         *,
-         DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
-         DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
-         DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
-         DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
-         DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
-         DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
-         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
-       FROM hotel_reservation_demands
-       WHERE id = ?
-       LIMIT 1`,
-      [demandId]
-    );
-    return res.json(formatHotelReservationDemandRow(updatedRows?.[0] || null));
+    return res.json(await fetchHotelReservationDemandRow(demandId));
   } catch (error) {
     console.error('Error updating hotel reservation demand:', error);
     return res.status(500).json({ error: 'Impossible de mettre a jour la demande hotellerie' });
@@ -3283,25 +3558,37 @@ app.post('/api/hotel-reservation-demands/:id/upload-payment-receipt', requireAut
       `Recu de paiement recu pour la demande hotel ${demandId}. Verification admin requise.`,
       now
     );
-    const [updatedRows] = await pool.query(
-      `SELECT *,
-              DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
-              DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
-              DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
-              DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
-              DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
-              DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
-              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-              DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
-       FROM hotel_reservation_demands
-       WHERE id = ?
-       LIMIT 1`,
-      [demandId]
-    );
-    return res.json(formatHotelReservationDemandRow(updatedRows?.[0] || null));
+    return res.json(await fetchHotelReservationDemandRow(demandId));
   } catch (error) {
     console.error('Error uploading hotel payment receipt:', error);
     return res.status(500).json({ error: 'Impossible d envoyer le recu de paiement hotel' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/upload-voucher-qr', requireAdminSession, (req, res, next) => hotelVoucherQrUpload.single('qr')(req, res, next), async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!req.file) return res.status(400).json({ error: 'Image QR obligatoire' });
+    const now = getAgencySqlDateTime();
+    if (current.voucher_qr_image_url) {
+      await deleteLocalFileFromPublicUrl(current.voucher_qr_image_url, path.join('uploads', 'hotel-voucher-qrs'));
+    }
+    const qrImageUrl = `/uploads/hotel-voucher-qrs/${req.file.filename}`;
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET voucher_qr_image_url = ?, updated_at = ?
+       WHERE id = ?`,
+      [qrImageUrl, now, demandId]
+    );
+    return res.json(await fetchHotelReservationDemandRow(demandId));
+  } catch (error) {
+    console.error('Error uploading hotel voucher qr:', error);
+    return res.status(500).json({ error: 'Impossible d envoyer le QR du voucher hotel' });
   }
 });
 
@@ -13162,6 +13449,33 @@ const paymentReceiptStorage = multer.diskStorage({
 
 const paymentReceiptUpload = multer({
   storage: paymentReceiptStorage,
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.(jpg|jpeg|png|webp)$/i.test(path.extname(file.originalname || '').toLowerCase());
+    const mime = String(file.mimetype || '').toLowerCase();
+    const allowedMime = mime.startsWith('image/');
+    if (allowedExt && allowedMime) return cb(null, true);
+    cb(new Error('Only image files (jpg, jpeg, png, webp) are allowed'));
+  },
+});
+
+const hotelVoucherQrStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const qrDir = path.join(__dirname, 'uploads', 'hotel-voucher-qrs');
+    if (!fs.existsSync(qrDir)) {
+      fs.mkdirSync(qrDir, { recursive: true });
+    }
+    cb(null, qrDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `hotel-voucher-qr-${uniqueSuffix}${ext}`);
+  },
+});
+
+const hotelVoucherQrUpload = multer({
+  storage: hotelVoucherQrStorage,
   limits: { fileSize: 12 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedExt = /\.(jpg|jpeg|png|webp)$/i.test(path.extname(file.originalname || '').toLowerCase());
