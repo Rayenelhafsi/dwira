@@ -3246,7 +3246,7 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
   }
 });
 
-app.post('/api/hotel-reservation-demands/:id/upload-payment-receipt', requireAuthenticatedSession, paymentRateLimit, paymentReceiptUpload.single('receipt'), async (req, res) => {
+app.post('/api/hotel-reservation-demands/:id/upload-payment-receipt', requireAuthenticatedSession, paymentRateLimit, (req, res, next) => paymentReceiptUpload.single('receipt')(req, res, next), async (req, res) => {
   try {
     await ensureHotelReservationDemandSchema();
     const demandId = String(req.params?.id || '').trim();
