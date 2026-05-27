@@ -120,7 +120,6 @@ export default function HotelReservationPaymentPage() {
     if (!demand?.id || confirmingClickToPay) return;
     const payment = String(searchParams.get("payment") || "").trim().toLowerCase();
     const hotelDemandId = String(searchParams.get("hotel_demand_id") || "").trim();
-    const reference = String(searchParams.get("reference") || "").trim();
     if (!payment || !hotelDemandId || hotelDemandId !== demand.id) return;
     if (payment === "failed") {
       const reason = String(searchParams.get("reason") || "").trim();
@@ -133,7 +132,7 @@ export default function HotelReservationPaymentPage() {
       setSearchParams(next, { replace: true });
       return;
     }
-    if (payment !== "success" || !reference) return;
+    if (payment !== "success") return;
     setConfirmingClickToPay(true);
     (async () => {
       try {
@@ -141,7 +140,7 @@ export default function HotelReservationPaymentPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ payment_id: reference }),
+          body: JSON.stringify({}),
         });
         if (!response.ok) throw new Error(await getApiErrorMessage(response, "Confirmation Click to Pay impossible"));
         const updated = await response.json();

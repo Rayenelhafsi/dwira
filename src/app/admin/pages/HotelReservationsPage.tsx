@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, Hotel, ImagePlus, LoaderCircle, MessageSquareText, Phone, RefreshCw, Save, Send, Settings2, Upload, User } from "lucide-react";
+import { CalendarDays, CheckCircle2, Hotel, ImagePlus, LoaderCircle, MessageSquareText, Phone, RefreshCw, Save, Send, Upload, User, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { HotelReservationDemand, HotelReservationDemandStatus } from "../types";
 import {
-  getHotelVoucherLayout,
   listHotelReservationDemands,
-  saveHotelVoucherLayout,
-  type HotelVoucherLayout,
   updateHotelReservationDemand,
   uploadHotelVoucherQr,
 } from "../../services/hotels";
@@ -56,220 +53,17 @@ function resolveAssetUrl(url?: string | null) {
   return `${window.location.origin}${raw.startsWith("/") ? raw : `/${raw}`}`;
 }
 
-function buildPreviewValues(row: HotelReservationDemand) {
-  const childCount = Array.isArray(row.child_ages) ? row.child_ages.length : 0;
-  const totalGuests = Math.max(1, Number(row.adults || 1)) + childCount;
-  const checkInParts = String(row.check_in || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  const checkOutParts = String(row.check_out || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return {
-    client_name: row.client_name || "Nom & Prenom client",
-    client_phone: row.client_phone || "00 000 000",
-    hotel_reference: `${row.hotel_name || "Hotel"}${row.voucher_number ? ` / Ref ${row.voucher_number}` : ""}`,
-    checkin_day: checkInParts?.[3] || "--",
-    checkin_month: checkInParts?.[2] || "--",
-    checkout_day: checkOutParts?.[3] || "--",
-    checkout_month: checkOutParts?.[2] || "--",
-    guests: `${totalGuests} personne(s)${childCount > 0 ? ` dont ${childCount} enfant(s)` : ""}`,
-    room_type: row.room_name || row.boarding_name || "Type de chambre",
-    voucher_id: row.voucher_id || row.voucher_number || "VOUCHER ID",
-  } satisfies Record<string, string>;
-}
-
-function VoucherLayoutEditor({
-  row,
-  layout,
-  onChange,
-  onSave,
-  saving,
-}: {
-  row: HotelReservationDemand;
-  layout: HotelVoucherLayout;
-  onChange: (layout: HotelVoucherLayout) => void;
-  onSave: () => Promise<void>;
-  saving: boolean;
-}) {
-  const [draggingField, setDraggingField] = useState<string | null>(null);
-  const previewValues = useMemo(() => buildPreviewValues(row), [row]);
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingField) return;
-    const field = layout.fields[draggingField];
-    if (!field) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const scaleX = layout.canvasWidth / bounds.width;
-    const scaleY = layout.canvasHeight / bounds.height;
-    const nextX = Math.max(0, Math.min(layout.canvasWidth - field.width, (event.clientX - bounds.left) * scaleX - field.width / 2));
-    const nextY = Math.max(0, Math.min(layout.canvasHeight - field.height, (event.clientY - bounds.top) * scaleY - field.height / 2));
-    onChange({
-      ...layout,
-      fields: {
-        ...layout.fields,
-        [draggingField]: { ...field, x: Math.round(nextX), y: Math.round(nextY) },
-      },
-    });
-  };
-
-  return (
-    <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Layout voucher hotel</p>
-          <p className="mt-1 text-sm text-slate-600">Deplace les zones sur le fond, puis ajuste x/y/largeur/hauteur si besoin.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void onSave()}
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}
-          Enregistrer layout
-        </button>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-        <div
-          className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-          style={{ aspectRatio: `${layout.canvasWidth} / ${layout.canvasHeight}` }}
-          onPointerMove={handlePointerMove}
-          onPointerUp={() => setDraggingField(null)}
-          onPointerLeave={() => setDraggingField(null)}
-        >
-          <img src={resolveAssetUrl(layout.templateUrl)} alt="Template voucher hotel" className="absolute inset-0 h-full w-full object-cover" />
-          {Object.entries(layout.fields).map(([fieldKey, field]) => {
-            const left = (field.x / layout.canvasWidth) * 100;
-            const top = (field.y / layout.canvasHeight) * 100;
-            const width = (field.width / layout.canvasWidth) * 100;
-            const height = (field.height / layout.canvasHeight) * 100;
-            const isImage = field.kind === "image";
-            return (
-              <button
-                key={fieldKey}
-                type="button"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  setDraggingField(fieldKey);
-                }}
-                className={`absolute overflow-hidden rounded-lg border-2 text-left ${draggingField === fieldKey ? "border-emerald-500 bg-emerald-100/70" : "border-sky-400 bg-white/65"} ${isImage ? "p-1" : "px-2 py-1"}`}
-                style={{
-                  left: `${left}%`,
-                  top: `${top}%`,
-                  width: `${width}%`,
-                  height: `${height}%`,
-                  fontSize: `${Math.max(10, ((field.fontSize || 16) / layout.canvasWidth) * 1536 * 0.075)}rem`,
-                  color: field.color || "#172033",
-                  fontWeight: field.fontWeight || 700,
-                  textAlign: field.textAlign || "left",
-                }}
-              >
-                {isImage ? (
-                  row.voucher_qr_image_url ? (
-                    <img src={resolveAssetUrl(row.voucher_qr_image_url)} alt="QR" className="h-full w-full object-contain" />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">QR</span>
-                  )
-                ) : (
-                  <span className="block truncate">{previewValues[fieldKey] || field.label}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="space-y-3">
-          {Object.entries(layout.fields).map(([fieldKey, field]) => (
-            <div key={fieldKey} className="rounded-2xl border border-slate-200 bg-white p-3">
-              <p className="text-sm font-semibold text-slate-900">{field.label}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {(["x", "y", "width", "height"] as const).map((prop) => (
-                  <label key={prop} className="text-xs text-slate-500">
-                    {prop.toUpperCase()}
-                    <input
-                      type="number"
-                      value={Number(field[prop] || 0)}
-                      onChange={(event) =>
-                        onChange({
-                          ...layout,
-                          fields: {
-                            ...layout.fields,
-                            [fieldKey]: { ...field, [prop]: Number(event.target.value || 0) },
-                          },
-                        })
-                      }
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm text-slate-900"
-                    />
-                  </label>
-                ))}
-                {field.kind === "text" ? (
-                  <>
-                    <label className="text-xs text-slate-500">
-                      Font
-                      <input
-                        type="number"
-                        value={Number(field.fontSize || 20)}
-                        onChange={(event) =>
-                          onChange({
-                            ...layout,
-                            fields: {
-                              ...layout.fields,
-                              [fieldKey]: { ...field, fontSize: Number(event.target.value || 20) },
-                            },
-                          })
-                        }
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm text-slate-900"
-                      />
-                    </label>
-                    <label className="text-xs text-slate-500">
-                      Alignement
-                      <select
-                        value={field.textAlign || "left"}
-                        onChange={(event) =>
-                          onChange({
-                            ...layout,
-                            fields: {
-                              ...layout.fields,
-                              [fieldKey]: { ...field, textAlign: event.target.value as "left" | "center" | "right" },
-                            },
-                          })
-                        }
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm text-slate-900"
-                      >
-                        <option value="left">Gauche</option>
-                        <option value="center">Centre</option>
-                        <option value="right">Droite</option>
-                      </select>
-                    </label>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function HotelReservationsPage() {
   const [rows, setRows] = useState<HotelReservationDemand[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [layout, setLayout] = useState<HotelVoucherLayout | null>(null);
-  const [layoutSaving, setLayoutSaving] = useState(false);
-  const [layoutOpenFor, setLayoutOpenFor] = useState<string | null>(null);
   const [uploadingQrId, setUploadingQrId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [nextRows, nextLayout] = await Promise.all([
-        listHotelReservationDemands(),
-        getHotelVoucherLayout().catch(() => null),
-      ]);
+      const nextRows = await listHotelReservationDemands();
       setRows(Array.isArray(nextRows) ? nextRows : []);
-      if (nextLayout) {
-        setLayout(nextLayout);
-      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Impossible de charger les demandes hotellerie");
     } finally {
@@ -339,20 +133,6 @@ export default function HotelReservationsPage() {
       toast.error(error instanceof Error ? error.message : "Upload QR impossible");
     } finally {
       setUploadingQrId(null);
-    }
-  };
-
-  const handleSaveLayout = async () => {
-    if (!layout) return;
-    setLayoutSaving(true);
-    try {
-      const saved = await saveHotelVoucherLayout(layout);
-      setLayout(saved);
-      toast.success("Layout du voucher hotel enregistre");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Enregistrement du layout impossible");
-    } finally {
-      setLayoutSaving(false);
     }
   };
 
@@ -534,14 +314,6 @@ export default function HotelReservationsPage() {
                   <div className="grid gap-2 md:grid-cols-2">
                     <button
                       type="button"
-                      onClick={() => setLayoutOpenFor((prev) => (prev === row.id ? null : row.id))}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                    >
-                      <Settings2 size={16} />
-                      Positionner les zones
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => void saveRow(row, row)}
                       disabled={savingId === row.id}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -567,21 +339,18 @@ export default function HotelReservationsPage() {
                       {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />}
                       Envoyer voucher
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveRow(row, { ...row, status: "annulee" }, "Reservation hoteliere rejetee")}
+                      disabled={savingId === row.id}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <XCircle size={16} />}
+                      Rejeter reservation
+                    </button>
                   </div>
                 </div>
               </div>
-
-              {layoutOpenFor === row.id && layout ? (
-                <div className="mt-5">
-                  <VoucherLayoutEditor
-                    row={row}
-                    layout={layout}
-                    onChange={setLayout}
-                    onSave={handleSaveLayout}
-                    saving={layoutSaving}
-                  />
-                </div>
-              ) : null}
             </article>
           ))}
         </div>

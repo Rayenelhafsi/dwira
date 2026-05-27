@@ -40,6 +40,12 @@ const FLOUCI_API_BASE_URL = String(process.env.FLOUCI_API_BASE_URL || 'https://d
 const FLOUCI_PUBLIC_KEY = String(process.env.FLOUCI_PUBLIC_KEY || '').trim();
 const FLOUCI_PRIVATE_KEY = String(process.env.FLOUCI_PRIVATE_KEY || '').trim();
 const FLOUCI_WEBHOOK_SECRET = String(process.env.FLOUCI_WEBHOOK_SECRET || '').trim();
+const CLICKTOPAY_API_BASE_URL = String(process.env.CLICKTOPAY_API_BASE_URL || 'https://test.clictopay.com/payment/rest').trim().replace(/\/+$/, '');
+const CLICKTOPAY_USERNAME = String(process.env.CLICKTOPAY_USERNAME || '').trim();
+const CLICKTOPAY_PASSWORD = String(process.env.CLICKTOPAY_PASSWORD || '').trim();
+const CLICKTOPAY_CURRENCY = String(process.env.CLICKTOPAY_CURRENCY || '788').trim() || '788';
+const CLICKTOPAY_LANGUAGE = String(process.env.CLICKTOPAY_LANGUAGE || 'fr').trim().toLowerCase() || 'fr';
+const CLICKTOPAY_PAGE_VIEW_DEFAULT = String(process.env.CLICKTOPAY_PAGE_VIEW || 'DESKTOP').trim().toUpperCase() || 'DESKTOP';
 const MOBILE_FLOW_DEBUG = String(process.env.MOBILE_FLOW_DEBUG || '').trim().toLowerCase() === 'true';
 const FLOUCI_AMOUNT_MULTIPLIER = Number.isFinite(Number(process.env.FLOUCI_AMOUNT_MULTIPLIER))
   ? Math.max(1, Number(process.env.FLOUCI_AMOUNT_MULTIPLIER))
@@ -144,6 +150,123 @@ function normalizeFlouciAmount(amountTnd) {
   const numeric = Number(amountTnd || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
   return Math.round(numeric * FLOUCI_AMOUNT_MULTIPLIER);
+}
+
+function isClickToPayConfigured() {
+  return Boolean(CLICKTOPAY_API_BASE_URL && CLICKTOPAY_USERNAME && CLICKTOPAY_PASSWORD);
+}
+
+function normalizeClickToPayAmount(amountTnd) {
+  const numeric = Number(amountTnd || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.round(numeric * 1000);
+}
+
+function buildClickToPayPageView(req) {
+  const configured = ['DESKTOP', 'MOBILE'].includes(CLICKTOPAY_PAGE_VIEW_DEFAULT) ? CLICKTOPAY_PAGE_VIEW_DEFAULT : 'DESKTOP';
+  const ua = String(req?.get?.('user-agent') || '').toLowerCase();
+  if (/iphone|ipad|android|mobile/.test(ua)) return 'MOBILE';
+  return configured;
+}
+
+function buildClickToPayOrderNumber(demandId) {
+  const safeDemandId = String(demandId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `HTL${Date.now()}${safeDemandId}${suffix}`.slice(0, 32);
+}
+
+function parseClickToPayResponseBody(rawText) {
+  const trimmed = String(rawText || '').trim();
+  if (!trimmed) return {};
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    try {
+      return Object.fromEntries(new URLSearchParams(trimmed).entries());
+    } catch {
+      return {};
+    }
+  }
+}
+
+async function clickToPayRequest(action, params) {
+  const response = await fetch(`${CLICKTOPAY_API_BASE_URL}/${action}`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams(params),
+  }).catch((error) => {
+    throw new Error(`Connexion Click to Pay impossible: ${error?.message || error}`);
+  });
+
+  const rawText = await response.text().catch(() => '');
+  const data = parseClickToPayResponseBody(rawText);
+  const errorCode = String(data?.errorCode ?? '').trim();
+  const errorMessage = String(data?.errorMessage || rawText || `HTTP ${response.status}`).trim();
+  if (!response.ok || (errorCode && errorCode !== '0')) {
+    throw new Error(errorMessage || `Erreur Click to Pay (${response.status})`);
+  }
+  return data;
+}
+
+async function clickToPayRegisterOrder({ orderNumber, amount, returnUrl, failUrl, description, pageView }) {
+  return clickToPayRequest('register.do', {
+    userName: CLICKTOPAY_USERNAME,
+    password: CLICKTOPAY_PASSWORD,
+    orderNumber: String(orderNumber || '').trim(),
+    amount: String(amount || '').trim(),
+    currency: CLICKTOPAY_CURRENCY,
+    returnUrl: String(returnUrl || '').trim(),
+    failUrl: String(failUrl || '').trim(),
+    description: String(description || '').trim().slice(0, 512),
+    language: CLICKTOPAY_LANGUAGE,
+    pageView: String(pageView || 'DESKTOP').trim().toUpperCase(),
+  });
+}
+
+async function clickToPayGetOrderStatusExtended({ orderId, orderNumber }) {
+  const payload = {
+    userName: CLICKTOPAY_USERNAME,
+    password: CLICKTOPAY_PASSWORD,
+    language: CLICKTOPAY_LANGUAGE,
+  };
+  if (String(orderId || '').trim()) payload.orderId = String(orderId || '').trim();
+  if (String(orderNumber || '').trim()) payload.orderNumber = String(orderNumber || '').trim();
+  return clickToPayRequest('getOrderStatusExtended.do', payload);
+}
+
+function mapClickToPayOrderStatus(statusValue) {
+  const code = Number(statusValue);
+  if (code === 2) return 'SUCCESS';
+  if (code === 6) return 'FAILED';
+  if (code === 4) return 'REFUNDED';
+  if (code === 3) return 'CANCELLED';
+  if (code === 5) return 'AUTH_PENDING';
+  if (code === 1) return 'AUTHORIZED';
+  if (code === 0) return 'REGISTERED';
+  return 'UNKNOWN';
+}
+
+function extractClickToPayDecision(statusPayload) {
+  const orderStatus = Number(statusPayload?.orderStatus);
+  const actionCode = Number(statusPayload?.actionCode);
+  const errorCode = String(statusPayload?.errorCode ?? '').trim();
+  const isSuccess = orderStatus === 2 && (Number.isNaN(actionCode) || actionCode === 0) && (!errorCode || errorCode === '0');
+  const message = String(
+    statusPayload?.actionCodeDescription ||
+    statusPayload?.errorMessage ||
+    statusPayload?.message ||
+    ''
+  ).trim();
+  return {
+    orderStatus,
+    actionCode,
+    isSuccess,
+    statusLabel: mapClickToPayOrderStatus(orderStatus),
+    message,
+  };
 }
 
 function isFlouciSuccessStatus(status) {
@@ -577,6 +700,7 @@ async function ensureHotelReservationDemandSchema() {
       flouci_checkout_url VARCHAR(700) NULL,
       flouci_verified_at DATETIME NULL,
       clicktopay_payment_id VARCHAR(120) NULL,
+      clicktopay_order_number VARCHAR(120) NULL,
       clicktopay_status VARCHAR(40) NULL,
       clicktopay_checkout_url VARCHAR(700) NULL,
       clicktopay_paid_at DATETIME NULL,
@@ -636,8 +760,11 @@ async function ensureHotelReservationDemandSchema() {
   if (!(await columnExists('hotel_reservation_demands', 'clicktopay_payment_id'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_payment_id VARCHAR(120) NULL AFTER flouci_verified_at');
   }
+  if (!(await columnExists('hotel_reservation_demands', 'clicktopay_order_number'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_order_number VARCHAR(120) NULL AFTER clicktopay_payment_id');
+  }
   if (!(await columnExists('hotel_reservation_demands', 'clicktopay_status'))) {
-    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_status VARCHAR(40) NULL AFTER clicktopay_payment_id');
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_status VARCHAR(40) NULL AFTER clicktopay_order_number');
   }
   if (!(await columnExists('hotel_reservation_demands', 'clicktopay_checkout_url'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_checkout_url VARCHAR(700) NULL AFTER clicktopay_status');
@@ -802,6 +929,20 @@ function getHotelVoucherTemplateCandidatePaths() {
   ];
 }
 
+function extractSqlDateParts(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = String(value.getFullYear()).padStart(4, '0');
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return { year, month, day };
+  }
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return { year: match[1], month: match[2], day: match[3] };
+}
+
 function formatHotelReservationDemandRow(row) {
   if (!row) return null;
   return {
@@ -810,6 +951,11 @@ function formatHotelReservationDemandRow(row) {
     total_price: row.total_price === null || row.total_price === undefined ? null : Number(row.total_price),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     child_ages: parseJsonArray(row.child_ages_json),
+    clicktopay_payment_id: row.clicktopay_payment_id || null,
+    clicktopay_order_number: row.clicktopay_order_number || null,
+    clicktopay_status: row.clicktopay_status || null,
+    clicktopay_checkout_url: row.clicktopay_checkout_url || null,
+    clicktopay_paid_at: row.clicktopay_paid_at || null,
     voucher_qr_image_url: row.voucher_qr_image_url || null,
     hotel_context: (() => {
       try {
@@ -857,6 +1003,86 @@ async function fetchHotelReservationDemandRow(demandId) {
   return formatHotelReservationDemandRow(rows?.[0] || null);
 }
 
+async function fetchHotelReservationDemandByClickToPay(orderId, orderNumber) {
+  const safeOrderId = String(orderId || '').trim();
+  const safeOrderNumber = String(orderNumber || '').trim();
+  if (!safeOrderId && !safeOrderNumber) return null;
+  const clauses = [];
+  const params = [];
+  if (safeOrderId) {
+    clauses.push('clicktopay_payment_id = ?');
+    params.push(safeOrderId);
+  }
+  if (safeOrderNumber) {
+    clauses.push('clicktopay_order_number = ?');
+    params.push(safeOrderNumber);
+  }
+  const [rows] = await pool.query(
+    `SELECT * FROM hotel_reservation_demands WHERE ${clauses.join(' OR ')} ORDER BY updated_at DESC LIMIT 1`,
+    params
+  );
+  return rows?.[0] || null;
+}
+
+async function confirmHotelClickToPayDemand({ demandId, currentRow = null, allowFailure = false }) {
+  const safeDemandId = String(demandId || '').trim();
+  if (!safeDemandId) {
+    throw new Error('Demande hotel introuvable');
+  }
+  const current = currentRow || (await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [safeDemandId]).then(([rows]) => rows?.[0] || null));
+  if (!current) {
+    throw new Error('Demande hotel introuvable');
+  }
+  const orderId = String(current.clicktopay_payment_id || '').trim();
+  const orderNumber = String(current.clicktopay_order_number || '').trim();
+  if (!orderId && !orderNumber) {
+    throw new Error('Session Click to Pay introuvable pour cette demande');
+  }
+
+  const statusPayload = await clickToPayGetOrderStatusExtended({ orderId, orderNumber });
+  const decision = extractClickToPayDecision(statusPayload);
+  const now = getAgencySqlDateTime();
+  await pool.query(
+    `UPDATE hotel_reservation_demands
+     SET clicktopay_status = ?, clicktopay_paid_at = ?, payment_method = ?, updated_at = ?
+     WHERE id = ?`,
+    [
+      decision.statusLabel,
+      decision.isSuccess ? now : null,
+      'clicktopay',
+      now,
+      safeDemandId,
+    ]
+  );
+
+  if (decision.isSuccess) {
+    const refreshed = await fetchHotelReservationDemandRow(safeDemandId);
+    if (!String(refreshed?.reservation_payment_id || '').trim()) {
+      await applyHotelReservationDemandPayment({
+        current: refreshed || current,
+        demandId: safeDemandId,
+        method: 'clicktopay',
+        explicitPaymentIdPrefix: 'hotel_c2p_',
+      });
+    }
+    return {
+      demand: await fetchHotelReservationDemandRow(safeDemandId),
+      decision,
+      statusPayload,
+    };
+  }
+
+  if (!allowFailure) {
+    throw new Error(decision.message || 'Paiement Click to Pay non confirme');
+  }
+
+  return {
+    demand: await fetchHotelReservationDemandRow(safeDemandId),
+    decision,
+    statusPayload,
+  };
+}
+
 async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPayload, qrImageUrl }) {
   const vouchersDir = path.join(__dirname, 'contracts', 'hotel-vouchers');
   if (!fs.existsSync(vouchersDir)) {
@@ -875,17 +1101,17 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
   const resolvedQrImageUrl = String(qrImageUrl || '').trim() || fallbackQrCodeUrl;
   const childCount = Array.isArray(demand?.child_ages) ? demand.child_ages.length : 0;
   const totalGuests = Math.max(1, Number(demand?.adults || 1)) + childCount;
-  const checkInMatch = String(demand?.check_in || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  const checkOutMatch = String(demand?.check_out || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const checkInParts = extractSqlDateParts(demand?.check_in);
+  const checkOutParts = extractSqlDateParts(demand?.check_out);
   const values = {
     client_name: String(demand?.client_name || '-'),
     client_phone: String(demand?.client_phone || '-'),
     hotel_reference: String(demand?.hotel_name || '-')
       + (String(voucherNumber || '').trim() ? ` / Ref ${String(voucherNumber).trim()}` : ''),
-    checkin_day: checkInMatch ? checkInMatch[3] : '--',
-    checkin_month: checkInMatch ? checkInMatch[2] : '--',
-    checkout_day: checkOutMatch ? checkOutMatch[3] : '--',
-    checkout_month: checkOutMatch ? checkOutMatch[2] : '--',
+    checkin_day: checkInParts?.day || '--',
+    checkin_month: checkInParts?.month || '--',
+    checkout_day: checkOutParts?.day || '--',
+    checkout_month: checkOutParts?.month || '--',
     guests: `${totalGuests} personne(s)${childCount > 0 ? ` dont ${childCount} enfant(s)` : ''}`,
     room_type: String(demand?.room_name || demand?.boarding_name || '-'),
     voucher_id: String(voucherId || voucherNumber || demand?.id || '-'),
@@ -949,9 +1175,15 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
       return Buffer.from(raw.slice(idx + 7), 'base64');
     }
     if (!/^https?:\/\//i.test(raw) && raw.startsWith('/')) {
-      const localPath = path.resolve(__dirname, `..${raw}`);
-      if (fs.existsSync(localPath)) {
-        return fs.promises.readFile(localPath);
+      const candidatePaths = [
+        raw.startsWith('/uploads/') ? path.resolve(__dirname, raw.replace(/^\//, '')) : null,
+        path.resolve(__dirname, `..${raw}`),
+        path.resolve(process.cwd(), raw.replace(/^\//, '')),
+      ].filter(Boolean);
+      for (const candidatePath of candidatePaths) {
+        if (fs.existsSync(candidatePath)) {
+          return fs.promises.readFile(candidatePath);
+        }
       }
     }
     try {
@@ -3716,9 +3948,8 @@ app.post('/api/hotel-reservation-demands/:id/flouci/confirm', requireAuthenticat
 app.post('/api/hotel-reservation-demands/:id/clicktopay/create-checkout', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
   try {
     await ensureHotelReservationDemandSchema();
-    const baseUrl = String(process.env.CLICKTOPAY_HOTEL_CHECKOUT_BASE_URL || '').trim();
-    if (!baseUrl) {
-      return res.status(501).json({ error: 'Click to Pay non configure. Ajoutez CLICKTOPAY_HOTEL_CHECKOUT_BASE_URL.' });
+    if (!isClickToPayConfigured()) {
+      return res.status(501).json({ error: 'Click to Pay non configure. Ajoutez CLICKTOPAY_USERNAME et CLICKTOPAY_PASSWORD.' });
     }
     const demandId = String(req.params?.id || '').trim();
     if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
@@ -3732,28 +3963,37 @@ app.post('/api/hotel-reservation-demands/:id/clicktopay/create-checkout', requir
       ? Number(current.amount_due_now)
       : Number(current.total_price || 0);
     if (amountTnd <= 0) return res.status(400).json({ error: 'Montant hotel invalide' });
-    const paymentId = `hotel_c2p_${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    const amountInMillimes = normalizeClickToPayAmount(amountTnd);
+    if (amountInMillimes <= 0) return res.status(400).json({ error: 'Montant Click to Pay invalide' });
+    const orderNumber = buildClickToPayOrderNumber(demandId);
     const backendBase = resolvePublicApiBase(req) || `${req.protocol}://${req.get('host')}`;
     const frontendBase = CANONICAL_FRONTEND_URL.replace(/\/+$/, '');
-    const successUrl = `${backendBase.replace(/\/+$/, '')}/api/payments/clicktopay/return/success?hotel_demand_id=${encodeURIComponent(demandId)}&payment_id=${encodeURIComponent(paymentId)}&return_to=${encodeURIComponent(`${frontendBase}${getHotelReservationPublicRoute(demandId)}`)}`;
-    const failUrl = `${backendBase.replace(/\/+$/, '')}/api/payments/clicktopay/return/fail?hotel_demand_id=${encodeURIComponent(demandId)}&payment_id=${encodeURIComponent(paymentId)}&return_to=${encodeURIComponent(`${frontendBase}${getHotelReservationPublicRoute(demandId)}`)}`;
-    const checkout = new URL(baseUrl);
-    checkout.searchParams.set('payment_id', paymentId);
-    checkout.searchParams.set('hotel_demand_id', demandId);
-    checkout.searchParams.set('amount', String(amountTnd));
-    checkout.searchParams.set('currency', String(current.currency || 'TND'));
-    checkout.searchParams.set('success_url', successUrl);
-    checkout.searchParams.set('fail_url', failUrl);
+    const returnTo = `${frontendBase}${getHotelReservationPublicRoute(demandId)}`;
+    const successUrl = `${backendBase.replace(/\/+$/, '')}/api/payments/clicktopay/return/success?hotel_demand_id=${encodeURIComponent(demandId)}&return_to=${encodeURIComponent(returnTo)}`;
+    const failUrl = `${backendBase.replace(/\/+$/, '')}/api/payments/clicktopay/return/fail?hotel_demand_id=${encodeURIComponent(demandId)}&return_to=${encodeURIComponent(returnTo)}`;
+    const registration = await clickToPayRegisterOrder({
+      orderNumber,
+      amount: amountInMillimes,
+      returnUrl: successUrl,
+      failUrl,
+      description: `Reservation hotel ${String(current.hotel_name || '').trim()}`.trim(),
+      pageView: buildClickToPayPageView(req),
+    });
+    const orderId = String(registration?.orderId || '').trim();
+    const formUrl = String(registration?.formUrl || '').trim();
+    if (!orderId || !formUrl) {
+      return res.status(502).json({ error: 'Reponse Click to Pay incomplete (orderId/formUrl manquant)' });
+    }
     await pool.query(
       `UPDATE hotel_reservation_demands
-       SET clicktopay_payment_id = ?, clicktopay_status = ?, clicktopay_checkout_url = ?, payment_method = ?, updated_at = ?
+       SET clicktopay_payment_id = ?, clicktopay_order_number = ?, clicktopay_status = ?, clicktopay_checkout_url = ?, payment_method = ?, updated_at = ?
        WHERE id = ?`,
-      [paymentId, 'PENDING', checkout.toString(), 'clicktopay', getAgencySqlDateTime(), demandId]
+      [orderId, orderNumber, 'REGISTERED', formUrl, 'clicktopay', getAgencySqlDateTime(), demandId]
     );
-    return res.json({ provider: 'clicktopay', checkout_url: checkout.toString(), payment_id: paymentId, amount_tnd: amountTnd });
+    return res.json({ provider: 'clicktopay', checkout_url: formUrl, payment_id: orderId, order_number: orderNumber, amount_tnd: amountTnd, amount_minor: amountInMillimes });
   } catch (error) {
     console.error('Error creating hotel ClickToPay checkout:', error);
-    return res.status(500).json({ error: 'Impossible de creer la session Click to Pay hotel' });
+    return res.status(500).json({ error: String(error?.message || 'Impossible de creer la session Click to Pay hotel') });
   }
 });
 
@@ -3761,47 +4001,18 @@ app.post('/api/hotel-reservation-demands/:id/clicktopay/confirm', requireAuthent
   try {
     await ensureHotelReservationDemandSchema();
     const demandId = String(req.params?.id || '').trim();
-    const paymentId = String(req.body?.payment_id || req.body?.paymentId || req.body?.reference || '').trim();
     if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
-    if (!paymentId) return res.status(400).json({ error: 'Reference Click to Pay manquante' });
     const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
     const current = rows?.[0] || null;
     if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
     if (!canAccessHotelReservationDemand(req.authUser, current)) {
       return res.status(403).json({ error: 'Acces refuse a cette demande hotel' });
     }
-    const now = getAgencySqlDateTime();
-    await pool.query(
-      `UPDATE hotel_reservation_demands
-       SET clicktopay_payment_id = ?, clicktopay_status = ?, clicktopay_paid_at = ?, payment_method = ?, updated_at = ?
-       WHERE id = ?`,
-      [paymentId, 'SUCCESS', now, 'clicktopay', now, demandId]
-    );
-    await applyHotelReservationDemandPayment({
-      current,
-      demandId,
-      method: 'clicktopay',
-      explicitPaymentIdPrefix: 'hotel_c2p_',
-    });
-    const [updatedRows] = await pool.query(
-      `SELECT *,
-              DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
-              DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
-              DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
-              DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
-              DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
-              DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
-              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-              DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
-       FROM hotel_reservation_demands
-       WHERE id = ?
-       LIMIT 1`,
-      [demandId]
-    );
-    return res.json(formatHotelReservationDemandRow(updatedRows?.[0] || null));
+    const result = await confirmHotelClickToPayDemand({ demandId, currentRow: current, allowFailure: false });
+    return res.json(result.demand);
   } catch (error) {
     console.error('Error confirming hotel ClickToPay payment:', error);
-    return res.status(500).json({ error: 'Impossible de confirmer le paiement Click to Pay hotel' });
+    return res.status(500).json({ error: String(error?.message || 'Impossible de confirmer le paiement Click to Pay hotel') });
   }
 });
 
@@ -19948,10 +20159,61 @@ app.get('/api/statistiques/resume', requireAdminSession, async (req, res) => {
 // ClickToPay callback endpoints (bank form: notification + default return URLs)
 const clickToPayUrlencodedParser = express.urlencoded({ extended: false });
 
+function buildClickToPayFrontendRedirect({ hotelDemandId, returnTo, success, reason = '', reference = '' }) {
+  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
+  redirectUrl.searchParams.set('payment', success ? 'success' : 'failed');
+  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
+  if (reference) redirectUrl.searchParams.set('reference', reference);
+  if (!success && reason) redirectUrl.searchParams.set('reason', String(reason).slice(0, 200));
+  return redirectUrl.toString();
+}
+
+async function resolveClickToPayReturnDecision(payload) {
+  const hotelDemandId = String(payload?.hotel_demand_id || '').trim();
+  const returnTo = String(payload?.return_to || '').trim();
+  const orderId = String(payload?.orderId || payload?.mdOrder || payload?.payment_id || payload?.order_id || '').trim();
+  const orderNumber = String(payload?.orderNumber || '').trim();
+  const reference = orderId || orderNumber;
+  let current = null;
+  if (hotelDemandId) {
+    current = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [hotelDemandId]).then(([rows]) => rows?.[0] || null);
+  }
+  if (!current && (orderId || orderNumber)) {
+    current = await fetchHotelReservationDemandByClickToPay(orderId, orderNumber);
+  }
+  if (!current) {
+    return buildClickToPayFrontendRedirect({
+      hotelDemandId,
+      returnTo,
+      success: false,
+      reason: 'Demande Click to Pay introuvable',
+      reference,
+    });
+  }
+  const result = await confirmHotelClickToPayDemand({
+    demandId: current.id,
+    currentRow: current,
+    allowFailure: true,
+  });
+  return buildClickToPayFrontendRedirect({
+    hotelDemandId: String(current.id || hotelDemandId || '').trim(),
+    returnTo,
+    success: result.decision.isSuccess,
+    reason: result.decision.message || (result.decision.isSuccess ? '' : 'Paiement non confirme'),
+    reference: String(current.clicktopay_payment_id || reference || '').trim(),
+  });
+}
+
 app.get('/api/payments/clicktopay/notification', async (req, res) => {
   try {
     const payload = req.query || {};
     console.log('[ClickToPay] notification (GET):', payload);
+    const orderId = String(payload?.orderId || payload?.mdOrder || payload?.payment_id || payload?.order_id || '').trim();
+    const orderNumber = String(payload?.orderNumber || '').trim();
+    const demand = await fetchHotelReservationDemandByClickToPay(orderId, orderNumber);
+    if (demand) {
+      await confirmHotelClickToPayDemand({ demandId: demand.id, currentRow: demand, allowFailure: true });
+    }
     return res.status(200).send('OK');
   } catch (error) {
     console.error('ClickToPay notification GET failed:', error);
@@ -19963,6 +20225,12 @@ app.post('/api/payments/clicktopay/notification', clickToPayUrlencodedParser, as
   try {
     const payload = req.body && Object.keys(req.body).length ? req.body : (req.query || {});
     console.log('[ClickToPay] notification (POST):', payload);
+    const orderId = String(payload?.orderId || payload?.mdOrder || payload?.payment_id || payload?.order_id || '').trim();
+    const orderNumber = String(payload?.orderNumber || '').trim();
+    const demand = await fetchHotelReservationDemandByClickToPay(orderId, orderNumber);
+    if (demand) {
+      await confirmHotelClickToPayDemand({ demandId: demand.id, currentRow: demand, allowFailure: true });
+    }
     return res.status(200).send('OK');
   } catch (error) {
     console.error('ClickToPay notification POST failed:', error);
@@ -19970,48 +20238,74 @@ app.post('/api/payments/clicktopay/notification', clickToPayUrlencodedParser, as
   }
 });
 
-app.get('/api/payments/clicktopay/return/success', (req, res) => {
-  const hotelDemandId = String(req.query?.hotel_demand_id || '').trim();
-  const returnTo = String(req.query?.return_to || '').trim();
-  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
-  redirectUrl.searchParams.set('payment', 'success');
-  const reference = String(req.query?.reference || req.query?.order_id || req.query?.payment_id || '').trim();
-  if (reference) redirectUrl.searchParams.set('reference', reference);
-  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
-  return res.redirect(302, redirectUrl.toString());
+app.get('/api/payments/clicktopay/return/success', async (req, res) => {
+  try {
+    const redirectUrl = await resolveClickToPayReturnDecision(req.query || {});
+    return res.redirect(302, redirectUrl);
+  } catch (error) {
+    console.error('ClickToPay return success GET failed:', error);
+    const redirectUrl = buildClickToPayFrontendRedirect({
+      hotelDemandId: String(req.query?.hotel_demand_id || '').trim(),
+      returnTo: String(req.query?.return_to || '').trim(),
+      success: false,
+      reason: error?.message || 'Confirmation Click to Pay impossible',
+      reference: String(req.query?.orderId || req.query?.mdOrder || req.query?.payment_id || '').trim(),
+    });
+    return res.redirect(302, redirectUrl);
+  }
 });
 
-app.post('/api/payments/clicktopay/return/success', clickToPayUrlencodedParser, (req, res) => {
-  const hotelDemandId = String(req.body?.hotel_demand_id || req.query?.hotel_demand_id || '').trim();
-  const returnTo = String(req.body?.return_to || req.query?.return_to || '').trim();
-  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
-  redirectUrl.searchParams.set('payment', 'success');
-  const reference = String(req.body?.reference || req.body?.order_id || req.body?.payment_id || '').trim();
-  if (reference) redirectUrl.searchParams.set('reference', reference);
-  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
-  return res.redirect(302, redirectUrl.toString());
+app.post('/api/payments/clicktopay/return/success', clickToPayUrlencodedParser, async (req, res) => {
+  try {
+    const payload = req.body && Object.keys(req.body).length ? req.body : (req.query || {});
+    const redirectUrl = await resolveClickToPayReturnDecision(payload);
+    return res.redirect(302, redirectUrl);
+  } catch (error) {
+    console.error('ClickToPay return success POST failed:', error);
+    const redirectUrl = buildClickToPayFrontendRedirect({
+      hotelDemandId: String(req.body?.hotel_demand_id || req.query?.hotel_demand_id || '').trim(),
+      returnTo: String(req.body?.return_to || req.query?.return_to || '').trim(),
+      success: false,
+      reason: error?.message || 'Confirmation Click to Pay impossible',
+      reference: String(req.body?.orderId || req.body?.mdOrder || req.body?.payment_id || '').trim(),
+    });
+    return res.redirect(302, redirectUrl);
+  }
 });
 
-app.get('/api/payments/clicktopay/return/fail', (req, res) => {
-  const hotelDemandId = String(req.query?.hotel_demand_id || '').trim();
-  const returnTo = String(req.query?.return_to || '').trim();
-  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
-  redirectUrl.searchParams.set('payment', 'failed');
-  const reason = String(req.query?.error || req.query?.message || req.query?.reason || '').trim();
-  if (reason) redirectUrl.searchParams.set('reason', reason.slice(0, 200));
-  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
-  return res.redirect(302, redirectUrl.toString());
+app.get('/api/payments/clicktopay/return/fail', async (req, res) => {
+  try {
+    const redirectUrl = await resolveClickToPayReturnDecision(req.query || {});
+    return res.redirect(302, redirectUrl);
+  } catch (error) {
+    console.error('ClickToPay return fail GET failed:', error);
+    const redirectUrl = buildClickToPayFrontendRedirect({
+      hotelDemandId: String(req.query?.hotel_demand_id || '').trim(),
+      returnTo: String(req.query?.return_to || '').trim(),
+      success: false,
+      reason: String(req.query?.error || req.query?.message || req.query?.reason || error?.message || '').trim(),
+      reference: String(req.query?.orderId || req.query?.mdOrder || req.query?.payment_id || '').trim(),
+    });
+    return res.redirect(302, redirectUrl);
+  }
 });
 
-app.post('/api/payments/clicktopay/return/fail', clickToPayUrlencodedParser, (req, res) => {
-  const hotelDemandId = String(req.body?.hotel_demand_id || req.query?.hotel_demand_id || '').trim();
-  const returnTo = String(req.body?.return_to || req.query?.return_to || '').trim();
-  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
-  redirectUrl.searchParams.set('payment', 'failed');
-  const reason = String(req.body?.error || req.body?.message || req.body?.reason || '').trim();
-  if (reason) redirectUrl.searchParams.set('reason', reason.slice(0, 200));
-  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
-  return res.redirect(302, redirectUrl.toString());
+app.post('/api/payments/clicktopay/return/fail', clickToPayUrlencodedParser, async (req, res) => {
+  try {
+    const payload = req.body && Object.keys(req.body).length ? req.body : (req.query || {});
+    const redirectUrl = await resolveClickToPayReturnDecision(payload);
+    return res.redirect(302, redirectUrl);
+  } catch (error) {
+    console.error('ClickToPay return fail POST failed:', error);
+    const redirectUrl = buildClickToPayFrontendRedirect({
+      hotelDemandId: String(req.body?.hotel_demand_id || req.query?.hotel_demand_id || '').trim(),
+      returnTo: String(req.body?.return_to || req.query?.return_to || '').trim(),
+      success: false,
+      reason: String(req.body?.error || req.body?.message || req.body?.reason || error?.message || '').trim(),
+      reference: String(req.body?.orderId || req.body?.mdOrder || req.body?.payment_id || '').trim(),
+    });
+    return res.redirect(302, redirectUrl);
+  }
 });
 
 app.use((error, req, res, next) => {

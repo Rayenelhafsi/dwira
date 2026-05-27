@@ -678,6 +678,7 @@ export interface HotelReservationDemand {
   flouci_checkout_url?: string | null;
   flouci_verified_at?: string | null;
   clicktopay_payment_id?: string | null;
+  clicktopay_order_number?: string | null;
   clicktopay_status?: string | null;
   clicktopay_checkout_url?: string | null;
   clicktopay_paid_at?: string | null;
