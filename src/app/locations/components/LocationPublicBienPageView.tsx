@@ -739,7 +739,7 @@ out body 20;
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full p-1.5 bg-gradient-to-br from-emerald-50 to-emerald-200 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
-                      <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full bg-white object-contain p-1" />
+                      <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full object-cover" />
                     </div>
                     {sectionToggle('show_informations_generales')}
                   </div>

@@ -393,7 +393,9 @@ export default function LoginPage() {
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-2xl">
           <Link to="/" className="flex justify-center mb-6">
-            <img src={logo} alt="Dwira Immobilier" className="h-20 w-auto" />
+            <span className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
+              <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
+            </span>
           </Link>
           <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-100">
             <h2 className="text-2xl font-extrabold text-gray-900">Completez votre profil client</h2>
@@ -516,7 +518,9 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <Link to="/" className="flex justify-center mb-6">
-          <img src={logo} alt="Dwira Immobilier" className="h-20 w-auto" />
+          <span className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
+            <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
+          </span>
         </Link>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Connexion administrateur

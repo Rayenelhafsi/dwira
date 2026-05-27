@@ -3206,7 +3206,7 @@ out body 40;
                  </div>
                </div>
                <div className="mt-1 h-12 w-12 shrink-0 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-200 p-1.5 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
-                 <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full bg-white object-contain p-1" />
+                 <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full object-cover" />
                </div>
             </div>
 

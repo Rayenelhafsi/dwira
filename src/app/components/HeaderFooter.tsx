@@ -404,7 +404,7 @@ export function Header() {
         <Link to="/" className="flex items-center gap-3 z-50">
            <span className={`flex items-center ${routeMode === "hotellerie" ? "gap-2" : ""}`}>
              <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm md:h-12 md:w-12">
-               <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-contain" />
+               <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
              </span>
              {routeMode === "hotellerie" && (
                <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm md:h-12 md:w-12">
@@ -556,7 +556,7 @@ export function Header() {
                 <div className="mb-8 flex flex-col items-center border-b border-gray-100 pb-6">
                   <div className={`mb-4 flex items-center ${routeMode === "hotellerie" ? "gap-3" : ""}`}>
                     <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
-                      <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-contain" />
+                      <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
                     </span>
                     {routeMode === "hotellerie" && (
                       <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm">
@@ -763,7 +763,7 @@ export function Footer() {
           <div>
             <div className="flex items-center gap-3 mb-6">
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white/12 ring-1 ring-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] overflow-hidden">
-                <img src={logo} alt="Dwira Logo" className="h-9 w-9 rounded-lg bg-white/10 object-contain p-1" />
+                <img src={logo} alt="Dwira Logo" className="h-9 w-9 rounded-full object-cover" />
               </span>
               <span className="text-xl font-bold text-white">Dwira Immobilier</span>
             </div>
