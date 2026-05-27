@@ -72,6 +72,7 @@ export const router = createBrowserRouter([
       { path: "mes-reservations", lazy: lazyPage(() => import("./pages/MyReservationsPage")) },
       { path: "mes-reservations/:id/coordonnees", lazy: lazyPage(() => import("./pages/ContractIdentityPage")) },
       { path: "mes-reservations/:id/paiement", lazy: lazyPage(() => import("./pages/ReservationPaymentPage")) },
+      { path: "mes-reservations/hotels/:id/paiement", lazy: lazyPage(() => import("./pages/HotelReservationPaymentPage")) },
       ...ventesRoutes,
       { path: "contact", lazy: lazyPage(() => import("./pages/ContactPage")) },
       { path: "deploy-mobile", lazy: lazyPage(() => import("./pages/DeployAppsPage")) },

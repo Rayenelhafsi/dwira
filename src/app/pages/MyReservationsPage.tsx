@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { useProperties } from "../context/PropertiesContext";
 import type { ReservationDemand } from "../admin/types";
+import type { HotelReservationDemand } from "../services/hotels";
+import { listHotelReservationDemands } from "../services/hotels";
 import { getReservationsFromCache } from "../utils/reservations";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
 import { getSessionUser } from "../services/auth";
@@ -38,6 +40,17 @@ const statusLabels: Record<ReservationDemand["status"], string> = {
   recu_paiement_envoye: "Recu de paiement envoye",
   contrat_realise: "Contrat realise",
   succes_paiement: "Succes paiement",
+};
+
+const hotelStatusLabels: Record<HotelReservationDemand["status"], string> = {
+  nouvelle_demande: "Nouvelle demande",
+  client_procede_vers_paiement_en_cours: "Client procede vers paiement",
+  demande_recu_paiement: "Demande de recu",
+  recu_paiement_envoye: "Recu envoye",
+  succes_paiement: "Paiement succes",
+  voucher_en_cours: "Voucher en cours de traitement",
+  voucher_envoye: "Voucher envoye",
+  annulee: "Annulee",
 };
 
 async function getApiErrorMessage(response: Response, fallback: string) {
@@ -120,6 +133,7 @@ export default function MyReservationsPage() {
   const { user } = useAuth();
   const { properties, refreshData } = useProperties();
   const [reservations, setReservations] = useState<ReservationDemand[]>([]);
+  const [hotelReservations, setHotelReservations] = useState<HotelReservationDemand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activePositiveDemandId, setActivePositiveDemandId] = useState<string | null>(null);
   const [activeContractDemandId, setActiveContractDemandId] = useState<string | null>(null);
@@ -144,9 +158,12 @@ export default function MyReservationsPage() {
       const rows = await response.json().catch(() => []);
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger vos reservations"));
       setReservations(Array.isArray(rows) ? rows : []);
+      const hotelRows = await listHotelReservationDemands();
+      setHotelReservations(Array.isArray(hotelRows) ? hotelRows : []);
     } catch (error) {
       const cachedRows = getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email });
       setReservations(cachedRows);
+      setHotelReservations([]);
       toast.error(
         cachedRows.length > 0
           ? "API indisponible. Historique local affiche."
@@ -532,6 +549,69 @@ export default function MyReservationsPage() {
                           Voir les paiements
                         </Link>
                       )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-10">
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-700">Hotellerie</p>
+            <h2 className="mt-2 text-2xl font-bold text-gray-900">Mes demandes hotel</h2>
+          </div>
+          {hotelReservations.length === 0 ? (
+            <div className="rounded-[28px] border border-gray-200 bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
+              Aucune demande hotel pour le moment.
+            </div>
+          ) : (
+            <div className="grid gap-5">
+              {hotelReservations.map((reservation) => (
+                <div key={reservation.id} className="grid gap-5 overflow-hidden rounded-[28px] border border-gray-200 bg-white p-5 shadow-sm md:grid-cols-[280px,1fr]">
+                  <div className="overflow-hidden rounded-[22px] bg-gray-100">
+                    {reservation.hotel_image_url ? (
+                      <img src={reservation.hotel_image_url} alt={reservation.hotel_name} className="h-full min-h-[220px] w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full min-h-[220px] items-center justify-center text-gray-400">Image hotel indisponible</div>
+                    )}
+                  </div>
+                  <div className="flex flex-col justify-between gap-5">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">Hotel</span>
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{hotelStatusLabels[reservation.status]}</span>
+                      </div>
+                      <h3 className="mt-3 text-2xl font-bold text-gray-900">{reservation.hotel_name}</h3>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <Info label="Ville" value={reservation.hotel_city_name || "-"} />
+                        <Info label="Periode" value={`${formatDateOnly(reservation.check_in)} au ${formatDateOnly(reservation.check_out)}`} />
+                        <Info label="Voyageurs" value={`${reservation.adults} adulte(s)${Array.isArray(reservation.child_ages) && reservation.child_ages.length ? `, ${reservation.child_ages.length} enfant(s)` : ""}`} />
+                        <Info label="Montant" value={`${Number(reservation.amount_due_now || reservation.total_price || 0).toLocaleString("fr-FR")} ${reservation.currency || "TND"}`} />
+                        <Info label="Paiement" value={reservation.reservation_payment_id ? `Regle le ${formatDateTime(reservation.reservation_payment_paid_at)}` : "Non regle"} />
+                        <Info label="Derniere mise a jour" value={formatDateTime(reservation.updated_at)} />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <Link to={`/hotels/${encodeURIComponent(reservation.hotel_id)}`} className="inline-flex rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                        Voir l'hotel
+                      </Link>
+                      {!reservation.voucher_url ? (
+                        <Link to={`/mes-reservations/hotels/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                          Proceder au paiement
+                        </Link>
+                      ) : null}
+                      {reservation.voucher_url ? (
+                        <a
+                          href={resolveAssetUrl(reservation.voucher_url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+                        >
+                          Consulter voucher
+                        </a>
+                      ) : null}
                     </div>
                   </div>
                 </div>

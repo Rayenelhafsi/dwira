@@ -6,7 +6,7 @@ import { canRenderVideoInIframe, isFacebookReelUrl, isFacebookVideoUrl, isVertic
 import { SmartImage } from '../../components/SmartImage';
 import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet';
 import L from 'leaflet';
-import logo from '../../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
+import logo from '../../../../logo dwira.jpg';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const GOOGLE_HYBRID_TILE_URL = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";

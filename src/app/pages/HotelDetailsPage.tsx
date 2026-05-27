@@ -8,6 +8,9 @@ import {
   ChevronLeft,
   Clock3,
   ExternalLink,
+  Facebook,
+  Globe,
+  KeyRound,
   LoaderCircle,
   Mail,
   MapPin,
@@ -25,6 +28,9 @@ import { SmartImage } from "../components/SmartImage";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { useAuth } from "../context/AuthContext";
 import { createHotelReservationDemand, getHotelDetail, searchHotels, type HotelDetail, type HotelSummary } from "../services/hotels";
+import { completeSocialProfile, getAuthProviders, loginWithPasskey, registerWithPasskey, startSocialLogin } from "../services/auth";
+import { buildApiUrl } from "../utils/api";
+import { clearAuthPendingLogin, isAuthPendingLogin, saveAuthReturnTo, markAuthPendingLogin } from "../utils/pendingReservation";
 import {
   extractHotelBoardingNames,
   extractHotelMinPrice,
@@ -42,6 +48,7 @@ import {
 
 const HOTEL_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
+const HOTEL_PENDING_DRAFT_KEY = "dwira_pending_hotel_reservation_draft";
 
 function formatPrice(value: number | null) {
   if (!Number.isFinite(Number(value))) return null;
@@ -62,8 +69,39 @@ function parseChildAgesParam(value: string | null) {
     .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
 }
 
+function splitHumanName(value?: string | null) {
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts.slice(-1).join(" ") };
+}
+
+function savePendingHotelDraft(payload: { hotelId: number; offerIndex: number; returnTo: string }) {
+  try {
+    sessionStorage.setItem(HOTEL_PENDING_DRAFT_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
+function readPendingHotelDraft() {
+  try {
+    const raw = sessionStorage.getItem(HOTEL_PENDING_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as { hotelId: number; offerIndex: number; returnTo: string };
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingHotelDraft() {
+  try {
+    sessionStorage.removeItem(HOTEL_PENDING_DRAFT_KEY);
+  } catch {}
+}
+
 export default function HotelDetailsPage() {
-  const { user } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -77,6 +115,22 @@ export default function HotelDetailsPage() {
   const [reservationPhone, setReservationPhone] = useState("");
   const [reservationNote, setReservationNote] = useState("");
   const [submittingReservation, setSubmittingReservation] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true });
+  const [isPasskeyPromptLoading, setIsPasskeyPromptLoading] = useState(false);
+  const [isPasskeyCreateLoading, setIsPasskeyCreateLoading] = useState(false);
+  const [loginPromptStep, setLoginPromptStep] = useState<"choices" | "passkey_setup" | "profile_setup">("choices");
+  const [passkeyPromptEmail, setPasskeyPromptEmail] = useState("");
+  const [passkeyPromptName, setPasskeyPromptName] = useState("");
+  const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
+  const [profilePromptForm, setProfilePromptForm] = useState({
+    firstName: "",
+    lastName: "",
+    clientType: "locataire",
+    telephone: "",
+    cin: "",
+  });
+  const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,11 +258,46 @@ export default function HotelDetailsPage() {
     [hotel]
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!showLoginPrompt) return;
+    void getAuthProviders().then((availableProviders) => {
+      if (!cancelled) setProviders(availableProviders);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showLoginPrompt]);
+
+  const openProfileSetupStep = (sourceUser?: any) => {
+    const currentUser = sourceUser || user;
+    const nameParts = splitHumanName(currentUser?.name || "");
+    setProfilePromptForm({
+      firstName: String(currentUser?.firstName || nameParts.firstName || "").trim(),
+      lastName: String(currentUser?.lastName || nameParts.lastName || "").trim(),
+      clientType: "locataire",
+      telephone: String(currentUser?.telephone || "").trim(),
+      cin: String(currentUser?.cin || "").trim(),
+    });
+    setLoginPromptStep("profile_setup");
+    setShowLoginPrompt(true);
+  };
+
   const openReservationRequest = (offerIndex: number) => {
-    if (!user) {
-      navigate(`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`);
+    if (!user || user.role !== "user" || !user.email) {
+      savePendingHotelDraft({ hotelId: Number(params.id || 0), offerIndex, returnTo: `${location.pathname}${location.search}` });
+      setRequestOfferIndex(offerIndex);
+      setLoginPromptStep("choices");
+      setShowLoginPrompt(true);
       return;
     }
+    if (!user.profileCompleted) {
+      savePendingHotelDraft({ hotelId: Number(params.id || 0), offerIndex, returnTo: `${location.pathname}${location.search}` });
+      setRequestOfferIndex(offerIndex);
+      openProfileSetupStep(user);
+      return;
+    }
+    clearPendingHotelDraft();
     setRequestOfferIndex(offerIndex);
   };
 
@@ -228,7 +317,7 @@ export default function HotelDetailsPage() {
     const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room);
     setSubmittingReservation(true);
     try {
-      await createHotelReservationDemand({
+      const created = await createHotelReservationDemand({
         hotelId: hotel.Id,
         hotelName: hotel.Name,
         hotelCityId: hotel.City?.Id || null,
@@ -252,9 +341,11 @@ export default function HotelDetailsPage() {
           offer: activeRequestOffer,
         },
       });
-      toast.success("Votre demande hotellerie a ete envoyee. Notre equipe vous contactera rapidement.");
+      toast.success("Votre demande hotellerie a ete envoyee. Vous pouvez maintenant finaliser le paiement.");
       setRequestOfferIndex(null);
       setReservationNote("");
+      clearPendingHotelDraft();
+      navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
     } catch (nextError) {
       toast.error(nextError instanceof Error ? nextError.message : "Impossible d'envoyer la demande hotellerie");
     } finally {
@@ -262,9 +353,182 @@ export default function HotelDetailsPage() {
     }
   };
 
+  const handlePromptSocialLogin = (provider: "google" | "facebook") => {
+    if (provider === "google" && !providers.google) {
+      toast.error("Google login indisponible pour le moment");
+      return;
+    }
+    if (provider === "facebook" && !providers.facebook) {
+      toast.error("Facebook login indisponible pour le moment");
+      return;
+    }
+    const returnTo = `${location.pathname}${location.search}`;
+    saveAuthReturnTo(returnTo);
+    markAuthPendingLogin();
+    setIsAwaitingLogin(true);
+    const popupUrl = buildApiUrl(`/auth/${provider}/start?return_to=${encodeURIComponent(returnTo)}`);
+    const popup = window.open(
+      popupUrl,
+      "dwiraAuthPopup",
+      "popup=yes,width=560,height=760,menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes"
+    );
+    if (!popup) {
+      startSocialLogin(provider, returnTo);
+      return;
+    }
+    popup.focus();
+  };
+
+  const applyLoggedUser = (loggedUser: any) => {
+    login({
+      id: loggedUser.id,
+      email: loggedUser.email,
+      name: loggedUser.name,
+      firstName: loggedUser.firstName || undefined,
+      lastName: loggedUser.lastName || undefined,
+      avatar: loggedUser.avatar || undefined,
+      clientType: loggedUser.clientType || undefined,
+      telephone: loggedUser.telephone || undefined,
+      cin: loggedUser.cin || undefined,
+      cinImageUrl: loggedUser.cinImageUrl || undefined,
+      profileCompleted: loggedUser.profileCompleted,
+      role: "user",
+    });
+  };
+
+  const handlePromptPasskeyLogin = async () => {
+    if (!providers.passkey) {
+      toast.error("Passkey indisponible pour le moment");
+      return;
+    }
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      toast.error("Passkey non supporte sur ce navigateur/appareil");
+      return;
+    }
+    setIsPasskeyPromptLoading(true);
+    try {
+      const loggedUser = await loginWithPasskey();
+      applyLoggedUser(loggedUser);
+      if (!loggedUser.profileCompleted) {
+        openProfileSetupStep(loggedUser);
+        toast.info("Completez votre identite pour continuer.");
+        return;
+      }
+      setShowLoginPrompt(false);
+      setLoginPromptStep("choices");
+      toast.success("Connexion Passkey reussie");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Connexion Passkey echouee";
+      const normalizedMessage = String(message).toLowerCase();
+      const noPasskeyDetected = ["aucun passkey", "no passkey", "credential not found", "introuvable"].some((token) => normalizedMessage.includes(token));
+      if (noPasskeyDetected) {
+        setLoginPromptStep("passkey_setup");
+        toast.info("Aucune passkey detectee. Creez-en une pour continuer.");
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setIsPasskeyPromptLoading(false);
+    }
+  };
+
+  const handlePromptPasskeyCreate = async () => {
+    const email = passkeyPromptEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error("Entrez un email valide pour creer la passkey.");
+      return;
+    }
+    setIsPasskeyCreateLoading(true);
+    try {
+      const loggedUser = await registerWithPasskey(email, passkeyPromptName.trim());
+      applyLoggedUser(loggedUser);
+      if (!loggedUser.profileCompleted) {
+        openProfileSetupStep(loggedUser);
+        toast.info("Completez votre identite pour continuer.");
+        return;
+      }
+      setShowLoginPrompt(false);
+      setLoginPromptStep("choices");
+      toast.success("Passkey creee et connexion reussie");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Creation Passkey echouee");
+    } finally {
+      setIsPasskeyCreateLoading(false);
+    }
+  };
+
+  const handlePromptProfileComplete = async () => {
+    if (!user?.id) {
+      toast.error("Session utilisateur invalide. Reconnectez-vous.");
+      return;
+    }
+    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim()) {
+      toast.error("Nom, prenom et telephone sont obligatoires.");
+      return;
+    }
+    setIsProfilePromptSaving(true);
+    try {
+      const savedUser = await completeSocialProfile({
+        id: user.id,
+        firstName: profilePromptForm.firstName.trim(),
+        lastName: profilePromptForm.lastName.trim(),
+        name: `${profilePromptForm.firstName.trim()} ${profilePromptForm.lastName.trim()}`.trim(),
+        email: user.email,
+        clientType: "locataire",
+        telephone: profilePromptForm.telephone.trim(),
+        cin: profilePromptForm.cin.trim(),
+      });
+      applyLoggedUser(savedUser);
+      setShowLoginPrompt(false);
+      setLoginPromptStep("choices");
+      toast.success("Profil complete. Vous pouvez continuer.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de sauvegarder le profil");
+    } finally {
+      setIsProfilePromptSaving(false);
+    }
+  };
+
   useEffect(() => {
     setReservationPhone(String(user?.telephone || ""));
   }, [user?.telephone]);
+
+  useEffect(() => {
+    if (!isAwaitingLogin && !isAuthPendingLogin()) return;
+    if (!user || user.role !== "user" || !user.email) return;
+    clearAuthPendingLogin();
+    setIsAwaitingLogin(false);
+    setShowLoginPrompt(false);
+    if (!user.profileCompleted) {
+      openProfileSetupStep(user);
+    }
+  }, [isAwaitingLogin, user]);
+
+  useEffect(() => {
+    if (!user || user.role !== "user" || !user.email || !user.profileCompleted) return;
+    const draft = readPendingHotelDraft();
+    if (!draft) return;
+    if (Number(draft.hotelId || 0) !== Number(params.id || 0)) return;
+    setRequestOfferIndex(Number(draft.offerIndex));
+    clearPendingHotelDraft();
+  }, [params.id, user]);
+
+  useEffect(() => {
+    const onAuthMessage = (event: MessageEvent) => {
+      const payload = event?.data;
+      if (!payload || typeof payload !== "object") return;
+      const type = String((payload as any).type || "").trim();
+      const returnTo = String((payload as any).returnTo || "").trim();
+      if (type === "DWIRA_AUTH_SUCCESS" && returnTo) {
+        clearAuthPendingLogin();
+        setIsAwaitingLogin(false);
+        setShowLoginPrompt(false);
+        window.location.assign(returnTo);
+      }
+    };
+    window.addEventListener("message", onAuthMessage);
+    return () => window.removeEventListener("message", onAuthMessage);
+  }, []);
 
   const checkIn = String(searchParams.get("checkIn") || "").trim();
   const checkOut = String(searchParams.get("checkOut") || "").trim();
@@ -632,7 +896,7 @@ export default function HotelDetailsPage() {
         </div>
       </section>
 
-      <Dialog open={requestOfferIndex !== null} onOpenChange={(open) => !open && !submittingReservation && setRequestOfferIndex(null)}>
+      <Dialog open={requestOfferIndex !== null && !!user?.email && !!user?.profileCompleted} onOpenChange={(open) => !open && !submittingReservation && setRequestOfferIndex(null)}>
         <DialogContent className="max-w-2xl rounded-[28px] border-0 p-0 shadow-2xl">
           <DialogHeader className="border-b border-slate-100 px-6 pb-4 pt-6">
             <DialogTitle className="text-2xl font-semibold text-slate-900">Demande de reservation hotellerie</DialogTitle>
@@ -706,6 +970,124 @@ export default function HotelDetailsPage() {
               Envoyer la demande
             </button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showLoginPrompt} onOpenChange={(open) => { if (!open && loginPromptStep !== "profile_setup") setShowLoginPrompt(false); }}>
+        <DialogContent className="max-w-md rounded-[28px] border border-white/60 p-6 shadow-[0_30px_80px_rgba(15,23,42,0.24)]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-900">Connectez-vous pour continuer</DialogTitle>
+            <DialogDescription className="text-sm leading-6 text-gray-500">
+              Utilisez Google, Facebook ou Passkey pour envoyer votre demande hotel et proceder directement au paiement.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4">
+            {loginPromptStep === "choices" && (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  disabled={!providers.google}
+                  onClick={() => handlePromptSocialLogin("google")}
+                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Globe className="h-5 w-5 text-emerald-700" />
+                  Continuer avec Google
+                </button>
+                <button
+                  type="button"
+                  disabled={!providers.facebook}
+                  onClick={() => handlePromptSocialLogin("facebook")}
+                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Facebook className="h-5 w-5 text-blue-600" />
+                  Continuer avec Facebook
+                </button>
+                <button
+                  type="button"
+                  disabled={isPasskeyPromptLoading || !providers.passkey}
+                  onClick={() => void handlePromptPasskeyLogin()}
+                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <KeyRound className="h-5 w-5 text-emerald-700" />
+                  {isPasskeyPromptLoading ? "Verification Passkey..." : "Continuer avec Passkey"}
+                </button>
+              </div>
+            )}
+
+            {loginPromptStep === "passkey_setup" && (
+              <div className="space-y-3">
+                <button type="button" onClick={() => setLoginPromptStep("choices")} className="text-xs font-semibold text-emerald-700">
+                  Retour
+                </button>
+                <input
+                  type="email"
+                  value={passkeyPromptEmail}
+                  onChange={(event) => setPasskeyPromptEmail(event.target.value)}
+                  placeholder="Email client"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                />
+                <input
+                  type="text"
+                  value={passkeyPromptName}
+                  onChange={(event) => setPasskeyPromptName(event.target.value)}
+                  placeholder="Nom (optionnel)"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                />
+                <button
+                  type="button"
+                  disabled={isPasskeyCreateLoading}
+                  onClick={() => void handlePromptPasskeyCreate()}
+                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <KeyRound className="h-5 w-5 text-white" />
+                  {isPasskeyCreateLoading ? "Creation Passkey..." : "Creer et continuer"}
+                </button>
+              </div>
+            )}
+
+            {loginPromptStep === "profile_setup" && (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-600">Completez votre identite pour continuer la reservation hotel.</p>
+                <input
+                  type="text"
+                  value={profilePromptForm.firstName}
+                  onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, firstName: event.target.value }))}
+                  placeholder="Prenom *"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                />
+                <input
+                  type="text"
+                  value={profilePromptForm.lastName}
+                  onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, lastName: event.target.value }))}
+                  placeholder="Nom *"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                />
+                <input
+                  type="tel"
+                  value={profilePromptForm.telephone}
+                  onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, telephone: event.target.value }))}
+                  placeholder="Telephone *"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                />
+                <input
+                  type="text"
+                  value={profilePromptForm.cin}
+                  onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, cin: event.target.value }))}
+                  placeholder="CIN (optionnel)"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                />
+                <button
+                  type="button"
+                  disabled={isProfilePromptSaving}
+                  onClick={() => void handlePromptProfileComplete()}
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isProfilePromptSaving ? "Enregistrement..." : "Continuer"}
+                </button>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

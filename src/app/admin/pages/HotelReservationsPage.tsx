@@ -6,17 +6,23 @@ import { listHotelReservationDemands, updateHotelReservationDemand } from "../..
 
 const statusLabels: Record<HotelReservationDemandStatus, string> = {
   nouvelle_demande: "Nouvelle demande",
-  contact_client: "Client contacte",
-  en_cours: "En cours",
-  confirmee: "Confirmee",
+  client_procede_vers_paiement_en_cours: "Client procede vers paiement",
+  demande_recu_paiement: "Demande de recu",
+  recu_paiement_envoye: "Recu envoye",
+  succes_paiement: "Paiement succes",
+  voucher_en_cours: "Voucher en cours",
+  voucher_envoye: "Voucher envoye",
   annulee: "Annulee",
 };
 
 const statusTone: Record<HotelReservationDemandStatus, string> = {
   nouvelle_demande: "bg-amber-100 text-amber-800 border-amber-200",
-  contact_client: "bg-sky-100 text-sky-800 border-sky-200",
-  en_cours: "bg-violet-100 text-violet-800 border-violet-200",
-  confirmee: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  client_procede_vers_paiement_en_cours: "bg-sky-100 text-sky-800 border-sky-200",
+  demande_recu_paiement: "bg-amber-100 text-amber-800 border-amber-200",
+  recu_paiement_envoye: "bg-cyan-100 text-cyan-800 border-cyan-200",
+  succes_paiement: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  voucher_en_cours: "bg-violet-100 text-violet-800 border-violet-200",
+  voucher_envoye: "bg-indigo-100 text-indigo-800 border-indigo-200",
   annulee: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
@@ -65,9 +71,12 @@ export default function HotelReservationsPage() {
       },
       {
         nouvelle_demande: 0,
-        contact_client: 0,
-        en_cours: 0,
-        confirmee: 0,
+        client_procede_vers_paiement_en_cours: 0,
+        demande_recu_paiement: 0,
+        recu_paiement_envoye: 0,
+        succes_paiement: 0,
+        voucher_en_cours: 0,
+        voucher_envoye: 0,
         annulee: 0,
       }
     );
@@ -79,6 +88,9 @@ export default function HotelReservationsPage() {
       const updated = await updateHotelReservationDemand(row.id, {
         status: patch.status as HotelReservationDemandStatus | undefined,
         admin_note: patch.admin_note,
+        voucher_id: patch.voucher_id,
+        voucher_number: patch.voucher_number,
+        voucher_qr_payload: patch.voucher_qr_payload,
       });
       setRows((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       toast.success("Demande hotellerie mise a jour");
@@ -96,7 +108,7 @@ export default function HotelReservationsPage() {
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-700">Hotel</p>
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Reservations hotellerie</h1>
-            <p className="mt-2 text-sm text-gray-500">Suivi des demandes clients envoyees depuis la section hotels.</p>
+            <p className="mt-2 text-sm text-gray-500">Suivi des demandes clients, paiements et vouchers pour la section hotels.</p>
           </div>
           <button
             type="button"
@@ -160,17 +172,17 @@ export default function HotelReservationsPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-3">
+                  <div className="flex flex-col items-end gap-3">
                   <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusTone[row.status]}`}>
                     {statusLabels[row.status]}
                   </span>
-                  <div className="text-right">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Prix indicatif</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-900">
-                      {row.total_price ? `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(row.total_price)} ${row.currency || "TND"}` : "Sur demande"}
-                    </p>
+                    <div className="text-right">
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Prix indicatif</p>
+                      <p className="mt-1 text-xl font-semibold text-slate-900">
+                      {row.amount_due_now || row.total_price ? `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Number(row.amount_due_now || row.total_price || 0))} ${row.currency || "TND"}` : "Sur demande"}
+                      </p>
+                    </div>
                   </div>
-                </div>
               </div>
 
               <div className="mt-6 grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
@@ -184,6 +196,28 @@ export default function HotelReservationsPage() {
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                       <p className="font-semibold">Note client</p>
                       <p className="mt-1 whitespace-pre-wrap">{row.client_note}</p>
+                    </div>
+                  ) : null}
+                  {(row.payment_receipt_image_url || row.payment_receipt_uploaded_at || row.payment_receipt_note) ? (
+                    <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                      <p className="font-semibold">Recu paiement</p>
+                      <p className="mt-1">Date: {formatDateTime(row.payment_receipt_uploaded_at)}</p>
+                      {row.payment_receipt_note ? <p className="mt-1">Note: {row.payment_receipt_note}</p> : null}
+                      {row.payment_receipt_image_url ? (
+                        <a href={row.payment_receipt_image_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-700">
+                          Ouvrir le recu
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {row.voucher_url ? (
+                    <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
+                      <p className="font-semibold">Voucher envoye</p>
+                      <p className="mt-1">Numero: {row.voucher_number || "-"}</p>
+                      <p className="mt-1">ID hotel: {row.voucher_id || "-"}</p>
+                      <a href={row.voucher_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg border border-indigo-300 bg-white px-3 py-2 text-xs font-semibold text-indigo-700">
+                        Ouvrir voucher
+                      </a>
                     </div>
                   ) : null}
                 </div>
@@ -208,6 +242,28 @@ export default function HotelReservationsPage() {
                     onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, admin_note: event.target.value } : item))}
                     rows={4}
                     placeholder="Note interne ou retour a preparer pour le client"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    value={row.voucher_id || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, voucher_id: event.target.value } : item))}
+                    placeholder="ID voucher hotel (manuel)"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    value={row.voucher_number || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, voucher_number: event.target.value } : item))}
+                    placeholder="Numero voucher visible (optionnel)"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <textarea
+                    value={row.voucher_qr_payload || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, voucher_qr_payload: event.target.value } : item))}
+                    rows={3}
+                    placeholder="Contenu QR fourni par l'hotel (texte, URL ou payload)"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
                     disabled={savingId === row.id}
                   />

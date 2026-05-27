@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { Mail, Lock, Facebook, Globe, User, FileText, Upload, Phone, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
-import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
+import logo from '../../../logo dwira.jpg';
 import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, loginWithPasskey, registerWithPasskey, startSocialLogin, AuthUser } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
 import { clearAuthReturnTo, readAuthReturnTo, readPendingReservationDraft, saveAuthReturnTo } from '../utils/pendingReservation';

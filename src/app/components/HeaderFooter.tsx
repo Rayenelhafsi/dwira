@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
-import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
+import logo from '../../../logo dwira.jpg';
+import titaTravelLogo from '../../../logo Tita travel.jpg';
 import { getReservationsFromCache } from "../utils/reservations";
 import { buildTelLink, getPublicContactForMode, openPhoneApp } from "../utils/deepLinks";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -382,7 +383,7 @@ export function Header() {
   const navLinks = [
     { name: "Accueil", path: "/" },
     { name: "Locations saisonnieres", path: "/logements?mode=location_saisonniere" },
-    { name: "Hotellerie", path: "/hotels" },
+    { name: "Hotellerie", path: "/?mode=hotellerie" },
     { name: "Ventes", path: "/ventes" },
     { name: "Apps", path: "/deploy-mobile" },
     { name: "Contact", path: "/contact" },
@@ -401,12 +402,21 @@ export function Header() {
     >
       <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
         <Link to="/" className="flex items-center gap-3 z-50">
-           <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm md:h-12 md:w-12">
-             <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-cover" />
+           <span className={`flex items-center ${routeMode === "hotellerie" ? "gap-2" : ""}`}>
+             <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm md:h-12 md:w-12">
+               <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-contain" />
+             </span>
+             {routeMode === "hotellerie" && (
+               <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm md:h-12 md:w-12">
+                 <img src={titaTravelLogo} alt="Tita Travel" className="h-full w-full object-contain p-1" />
+               </span>
+             )}
            </span>
            <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-emerald-900"}`}>
              <span className="block text-lg">Dwira</span>
-             <span className="block text-xs uppercase tracking-widest text-amber-500">Immobilier</span>
+             <span className="block text-xs uppercase tracking-widest text-amber-500">
+               {routeMode === "hotellerie" ? "Immobilier x Tita Travel" : "Immobilier"}
+             </span>
            </div>
         </Link>
 
@@ -544,10 +554,20 @@ export function Header() {
             >
               <div className="relative z-10 flex h-full flex-col overflow-y-auto px-6 pb-10 pt-28">
                 <div className="mb-8 flex flex-col items-center border-b border-gray-100 pb-6">
-                  <span className="mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
-                    <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-cover" />
-                  </span>
+                  <div className={`mb-4 flex items-center ${routeMode === "hotellerie" ? "gap-3" : ""}`}>
+                    <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
+                      <img src={logo} alt="Dwira Immobilier" className="h-full w-full object-contain" />
+                    </span>
+                    {routeMode === "hotellerie" && (
+                      <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm">
+                        <img src={titaTravelLogo} alt="Tita Travel" className="h-full w-full object-contain p-1" />
+                      </span>
+                    )}
+                  </div>
                   <h2 className="text-2xl font-bold text-emerald-900">Dwira Immobilier</h2>
+                  {routeMode === "hotellerie" && (
+                    <p className="mt-2 text-sm font-medium text-sky-700">En partenariat avec Tita Travel</p>
+                  )}
                 </div>
               
                 <div className="flex flex-col gap-5 py-8">

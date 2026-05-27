@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Tita Travel</title>
+  <desc id="desc">Travel logo with sun, wave, plane and TITA TRAVEL text</desc>
+  <rect width="512" height="512" rx="40" fill="#ffffff"/>
+
+  <path d="M140 238c18-76 84-122 168-122 72 0 128 34 159 92l-30 10c-24-52-70-78-129-78-68 0-120 35-136 101z" fill="#ff8a65"/>
+  <circle cx="258" cy="216" r="54" fill="#ff8a65"/>
+
+  <path d="M116 310c44-42 94-62 150-62 65 0 124 25 169 71-27-12-52-18-76-18-37 0-71 13-104 25-34 13-68 25-108 25-12 0-21-1-31-3z" fill="#4a90e2"/>
+  <path d="M124 334c46 1 82 14 117 27 27 10 53 20 82 20 22 0 45-6 71-18-23 29-57 45-103 45-49 0-88-18-126-35-15-7-30-13-46-18z" fill="#e8c980"/>
+  <path d="M300 278c16-13 33-20 53-20 23 0 37 9 48 24-11-5-20-7-31-7-18 0-31 5-45 11-10 4-19 8-30 8-7 0-13-1-19-4 9-2 17-6 24-12z" fill="#e8c980"/>
+
+  <g fill="#ff8a65" transform="translate(380 92)">
+    <path d="M0 22 h46 c20 0 32 7 32 18 0 11-12 18-32 18H0l-10 44h-14l8-44h-16l-14 14h-12l10-20-10-20h12l14 14h16l-8-44h14z"/>
+  </g>
+
+  <g fill="#ff8a65" font-family="Arial, Helvetica, sans-serif" font-weight="700">
+    <text x="256" y="428" text-anchor="middle" font-size="86" letter-spacing="4">TITA</text>
+  </g>
+  <g fill="#1e6ad6" font-family="Arial, Helvetica, sans-serif" font-weight="700">
+    <text x="256" y="480" text-anchor="middle" font-size="34" letter-spacing="18">TRAVEL</text>
+  </g>
+</svg>

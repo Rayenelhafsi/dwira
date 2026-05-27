@@ -563,7 +563,29 @@ async function ensureHotelReservationDemandSchema() {
       room_id VARCHAR(80) NULL,
       room_name VARCHAR(255) NULL,
       total_price DECIMAL(12,2) NULL,
+      amount_due_now DECIMAL(12,2) NULL,
       currency VARCHAR(10) NULL,
+      payment_method VARCHAR(20) NULL,
+      reservation_payment_id VARCHAR(100) NULL,
+      reservation_payment_paid_at DATETIME NULL,
+      flouci_checkout_id VARCHAR(120) NULL,
+      flouci_scope VARCHAR(20) NULL,
+      flouci_status VARCHAR(40) NULL,
+      flouci_checkout_url VARCHAR(700) NULL,
+      flouci_verified_at DATETIME NULL,
+      clicktopay_payment_id VARCHAR(120) NULL,
+      clicktopay_status VARCHAR(40) NULL,
+      clicktopay_checkout_url VARCHAR(700) NULL,
+      clicktopay_paid_at DATETIME NULL,
+      payment_receipt_image_url VARCHAR(500) NULL,
+      payment_receipt_uploaded_at DATETIME NULL,
+      payment_receipt_note TEXT NULL,
+      voucher_id VARCHAR(100) NULL,
+      voucher_number VARCHAR(80) NULL,
+      voucher_url VARCHAR(700) NULL,
+      voucher_generated_at DATETIME NULL,
+      voucher_sent_at DATETIME NULL,
+      voucher_qr_payload TEXT NULL,
       status VARCHAR(40) NOT NULL,
       client_note TEXT NULL,
       admin_note TEXT NULL,
@@ -580,6 +602,72 @@ async function ensureHotelReservationDemandSchema() {
   if (!(await columnExists('hotel_reservation_demands', 'hotel_context_json'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN hotel_context_json LONGTEXT NULL AFTER admin_note');
   }
+  if (!(await columnExists('hotel_reservation_demands', 'amount_due_now'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN amount_due_now DECIMAL(12,2) NULL AFTER total_price');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'payment_method'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN payment_method VARCHAR(20) NULL AFTER currency');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'reservation_payment_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN reservation_payment_id VARCHAR(100) NULL AFTER payment_method');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'reservation_payment_paid_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN reservation_payment_paid_at DATETIME NULL AFTER reservation_payment_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'flouci_checkout_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN flouci_checkout_id VARCHAR(120) NULL AFTER reservation_payment_paid_at');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'flouci_scope'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN flouci_scope VARCHAR(20) NULL AFTER flouci_checkout_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'flouci_status'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN flouci_status VARCHAR(40) NULL AFTER flouci_scope');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'flouci_checkout_url'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN flouci_checkout_url VARCHAR(700) NULL AFTER flouci_status');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'flouci_verified_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN flouci_verified_at DATETIME NULL AFTER flouci_checkout_url');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'clicktopay_payment_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_payment_id VARCHAR(120) NULL AFTER flouci_verified_at');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'clicktopay_status'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_status VARCHAR(40) NULL AFTER clicktopay_payment_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'clicktopay_checkout_url'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_checkout_url VARCHAR(700) NULL AFTER clicktopay_status');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'clicktopay_paid_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN clicktopay_paid_at DATETIME NULL AFTER clicktopay_checkout_url');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'payment_receipt_image_url'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN payment_receipt_image_url VARCHAR(500) NULL AFTER clicktopay_paid_at');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'payment_receipt_uploaded_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN payment_receipt_uploaded_at DATETIME NULL AFTER payment_receipt_image_url');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'payment_receipt_note'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN payment_receipt_note TEXT NULL AFTER payment_receipt_uploaded_at');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'voucher_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_id VARCHAR(100) NULL AFTER payment_receipt_note');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'voucher_number'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_number VARCHAR(80) NULL AFTER voucher_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'voucher_url'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_url VARCHAR(700) NULL AFTER voucher_number');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'voucher_generated_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_generated_at DATETIME NULL AFTER voucher_url');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'voucher_sent_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_sent_at DATETIME NULL AFTER voucher_generated_at');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'voucher_qr_payload'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_qr_payload TEXT NULL AFTER voucher_sent_at');
+  }
 }
 
 function formatHotelReservationDemandRow(row) {
@@ -588,6 +676,7 @@ function formatHotelReservationDemandRow(row) {
     ...row,
     adults: Math.max(1, Number(row.adults || 1)),
     total_price: row.total_price === null || row.total_price === undefined ? null : Number(row.total_price),
+    amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     child_ages: parseJsonArray(row.child_ages_json),
     hotel_context: (() => {
       try {
@@ -609,6 +698,109 @@ function canAccessHotelReservationDemand(authUser, demand) {
   const demandUserId = String(demand.client_user_id || '').trim();
   const demandEmail = normalizeEmailForCompare(demand.client_email);
   return Boolean((requesterId && requesterId === demandUserId) || (requesterEmail && requesterEmail === demandEmail));
+}
+
+function getHotelReservationPublicRoute(demandId) {
+  return `/mes-reservations/hotels/${encodeURIComponent(String(demandId || '').trim())}/paiement`;
+}
+
+async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPayload }) {
+  const vouchersDir = path.join(__dirname, 'contracts', 'hotel-vouchers');
+  if (!fs.existsSync(vouchersDir)) {
+    fs.mkdirSync(vouchersDir, { recursive: true });
+  }
+  const safeDemandId = String(demand?.id || `hotel_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '');
+  const fileName = `voucher-${safeDemandId}.html`;
+  const filePath = path.join(vouchersDir, fileName);
+  const voucherRelativePath = `/contracts/hotel-vouchers/${fileName}`;
+  const backgroundUrl = `${String(CANONICAL_FRONTEND_URL || '').replace(/\/+$/, '')}/voucher-template/vide.jpg`;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(String(qrPayload || voucherId || voucherNumber || demand?.id || '').trim())}`;
+  const html = `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Voucher hotel ${escapeHtml(String(voucherNumber || voucherId || demand?.id || ''))}</title>
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; background:#f4f7fb; color:#172033; }
+    .page { width:1123px; min-height:794px; margin:0 auto; position:relative; background:#fff; overflow:hidden; }
+    .bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.92; }
+    .overlay { position:relative; z-index:1; padding:56px 64px; }
+    .eyebrow { letter-spacing:.28em; font-size:12px; font-weight:700; color:#0f766e; text-transform:uppercase; }
+    .title { font-size:36px; font-weight:800; margin:12px 0 8px; }
+    .subtitle { font-size:16px; color:#4b5563; margin-bottom:26px; }
+    .grid { display:grid; grid-template-columns: 1.2fr .8fr; gap:24px; }
+    .card { background:rgba(255,255,255,.90); border:1px solid #d9e3f0; border-radius:22px; padding:24px; box-shadow:0 12px 28px rgba(15,23,42,.08); }
+    .label { font-size:11px; text-transform:uppercase; letter-spacing:.18em; color:#64748b; margin-bottom:6px; }
+    .value { font-size:18px; font-weight:700; color:#0f172a; }
+    .stack > div { margin-bottom:16px; }
+    .stack > div:last-child { margin-bottom:0; }
+    .qr { text-align:center; }
+    .qr img { width:220px; height:220px; border-radius:18px; background:#fff; padding:12px; border:1px solid #d9e3f0; }
+    .muted { font-size:14px; line-height:1.6; color:#475569; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <img class="bg" src="${backgroundUrl}" alt="" />
+    <div class="overlay">
+      <div class="eyebrow">Dwira Immobilier · Hotellerie</div>
+      <div class="title">Voucher de reservation hotel</div>
+      <div class="subtitle">Document client genere par l'agence apres validation du paiement.</div>
+      <div class="grid">
+        <div class="card stack">
+          <div><div class="label">Hotel</div><div class="value">${escapeHtml(String(demand?.hotel_name || '-'))}</div></div>
+          <div><div class="label">Ville</div><div class="value">${escapeHtml(String(demand?.hotel_city_name || '-'))}</div></div>
+          <div><div class="label">Sejour</div><div class="value">${escapeHtml(String(demand?.check_in || '-'))} au ${escapeHtml(String(demand?.check_out || '-'))}</div></div>
+          <div><div class="label">Client</div><div class="value">${escapeHtml(String(demand?.client_name || '-'))}</div></div>
+          <div><div class="label">Telephone</div><div class="value">${escapeHtml(String(demand?.client_phone || '-'))}</div></div>
+          <div><div class="label">Chambre</div><div class="value">${escapeHtml(String(demand?.room_name || '-'))}</div></div>
+          <div><div class="label">Pension</div><div class="value">${escapeHtml(String(demand?.boarding_name || '-'))}</div></div>
+          <div><div class="label">Voyageurs</div><div class="value">${escapeHtml(String(demand?.adults || 1))} adulte(s)${Array.isArray(demand?.child_ages) && demand.child_ages.length ? `, ${escapeHtml(String(demand.child_ages.length))} enfant(s)` : ''}</div></div>
+          <div><div class="label">Montant regle</div><div class="value">${escapeHtml(String(Number(demand?.amount_due_now || demand?.total_price || 0).toLocaleString('fr-FR')))} ${escapeHtml(String(demand?.currency || 'TND'))}</div></div>
+          <div><div class="label">Identifiant voucher hotel</div><div class="value">${escapeHtml(String(voucherId || '-'))}</div></div>
+          <div><div class="label">Numero voucher</div><div class="value">${escapeHtml(String(voucherNumber || '-'))}</div></div>
+        </div>
+        <div class="card qr">
+          <div class="label">QR Code hotel</div>
+          <img src="${qrCodeUrl}" alt="QR code voucher hotel" />
+          <p class="muted">Le QR code et l'identifiant voucher ont ete fournis manuellement par l'hotel.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+  await fs.promises.writeFile(filePath, html, 'utf8');
+  return voucherRelativePath;
+}
+
+async function applyHotelReservationDemandPayment({ current, demandId, method, explicitPaymentIdPrefix = 'hotelpay_' }) {
+  const amount = Number.isFinite(Number(current.amount_due_now))
+    ? Number(current.amount_due_now)
+    : Number(current.total_price || 0);
+  if (amount <= 0) {
+    throw new Error('Aucun montant hotel a regler');
+  }
+  if (String(current.reservation_payment_id || '').trim()) {
+    throw new Error('La reservation hotel a deja ete reglee');
+  }
+  const now = getAgencySqlDateTime();
+  const paymentId = `${explicitPaymentIdPrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+  await pool.query(
+    `UPDATE hotel_reservation_demands
+     SET reservation_payment_id = ?,
+         reservation_payment_paid_at = ?,
+         payment_method = ?,
+         status = ?,
+         updated_at = ?
+     WHERE id = ?`,
+    [paymentId, now, method, 'voucher_en_cours', now, demandId]
+  );
+  await createAdminNotification(
+    'success',
+    `Paiement ${method} recu pour la demande hotel ${demandId}. Voucher a preparer.`,
+    now
+  );
 }
 
 async function callMyGoHotelService(serviceName, payload = {}) {
@@ -2851,6 +3043,12 @@ app.get('/api/hotel-reservation-demands', requireAuthenticatedSession, async (re
     const [rows] = await pool.query(
       `SELECT
          *,
+         DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+         DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+         DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+         DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+         DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+         DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
          DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
          DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
        FROM hotel_reservation_demands
@@ -2892,6 +3090,7 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
     const clientNote = String(req.body?.clientNote || '').trim() || null;
     const hotelContext = req.body?.hotelContext && typeof req.body.hotelContext === 'object' ? req.body.hotelContext : null;
     const totalPrice = Number.isFinite(totalPriceRaw) && totalPriceRaw > 0 ? totalPriceRaw : null;
+    const amountDueNow = totalPrice;
 
     if (!hotelId || !hotelName) {
       return res.status(400).json({ error: 'Hotel invalide.' });
@@ -2909,8 +3108,8 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
          hotel_id, hotel_name, hotel_city_id, hotel_city_name, hotel_image_url,
          check_in, check_out, adults, child_ages_json,
          boarding_id, boarding_name, room_id, room_name,
-         total_price, currency, status, client_note, admin_note, hotel_context_json, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         total_price, amount_due_now, currency, status, client_note, admin_note, hotel_context_json, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         demandId,
         String(requester?.id || '').trim() || null,
@@ -2931,8 +3130,9 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
         roomId,
         roomName,
         totalPrice,
+        amountDueNow,
         currency,
-        'nouvelle_demande',
+        'client_procede_vers_paiement_en_cours',
         clientNote,
         null,
         JSON.stringify(hotelContext),
@@ -2950,6 +3150,12 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
     const [rows] = await pool.query(
       `SELECT
          *,
+         DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+         DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+         DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+         DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+         DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+         DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
          DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
          DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
        FROM hotel_reservation_demands
@@ -2984,18 +3190,48 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
     const nextClientNote = !requesterIsAdmin && req.body?.client_note !== undefined
       ? (String(req.body?.client_note || '').trim() || null)
       : (current.client_note || null);
+    const voucherId = requesterIsAdmin && req.body?.voucher_id !== undefined ? String(req.body?.voucher_id || '').trim() || null : (current.voucher_id || null);
+    const voucherNumber = requesterIsAdmin && req.body?.voucher_number !== undefined ? String(req.body?.voucher_number || '').trim() || null : (current.voucher_number || null);
+    const voucherQrPayload = requesterIsAdmin && req.body?.voucher_qr_payload !== undefined ? String(req.body?.voucher_qr_payload || '').trim() || null : (current.voucher_qr_payload || null);
     const now = getAgencySqlDateTime();
+
+    let voucherUrl = current.voucher_url || null;
+    let voucherGeneratedAt = current.voucher_generated_at || null;
+    let voucherSentAt = current.voucher_sent_at || null;
+    if (requesterIsAdmin && nextStatus === 'voucher_envoye') {
+      if (!voucherId || !voucherQrPayload) {
+        return res.status(400).json({ error: 'Identifiant voucher et contenu QR obligatoires pour envoyer le voucher' });
+      }
+      const resolvedVoucherNumber = voucherNumber || `HTL-${String(demandId).slice(-8).toUpperCase()}`;
+      voucherUrl = await generateHotelVoucherHtml({
+        demand: { ...current, voucher_id: voucherId, voucher_number: resolvedVoucherNumber, voucher_qr_payload: voucherQrPayload },
+        voucherNumber: resolvedVoucherNumber,
+        voucherId,
+        qrPayload: voucherQrPayload,
+      });
+      voucherGeneratedAt = now;
+      voucherSentAt = now;
+    }
 
     await pool.query(
       `UPDATE hotel_reservation_demands
-       SET status = ?, admin_note = ?, client_note = ?, updated_at = ?
+       SET status = ?, admin_note = ?, client_note = ?,
+           voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?,
+           voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?,
+           updated_at = ?
        WHERE id = ?`,
-      [nextStatus, nextAdminNote, nextClientNote, now, demandId]
+      [nextStatus, nextAdminNote, nextClientNote, voucherId, voucherNumber, voucherQrPayload, voucherUrl, voucherGeneratedAt, voucherSentAt, now, demandId]
     );
 
     const [updatedRows] = await pool.query(
       `SELECT
          *,
+         DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+         DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+         DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+         DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+         DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+         DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
          DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
          DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
        FROM hotel_reservation_demands
@@ -3007,6 +3243,278 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
   } catch (error) {
     console.error('Error updating hotel reservation demand:', error);
     return res.status(500).json({ error: 'Impossible de mettre a jour la demande hotellerie' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/upload-payment-receipt', requireAuthenticatedSession, paymentRateLimit, paymentReceiptUpload.single('receipt'), async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!canAccessHotelReservationDemand(req.authUser, current)) {
+      return res.status(403).json({ error: 'Acces refuse a cette demande hotel' });
+    }
+    if (!req.file) return res.status(400).json({ error: 'Image du recu requise' });
+
+    const currentStatus = String(current.status || '').trim();
+    const allowed = new Set([
+      'client_procede_vers_paiement_en_cours',
+      'demande_recu_paiement',
+      'recu_paiement_envoye',
+      'nouvelle_demande',
+    ]);
+    if (!allowed.has(currentStatus)) {
+      return res.status(400).json({ error: 'Le recu ne peut pas etre envoye a cette etape' });
+    }
+    const now = getAgencySqlDateTime();
+    const receiptUrl = `/uploads/reservation-payment-receipts/${req.file.filename}`;
+    const receiptNote = String(req.body?.payment_receipt_note || req.body?.note || '').trim() || null;
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET status = ?, payment_receipt_image_url = ?, payment_receipt_uploaded_at = ?, payment_receipt_note = ?, payment_method = ?, updated_at = ?
+       WHERE id = ?`,
+      ['recu_paiement_envoye', receiptUrl, now, receiptNote, 'virement', now, demandId]
+    );
+    await createAdminNotification(
+      'warning',
+      `Recu de paiement recu pour la demande hotel ${demandId}. Verification admin requise.`,
+      now
+    );
+    const [updatedRows] = await pool.query(
+      `SELECT *,
+              DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+              DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+              DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+              DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+              DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+              DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+              DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands
+       WHERE id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+    return res.json(formatHotelReservationDemandRow(updatedRows?.[0] || null));
+  } catch (error) {
+    console.error('Error uploading hotel payment receipt:', error);
+    return res.status(500).json({ error: 'Impossible d envoyer le recu de paiement hotel' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/flouci/create-checkout', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    if (!FLOUCI_ENABLED) {
+      return res.status(501).json({ error: 'Flouci non configure. Ajoutez FLOUCI_PUBLIC_KEY et FLOUCI_PRIVATE_KEY.' });
+    }
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!canAccessHotelReservationDemand(req.authUser, current)) {
+      return res.status(403).json({ error: 'Acces refuse a cette demande hotel' });
+    }
+    if (String(current.reservation_payment_id || '').trim()) {
+      return res.status(400).json({ error: 'La reservation hotel a deja ete reglee' });
+    }
+    const amountTnd = Number.isFinite(Number(current.amount_due_now))
+      ? Number(current.amount_due_now)
+      : Number(current.total_price || 0);
+    if (amountTnd <= 0) return res.status(400).json({ error: 'Montant hotel invalide' });
+
+    const amountForFlouci = normalizeFlouciAmount(amountTnd);
+    const frontendBase = CANONICAL_FRONTEND_URL.replace(/\/+$/, '');
+    const backendBase = resolvePublicApiBase(req) || `${req.protocol}://${req.get('host')}`;
+    const callbackBase = `${backendBase.replace(/\/+$/, '')}/api/payments/flouci/callback`;
+    const returnTo = `${frontendBase}${getHotelReservationPublicRoute(demandId)}`;
+    const successLink = `${callbackBase}?hotel_demand_id=${encodeURIComponent(demandId)}&flow=success&return_to=${encodeURIComponent(returnTo)}`;
+    const failLink = `${callbackBase}?hotel_demand_id=${encodeURIComponent(demandId)}&flow=fail&return_to=${encodeURIComponent(returnTo)}`;
+    const payload = {
+      amount: amountForFlouci,
+      success_link: successLink,
+      fail_link: failLink,
+      developer_tracking_id: `dwira-hotel-${String(demandId).slice(-12)}-${Date.now()}`,
+      session_timeout_secs: FLOUCI_SESSION_TIMEOUT_SECS,
+    };
+    const generated = await flouciGeneratePayment(payload);
+    const checkoutUrl = String(generated?.result?.link || generated?.link || '').trim();
+    const checkoutId = String(generated?.result?.payment_id || generated?.payment_id || '').trim();
+    if (!checkoutUrl || !checkoutId) {
+      return res.status(502).json({ error: 'Reponse Flouci incomplete (link/payment_id manquant)' });
+    }
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET flouci_checkout_id = ?, flouci_scope = ?, flouci_status = ?, flouci_checkout_url = ?, payment_method = ?, updated_at = ?
+       WHERE id = ?`,
+      [checkoutId, 'reservation', 'PENDING', checkoutUrl, 'flouci', getAgencySqlDateTime(), demandId]
+    );
+    return res.json({
+      provider: 'flouci',
+      checkout_url: checkoutUrl,
+      checkout_id: checkoutId,
+      amount_tnd: amountTnd,
+      amount_flouci: amountForFlouci,
+      scope: 'reservation',
+    });
+  } catch (error) {
+    console.error('Error creating hotel Flouci checkout:', error);
+    return res.status(500).json({ error: 'Impossible de creer la session Flouci hotel' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/flouci/confirm', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    if (!FLOUCI_ENABLED) return res.status(501).json({ error: 'Flouci non configure' });
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!canAccessHotelReservationDemand(req.authUser, current)) {
+      return res.status(403).json({ error: 'Acces refuse a cette demande hotel' });
+    }
+    const paymentId = String(req.body?.payment_id || req.body?.paymentId || current.flouci_checkout_id || '').trim();
+    if (!paymentId) return res.status(400).json({ error: 'Aucun payment_id Flouci a verifier' });
+    const verification = await flouciVerifyPayment(paymentId);
+    const status = String(
+      verification?.result?.status
+      || verification?.status
+      || verification?.payment_status
+      || ''
+    ).trim();
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET flouci_checkout_id = ?, flouci_scope = ?, flouci_status = ?, flouci_verified_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [paymentId, 'reservation', status || 'UNKNOWN', now, now, demandId]
+    );
+    if (!isFlouciSuccessStatus(status)) {
+      return res.status(409).json({ error: `Paiement Flouci non confirme (status=${status || 'inconnu'})`, flouci_status: status || null });
+    }
+    await applyHotelReservationDemandPayment({
+      current,
+      demandId,
+      method: 'flouci',
+      explicitPaymentIdPrefix: 'hotel_flouci_',
+    });
+    const [updatedRows] = await pool.query(
+      `SELECT *,
+              DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+              DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+              DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+              DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+              DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+              DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+              DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands
+       WHERE id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+    return res.json(formatHotelReservationDemandRow(updatedRows?.[0] || null));
+  } catch (error) {
+    console.error('Error confirming hotel Flouci payment:', error);
+    return res.status(500).json({ error: 'Impossible de confirmer le paiement Flouci hotel' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/clicktopay/create-checkout', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const baseUrl = String(process.env.CLICKTOPAY_HOTEL_CHECKOUT_BASE_URL || '').trim();
+    if (!baseUrl) {
+      return res.status(501).json({ error: 'Click to Pay non configure. Ajoutez CLICKTOPAY_HOTEL_CHECKOUT_BASE_URL.' });
+    }
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!canAccessHotelReservationDemand(req.authUser, current)) {
+      return res.status(403).json({ error: 'Acces refuse a cette demande hotel' });
+    }
+    const amountTnd = Number.isFinite(Number(current.amount_due_now))
+      ? Number(current.amount_due_now)
+      : Number(current.total_price || 0);
+    if (amountTnd <= 0) return res.status(400).json({ error: 'Montant hotel invalide' });
+    const paymentId = `hotel_c2p_${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    const backendBase = resolvePublicApiBase(req) || `${req.protocol}://${req.get('host')}`;
+    const frontendBase = CANONICAL_FRONTEND_URL.replace(/\/+$/, '');
+    const successUrl = `${backendBase.replace(/\/+$/, '')}/api/payments/clicktopay/return/success?hotel_demand_id=${encodeURIComponent(demandId)}&payment_id=${encodeURIComponent(paymentId)}&return_to=${encodeURIComponent(`${frontendBase}${getHotelReservationPublicRoute(demandId)}`)}`;
+    const failUrl = `${backendBase.replace(/\/+$/, '')}/api/payments/clicktopay/return/fail?hotel_demand_id=${encodeURIComponent(demandId)}&payment_id=${encodeURIComponent(paymentId)}&return_to=${encodeURIComponent(`${frontendBase}${getHotelReservationPublicRoute(demandId)}`)}`;
+    const checkout = new URL(baseUrl);
+    checkout.searchParams.set('payment_id', paymentId);
+    checkout.searchParams.set('hotel_demand_id', demandId);
+    checkout.searchParams.set('amount', String(amountTnd));
+    checkout.searchParams.set('currency', String(current.currency || 'TND'));
+    checkout.searchParams.set('success_url', successUrl);
+    checkout.searchParams.set('fail_url', failUrl);
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET clicktopay_payment_id = ?, clicktopay_status = ?, clicktopay_checkout_url = ?, payment_method = ?, updated_at = ?
+       WHERE id = ?`,
+      [paymentId, 'PENDING', checkout.toString(), 'clicktopay', getAgencySqlDateTime(), demandId]
+    );
+    return res.json({ provider: 'clicktopay', checkout_url: checkout.toString(), payment_id: paymentId, amount_tnd: amountTnd });
+  } catch (error) {
+    console.error('Error creating hotel ClickToPay checkout:', error);
+    return res.status(500).json({ error: 'Impossible de creer la session Click to Pay hotel' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/clicktopay/confirm', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    const paymentId = String(req.body?.payment_id || req.body?.paymentId || req.body?.reference || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    if (!paymentId) return res.status(400).json({ error: 'Reference Click to Pay manquante' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!canAccessHotelReservationDemand(req.authUser, current)) {
+      return res.status(403).json({ error: 'Acces refuse a cette demande hotel' });
+    }
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET clicktopay_payment_id = ?, clicktopay_status = ?, clicktopay_paid_at = ?, payment_method = ?, updated_at = ?
+       WHERE id = ?`,
+      [paymentId, 'SUCCESS', now, 'clicktopay', now, demandId]
+    );
+    await applyHotelReservationDemandPayment({
+      current,
+      demandId,
+      method: 'clicktopay',
+      explicitPaymentIdPrefix: 'hotel_c2p_',
+    });
+    const [updatedRows] = await pool.query(
+      `SELECT *,
+              DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+              DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+              DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+              DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+              DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+              DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+              DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands
+       WHERE id = ?
+       LIMIT 1`,
+      [demandId]
+    );
+    return res.json(formatHotelReservationDemandRow(updatedRows?.[0] || null));
+  } catch (error) {
+    console.error('Error confirming hotel ClickToPay payment:', error);
+    return res.status(500).json({ error: 'Impossible de confirmer le paiement Click to Pay hotel' });
   }
 });
 
@@ -14763,12 +15271,17 @@ app.post('/api/reservation-demands/:id/flouci/confirm', requireAuthenticatedSess
 app.get('/api/payments/flouci/callback', async (req, res) => {
   try {
     const demandId = String(req.query?.demand_id || '').trim();
+    const hotelDemandId = String(req.query?.hotel_demand_id || '').trim();
     const scope = String(req.query?.scope || 'reservation').trim().toLowerCase();
     const paymentId = String(req.query?.payment_id || req.query?.paymentId || req.query?.id || '').trim();
     const flow = String(req.query?.flow || '').trim().toLowerCase();
-    const returnTo = String(req.query?.return_to || `${CANONICAL_FRONTEND_URL}/mes-reservations`).trim();
+    const defaultReturnTo = hotelDemandId
+      ? `${CANONICAL_FRONTEND_URL}${getHotelReservationPublicRoute(hotelDemandId)}`
+      : `${CANONICAL_FRONTEND_URL}/mes-reservations`;
+    const returnTo = String(req.query?.return_to || defaultReturnTo).trim();
     const targetUrl = new URL(returnTo, CANONICAL_FRONTEND_URL);
     if (demandId) targetUrl.searchParams.set('demand_id', demandId);
+    if (hotelDemandId) targetUrl.searchParams.set('hotel_demand_id', hotelDemandId);
     if (scope) targetUrl.searchParams.set('scope', scope);
     if (paymentId) targetUrl.searchParams.set('flouci_payment_id', paymentId);
     if (flow) targetUrl.searchParams.set('flouci_flow', flow);
@@ -19144,34 +19657,46 @@ app.post('/api/payments/clicktopay/notification', clickToPayUrlencodedParser, as
 });
 
 app.get('/api/payments/clicktopay/return/success', (req, res) => {
-  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  const hotelDemandId = String(req.query?.hotel_demand_id || '').trim();
+  const returnTo = String(req.query?.return_to || '').trim();
+  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
   redirectUrl.searchParams.set('payment', 'success');
   const reference = String(req.query?.reference || req.query?.order_id || req.query?.payment_id || '').trim();
   if (reference) redirectUrl.searchParams.set('reference', reference);
+  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
   return res.redirect(302, redirectUrl.toString());
 });
 
 app.post('/api/payments/clicktopay/return/success', clickToPayUrlencodedParser, (req, res) => {
-  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  const hotelDemandId = String(req.body?.hotel_demand_id || req.query?.hotel_demand_id || '').trim();
+  const returnTo = String(req.body?.return_to || req.query?.return_to || '').trim();
+  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
   redirectUrl.searchParams.set('payment', 'success');
   const reference = String(req.body?.reference || req.body?.order_id || req.body?.payment_id || '').trim();
   if (reference) redirectUrl.searchParams.set('reference', reference);
+  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
   return res.redirect(302, redirectUrl.toString());
 });
 
 app.get('/api/payments/clicktopay/return/fail', (req, res) => {
-  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  const hotelDemandId = String(req.query?.hotel_demand_id || '').trim();
+  const returnTo = String(req.query?.return_to || '').trim();
+  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
   redirectUrl.searchParams.set('payment', 'failed');
   const reason = String(req.query?.error || req.query?.message || req.query?.reason || '').trim();
   if (reason) redirectUrl.searchParams.set('reason', reason.slice(0, 200));
+  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
   return res.redirect(302, redirectUrl.toString());
 });
 
 app.post('/api/payments/clicktopay/return/fail', clickToPayUrlencodedParser, (req, res) => {
-  const redirectUrl = new URL('/mes-reservations', CANONICAL_FRONTEND_URL);
+  const hotelDemandId = String(req.body?.hotel_demand_id || req.query?.hotel_demand_id || '').trim();
+  const returnTo = String(req.body?.return_to || req.query?.return_to || '').trim();
+  const redirectUrl = new URL(returnTo || (hotelDemandId ? getHotelReservationPublicRoute(hotelDemandId) : '/mes-reservations'), CANONICAL_FRONTEND_URL);
   redirectUrl.searchParams.set('payment', 'failed');
   const reason = String(req.body?.error || req.body?.message || req.body?.reason || '').trim();
   if (reason) redirectUrl.searchParams.set('reason', reason.slice(0, 200));
+  if (hotelDemandId) redirectUrl.searchParams.set('hotel_demand_id', hotelDemandId);
   return res.redirect(302, redirectUrl.toString());
 });
 

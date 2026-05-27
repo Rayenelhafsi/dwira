@@ -1,12 +1,15 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal } from "lucide-react";
+import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
-import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
+import logo from "../../../logo dwira.jpg";
+import titaTravelLogo from "../../../logo Tita travel.jpg";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
+import { getHotelConfig, listHotelCities, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
+import { extractHotelMinPrice, flattenHotelRoomOffers, formatHotelStarLabel, getHotelCardDescription, pickHotelDisplayedPrice } from "../utils/hotelHelpers";
 import { 
   format, 
   startOfMonth, 
@@ -92,6 +95,8 @@ const HERO_IMAGE_URL =
   "https://images.unsplash.com/photo-1690549392404-de10519e6adb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUdW5pc2lhJTIwS2VsaWJpYSUyMGJlYWNoJTIwdmlsbGElMjBtZWRpdGVycmFuZWFuJTIwY29hc3R8ZW58MXx8fHwxNzcxNDEyOTU5fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 const HERO_IMAGE_URL_MOBILE =
   "https://images.unsplash.com/photo-1690549392404-de10519e6adb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUdW5pc2lhJTIwS2VsaWJpYSUyMGJlYWNoJTIwdmlsbGElMjBtZWRpdGVycmFuZWFuJTIwY29hc3R8ZW58MXx8fHwxNzcxNDEyOTU5fDA&ixlib=rb-4.1.0&q=70&w=640&utm_source=figma&utm_medium=referral";
+const HOTEL_FALLBACK_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
@@ -285,12 +290,67 @@ const buildHierarchicalLocationLabel = (parts: Array<string | null | undefined>)
   return cleaned.join(" / ");
 };
 
+function buildDefaultHotelSearch() {
+  const today = new Date();
+  const checkIn = new Date(today);
+  checkIn.setDate(checkIn.getDate() + 7);
+  const checkOut = new Date(checkIn);
+  checkOut.setDate(checkOut.getDate() + 2);
+  return {
+    checkIn: checkIn.toISOString().slice(0, 10),
+    checkOut: checkOut.toISOString().slice(0, 10),
+    adults: 2,
+    childAgesText: "",
+  };
+}
+
+function parseHotelChildAges(value: string) {
+  return String(value || "")
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
+}
+
+function formatHotelPrice(value: number | null) {
+  if (!Number.isFinite(Number(value))) return null;
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Number(value));
+}
+
+function getClientFacingHotelError(message: string) {
+  const normalized = String(message || "").toLowerCase();
+  if (
+    !normalized
+    || normalized.includes("not configured")
+    || normalized.includes("configuration")
+    || normalized.includes("deactivated")
+    || normalized.includes("desactive")
+    || normalized.includes("auth")
+    || normalized.includes("provider")
+    || normalized.includes("mygo")
+    || normalized.includes("partenaire")
+  ) {
+    return "Notre selection d'hotels est temporairement indisponible. Merci de reessayer un peu plus tard.";
+  }
+  return "Impossible de charger les offres pour le moment. Merci de reessayer dans quelques instants.";
+}
+
+function hasHotelPromotion(hotel: HotelSummary) {
+  const promotion = hotel?.Promotion;
+  if (!promotion || typeof promotion !== "object") return false;
+  return Boolean(
+    String(promotion.Title || "").trim()
+    || String(promotion.Description || "").trim()
+    || Number(promotion.Rate || 0) > 0
+  );
+}
+
 type HomePageProps = {
   forcedAmicaleId?: string | null;
 };
 
 export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const INITIAL_VISIBLE_PROPERTIES = 10;
+  const hotelDefaults = useMemo(() => buildDefaultHotelSearch(), []);
   // Use shared context for properties
   const { properties, zones, modePriorities, loading } = useProperties();
   
@@ -356,6 +416,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
   const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
   const [showAllProperties, setShowAllProperties] = useState(false);
+  const hotelInitialSearchDoneRef = useRef(false);
+  const [hotelConfigReady, setHotelConfigReady] = useState<boolean | null>(null);
+  const [hotelProviderError, setHotelProviderError] = useState("");
+  const [hotelCities, setHotelCities] = useState<HotelCity[]>([]);
+  const [hotelResults, setHotelResults] = useState<HotelSummary[]>([]);
+  const [loadingHotelCities, setLoadingHotelCities] = useState(false);
+  const [loadingHotelResults, setLoadingHotelResults] = useState(false);
+  const [hotelCityId, setHotelCityId] = useState<number>(() => Number(searchParams.get("cityId") || 0) || 0);
+  const [hotelCheckIn, setHotelCheckIn] = useState(() => searchParams.get("checkIn") || hotelDefaults.checkIn);
+  const [hotelCheckOut, setHotelCheckOut] = useState(() => searchParams.get("checkOut") || hotelDefaults.checkOut);
+  const [hotelAdults, setHotelAdults] = useState(() => Math.max(1, Number(searchParams.get("adults") || hotelDefaults.adults)));
+  const [hotelChildAgesText, setHotelChildAgesText] = useState(() => searchParams.get("children") || hotelDefaults.childAgesText);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
   const applyAmicaleParam = (params: URLSearchParams) => {
     if (activeAmicaleId) {
@@ -379,6 +451,26 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     [modePriorities]
   );
   const isHotelMode = selectedMode === "hotellerie";
+  const selectedHotelCity = useMemo(
+    () => hotelCities.find((item) => Number(item.Id) === Number(hotelCityId)) || null,
+    [hotelCities, hotelCityId]
+  );
+  const hotelPublicErrorMessage = hotelProviderError ? getClientFacingHotelError(hotelProviderError) : "";
+  const sortedHotelResults = useMemo(
+    () => [...hotelResults].sort((left, right) => {
+      const leftPromotion = hasHotelPromotion(left) ? 1 : 0;
+      const rightPromotion = hasHotelPromotion(right) ? 1 : 0;
+      if (leftPromotion !== rightPromotion) return rightPromotion - leftPromotion;
+      const leftRecommended = Number(left?.Recommended || 0);
+      const rightRecommended = Number(right?.Recommended || 0);
+      if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
+      const leftPrice = extractHotelMinPrice(left) ?? Number.POSITIVE_INFINITY;
+      const rightPrice = extractHotelMinPrice(right) ?? Number.POSITIVE_INFINITY;
+      if (leftPrice !== rightPrice) return leftPrice - rightPrice;
+      return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
+    }),
+    [hotelResults]
+  );
   const isSelectedModeComingSoon =
     (selectedMode === "vente" && PUBLIC_COMING_SOON.ventes)
     || (selectedMode === "location_annuelle" && PUBLIC_COMING_SOON.locationAnnuelle);
@@ -929,6 +1021,57 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     }
   }, [activeAmicaleId, loading, orderedModeTabs, searchParams, setSearchParams]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const config = await getHotelConfig();
+        if (!cancelled) setHotelConfigReady(config.configured);
+      } catch (error) {
+        if (!cancelled) {
+          setHotelConfigReady(false);
+          setHotelProviderError(error instanceof Error ? error.message : "Configuration hoteliere indisponible.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingHotelCities(true);
+    void (async () => {
+      try {
+        const nextCities = await listHotelCities();
+        if (!cancelled) {
+          setHotelCities(nextCities);
+          setHotelProviderError("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setHotelProviderError(error instanceof Error ? error.message : "Chargement des villes impossible.");
+          setHotelCities([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingHotelCities(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isHotelMode || loadingHotelCities || hotelInitialSearchDoneRef.current) return;
+    if (!hotelCityId || !hotelCheckIn || !hotelCheckOut) return;
+    hotelInitialSearchDoneRef.current = true;
+    void runHotelSearch({ replace: true, scroll: false });
+    // Intentionally run once after hotel mode is hydrated from the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHotelMode, loadingHotelCities, hotelCityId, hotelCheckIn, hotelCheckOut]);
+
   // Calendar calculations
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -1054,10 +1197,60 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return className;
   };
 
+  const runHotelSearch = async (options?: { replace?: boolean; scroll?: boolean }) => {
+    const nextChildAges = parseHotelChildAges(hotelChildAgesText);
+    setHasSearched(true);
+    setLoadingHotelResults(true);
+    setHotelProviderError("");
+
+    try {
+      const hotels = await searchHotels({
+        cityId: hotelCityId || undefined,
+        checkIn: hotelCheckIn,
+        checkOut: hotelCheckOut,
+        adults: hotelAdults,
+        childAges: nextChildAges,
+        onlyAvailable: true,
+      });
+      setHotelResults(hotels);
+
+      const nextParams = applyAmicaleParam(new URLSearchParams(searchParams));
+      nextParams.set("mode", "hotellerie");
+      nextParams.delete("location");
+      nextParams.delete("locations");
+      nextParams.delete("mainType");
+      nextParams.delete("mainTypes");
+      nextParams.delete("categories");
+      nextParams.delete("seaside");
+      nextParams.delete("comfort");
+      nextParams.delete("stayRanges");
+      if (hotelCityId > 0) nextParams.set("cityId", String(hotelCityId));
+      else nextParams.delete("cityId");
+      nextParams.set("checkIn", hotelCheckIn);
+      nextParams.set("checkOut", hotelCheckOut);
+      nextParams.set("adults", String(hotelAdults));
+      if (nextChildAges.length > 0) nextParams.set("children", nextChildAges.join(","));
+      else nextParams.delete("children");
+      setSearchParams(nextParams, { replace: Boolean(options?.replace) });
+
+      if (options?.scroll !== false) {
+        setTimeout(() => {
+          resultsRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 100);
+      }
+    } catch (error) {
+      setHotelResults([]);
+      setHotelProviderError(error instanceof Error ? error.message : "Recherche hoteliere impossible.");
+    } finally {
+      setLoadingHotelResults(false);
+    }
+  };
+
   const handleSearch = () => {
     setHasSearched(true);
     if (isHotelMode) {
-      navigate("/hotels");
+      if (!hotelCityId || loadingHotelResults) return;
+      void runHotelSearch();
       return;
     }
 
@@ -1249,15 +1442,26 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         <div className="relative z-10 container mx-auto px-4 md:px-6 text-center text-white w-full max-w-6xl">
           <div className="mb-6">
              <div className="mb-5 flex justify-center">
-               <div className="h-24 w-24 overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-28 md:w-28">
-                 <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
-               </div>
+               {isHotelMode ? (
+                 <div className="flex items-center gap-3">
+                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                     <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
+                   </div>
+                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                     <img src={titaTravelLogo} alt="Logo Tita Travel" className="h-full w-full rounded-full object-cover" />
+                   </div>
+                 </div>
+               ) : (
+                 <div className="h-24 w-24 overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-28 md:w-28">
+                   <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-contain" />
+                 </div>
+               )}
              </div>
              <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-4 leading-tight drop-shadow-xl">
                Dwira <span className="text-amber-400">Immobilier</span>
              </h1>
              <p className="text-xl md:text-2xl font-light tracking-wide text-emerald-50">
-               Votre partenaire de confiance à Kélibia
+               {isHotelMode ? "Dwira Immobilier x Tita Travel, en partenariat pour vos sejours" : "Votre partenaire de confiance à Kélibia"}
              </p>
           </div>
           
@@ -1298,29 +1502,122 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
           <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
             {/* Filter Controls */}
-            {isHotelMode && (
-              <div className="border-b border-sky-100 bg-[linear-gradient(135deg,#eff6ff,#f8fafc)] px-5 py-5 md:px-6">
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Séjours & hôtels</p>
-                    <h3 className="mt-2 text-2xl font-semibold text-slate-900">Découvrez notre sélection d'hôtels</h3>
-                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                      Accédez à une page dédiée pour explorer les destinations, consulter les disponibilités et comparer les offres selon vos dates de séjour.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Link to="/hotels" className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700">
-                      Voir les hôtels <ArrowRight size={18} />
-                    </Link>
-                    <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-4 py-3 text-sm font-medium text-slate-600">
-                      <Star size={16} className="text-amber-500" />
-                      Hôtels, pensions et séjours
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
             <div className="p-4 md:p-6">
+              {isHotelMode ? (
+                <>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                    <label className="md:col-span-4">
+                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <MapPin size={16} className="text-sky-600" />
+                        Ville
+                      </span>
+                      <select
+                        value={hotelCityId}
+                        onChange={(event) => setHotelCityId(Number(event.target.value) || 0)}
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
+                        disabled={loadingHotelCities}
+                      >
+                        <option value={0}>{loadingHotelCities ? "Chargement des villes..." : "Choisir une ville"}</option>
+                        {hotelCities.map((city) => (
+                          <option key={city.Id} value={city.Id}>
+                            {city.Name}
+                            {city.Region ? ` - ${city.Region}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="md:col-span-2">
+                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <Calendar size={16} className="text-sky-600" />
+                        Arrivée
+                      </span>
+                      <input
+                        type="date"
+                        value={hotelCheckIn}
+                        onChange={(event) => setHotelCheckIn(event.target.value)}
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
+                      />
+                    </label>
+
+                    <label className="md:col-span-2">
+                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <Calendar size={16} className="text-sky-600" />
+                        Départ
+                      </span>
+                      <input
+                        type="date"
+                        value={hotelCheckOut}
+                        onChange={(event) => setHotelCheckOut(event.target.value)}
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
+                      />
+                    </label>
+
+                    <label className="md:col-span-2">
+                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <Users size={16} className="text-sky-600" />
+                        Adultes
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={8}
+                        value={hotelAdults}
+                        onChange={(event) => setHotelAdults(Math.max(1, Number(event.target.value) || 1))}
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
+                      />
+                    </label>
+
+                    <label className="md:col-span-2">
+                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <BedDouble size={16} className="text-sky-600" />
+                        Âges enfants
+                      </span>
+                      <input
+                        type="text"
+                        value={hotelChildAgesText}
+                        onChange={(event) => setHotelChildAgesText(event.target.value)}
+                        placeholder="Ex: 4,8"
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm text-slate-500">
+                      {selectedHotelCity ? `Destination sélectionnée : ${selectedHotelCity.Name}.` : "Sélectionnez une destination pour lancer votre recherche."}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSearch}
+                      disabled={!hotelCityId || loadingHotelResults}
+                      className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {loadingHotelResults ? <LoaderCircle size={18} className="animate-spin" /> : <Search size={18} />}
+                      Rechercher les hôtels
+                    </button>
+                  </div>
+
+                  {hotelPublicErrorMessage && (
+                    <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-semibold">Offres temporairement indisponibles</p>
+                          <p className="mt-1">{hotelPublicErrorMessage}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {hotelConfigReady === false && !hotelPublicErrorMessage && (
+                    <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      Les offres hôtelières seront disponibles très prochainement.
+                    </div>
+                  )}
+                </>
+              ) : (
+              <>
               <div ref={filterControlsRef} className="grid grid-cols-1 gap-4 md:grid-cols-12">
                 
                 {/* Location Dropdown */}
@@ -1836,7 +2133,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-2xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 duration-200 flex items-center justify-center gap-2"
                   >
                     <Search size={20} />
-                    <span>{isHotelMode ? "Ouvrir l’hôtellerie" : "Rechercher"}</span>
+                    <span>Rechercher</span>
                   </button>
                   {!isHotelMode && (
                     <button
@@ -1923,6 +2220,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     ))}
                   </div>
                 </div>
+              )}
+              </>
               )}
             </div>
           </div>
@@ -2235,10 +2534,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
-            {!isSelectedModeComingSoon && (
+            {!isSelectedModeComingSoon && !isHotelMode && (
               <Link
                 to={(() => {
-                  if (isHotelMode) return "/hotels";
                   if (selectedMode === "vente") return "/ventes";
                   const params = applyAmicaleParam(new URLSearchParams(searchParams));
                   params.set("mode", selectedMode);
@@ -2246,8 +2544,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 })()}
                 className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group"
               >
-                {isHotelMode ? "Voir la sélection d'hôtels" : "Voir tout le catalogue"} <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </Link>
+            )}
+            {!isSelectedModeComingSoon && isHotelMode && (
+              <div className="hidden md:inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
+                Hôtels disponibles
+              </div>
             )}
           </div>
 
@@ -2262,6 +2565,164 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
           {!isSelectedModeComingSoon && isHotelMode && (
             <div className="rounded-[30px] border border-sky-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
+              {!hasSearched && (
+                <div className="rounded-[28px] border border-slate-100 bg-[linear-gradient(135deg,#f8fafc,#eff6ff)] p-6">
+                  <h3 className="text-2xl font-semibold text-slate-900">Sélection d'hôtels</h3>
+                </div>
+              )}
+
+              {loadingHotelResults && (
+                <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={`hotel-skeleton-${index}`} className="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
+                      <div className="aspect-[16/10] animate-pulse bg-slate-200" />
+                      <div className="space-y-3 p-5">
+                        <div className="h-4 w-28 animate-pulse rounded bg-slate-200" />
+                        <div className="h-7 w-3/4 animate-pulse rounded bg-slate-200" />
+                        <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
+                        <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!loadingHotelResults && hasSearched && sortedHotelResults.length === 0 && (
+                <div className="rounded-[32px] border border-dashed border-slate-200 bg-white/90 px-6 py-14 text-center shadow-sm">
+                  <p className="text-lg font-semibold text-slate-900">Aucun hôtel disponible pour cette recherche.</p>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Essayez une autre destination ou modifiez vos dates pour découvrir davantage d'offres.
+                  </p>
+                </div>
+              )}
+
+              {!loadingHotelResults && sortedHotelResults.length > 0 && (
+                <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {sortedHotelResults.map((hotel) => {
+                    const minPrice = extractHotelMinPrice(hotel);
+                    const roomOffers = flattenHotelRoomOffers(hotel);
+                    const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room) !== null) || roomOffers[0] || null;
+                    const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room) : null;
+                    const hasPromotion = hasHotelPromotion(hotel);
+                    const hasRefundableOffer = roomOffers.some((offer) => !offer.room?.NotRefundable);
+                    const totalAvailability = roomOffers.reduce((sum, offer) => sum + Math.max(0, Number(offer.room?.Quantity || 0)), 0);
+                    const detailParams = new URLSearchParams();
+                    if (hotelCityId > 0) detailParams.set("cityId", String(hotelCityId));
+                    detailParams.set("checkIn", hotelCheckIn);
+                    detailParams.set("checkOut", hotelCheckOut);
+                    detailParams.set("adults", String(hotelAdults));
+                    const childAges = parseHotelChildAges(hotelChildAgesText);
+                    if (childAges.length > 0) detailParams.set("children", childAges.join(","));
+                    const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
+
+                    return (
+                      <article
+                        key={hotel.Id}
+                        className={`group overflow-hidden rounded-[30px] bg-white transition hover:-translate-y-1 ${
+                          hasPromotion
+                            ? "border border-amber-200 shadow-[0_18px_48px_rgba(217,119,6,0.18)] hover:shadow-[0_30px_70px_rgba(217,119,6,0.28)]"
+                            : "border border-slate-100 shadow-[0_18px_48px_rgba(15,23,42,0.08)] hover:shadow-[0_28px_60px_rgba(15,23,42,0.12)]"
+                        }`}
+                      >
+                        <Link to={linkTo} className="block">
+                          <div className="relative aspect-[16/10] overflow-hidden">
+                            <img
+                              src={String(hotel.Image || "").trim() || HOTEL_FALLBACK_IMAGE}
+                              alt={hotel.Name}
+                              className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                              loading="lazy"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/10 to-transparent" />
+                            <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/14 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                              <Star size={13} className="fill-current" />
+                              {formatHotelStarLabel(hotel.Star)}
+                            </div>
+                            {hasPromotion && (
+                              <div className="absolute right-4 top-4 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-400/95 px-3 py-1 text-xs font-semibold text-slate-950 shadow-md">
+                                <Sparkles size={13} />
+                                Promotion
+                              </div>
+                            )}
+                            {(leadOfferPrice !== null || minPrice !== null) && (
+                              <div className="absolute bottom-4 right-4 rounded-2xl bg-white px-3 py-2 text-right text-sm font-semibold text-slate-900 shadow-md">
+                                A partir de {formatHotelPrice(leadOfferPrice ?? minPrice)} TND
+                              </div>
+                            )}
+                          </div>
+                        </Link>
+
+                        <div className="space-y-4 p-5">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
+                              {hotel.City?.Name || "Destination"}
+                            </p>
+                            <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{hotel.Name}</h3>
+                            <p className="mt-2 line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-500">
+                              {getHotelCardDescription(hotel)}
+                            </p>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                <TicketPercent size={14} className="text-sky-600" />
+                                Tarif client
+                              </div>
+                              <p className="mt-2 text-lg font-semibold text-slate-900">
+                                {leadOfferPrice !== null ? `${formatHotelPrice(leadOfferPrice)} TND` : minPrice !== null ? `${formatHotelPrice(minPrice)} TND` : "Sur demande"}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {leadOffer?.boardingName || "Selon les chambres et les dates"}
+                              </p>
+                            </div>
+
+                            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                <BedDouble size={14} className="text-emerald-600" />
+                                Disponibilité
+                              </div>
+                              <p className="mt-2 text-lg font-semibold text-slate-900">
+                                {totalAvailability > 0 ? `${totalAvailability} option${totalAvailability > 1 ? "s" : ""}` : "Selon confirmation"}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {hasPromotion ? "Promotion signalée sur cette offre" : "Capacité retournée pour vos dates"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {hasRefundableOffer ? (
+                              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                <ShieldCheck size={13} />
+                                Annulation selon conditions
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                                <ShieldX size={13} />
+                                Offre non remboursable
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                            <div className="text-xs text-slate-500">
+                              {selectedHotelCity?.Name || hotel.City?.Name || "Destination"} • {hotelAdults} adulte{hotelAdults > 1 ? "s" : ""}
+                            </div>
+                            <Link to={linkTo} className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700">
+                              Voir le détail
+                            </Link>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {false && !isSelectedModeComingSoon && isHotelMode && (
+            <div className="rounded-[30px] border border-sky-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
               <div className="grid gap-5 lg:grid-cols-[1.2fr,0.8fr]">
                 <div className="rounded-[28px] border border-slate-100 bg-[linear-gradient(135deg,#f8fafc,#eff6ff)] p-6">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Séjours hôteliers</p>
@@ -2270,9 +2731,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     Cette section réunit les offres d'hébergement avec un parcours clair pour choisir la destination, les dates de séjour et consulter les fiches hôtels.
                   </p>
                   <div className="mt-6 flex flex-wrap gap-3">
-                    <Link to="/hotels" className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700">
-                      Voir les hôtels <ArrowRight size={18} />
-                    </Link>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white">
+                      Recherche sur l'accueil
+                    </span>
                     <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-4 py-3 text-sm font-medium text-slate-600">
                       <Calendar size={16} className="text-sky-600" />
                       Recherche par ville et dates
@@ -2383,10 +2844,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             </div>
           )}
           
-          {!isSelectedModeComingSoon && (
+          {!isSelectedModeComingSoon && !isHotelMode && (
             <div className="mt-12 text-center md:hidden">
-              <Link to={isHotelMode ? "/hotels" : selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
-                {isHotelMode ? "Voir les hôtels" : "Voir tous les logements"} <ArrowRight size={20} />
+              <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
+                Voir tous les logements <ArrowRight size={20} />
               </Link>
             </div>
           )}

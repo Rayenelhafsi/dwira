@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { AdminSidebar } from './components/AdminSidebar';
 import { Menu, X } from 'lucide-react';
-import logo from '../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png';
+import logo from '../../../logo dwira.jpg';
 
 export function AdminLayout() {
   const { user, isLoading } = useAuth();

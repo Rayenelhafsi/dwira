@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ArrowLeft, Lock, Mail, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import logo from "../../assets/c9952e139aedea0af19c1652a89e92cb4378f1ac.png";
+import logo from "../../../logo dwira.jpg";
 import { useAuth } from "../context/AuthContext";
 import { loginAdmin } from "../services/auth";
 

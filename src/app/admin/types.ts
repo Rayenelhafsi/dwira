@@ -559,9 +559,12 @@ export type ReservationDemandRequestType = 'reservation' | 'visite';
 
 export type HotelReservationDemandStatus =
   | 'nouvelle_demande'
-  | 'contact_client'
-  | 'en_cours'
-  | 'confirmee'
+  | 'client_procede_vers_paiement_en_cours'
+  | 'demande_recu_paiement'
+  | 'recu_paiement_envoye'
+  | 'succes_paiement'
+  | 'voucher_en_cours'
+  | 'voucher_envoye'
   | 'annulee';
 
 export interface ReservationDemand {
@@ -664,7 +667,29 @@ export interface HotelReservationDemand {
   room_id?: string | null;
   room_name?: string | null;
   total_price?: number | null;
+  amount_due_now?: number | null;
   currency?: string | null;
+  payment_method?: 'virement' | 'flouci' | 'clicktopay' | null;
+  reservation_payment_id?: string | null;
+  reservation_payment_paid_at?: string | null;
+  flouci_checkout_id?: string | null;
+  flouci_scope?: 'reservation' | null;
+  flouci_status?: string | null;
+  flouci_checkout_url?: string | null;
+  flouci_verified_at?: string | null;
+  clicktopay_payment_id?: string | null;
+  clicktopay_status?: string | null;
+  clicktopay_checkout_url?: string | null;
+  clicktopay_paid_at?: string | null;
+  payment_receipt_image_url?: string | null;
+  payment_receipt_uploaded_at?: string | null;
+  payment_receipt_note?: string | null;
+  voucher_id?: string | null;
+  voucher_number?: string | null;
+  voucher_url?: string | null;
+  voucher_generated_at?: string | null;
+  voucher_sent_at?: string | null;
+  voucher_qr_payload?: string | null;
   status: HotelReservationDemandStatus;
   client_note?: string | null;
   admin_note?: string | null;
