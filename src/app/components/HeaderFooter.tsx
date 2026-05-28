@@ -791,6 +791,8 @@ export function Footer() {
               <li><Link to="/contact" className="text-emerald-100/70 hover:text-white transition-colors">Contactez-nous</Link></li>
               <li><a href="/privacy-policy.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Politique de confidentialite</a></li>
               <li><a href="/terms-of-service.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Conditions d'utilisation</a></li>
+              <li><Link to="/cgv" className="text-emerald-100/70 hover:text-white transition-colors">CGV</Link></li>
+              <li><Link to="/mentions-legales" className="text-emerald-100/70 hover:text-white transition-colors">Mentions legales</Link></li>
               <li><a href="/data-deletion.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Suppression des donnees</a></li>
             </ul>
           </div>

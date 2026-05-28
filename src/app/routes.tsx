@@ -75,6 +75,8 @@ export const router = createBrowserRouter([
       { path: "mes-reservations/hotels/:id/paiement", lazy: lazyPage(() => import("./pages/HotelReservationPaymentPage")) },
       ...ventesRoutes,
       { path: "contact", lazy: lazyPage(() => import("./pages/ContactPage")) },
+      { path: "cgv", lazy: lazyPage(() => import("./pages/CgvPage")) },
+      { path: "mentions-legales", lazy: lazyPage(() => import("./pages/MentionsLegalesPage")) },
       { path: "deploy-mobile", lazy: lazyPage(() => import("./pages/DeployAppsPage")) },
       { path: "login", lazy: lazyPage(() => import("./pages/LoginPage")) },
       { path: "agent-amicale/login", lazy: lazyPage(() => import("./pages/AgentAmicaleLoginPage")) },
