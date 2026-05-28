@@ -7487,7 +7487,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                         </div>
                         <div className="rounded-lg border border-emerald-100 bg-white p-3">
                           <label className="flex items-center justify-between gap-2 text-xs font-semibold text-gray-700">
-                            <span>Reservation instantanee</span>
+                            <span>Reservation rapide</span>
                             <input
                               type="checkbox"
                               checked={Boolean(saisonConfig.reservation_instantanee)}
@@ -8661,6 +8661,7 @@ function BienPreview({ bien, zones, onSaveVisibility }: { bien: Bien; zones: Zon
     </div>
   );
 }
+
 
 
 

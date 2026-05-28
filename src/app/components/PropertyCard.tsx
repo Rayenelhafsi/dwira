@@ -208,7 +208,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
           {hasInstantReservation ? (
             <div className="dwira-instant-badge absolute left-4 top-[3.15rem] inline-flex items-center gap-1.5 rounded-full border border-amber-200/85 bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 shadow-sm backdrop-blur-md">
               <Zap size={12} className="text-amber-500" />
-              <span>Reservation instantanee</span>
+              <span>Reservation rapide</span>
             </div>
           ) : null}
           <div className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-white/25 bg-black/35 px-3 py-1 text-xs font-semibold text-white backdrop-blur-md">

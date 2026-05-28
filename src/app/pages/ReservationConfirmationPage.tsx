@@ -347,7 +347,7 @@ export default function ReservationConfirmationPage() {
       }
       await refreshData();
       if (!isVisitRequest && isInstantReservation) {
-        toast.success("Reservation instantanee activee: passez au paiement.");
+        toast.success("Reservation rapide activee: passez au paiement.");
         navigate(`/mes-reservations/${encodeURIComponent(String(data.id))}/paiement`);
         return;
       }

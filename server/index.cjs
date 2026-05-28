@@ -2259,6 +2259,7 @@ function buildAuthUser(user) {
     avatar: user?.avatar || null,
     clientType: user?.clientType || null,
     telephone: user?.telephone || null,
+    address: user?.address || null,
     cin: user?.cin || null,
     cinImageUrl: user?.cinImageUrl || null,
     profileCompleted: Boolean(user?.profileCompleted),
@@ -5395,6 +5396,11 @@ async function ensureAuthSchema() {
       'ALTER TABLE utilisateurs ADD COLUMN telephone VARCHAR(30) NULL'
     );
   }
+  if (!(await columnExists('utilisateurs', 'address'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN address VARCHAR(255) NULL AFTER telephone'
+    );
+  }
 
   if (!(await columnExists('utilisateurs', 'cin'))) {
     await pool.query(
@@ -6452,7 +6458,7 @@ async function upsertSocialUser({ email, name, avatar, provider, providerUserId 
   );
 
   const [rows] = await pool.query(
-    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type,
+    `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type,
             auth_provider, provider_user_id, last_login_at, updated_at
      FROM utilisateurs
      WHERE email = ? LIMIT 1`,
@@ -6516,10 +6522,11 @@ function resolveSocialAvatarUrl({ provider, providerUserId, avatar }) {
 function isLegalIdentityProfileCompleted(user) {
   const fullName = String(user?.nom || user?.name || '').trim();
   const phone = String(user?.telephone || '').trim();
+  const address = String(user?.address || '').trim();
   const clientType = String(user?.client_type || user?.clientType || '').trim().toLowerCase();
   const profileCompletedAt = String(user?.profile_completed_at || '').trim();
-  const hasValidClientType = ['proprietaire', 'locataire', 'acheteur'].includes(clientType);
-  return Boolean(fullName && phone && hasValidClientType && profileCompletedAt);
+  const hasValidClientType = ['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType);
+  return Boolean(fullName && phone && address && hasValidClientType && profileCompletedAt);
 }
 
 function buildPhonePlaceholderEmail(phone) {
@@ -6537,7 +6544,7 @@ async function upsertPhoneUser({ telephone }) {
   const normalizedPhone = normalizePhoneNumber(telephone);
   const now = getAgencySqlDateTime();
   const [existingRows] = await pool.query(
-    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type,
+    `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type,
             auth_provider, provider_user_id, last_login_at, updated_at
      FROM utilisateurs
      WHERE telephone = ?
@@ -6597,7 +6604,7 @@ async function upsertEmailOtpUser({ email }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const now = getAgencySqlDateTime();
   const [existingRows] = await pool.query(
-    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+    `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type
      FROM utilisateurs
      WHERE email = ?
      LIMIT 1`,
@@ -7418,7 +7425,7 @@ async function upsertPasskeyUser({ email, name }) {
   const normalizedName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Client';
   const now = getAgencySqlDateTime();
   const [existingRows] = await pool.query(
-    `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+    `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type
      FROM utilisateurs
      WHERE email = ?
      LIMIT 1`,
@@ -9346,6 +9353,7 @@ async function generateReservationClientContractPdf({
   identityFirstName,
   identityLastName,
   cautionAmount,
+  templateVars = null,
 }) {
   const contractsDir = path.join(__dirname, 'contracts');
   if (!fs.existsSync(contractsDir)) {
@@ -9381,8 +9389,24 @@ async function generateReservationClientContractPdf({
   const finalMonth = String(finalization.date.mm || '');
   const finalHour = String(finalization.hh || '');
   const finalMinute = String(finalization.min || '');
-  const heureArrivee = String(demand?.arrival_time || '').trim();
-  const heureDepart = String(demand?.departure_time || '').trim();
+  const seasonalConfig = safeParseJson(
+    bien?.location_saisonniere_config_json || bien?.location_saisonniere_config || null,
+    null
+  ) || {};
+  const heureArrivee = String(
+    demand?.arrival_time
+      || seasonalConfig?.heure_arrivee
+      || seasonalConfig?.checkin_time
+      || seasonalConfig?.arrival_time
+      || ''
+  ).trim();
+  const heureDepart = String(
+    demand?.departure_time
+      || seasonalConfig?.heure_depart
+      || seasonalConfig?.checkout_time
+      || seasonalConfig?.departure_time
+      || ''
+  ).trim();
   const typeLogement = String(bien?.configuration || bien?.type || '');
   const adresseParts = [
     String(bien?.zone_nom || '').trim(),
@@ -9391,7 +9415,10 @@ async function generateReservationClientContractPdf({
     String(bien?.zone_region || '').trim(),
     String(bien?.zone_pays || '').trim(),
   ].filter(Boolean);
-  const adresseBien = adresseParts.join(', ');
+  const adresseBien = (adresseParts.join(', ')
+    || String(bien?.ville || '').trim()
+    || String(bien?.adresse || '').trim()
+    || String(bien?.titre || demand?.bien_titre || '').trim());
   const equipementsTitre = [
     String(bien?.reference || '').trim() ? `Ref ${String(bien.reference).trim()}` : '',
     String(bien?.titre || demand?.bien_titre || '').trim(),
@@ -9443,7 +9470,7 @@ async function generateReservationClientContractPdf({
     new Set([...equipementsFromArray, ...equipementsFromList, ...equipementsFromFlags, ...equipementsFromValues]
       .map((row) => String(row || '').trim())
       .filter(Boolean))
-  ).join(', ') || '-';
+  ).join(', ') || 'Equipements non renseignes';
   const repartitionVoyageurs = childGuests > 0
     ? `Adultes ${adultGuests} / Enfants ${childGuests}`
     : `Adultes ${adultGuests}`;
@@ -9451,7 +9478,22 @@ async function generateReservationClientContractPdf({
   const loyerTotal = formatAmountTndRaw(reservationTotal);
   const acompteReservation = formatAmountTndRaw(amountNow);
   const soldeArrivee = formatAmountTndRaw(balance);
-  const idPaiement = String(demand?.payment_id || demand?.reservation_payment_id || '').trim();
+  let idPaiement = String(demand?.payment_id || demand?.reservation_payment_id || '').trim();
+  if (!idPaiement && contractId) {
+    try {
+      const [paymentRows] = await pool.query(
+        `SELECT id
+         FROM paiements
+         WHERE contrat_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [contractId]
+      );
+      idPaiement = String(paymentRows?.[0]?.id || '').trim();
+    } catch (_) {
+      // Keep generation non-blocking when paiements table is unavailable.
+    }
+  }
   const villeSignature = String(demand?.signature_city || bien?.ville || 'Kelibia').trim();
   const signatureDate = parseSqlDateParts(contractCreatedAt);
   const jourSignature = String(signatureDate.dd || '');
@@ -9555,6 +9597,12 @@ async function generateReservationClientContractPdf({
       JJs: { page: 3, x: 298.9, top: 197.9, fontSize: 11, maxWidth: 28, value: jourSignature },
       MMS: { page: 3, x: 341, top: 197, fontSize: 11, maxWidth: 28, value: moisSignature },
     };
+    if (templateVars && typeof templateVars === 'object') {
+      for (const [key, raw] of Object.entries(templateVars)) {
+        if (!contractFieldMap[key] || raw === undefined || raw === null) continue;
+        contractFieldMap[key].value = String(raw);
+      }
+    }
 
     for (const field of Object.values(contractFieldMap)) {
       const pageIndex = Math.max(0, Number(field.page || 1) - 1);
@@ -11868,7 +11916,8 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
               l.nom AS locataire_nom,
               l.email AS locataire_email,
               l.telephone AS locataire_telephone,
-              l.cin AS locataire_cin
+              l.cin AS locataire_cin,
+              l.adresse AS locataire_adresse
        FROM contrats c
        LEFT JOIN biens b ON b.id = c.bien_id
        LEFT JOIN zones z ON z.id = b.zone_id
@@ -11917,6 +11966,7 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
       client_name: `${identityLastName} ${identityFirstName}`.trim() || String(contract.locataire_nom || '').trim(),
       client_email: String(demand.client_email || contract.locataire_email || '').trim(),
       client_phone: String(demand.client_phone || contract.locataire_telephone || '').trim(),
+      client_address: String(demand.client_address || contract.locataire_adresse || '').trim(),
       finalization_due_at: demand.finalization_due_at || null,
       payment_mode: paymentMode,
       amount_due_now: amountDueNow,
@@ -11950,6 +12000,7 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
       identityDocumentType,
       identityFirstName: identityFirstName || '-',
       identityLastName: identityLastName || '-',
+      templateVars: safeParseJson(contract.template_vars_json, null),
     });
 
     await pool.query('UPDATE contrats SET url_pdf = ? WHERE id = ?', [regeneratedUrl, contractId]);
@@ -11965,6 +12016,54 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
   } catch (error) {
     console.error('Error regenerating contract template PDF:', error);
     res.status(500).json({ error: 'Regeneration du contrat impossible' });
+  }
+});
+
+app.put('/api/contrats/:id/template-vars', requireAdminSession, async (req, res) => {
+  try {
+    await ensureContractsSchema();
+    const contractId = String(req.params.id || '').trim();
+    if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
+    const vars = (req.body && typeof req.body === 'object') ? (req.body.template_vars || req.body.vars || null) : null;
+    if (!vars || typeof vars !== 'object') {
+      return res.status(400).json({ error: 'template_vars objet requis' });
+    }
+    const payload = JSON.stringify(vars);
+    await pool.query('UPDATE contrats SET template_vars_json = ? WHERE id = ?', [payload, contractId]);
+    res.json({ ok: true, contract_id: contractId, template_vars: vars });
+  } catch (error) {
+    console.error('Error updating contract template vars:', error);
+    res.status(500).json({ error: 'Mise a jour des variables impossible' });
+  }
+});
+
+app.post('/api/contrats/:id/send-to-client', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    await ensureContractsSchema();
+    const contractId = String(req.params.id || '').trim();
+    if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
+    const now = getAgencySqlDateTime();
+    await pool.query('UPDATE contrats SET client_sent_at = ? WHERE id = ?', [now, contractId]);
+    const [demandRows] = await pool.query(
+      `SELECT id FROM reservation_demands WHERE contract_id = ? ORDER BY updated_at DESC LIMIT 1`,
+      [contractId]
+    );
+    if (demandRows?.[0]?.id) {
+      await appendReservationDemandHistory(
+        String(demandRows[0].id),
+        'succes_paiement',
+        'admin',
+        'admin',
+        `Version admin du contrat ${contractId} envoyee au client`,
+        now
+      );
+    }
+    await createAdminNotification('success', `Contrat ${contractId} envoye au client (version admin)`, now);
+    res.json({ ok: true, contract_id: contractId, client_sent_at: now });
+  } catch (error) {
+    console.error('Error sending contract to client:', error);
+    res.status(500).json({ error: 'Envoi du contrat au client impossible' });
   }
 });
 
@@ -17653,6 +17752,12 @@ async function ensureContractsSchema() {
   if (!originRows[0]) {
     await pool.query("ALTER TABLE contrats ADD COLUMN origine VARCHAR(20) NOT NULL DEFAULT 'automatique' AFTER owner_url_pdf");
   }
+  if (!(await columnExists('contrats', 'template_vars_json'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN template_vars_json LONGTEXT NULL AFTER origine');
+  }
+  if (!(await columnExists('contrats', 'client_sent_at'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN client_sent_at DATETIME NULL AFTER template_vars_json');
+  }
 }
 
 app.delete('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
@@ -18790,7 +18895,7 @@ app.post('/api/auth/passkey/register/verify', authLoginRateLimit, async (req, re
       return res.status(400).json({ error: 'Requete Passkey invalide' });
     }
     const [userRows] = await pool.query(
-      `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+      `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type
        FROM utilisateurs WHERE id = ? LIMIT 1`,
       [userId]
     );
@@ -19020,7 +19125,7 @@ app.post('/api/auth/passkey/login/verify', authLoginRateLimit, async (req, res) 
       return res.status(401).json({ error: 'Verification Passkey echouee' });
     }
     const [userRows] = await pool.query(
-      `SELECT id, nom, email, role, avatar, telephone, cin, cin_image_url, profile_completed_at, client_type
+      `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type
        FROM utilisateurs
        WHERE id = ?
        LIMIT 1`,
@@ -20171,6 +20276,7 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     const nom = [firstName, lastName].filter(Boolean).join(' ').trim() || fallbackFullName;
     const email = String(req.body?.email || '').trim().toLowerCase();
     const telephone = normalizePhoneNumber(req.body?.telephone || '');
+    const address = String(req.body?.address || req.body?.adresse || '').trim();
     const clientType = String(req.body?.clientType || req.body?.client_type || '').trim().toLowerCase();
     const cin = String(req.body?.cin || '').trim();
     const cinImageUrl = String(req.body?.cinImageUrl || req.body?.cin_image_url || '').trim();
@@ -20193,6 +20299,7 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     }
     if (!firstName || !lastName) return res.status(400).json({ error: 'Nom et prenom obligatoires' });
     if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
+    if (!address) return res.status(400).json({ error: 'Adresse obligatoire' });
     if (!['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType)) {
       return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire, acheteur ou agent_amicale)' });
     }
@@ -20215,14 +20322,14 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
 
     await pool.query(
       `UPDATE utilisateurs
-       SET nom = ?, email = ?, telephone = ?, client_type = ?, cin = ?, cin_image_url = ?, avatar = COALESCE(?, avatar),
+       SET nom = ?, email = ?, telephone = ?, address = ?, client_type = ?, cin = ?, cin_image_url = ?, avatar = COALESCE(?, avatar),
            profile_completed_at = ?, updated_at = ?
        WHERE id = ?`,
-      [nom, resolvedEmail, telephone, clientType || null, cin || null, cinImageUrl || null, avatar || null, now, now, id]
+      [nom, resolvedEmail, telephone, address, clientType || null, cin || null, cinImageUrl || null, avatar || null, now, now, id]
     );
 
     const [rows] = await pool.query(
-      `SELECT id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, profile_completed_at,
+      `SELECT id, nom, email, role, avatar, telephone, address, client_type, cin, cin_image_url, profile_completed_at,
               auth_provider, provider_user_id, last_login_at, updated_at
        FROM utilisateurs
        WHERE id = ? LIMIT 1`,
@@ -20241,6 +20348,7 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
         lastName: identityName.lastName || null,
         fullName: user.nom || null,
         telephone: user.telephone || null,
+        address: user.address || null,
         cin: user.cin || null,
         email: user.email || null,
       },
@@ -20255,6 +20363,7 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
       avatar: user.avatar || null,
       clientType: user.client_type || null,
       telephone: user.telephone || null,
+      address: user.address || null,
       cin: user.cin || null,
       cinImageUrl: user.cin_image_url || null,
       profileCompleted: isLegalIdentityProfileCompleted(user),

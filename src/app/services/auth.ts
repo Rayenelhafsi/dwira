@@ -11,6 +11,7 @@ export interface AuthUser {
   role: 'admin' | 'user';
   clientType?: 'proprietaire' | 'locataire' | 'acheteur' | null;
   telephone?: string | null;
+  address?: string | null;
   cin?: string | null;
   cinImageUrl?: string | null;
   profileCompleted?: boolean;
@@ -37,6 +38,7 @@ export interface CompleteSocialProfileInput {
   email?: string;
   clientType?: 'proprietaire' | 'locataire' | 'acheteur';
   telephone: string;
+  address: string;
   cin?: string;
   cinImageUrl?: string;
   avatar?: string | null;
