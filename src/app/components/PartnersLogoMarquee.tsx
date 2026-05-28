@@ -15,7 +15,9 @@ const partnerLogos = [
   { path: "mtk.png", alt: "MTK" },
   { path: "oaca.png", alt: "OACA" },
   { path: "opella.png", alt: "Opella" },
+  { path: "pharmacie-centrale.png", alt: "Amicale de la Pharmacie Centrale" },
   { path: "serept.png", alt: "Serept" },
+  { path: "sitep.png", alt: "SITEP" },
   { path: "tita-travel.png", alt: "Tita Travel" },
   { path: "visa.png", alt: "Visa" },
 ];
