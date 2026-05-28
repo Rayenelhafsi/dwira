@@ -1,22 +1,29 @@
 import { useEffect, useRef } from "react";
 
+const PARTNERS_CDN_BASE = String(import.meta.env.VITE_PARTNERS_CDN_BASE_URL || "").trim().replace(/\/+$/, "");
+
 const partnerLogos = [
-  { src: "/partners/amicale-cadres-ministere-education.png", alt: "Amicale cadres ministere education" },
-  { src: "/partners/bh-bank.png", alt: "BH Bank" },
-  { src: "/partners/cnss.png", alt: "CNSS" },
-  { src: "/partners/clicktopay.png", alt: "ClickToPay" },
-  { src: "/partners/etap.png", alt: "ETAP" },
-  { src: "/partners/flouci.png", alt: "Flouci" },
-  { src: "/partners/gct-amicale.png", alt: "GCT Amicale" },
-  { src: "/partners/gct.png", alt: "GCT" },
-  { src: "/partners/mastercard.png", alt: "Mastercard" },
-  { src: "/partners/mtk.png", alt: "MTK" },
-  { src: "/partners/oaca.png", alt: "OACA" },
-  { src: "/partners/opella.png", alt: "Opella" },
-  { src: "/partners/serept.png", alt: "Serept" },
-  { src: "/partners/tita-travel.png", alt: "Tita Travel" },
-  { src: "/partners/visa.png", alt: "Visa" },
+  { path: "amicale-cadres-ministere-education.png", alt: "Amicale cadres ministere education" },
+  { path: "bh-bank.png", alt: "BH Bank" },
+  { path: "cnss.png", alt: "CNSS" },
+  { path: "clicktopay.png", alt: "ClickToPay" },
+  { path: "etap.png", alt: "ETAP" },
+  { path: "flouci.png", alt: "Flouci" },
+  { path: "gct-amicale.png", alt: "GCT Amicale" },
+  { path: "gct.png", alt: "GCT" },
+  { path: "mastercard.png", alt: "Mastercard" },
+  { path: "mtk.png", alt: "MTK" },
+  { path: "oaca.png", alt: "OACA" },
+  { path: "opella.png", alt: "Opella" },
+  { path: "serept.png", alt: "Serept" },
+  { path: "tita-travel.png", alt: "Tita Travel" },
+  { path: "visa.png", alt: "Visa" },
 ];
+
+function resolvePartnerLogoUrl(path: string) {
+  if (PARTNERS_CDN_BASE) return `${PARTNERS_CDN_BASE}/${path}`;
+  return `/partners/${path}`;
+}
 
 export function PartnersLogoMarquee() {
   const marqueeRef = useRef<HTMLDivElement | null>(null);
@@ -63,8 +70,14 @@ export function PartnersLogoMarquee() {
       <div ref={marqueeRef} className="partners-marquee">
         <div className="partners-marquee-track">
           {loopItems.map((logo, idx) => (
-            <div key={`${logo.src}-${idx}`} className="partners-marquee-item">
-              <img src={logo.src} alt={logo.alt} loading="lazy" />
+            <div key={`${logo.path}-${idx}`} className="partners-marquee-item">
+              <img
+                src={resolvePartnerLogoUrl(logo.path)}
+                alt={logo.alt}
+                loading={idx < 6 ? "eager" : "lazy"}
+                fetchPriority={idx < 6 ? "high" : "auto"}
+                decoding="async"
+              />
             </div>
           ))}
         </div>
