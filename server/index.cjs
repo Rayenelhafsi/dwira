@@ -9506,7 +9506,7 @@ async function generateReservationClientContractPdf({
       }
     }
 
-    const CONTRACT_TEMPLATE_TOP_NUDGE = 0;
+    const CONTRACT_TEMPLATE_TOP_NUDGE = -21;
     const writeTop = (page, text, left, top, opts = {}) => {
       const value = sanitizePdfWinAnsiText(text || '');
       if (!value) return;
