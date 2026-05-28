@@ -7265,10 +7265,13 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
 
   const rawName = String(current.client_name || '').trim();
   const nameParts = rawName.split(/\s+/).filter(Boolean);
-  const identityLastName = String(current.identity_last_name || nameParts[0] || 'Client').trim();
-  const identityFirstName = String(current.identity_first_name || nameParts.slice(1).join(' ') || 'Dwira').trim();
-  const identityDocumentType = String(current.identity_document_type || 'cin_tn').trim();
+  const identityLastName = String(current.identity_last_name || nameParts[0] || '').trim();
+  const identityFirstName = String(current.identity_first_name || nameParts.slice(1).join(' ') || '').trim();
+  const identityDocumentType = normalizeIdentityDocumentType(current.identity_document_type, null);
   const identityDocumentNumber = normalizeIdentityNumber(current.identity_document_number || '') || '';
+  if (!identityDocumentType || !identityDocumentNumber || !identityFirstName || !identityLastName) {
+    throw new Error('Informations identite incomplètes: CIN/Passeport + nom/prenom requis avant generation du contrat');
+  }
   const clientEmail = normalizeEmailForCompare(current.client_email || '') || `${demandId}@dwira.local`;
 
   const locataireId = await upsertLocataireFromReservationProfile({
@@ -7291,7 +7294,7 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
     : (paymentMode === 'totalite' ? totalAmount : Math.min(totalAmount, Number(bien.avance || 0)));
 
   const [contractUrl, ownerContractUrl] = await Promise.all([
-    generateReservationClientContractHtml({
+    generateReservationClientContractPdf({
       demand: current,
       bien,
       contractId,
@@ -9018,7 +9021,7 @@ async function extractIdentityDataFromImage(imageAbsolutePath, documentType, opt
     };
   }
 }
-async function generateReservationClientContractHtml({
+async function generateReservationClientContractHtmlLegacy({
   demand,
   bien,
   contractId,
@@ -9267,6 +9270,169 @@ async function generateReservationClientContractHtml({
 </html>`;
 
   await fs.promises.writeFile(filePath, html, 'utf8');
+  return `/contracts/${fileName}`;
+}
+
+async function generateReservationClientContractPdf({
+  demand,
+  bien,
+  contractId,
+  contractCreatedAt,
+  totalAmount,
+  amountDueNow,
+  paymentMode,
+  identityNumber,
+  identityDocumentType,
+  identityFirstName,
+  identityLastName,
+  cautionAmount,
+}) {
+  const contractsDir = path.join(__dirname, 'contracts');
+  if (!fs.existsSync(contractsDir)) {
+    fs.mkdirSync(contractsDir, { recursive: true });
+  }
+  const fileName = `contract-client-${contractId}.pdf`;
+  const filePath = path.join(contractsDir, fileName);
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([595, 842]); // A4
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const color = rgb(0, 0, 0);
+
+  const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
+  const childGuests = Math.max(0, Number(demand.child_guests || 0));
+  const totalGuests = Math.max(1, Number(demand.guests || (adultGuests + childGuests) || 1));
+  const reservationTotal = Number(totalAmount || 0);
+  const amountNow = Number(amountDueNow || 0);
+  const balance = Math.max(0, reservationTotal - amountNow);
+  const fullName = `${String(identityLastName || '').trim()} ${String(identityFirstName || '').trim()}`.trim() || String(demand?.client_name || demand?.client_email || '');
+  const identityRef = identityDocumentType === 'cin_tn'
+    ? `CIN ${String(identityNumber || '').trim()}`
+    : `Passeport ${String(identityNumber || '').trim()}`;
+  const start = parseSqlDateParts(demand.start_date);
+  const end = parseSqlDateParts(demand.end_date);
+  const finalization = parseSqlDateTimeParts(demand.payment_deadline_at || demand.finalization_due_at || contractCreatedAt);
+  const modePaiement = normalizePaymentModeForTemplate(paymentMode, demand?.payment_method);
+  const startDay = String(start.dd || '');
+  const startMonth = String(start.mm || '');
+  const endDay = String(end.dd || '');
+  const endMonth = String(end.mm || '');
+  const finalDay = String(finalization.date.dd || '');
+  const finalMonth = String(finalization.date.mm || '');
+  const finalHour = String(finalization.hh || '');
+  const finalMinute = String(finalization.min || '');
+  const heureArrivee = String(demand?.arrival_time || '').trim();
+  const heureDepart = String(demand?.departure_time || '').trim();
+  const typeLogement = String(bien?.configuration || bien?.type || '');
+  const adresseParts = [
+    String(bien?.zone_nom || '').trim(),
+    String(bien?.zone_quartier || '').trim(),
+    String(bien?.zone_gouvernerat || '').trim(),
+    String(bien?.zone_region || '').trim(),
+    String(bien?.zone_pays || '').trim(),
+  ].filter(Boolean);
+  const adresseBien = adresseParts.join(', ');
+  const equipementsTitre = [
+    String(bien?.reference || '').trim() ? `Ref ${String(bien.reference).trim()}` : '',
+    String(bien?.titre || demand?.bien_titre || '').trim(),
+    String(bien?.type || '').trim(),
+  ].filter(Boolean).join(', ');
+  const repartitionVoyageurs = childGuests > 0
+    ? `Adultes ${adultGuests} / Enfants ${childGuests}`
+    : `Adultes ${adultGuests}`;
+  const nights = computeNights(demand.start_date, demand.end_date);
+  const loyerTotal = formatAmountTndRaw(reservationTotal);
+  const acompteReservation = formatAmountTndRaw(amountNow);
+  const soldeArrivee = formatAmountTndRaw(balance);
+  const idPaiement = String(demand?.payment_id || demand?.reservation_payment_id || '').trim();
+  const villeSignature = String(demand?.signature_city || bien?.ville || 'Kelibia').trim();
+  const signatureDate = parseSqlDateParts(contractCreatedAt);
+  const jourSignature = String(signatureDate.dd || '');
+  const moisSignature = String(signatureDate.mm || '');
+  const caution = Number.isFinite(Number(cautionAmount))
+    ? Number(cautionAmount)
+    : (Number.isFinite(Number(bien?.caution)) ? Number(bien.caution) : 0);
+  const phoneCandidate = String(demand?.client_phone || demand?.client_telephone || demand?.phone || '').trim();
+  const representativeValue = String(demand?.contract_representative || process.env.CONTRACT_REPRESENTATIVE || 'ghaith').trim().toLowerCase();
+  const representativeLabel = representativeValue === 'chayma'
+    ? 'Lengliz Chayma, Gerante'
+    : 'Hafsi Ghaith, Responsable commercial';
+
+  let y = 812;
+  const left = 40;
+  const maxWidth = 515;
+  const lh = 14;
+  const draw = (text, opts = {}) => {
+    const value = String(text || '');
+    const size = opts.size || 11;
+    const font = opts.bold ? fontBold : fontRegular;
+    const width = font.widthOfTextAtSize(value, size);
+    const x = opts.center ? Math.max(left, (595 - width) / 2) : (opts.x || left);
+    page.drawText(value, { x, y, size, font, color });
+    y -= opts.gap || lh;
+  };
+  const wrap = (text, opts = {}) => {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const size = opts.size || 11;
+    const font = opts.bold ? fontBold : fontRegular;
+    const widthMax = opts.maxWidth || maxWidth;
+    let line = '';
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (font.widthOfTextAtSize(candidate, size) > widthMax && line) {
+        draw(line, { ...opts, size });
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) draw(line, { ...opts, size });
+  };
+
+  draw('CONTRAT DE LOCATION SAISONNIERE', { bold: true, size: 15, center: true, gap: 20 });
+  draw('Entre les soussignes :', { bold: true, size: 12, gap: 16 });
+  draw('Le Bailleur: Agence Dwira', { size: 11 });
+  draw('Adresse: Rue Ibn Khaldoun, Kelibia 8090, Nabeul', { size: 11 });
+  draw('Tel: 29 879 227 / 52 080 695', { size: 11 });
+  draw(`Representant: ${representativeLabel}`, { size: 11, gap: 16 });
+  draw('Le Locataire:', { bold: true, size: 12 });
+  draw(`Nom et prenom: ${fullName}`, { size: 11 });
+  draw(`N CIN ou Passeport: ${identityRef}`, { size: 11 });
+  draw(`Adresse: ${String(demand?.client_address || demand?.address || '').trim() || '-'}`, { size: 11 });
+  draw(`Tel: ${phoneCandidate || '-'}`, { size: 11, gap: 16 });
+  draw('1. Objet du contrat', { bold: true, size: 12 });
+  wrap("Le present contrat a pour objet la location d'un bien immobilier meuble a usage exclusif d'habitation saisonniere.", { size: 11 });
+  draw('2. Designation du bien loue', { bold: true, size: 12 });
+  draw(`Type de logement: ${typeLogement || '-'}`, { size: 11 });
+  wrap(`Adresse exacte du bien loue: ${adresseBien || '-'}`, { size: 11 });
+  draw(`Nombre total de voyageurs: ${totalGuests}`, { size: 11 });
+  draw(`Repartition voyageurs: ${repartitionVoyageurs}`, { size: 11 });
+  wrap(`Titre: ${equipementsTitre || '-'}`, { size: 11 });
+  draw('3. Duree de la location', { bold: true, size: 12 });
+  draw(`Du ${startDay}/${startMonth}/${start.yyyy || ''} au ${endDay}/${endMonth}/${end.yyyy || ''} (${nights} nuit${nights > 1 ? 's' : ''})`, { size: 11 });
+  draw(`Heure d'arrivee: ${heureArrivee || '-'}`, { size: 11 });
+  draw(`Heure de depart: ${heureDepart || '-'}`, { size: 11 });
+  draw('4. Prix et modalites de paiement', { bold: true, size: 12 });
+  draw(`Loyer total: ${loyerTotal} TND`, { size: 11 });
+  draw(`Acompte reservation: ${acompteReservation} TND`, { size: 11 });
+  draw(`Date limite paiement avance: ${finalDay}/${finalMonth}/${finalization.date.yyyy || ''} a ${finalHour}h${finalMinute}`, { size: 11 });
+  draw(`ID paiement: ${idPaiement || '-'}`, { size: 11 });
+  draw(`Solde a regler a l'arrivee: ${soldeArrivee} TND`, { size: 11 });
+  draw(`Mode de paiement: ${modePaiement}`, { size: 11 });
+  draw(`Depot de garantie: ${formatAmountTndRaw(caution)} TND`, { size: 11 });
+  draw(`Fait a ${villeSignature}, le ${jourSignature}/${moisSignature}/${signatureDate.yyyy || ''}`, { size: 11, gap: 24 });
+
+  const signY = y;
+  const leftX = 40;
+  const rightX = 320;
+  page.drawText('Signature du Locataire', { x: leftX, y: signY, size: 11, font: fontBold, color });
+  page.drawText('(precedee de la mention "Lu et approuve")', { x: leftX, y: signY - 14, size: 10, font: fontRegular, color });
+  page.drawText('Signature du Bailleur', { x: rightX, y: signY, size: 11, font: fontBold, color });
+  page.drawText('(precedee de la mention "Lu et approuve")', { x: rightX, y: signY - 14, size: 10, font: fontRegular, color });
+  page.drawText(representativeLabel, { x: rightX, y: signY - 36, size: 10, font: fontRegular, color });
+
+  const pdfBytes = await pdfDoc.save();
+  await fs.promises.writeFile(filePath, Buffer.from(pdfBytes));
   return `/contracts/${fileName}`;
 }
 
@@ -11517,7 +11683,7 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
     };
 
     const previousUrl = String(contract.url_pdf || '').trim() || null;
-    const regeneratedUrl = await generateReservationClientContractHtml({
+    const regeneratedUrl = await generateReservationClientContractPdf({
       demand: contractDemandContext,
       bien: bienContext,
       contractId,
@@ -12127,7 +12293,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     };
 
     const [contractUrl, ownerContractUrl] = await Promise.all([
-      generateReservationClientContractHtml({
+      generateReservationClientContractPdf({
         demand: demandSnapshot,
         bien,
         contractId,
@@ -15220,7 +15386,7 @@ app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSes
       ? Number(current.amount_due_now)
       : (paymentMode === 'totalite' ? totalAmount : Math.min(totalAmount, Number(bien.avance || 0)));
     const [contractUrl, ownerContractUrl] = await Promise.all([
-      generateReservationClientContractHtml({
+      generateReservationClientContractPdf({
         demand: current,
         bien,
         contractId,
