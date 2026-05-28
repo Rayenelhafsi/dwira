@@ -9506,7 +9506,7 @@ async function generateReservationClientContractPdf({
       }
     }
 
-    const CONTRACT_TEMPLATE_TOP_NUDGE = -8; // Move all mapped fields slightly upward.
+    const CONTRACT_TEMPLATE_TOP_NUDGE = -14; // Move mapped fields further upward to match template lines.
     const writeTop = (page, text, left, top, opts = {}) => {
       const value = sanitizePdfWinAnsiText(text || '');
       if (!value) return;

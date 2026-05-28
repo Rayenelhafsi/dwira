@@ -493,7 +493,7 @@ export default function MyReservationsPage() {
                           </Link>
                         </>
                       )}
-                      {reservation.contract_id && (
+                      {reservation.contract_id && reservation.status === "succes_paiement" && (
                         <>
                           <button
                             type="button"
@@ -502,15 +502,6 @@ export default function MyReservationsPage() {
                             className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-50"
                           >
                             {loadingContractId === reservation.contract_id ? "Ouverture..." : "Consulter mon contrat"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void printContract(reservation)}
-                            disabled={loadingContractId === reservation.contract_id}
-                            className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                          >
-                            <Printer className="h-4 w-4" />
-                            Imprimer le contrat
                           </button>
                         </>
                       )}
@@ -537,11 +528,6 @@ export default function MyReservationsPage() {
                       {reservation.status === "contrat_realise" && (
                         <Link to={`/mes-reservations/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                           Proceder vers paiement
-                        </Link>
-                      )}
-                      {(reservation.status === "demande_recu_paiement" || reservation.status === "recu_paiement_envoye") && (
-                        <Link to={`/mes-reservations/${encodeURIComponent(reservation.id)}/paiement`} className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-                          Upload recu de paiement
                         </Link>
                       )}
                       {reservation.status === "succes_paiement" && (
@@ -678,14 +664,6 @@ export default function MyReservationsPage() {
               className="rounded-lg border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50"
             >
               Consulter le contrat
-            </button>
-            <button
-              type="button"
-              onClick={() => activeContractDemand && void printContract(activeContractDemand)}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              <Printer className="h-4 w-4" />
-              Imprimer le contrat
             </button>
             <Link to={activeContractDemand ? `/mes-reservations/${encodeURIComponent(activeContractDemand.id)}/paiement` : "/mes-reservations"} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
               Proceder vers paiement

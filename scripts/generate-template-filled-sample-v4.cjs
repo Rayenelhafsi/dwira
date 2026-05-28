@@ -5,7 +5,7 @@ const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 (async () => {
   const templatePath = path.join(process.cwd(), 'server', 'assets', 'contrat_template.pdf');
   const stampPath = path.join(process.cwd(), 'server', 'assets', 'cachet.jpg');
-  const outPath = path.join(process.cwd(), 'server', 'contracts', 'sample-contract-template-filled-v3.pdf');
+  const outPath = path.join(process.cwd(), 'server', 'contracts', 'sample-contract-template-filled-v4.pdf');
 
   const bytes = fs.readFileSync(templatePath);
   const pdfDoc = await PDFDocument.load(bytes);
