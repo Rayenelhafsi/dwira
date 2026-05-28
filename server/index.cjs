@@ -9506,7 +9506,7 @@ async function generateReservationClientContractPdf({
       }
     }
 
-    const CONTRACT_TEMPLATE_TOP_NUDGE = -14; // Move mapped fields further upward to match template lines.
+    const CONTRACT_TEMPLATE_TOP_NUDGE = 0;
     const writeTop = (page, text, left, top, opts = {}) => {
       const value = sanitizePdfWinAnsiText(text || '');
       if (!value) return;
@@ -9525,35 +9525,35 @@ async function generateReservationClientContractPdf({
 
     // Page 1: overlay values using mapper coordinates (user-defined + completed fields).
     const contractFieldMap = {
-      fullName: { page: 1, x: 329.9, top: 274.9, fontSize: 11, maxWidth: 360, value: fullName },
-      identityRef: { page: 1, x: 341.9, top: 294, fontSize: 11, maxWidth: 330, value: identityRef },
-      userAddress: { page: 1, x: 345.9, top: 312.9, fontSize: 11, maxWidth: 455, value: userAddress || '-' },
-      userPhone: { page: 1, x: 346.9, top: 338.9, fontSize: 11, maxWidth: 220, value: userPhone || '-' },
-      typeLogement: { page: 1, x: 199.9, top: 439.3, fontSize: 11, maxWidth: 180, value: contractTypeLogementValue },
-      adresseBien: { page: 1, x: 240.9, top: 455.9, fontSize: 11, maxWidth: 220, value: adresseBien || '-' },
+      fullName: { page: 1, x: 313.9, top: 279.9, fontSize: 11, maxWidth: 360, value: fullName },
+      identityRef: { page: 1, x: 313.9, top: 302, fontSize: 11, maxWidth: 330, value: identityRef },
+      userAddress: { page: 1, x: 314.9, top: 321.9, fontSize: 11, maxWidth: 455, value: userAddress || '-' },
+      userPhone: { page: 1, x: 310.9, top: 340.9, fontSize: 11, maxWidth: 220, value: userPhone || '-' },
+      typeLogement: { page: 1, x: 148.9, top: 448.3, fontSize: 11, maxWidth: 180, value: contractTypeLogementValue },
+      adresseBien: { page: 1, x: 194.9, top: 461.9, fontSize: 11, maxWidth: 220, value: adresseBien || '-' },
       capacite: { page: 1, x: 221.9, top: 472.9, fontSize: 11, maxWidth: 80, value: String(totalGuests) },
-      adultes: { page: 1, x: 329.9, top: 471.9, fontSize: 11, maxWidth: 80, value: `${String(adultGuests)} adulte(s)` },
-      enfants: { page: 1, x: 417.9, top: 471.9, fontSize: 11, maxWidth: 80, value: `${childGuestsLabel} enfant(s)` },
+      adultes: { page: 1, x: 329.9, top: 475.9, fontSize: 11, maxWidth: 80, value: `${String(adultGuests)} adulte(s)` },
+      enfants: { page: 1, x: 392.9, top: 476.9, fontSize: 11, maxWidth: 80, value: `${childGuestsLabel} enfant(s)` },
       equipementsBien: { page: 1, x: 132.9, top: 506.9, fontSize: 11, maxWidth: 420, value: equipementsBienValue },
-      jj1: { page: 1, x: 75.9, top: 555.9, fontSize: 11, maxWidth: 28, value: startDay },
-      mm1: { page: 1, x: 107.9, top: 555.9, fontSize: 11, maxWidth: 28, value: startMonth },
-      jj2: { page: 1, x: 184.9, top: 554.9, fontSize: 11, maxWidth: 28, value: endDay },
-      mm2: { page: 1, x: 214.9, top: 555.9, fontSize: 11, maxWidth: 28, value: endMonth },
-      heureArrivee: { page: 1, x: 168.9, top: 570.9, fontSize: 11, maxWidth: 120, value: heureArrivee || '-' },
-      heureDepart: { page: 1, x: 169.9, top: 587.9, fontSize: 11, maxWidth: 120, value: heureDepart || '-' },
-      loyerTotal: { page: 2, x: 360.9, top: 70.9, fontSize: 11, maxWidth: 180, value: `${loyerTotal} TND` },
-      acompteReservation: { page: 2, x: 382.9, top: 97.9, fontSize: 11, maxWidth: 180, value: `${acompteReservation} TND` },
-      jjp: { page: 2, x: 319.9, top: 113.9, fontSize: 11, maxWidth: 28, value: finalDay },
-      mmp: { page: 2, x: 367.9, top: 114.9, fontSize: 11, maxWidth: 28, value: finalMonth },
-      hhp: { page: 2, x: 450.9, top: 113.9, fontSize: 11, maxWidth: 28, value: finalHour },
-      minp: { page: 2, x: 503.9, top: 113.9, fontSize: 11, maxWidth: 28, value: finalMinute },
-      idPaiement: { page: 2, x: 353.9, top: 134.9, fontSize: 11, maxWidth: 230, value: idPaiement || '-' },
-      soldeArrivee: { page: 2, x: 364.9, top: 157.9, fontSize: 11, maxWidth: 180, value: `${soldeArrivee} TND` },
-      modePaiement: { page: 2, x: 473.9, top: 190.9, fontSize: 11, maxWidth: 200, color: rgb(0.8, 0.1, 0.1), value: modePaiement },
-      caution: { page: 2, x: 193.9, top: 453.9, fontSize: 11, maxWidth: 220, value: `${formatAmountTndRaw(caution)}` },
-      VS: { page: 3, x: 146.9, top: 191.9, fontSize: 11, maxWidth: 110, value: villeSignature },
-      JJs: { page: 3, x: 297.9, top: 189.9, fontSize: 11, maxWidth: 28, value: jourSignature },
-      MMS: { page: 3, x: 343.9, top: 189.9, fontSize: 11, maxWidth: 28, value: moisSignature },
+      jj1: { page: 1, x: 76.9, top: 556.9, fontSize: 11, maxWidth: 28, value: startDay },
+      mm1: { page: 1, x: 105.9, top: 556.9, fontSize: 11, maxWidth: 28, value: startMonth },
+      jj2: { page: 1, x: 181.9, top: 555.9, fontSize: 11, maxWidth: 28, value: endDay },
+      mm2: { page: 1, x: 211.9, top: 555.9, fontSize: 11, maxWidth: 28, value: endMonth },
+      heureArrivee: { page: 1, x: 138.9, top: 571.9, fontSize: 11, maxWidth: 120, value: heureArrivee || '-' },
+      heureDepart: { page: 1, x: 139.9, top: 585.9, fontSize: 11, maxWidth: 120, value: heureDepart || '-' },
+      loyerTotal: { page: 2, x: 381.9, top: 78.9, fontSize: 11, maxWidth: 180, value: `${loyerTotal} TND` },
+      acompteReservation: { page: 2, x: 382.9, top: 100.9, fontSize: 11, maxWidth: 180, value: `${acompteReservation} TND` },
+      jjp: { page: 2, x: 326.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalDay },
+      mmp: { page: 2, x: 365.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalMonth },
+      hhp: { page: 2, x: 456.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalHour },
+      minp: { page: 2, x: 483.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalMinute },
+      idPaiement: { page: 2, x: 382.9, top: 141.9, fontSize: 11, maxWidth: 230, value: idPaiement || '-' },
+      soldeArrivee: { page: 2, x: 382.9, top: 164.9, fontSize: 11, maxWidth: 180, value: `${soldeArrivee} TND` },
+      modePaiement: { page: 2, x: 473.9, top: 195.9, fontSize: 11, maxWidth: 200, color: rgb(0.8, 0.1, 0.1), value: modePaiement },
+      caution: { page: 2, x: 171, top: 461, fontSize: 11, maxWidth: 220, value: `${formatAmountTndRaw(caution)}` },
+      VS: { page: 3, x: 147.9, top: 197.9, fontSize: 11, maxWidth: 110, value: villeSignature },
+      JJs: { page: 3, x: 298.9, top: 197.9, fontSize: 11, maxWidth: 28, value: jourSignature },
+      MMS: { page: 3, x: 341, top: 197, fontSize: 11, maxWidth: 28, value: moisSignature },
     };
 
     for (const field of Object.values(contractFieldMap)) {
