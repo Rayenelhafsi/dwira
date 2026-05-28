@@ -581,10 +581,13 @@ export default function PropertyDetailsPage() {
         try {
           const endpoint = buildApiUrl(`/facebook/video-source?url=${encodeURIComponent(url)}`);
           const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
-          if (!response.ok) continue;
+          if (!response.ok) {
+            nextEntries.push([url, '']);
+            continue;
+          }
           const payload = await response.json().catch(() => null);
           const source = String(payload?.source || '').trim();
-          if (source) nextEntries.push([url, source]);
+          nextEntries.push([url, source || '']);
         } catch {
           // Ignore failures and keep iframe/link fallback.
         }

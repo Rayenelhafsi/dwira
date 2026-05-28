@@ -7164,7 +7164,8 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
   const normalizedEmail = normalizeEmailForCompare(email);
   const normalizedPhone = normalizePhoneNumber(telephone || '');
   const normalizedName = String(name || '').trim();
-  const normalizedCin = String(cin || '').trim();
+  const rawCin = String(cin || '').trim();
+  const normalizedCin = ['', 'n/a', 'na', 'null', '-', '--'].includes(rawCin.toLowerCase()) ? '' : rawCin;
   if (!normalizedUserId && !normalizedEmail && !normalizedPhone) return null;
 
   let existingRows = [];
@@ -7188,6 +7189,16 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
     );
     existingRows = rowsByIdentity || [];
   }
+  if (!existingRows[0] && normalizedCin) {
+    const [rowsByCin] = await pool.query(
+      `SELECT id, nom, telephone, email, cin
+       FROM locataires
+       WHERE cin = ?
+       LIMIT 1`,
+      [normalizedCin]
+    );
+    existingRows = rowsByCin || [];
+  }
 
   if (existingRows[0]) {
     const row = existingRows[0];
@@ -7207,19 +7218,31 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
   }
 
   const id = (normalizedUserId || `l_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`).slice(0, 40);
-  await pool.query(
-    `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      normalizedName || 'Client',
-      normalizedPhone || null,
-      normalizedEmail || null,
-      normalizedCin || null,
-      5,
-      getAgencySqlDateTime(),
-    ]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        normalizedName || 'Client',
+        normalizedPhone || null,
+        normalizedEmail || null,
+        normalizedCin || null,
+        5,
+        getAgencySqlDateTime(),
+      ]
+    );
+  } catch (error) {
+    const message = String(error?.message || '').toLowerCase();
+    if (message.includes('duplicate entry') && message.includes('locataires.cin') && normalizedCin) {
+      const [rowsByCin] = await pool.query(
+        `SELECT id FROM locataires WHERE cin = ? LIMIT 1`,
+        [normalizedCin]
+      );
+      if (rowsByCin?.[0]?.id) return rowsByCin[0].id;
+    }
+    throw error;
+  }
   return id;
 }
 
@@ -7245,7 +7268,7 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
   const identityLastName = String(current.identity_last_name || nameParts[0] || 'Client').trim();
   const identityFirstName = String(current.identity_first_name || nameParts.slice(1).join(' ') || 'Dwira').trim();
   const identityDocumentType = String(current.identity_document_type || 'cin_tn').trim();
-  const identityDocumentNumber = String(current.identity_document_number || 'N/A').trim();
+  const identityDocumentNumber = normalizeIdentityNumber(current.identity_document_number || '') || '';
   const clientEmail = normalizeEmailForCompare(current.client_email || '') || `${demandId}@dwira.local`;
 
   const locataireId = await upsertLocataireFromReservationProfile({
