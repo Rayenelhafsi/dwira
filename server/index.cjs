@@ -9418,6 +9418,111 @@ async function generateReservationClientContractPdf({
     ? 'Lengliz Chayma, Gerante'
     : 'Hafsi Ghaith, Responsable commercial';
 
+  // Preferred path: keep the official template design and inject values on top.
+  const templatePath = path.join(__dirname, 'assets', 'contrat_template.pdf');
+  if (fs.existsSync(templatePath)) {
+    const templateBytes = await fs.promises.readFile(templatePath);
+    const pdfDoc = await PDFDocument.load(templateBytes);
+    const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const color = rgb(0, 0, 0);
+    const pages = pdfDoc.getPages();
+    const page1 = pages[0];
+    const page3 = pages[Math.max(0, pages.length - 1)];
+
+    let userPhone = String(demand?.client_phone || demand?.client_telephone || demand?.phone || '').trim();
+    let userAddress = String(demand?.client_address || demand?.address || '').trim();
+    const normalizedClientEmail = normalizeEmailForCompare(demand?.client_email || '');
+    if (!userPhone || !userAddress) {
+      const [userRows] = await pool.query(
+        `SELECT telephone
+         FROM utilisateurs
+         WHERE id = ? OR (email = ? AND ? <> '')
+         LIMIT 1`,
+        [String(demand?.client_user_id || '').trim(), normalizedClientEmail, normalizedClientEmail]
+      );
+      const userRow = userRows?.[0] || null;
+      if (!userPhone && userRow?.telephone) userPhone = String(userRow.telephone || '').trim();
+      if (!userAddress) {
+        try {
+          const [locRows] = await pool.query(
+            `SELECT adresse
+             FROM locataires
+             WHERE email = ? AND ? <> ''
+             LIMIT 1`,
+            [normalizedClientEmail, normalizedClientEmail]
+          );
+          if (locRows?.[0]?.adresse) userAddress = String(locRows[0].adresse || '').trim();
+        } catch (_) {
+          // Some deployments may not have locataires.adresse yet.
+        }
+      }
+    }
+
+    const writeTop = (page, text, left, top, opts = {}) => {
+      const value = sanitizePdfWinAnsiText(text || '');
+      if (!value) return;
+      const size = opts.size || 11;
+      const font = opts.bold ? fontBold : fontRegular;
+      const pageHeight = page.getHeight();
+      const maxWidth = opts.maxWidth || (page.getWidth() - left - 36);
+      const { line } = splitPdfTextByWidth(font, value, size, maxWidth);
+      page.drawText(line, { x: left, y: pageHeight - top - size, size, font, color });
+    };
+
+    const periodLabel = `Du ${startDay}/${startMonth}/${start.yyyy || ''} au ${endDay}/${endMonth}/${end.yyyy || ''} (${nights} nuit${nights > 1 ? 's' : ''})`;
+    const finalizationLabel = `${finalDay}/${finalMonth}/${finalization.date.yyyy || ''} a ${finalHour}h${finalMinute}`;
+
+    // Page 1: overlay values in the existing template blanks.
+    writeTop(page1, fullName, 175, 193, { size: 11, maxWidth: 360 });
+    writeTop(page1, identityRef, 205, 221, { size: 11, maxWidth: 330 });
+    writeTop(page1, userAddress || '-', 108, 249, { size: 11, maxWidth: 455 });
+    writeTop(page1, userPhone || '-', 83, 277, { size: 11, maxWidth: 220 });
+    writeTop(page1, typeLogement || '-', 174, 370, { size: 11, maxWidth: 180 });
+    writeTop(page1, adresseBien || '-', 210, 397, { size: 11, maxWidth: 350 });
+    writeTop(page1, String(totalGuests), 205, 425, { size: 11, maxWidth: 120 });
+    writeTop(page1, repartitionVoyageurs, 174, 453, { size: 11, maxWidth: 260 });
+    writeTop(page1, equipementsTitre || '-', 82, 481, { size: 11, maxWidth: 500 });
+    writeTop(page1, periodLabel, 82, 536, { size: 11, maxWidth: 500 });
+    writeTop(page1, heureArrivee || '-', 156, 565, { size: 11, maxWidth: 180 });
+    writeTop(page1, heureDepart || '-', 148, 592, { size: 11, maxWidth: 180 });
+    writeTop(page1, `${loyerTotal} TND`, 142, 648, { size: 11, maxWidth: 180 });
+    writeTop(page1, `${acompteReservation} TND`, 191, 676, { size: 11, maxWidth: 180 });
+    writeTop(page1, finalizationLabel, 236, 704, { size: 11, maxWidth: 240 });
+    writeTop(page1, idPaiement || '-', 130, 732, { size: 11, maxWidth: 230 });
+    writeTop(page1, `${soldeArrivee} TND`, 181, 760, { size: 11, maxWidth: 180 });
+    writeTop(page1, modePaiement, 160, 788, { size: 11, maxWidth: 200 });
+    writeTop(page1, `${formatAmountTndRaw(caution)} TND`, 152, 816, { size: 11, maxWidth: 220 });
+    writeTop(page1, `${villeSignature}, le ${jourSignature}/${moisSignature}/${signatureDate.yyyy || ''}`, 84, 844, { size: 11, maxWidth: 320 });
+
+    // Keep the signature representative and add the stamp under tenant signature.
+    writeTop(page3, representativeLabel, 336, 736, { size: 10, maxWidth: 220 });
+    try {
+      const stampPath = path.join(__dirname, 'assets', 'cachet.jpg');
+      if (fs.existsSync(stampPath)) {
+        const stampBytes = await fs.promises.readFile(stampPath);
+        const stampImg = await pdfDoc.embedJpg(stampBytes).catch(() => null);
+        if (stampImg) {
+          const stampWidth = 130;
+          const stampHeight = (stampImg.height / stampImg.width) * stampWidth;
+          const pageHeight = page3.getHeight();
+          page3.drawImage(stampImg, {
+            x: 78,
+            y: pageHeight - 760 - stampHeight,
+            width: stampWidth,
+            height: stampHeight,
+          });
+        }
+      }
+    } catch (_) {
+      // Keep contract generation resilient if stamp image is unavailable.
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    await fs.promises.writeFile(filePath, Buffer.from(pdfBytes));
+    return `/contracts/${fileName}`;
+  }
+
   let y = 812;
   const left = 40;
   const maxWidth = 515;

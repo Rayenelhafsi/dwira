@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle } from "lucide-react";
+import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
@@ -125,6 +125,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   );
   const typeWidgetLabel = subTypeLabel ? `${mainTypeLabel} ${subTypeLabel}` : mainTypeLabel;
   const displayTitle = buildDisplayTitle(property.reference, property.title);
+  const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
 
   useEffect(() => {
     const measureTitle = () => {
@@ -160,7 +161,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   };
     
   return (
-    <div className={`group overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_20px_48px_rgba(15,23,42,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_62px_rgba(15,23,42,0.16)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'}`}>
+    <div className={`group overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_20px_48px_rgba(15,23,42,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_62px_rgba(15,23,42,0.16)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'} ${hasInstantReservation ? 'dwira-instant-card' : ''}`}>
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <SmartImage
@@ -177,6 +178,12 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
           <div className="absolute left-4 top-4 inline-flex rounded-full border border-white/25 bg-black/35 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 backdrop-blur-md">
             Sejour premium
           </div>
+          {hasInstantReservation ? (
+            <div className="dwira-instant-badge absolute left-4 top-[3.15rem] inline-flex items-center gap-1.5 rounded-full border border-amber-200/85 bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 shadow-sm backdrop-blur-md">
+              <Zap size={12} className="text-amber-500" />
+              <span>Reservation instantanee</span>
+            </div>
+          ) : null}
           <div className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-white/25 bg-black/35 px-3 py-1 text-xs font-semibold text-white backdrop-blur-md">
             <Star size={13} fill="currentColor" />
             <span>{ratingDisplay}</span>
