@@ -8024,6 +8024,9 @@ function formatReservationDemandRow(row) {
     identity_last_name: row.identity_last_name || null,
     identity_submitted_at: row.identity_submitted_at || null,
     contract_generated_at: row.contract_generated_at || null,
+    contract_id: row.contract_id || null,
+    contract_url: row.contract_url || null,
+    owner_contract_url: row.owner_contract_url || null,
     finalization_due_at: row.finalization_due_at || null,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
@@ -13817,6 +13820,8 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
         b.reference AS bien_reference,
         b.mode AS bien_mode,
         p.nom AS proprietaire_nom,
+        c.url_pdf AS contract_url,
+        c.owner_url_pdf AS owner_contract_url,
         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
@@ -13831,6 +13836,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
       FROM reservation_demands d
       LEFT JOIN biens b ON b.id = d.bien_id
       LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      LEFT JOIN contrats c ON c.id = d.contract_id
       ${where.length > 0 ? `WHERE ${where.join(' OR ')}` : ''}
       ORDER BY d.created_at DESC
     `, params);

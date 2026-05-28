@@ -53,9 +53,8 @@ export default function ReservationPaymentPage() {
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [startingFlouciScope, setStartingFlouciScope] = useState<PaymentScope | null>(null);
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
-  const methodView = String(searchParams.get("method") || "").trim().toLowerCase();
-  const showFlouciBlock = methodView !== "receipt";
-  const showReceiptBlock = methodView === "receipt";
+  const showFlouciBlock = true;
+  const showReceiptBlock = true;
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -295,6 +294,18 @@ export default function ReservationPaymentPage() {
             <p className="mt-2 text-sm text-gray-500">
               Le paiement est valide manuellement par l'administration apres verification de votre recu.
             </p>
+            {!!String(demand.contract_url || "").trim() && (
+              <div className="mt-3">
+                <a
+                  href={resolveAssetUrl(demand.contract_url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                >
+                  Voir le contrat
+                </a>
+              </div>
+            )}
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <InfoCard label="Demande" value={demand.bien_reference || demand.id} />

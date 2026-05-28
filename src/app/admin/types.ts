@@ -630,6 +630,8 @@ export interface ReservationDemand {
   contract_generated_at?: string | null;
   finalization_due_at?: string | null;
   contract_id?: string | null;
+  contract_url?: string | null;
+  owner_contract_url?: string | null;
   payment_id?: string | null;
   bien_titre?: string | null;
   bien_reference?: string | null;
