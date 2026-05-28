@@ -45,6 +45,7 @@ export default function LoginPage() {
     email: '',
     clientType: 'locataire',
     telephone: '',
+    address: '',
     cin: '',
     cinImageUrl: '',
   });
@@ -61,6 +62,7 @@ export default function LoginPage() {
       avatar: authUser.avatar || undefined,
       clientType: authUser.clientType || undefined,
       telephone: authUser.telephone || undefined,
+      address: authUser.address || undefined,
       cin: authUser.cin || undefined,
       cinImageUrl: authUser.cinImageUrl || undefined,
       profileCompleted: authUser.profileCompleted,
@@ -132,6 +134,7 @@ export default function LoginPage() {
         email: user.email || '',
         clientType: 'locataire',
         telephone: user.telephone || '',
+        address: (user as any).address || '',
         cin: user.cin || '',
         cinImageUrl: user.cinImageUrl || '',
       });
@@ -189,6 +192,7 @@ export default function LoginPage() {
             email: socialUser.email || '',
             clientType: 'locataire',
             telephone: socialUser.telephone || '',
+            address: (socialUser as any).address || '',
             cin: socialUser.cin || '',
             cinImageUrl: socialUser.cinImageUrl || '',
           });
@@ -264,6 +268,7 @@ export default function LoginPage() {
           email: passkeyUser.email || prev.email,
           clientType: 'locataire',
           telephone: passkeyUser.telephone || prev.telephone,
+          address: (passkeyUser as any).address || prev.address,
           cin: passkeyUser.cin || prev.cin,
           cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
         }));
@@ -303,6 +308,7 @@ export default function LoginPage() {
           email: passkeyUser.email || prev.email,
           clientType: 'locataire',
           telephone: passkeyUser.telephone || prev.telephone,
+          address: (passkeyUser as any).address || prev.address,
           cin: passkeyUser.cin || prev.cin,
           cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
         }));
@@ -352,8 +358,8 @@ export default function LoginPage() {
       toast.error('Utilisateur introuvable');
       return;
     }
-    if (!profileForm.firstName.trim() || !profileForm.lastName.trim() || !profileForm.telephone.trim() || !profileForm.cin.trim()) {
-      toast.error('Nom, prenom, numero de telephone et CIN sont obligatoires');
+    if (!profileForm.firstName.trim() || !profileForm.lastName.trim() || !profileForm.telephone.trim() || !profileForm.address.trim() || !profileForm.cin.trim()) {
+      toast.error('Nom, prenom, numero de telephone, adresse et CIN sont obligatoires');
       return;
     }
     setIsCompletingProfile(true);
@@ -366,6 +372,7 @@ export default function LoginPage() {
         email: profileForm.email.trim() || undefined,
         clientType: 'locataire',
         telephone: profileForm.telephone.trim(),
+        address: profileForm.address.trim(),
         cin: profileForm.cin.trim(),
         cinImageUrl: profileForm.cinImageUrl.trim(),
         avatar: user.avatar || null,
@@ -465,6 +472,23 @@ export default function LoginPage() {
                     onChange={(e) => setProfileForm((prev) => ({ ...prev, telephone: e.target.value }))}
                     className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
                     placeholder="+216 ..."
+                  />
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label htmlFor="client-address" className="block text-sm font-medium text-gray-700">Adresse *</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FileText className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                  </div>
+                  <input
+                    id="client-address"
+                    value={profileForm.address}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, address: e.target.value }))}
+                    className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
+                    placeholder="Adresse complete"
+                    required
                   />
                 </div>
               </div>

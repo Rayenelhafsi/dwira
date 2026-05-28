@@ -329,6 +329,8 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [generatingContractDemandId, setGeneratingContractDemandId] = useState<string | null>(null);
+  const [sendingContractDemandId, setSendingContractDemandId] = useState<string | null>(null);
   const [serviceQuoteDrafts, setServiceQuoteDrafts] = useState<Record<string, Record<string, number>>>({});
   const [expandedDemandIds, setExpandedDemandIds] = useState<Record<string, boolean>>({});
   const hasLoadedOnceRef = useRef(false);
@@ -887,6 +889,68 @@ export default function NotificationsPage() {
       history_note: quoteRows.length > 0 ? `Devis services envoye (${quoteTotal} TND)` : 'Aucun devis services a envoyer',
     });
   };
+
+  const generateContractForDemand = async (demand: ReservationDemand) => {
+    const contractId = String(demand.contract_id || '').trim();
+    if (!contractId) {
+      toast.error('Aucun contrat associe a cette demande');
+      return;
+    }
+    setGeneratingContractDemandId(demand.id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contractId)}/regenerate-template-pdf`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Generation contrat impossible'));
+      toast.success('Contrat regenere');
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Generation contrat impossible');
+    } finally {
+      setGeneratingContractDemandId(null);
+    }
+  };
+
+  const viewContractForDemand = async (demand: ReservationDemand) => {
+    const contractId = String(demand.contract_id || '').trim();
+    if (!contractId) {
+      toast.error('Aucun contrat associe a cette demande');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contractId)}`, { credentials: 'include' });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Ouverture contrat impossible'));
+      const contract = await response.json();
+      const url = resolveAssetUrl(String(contract?.url_pdf || '').trim());
+      if (!url) throw new Error('PDF contrat indisponible');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Ouverture contrat impossible');
+    }
+  };
+
+  const sendContractToClient = async (demand: ReservationDemand) => {
+    const contractId = String(demand.contract_id || '').trim();
+    if (!contractId) {
+      toast.error('Aucun contrat associe a cette demande');
+      return;
+    }
+    setSendingContractDemandId(demand.id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contractId)}/send-to-client`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Envoi contrat impossible'));
+      toast.success('Version admin envoyee au client');
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Envoi contrat impossible');
+    } finally {
+      setSendingContractDemandId(null);
+    }
+  };
   const toggleDemandExpanded = (demandId: string) => {
     setExpandedDemandIds((prev) => ({ ...prev, [demandId]: !prev[demandId] }));
   };
@@ -1169,6 +1233,30 @@ export default function NotificationsPage() {
                       >
                         <Bell className="h-4 w-4" />
                         Demander disponibilite
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void generateContractForDemand(demand)}
+                        disabled={generatingContractDemandId === demand.id || !String(demand.contract_id || '').trim()}
+                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                      >
+                        {generatingContractDemandId === demand.id ? 'Generation...' : 'Generer contrat'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void viewContractForDemand(demand)}
+                        disabled={!String(demand.contract_id || '').trim()}
+                        className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                      >
+                        Voir contrat
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void sendContractToClient(demand)}
+                        disabled={sendingContractDemandId === demand.id || !String(demand.contract_id || '').trim()}
+                        className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+                      >
+                        {sendingContractDemandId === demand.id ? 'Envoi...' : 'Envoyer contrat client'}
                       </button>
                     </>
                   )}

@@ -13,6 +13,7 @@ interface User {
   role: 'admin' | 'user';
   clientType?: 'proprietaire' | 'locataire' | 'acheteur' | null;
   telephone?: string | null;
+  address?: string | null;
   cin?: string | null;
   cinImageUrl?: string | null;
   profileCompleted?: boolean;
@@ -47,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           avatar: serverUser.avatar || undefined,
           clientType: serverUser.clientType || undefined,
           telephone: serverUser.telephone || undefined,
+          address: serverUser.address || undefined,
           cin: serverUser.cin || undefined,
           cinImageUrl: serverUser.cinImageUrl || undefined,
           profileCompleted: serverUser.profileCompleted,

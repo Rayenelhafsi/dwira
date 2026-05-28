@@ -128,6 +128,7 @@ export default function HotelDetailsPage() {
     lastName: "",
     clientType: "locataire",
     telephone: "",
+    address: "",
     cin: "",
   });
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
@@ -277,6 +278,7 @@ export default function HotelDetailsPage() {
       lastName: String(currentUser?.lastName || nameParts.lastName || "").trim(),
       clientType: "locataire",
       telephone: String(currentUser?.telephone || "").trim(),
+      address: String(currentUser?.address || "").trim(),
       cin: String(currentUser?.cin || "").trim(),
     });
     setLoginPromptStep("profile_setup");
@@ -462,8 +464,8 @@ export default function HotelDetailsPage() {
       toast.error("Session utilisateur invalide. Reconnectez-vous.");
       return;
     }
-    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim()) {
-      toast.error("Nom, prenom et telephone sont obligatoires.");
+    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim() || !profilePromptForm.address.trim()) {
+      toast.error("Nom, prenom, telephone et adresse sont obligatoires.");
       return;
     }
     setIsProfilePromptSaving(true);
@@ -476,6 +478,7 @@ export default function HotelDetailsPage() {
         email: user.email,
         clientType: "locataire",
         telephone: profilePromptForm.telephone.trim(),
+        address: profilePromptForm.address.trim(),
         cin: profilePromptForm.cin.trim(),
       });
       applyLoggedUser(savedUser);
@@ -1068,6 +1071,13 @@ export default function HotelDetailsPage() {
                   value={profilePromptForm.telephone}
                   onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, telephone: event.target.value }))}
                   placeholder="Telephone *"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
+                />
+                <input
+                  type="text"
+                  value={profilePromptForm.address}
+                  onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, address: event.target.value }))}
+                  placeholder="Adresse *"
                   className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
                 />
                 <input

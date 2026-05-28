@@ -30,6 +30,8 @@ type ContratApi = {
   montant_recu: number;
   url_pdf?: string;
   owner_url_pdf?: string;
+  template_vars_json?: string | null;
+  client_sent_at?: string | null;
   origine?: 'manuel' | 'automatique' | string;
   statut: 'actif' | 'termine' | 'resilie';
   created_at: string;
@@ -206,6 +208,8 @@ export default function ContratsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadingContratId, setUploadingContratId] = useState<string | null>(null);
+  const [regeneratingContratId, setRegeneratingContratId] = useState<string | null>(null);
+  const [sendingContratId, setSendingContratId] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
 
   const [searchLocataire, setSearchLocataire] = useState('');
@@ -576,6 +580,66 @@ export default function ContratsPage() {
       toast.error(err?.message || 'Erreur upload contrat');
     } finally {
       setUploadingContratId(null);
+    }
+  };
+
+  const handleRegenerateTemplatePdf = async (contrat: ContratApi) => {
+    setRegeneratingContratId(contrat.id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}/regenerate-template-pdf`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Regeneration impossible'));
+      await fetchData();
+      toast.success('Contrat regenere depuis le template');
+    } catch (error: any) {
+      toast.error(error?.message || 'Regeneration impossible');
+    } finally {
+      setRegeneratingContratId(null);
+    }
+  };
+
+  const handleEditTemplateVars = async (contrat: ContratApi) => {
+    const currentRaw = String(contrat.template_vars_json || '').trim();
+    const seeded = currentRaw || JSON.stringify({ fullName: '', identityRef: '', userAddress: '' }, null, 2);
+    const edited = window.prompt('Variables JSON du contrat (ex: {"fullName":"..."}):', seeded);
+    if (edited === null) return;
+    let parsed: Record<string, string> = {};
+    try {
+      parsed = JSON.parse(edited);
+    } catch {
+      toast.error('JSON invalide');
+      return;
+    }
+    try {
+      const saveResponse = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}/template-vars`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_vars: parsed }),
+      });
+      if (!saveResponse.ok) throw new Error(await getApiErrorMessage(saveResponse, 'Sauvegarde variables impossible'));
+      await handleRegenerateTemplatePdf(contrat);
+    } catch (error: any) {
+      toast.error(error?.message || 'Sauvegarde variables impossible');
+    }
+  };
+
+  const handleSendContractToClient = async (contrat: ContratApi) => {
+    setSendingContratId(contrat.id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}/send-to-client`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Envoi client impossible'));
+      await fetchData();
+      toast.success('Version admin du contrat envoyee au client');
+    } catch (error: any) {
+      toast.error(error?.message || 'Envoi client impossible');
+    } finally {
+      setSendingContratId(null);
     }
   };
 
@@ -1178,6 +1242,15 @@ export default function ContratsPage() {
               <div className="grid grid-cols-2 gap-2 mt-4">
                 <button type="button" onClick={() => handlePreviewPdf(contrat.url_pdf)} disabled={!contrat.url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
                   <Eye size={16} /> Visualiser
+                </button>
+                <button type="button" onClick={() => void handleRegenerateTemplatePdf(contrat)} disabled={regeneratingContratId === contrat.id} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-300 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50">
+                  {regeneratingContratId === contrat.id ? 'Regeneration...' : 'Generer template'}
+                </button>
+                <button type="button" onClick={() => void handleEditTemplateVars(contrat)} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-300 text-sky-700 text-sm font-medium hover:bg-sky-50">
+                  Modifier variables
+                </button>
+                <button type="button" onClick={() => void handleSendContractToClient(contrat)} disabled={sendingContratId === contrat.id} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-medium hover:bg-indigo-50 disabled:opacity-50">
+                  {sendingContratId === contrat.id ? 'Envoi...' : 'Envoyer client'}
                 </button>
                 <button type="button" onClick={() => handleDownloadPdf(contrat.id, contrat.url_pdf)} disabled={!contrat.url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50">
                   <Download size={16} /> Telecharger
