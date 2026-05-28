@@ -77,6 +77,13 @@ export function PartnersLogoMarquee() {
                 loading={idx < 6 ? "eager" : "lazy"}
                 fetchPriority={idx < 6 ? "high" : "auto"}
                 decoding="async"
+                onError={(event) => {
+                  const img = event.currentTarget;
+                  const fallback = `/partners/${logo.path}`;
+                  if (!img.src.endsWith(fallback)) {
+                    img.src = fallback;
+                  }
+                }}
               />
             </div>
           ))}
