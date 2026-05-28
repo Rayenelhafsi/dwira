@@ -100,14 +100,14 @@ body {
 
 .dwira-electric-path--glow {
   stroke: rgba(251, 191, 36, 0.9);
-  stroke-width: 2.1;
+  stroke-width: 3.1;
   filter: url(#dwira-electric-glow) url(#dwira-electric-jitter);
-  opacity: 0.95;
+  opacity: 1;
 }
 
 .dwira-electric-path--core {
   stroke: #fff7c6;
-  stroke-width: 1.15;
+  stroke-width: 1.55;
   filter: url(#dwira-electric-jitter);
 }
 

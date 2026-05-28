@@ -173,9 +173,11 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
                 <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.8" xChannelSelector="R" yChannelSelector="G" />
               </filter>
               <filter id="dwira-electric-glow" x="-100%" y="-100%" width="300%" height="300%">
-                <feGaussianBlur stdDeviation="1.6" result="blur1" />
-                <feGaussianBlur stdDeviation="3.4" result="blur2" />
+                <feGaussianBlur stdDeviation="2.2" result="blur1" />
+                <feGaussianBlur stdDeviation="5.4" result="blur2" />
+                <feGaussianBlur stdDeviation="8.2" result="blur3" />
                 <feMerge>
+                  <feMergeNode in="blur3" />
                   <feMergeNode in="blur2" />
                   <feMergeNode in="blur1" />
                   <feMergeNode in="SourceGraphic" />
