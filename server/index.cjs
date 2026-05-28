@@ -8364,7 +8364,10 @@ function parseSqlDateTimeParts(value) {
 function formatAmountTndRaw(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) return '';
-  return num.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return num
+    .toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    .replace(/\u202f/g, ' ')
+    .replace(/\u00a0/g, ' ');
 }
 
 function normalizePaymentModeForTemplate(paymentMode, paymentMethod) {
@@ -9420,7 +9423,7 @@ async function generateReservationClientContractPdf({
   const maxWidth = 515;
   const lh = 14;
   const draw = (text, opts = {}) => {
-    const value = String(text || '');
+    const value = sanitizePdfWinAnsiText(text);
     const size = opts.size || 11;
     const font = opts.bold ? fontBold : fontRegular;
     const width = font.widthOfTextAtSize(value, size);
@@ -9429,7 +9432,7 @@ async function generateReservationClientContractPdf({
     y -= opts.gap || lh;
   };
   const wrap = (text, opts = {}) => {
-    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const words = sanitizePdfWinAnsiText(text).split(/\s+/).filter(Boolean);
     const size = opts.size || 11;
     const font = opts.bold ? fontBold : fontRegular;
     const widthMax = opts.maxWidth || maxWidth;
@@ -9766,7 +9769,7 @@ async function generateAmicaleVoucherHtml({
     }
 
     const drawTextTop = (text, left, top, size = 24, bold = true, color = rgb(0.06, 0.09, 0.16)) => {
-      page.drawText(String(text || '-'), {
+      page.drawText(sanitizePdfWinAnsiText(text || '-'), {
         x: left,
         y: sheetHeight - top - size,
         size,
