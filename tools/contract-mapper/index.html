@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contract Mapper</title>
+  <style>
+    body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#f3f4f6}
+    .wrap{display:grid;grid-template-columns:360px 1fr;min-height:100vh}
+    .left{background:#fff;border-right:1px solid #e5e7eb;padding:12px;overflow:auto}
+    .right{padding:12px;overflow:auto}
+    input,button{width:100%;margin:6px 0;padding:8px;border:1px solid #d1d5db;border-radius:8px}
+    button{cursor:pointer}
+    .canvasWrap{position:relative;display:inline-block;border:1px solid #ddd;background:#fff}
+    #overlay{position:absolute;inset:0}
+    .dot{position:absolute;transform:translate(-50%,-50%);background:#059669;color:#fff;font-size:10px;padding:2px 6px;border-radius:999px}
+    .vars{max-height:260px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;margin:8px 0}
+    .v{padding:6px 8px;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:12px}
+    .v.active{background:#ecfeff}
+    pre{background:#111827;color:#e5e7eb;padding:8px;border-radius:8px;max-height:220px;overflow:auto}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="left">
+    <h3>Variables contrat</h3>
+    <button id="loadDefault">Charger template</button>
+    <div class="vars" id="varList"></div>
+    <input id="varName" placeholder="nom variable" />
+    <button id="selectVar">Selectionner variable</button>
+    <input id="pageInput" type="number" value="1" min="1" />
+    <button id="prev">Page -</button>
+    <button id="next">Page +</button>
+    <button id="copy">Copier JSON</button>
+    <pre id="out"></pre>
+  </div>
+  <div class="right">
+    <div class="canvasWrap"><canvas id="c"></canvas><div id="overlay"></div></div>
+  </div>
+</div>
+<script type="module">
+import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.5.136/+esm';
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.5.136/build/pdf.worker.min.mjs';
+const defaults={
+  fullName:{page:1,x:329.9,top:274.9,fontSize:11,maxWidth:360},identityRef:{page:1,x:341.9,top:294,fontSize:11,maxWidth:330},userAddress:{page:1,x:345.9,top:312.9,fontSize:11,maxWidth:455},userPhone:{page:1,x:346.9,top:338.9,fontSize:11,maxWidth:220},
+  typeLogement:{page:1,x:199.9,top:439.3,fontSize:11,maxWidth:180},adresseBien:{page:1,x:240.9,top:455.9,fontSize:11,maxWidth:220},capacite:{page:1,x:221.9,top:472.9,fontSize:11,maxWidth:80},adultes:{page:1,x:329.9,top:471.9,fontSize:11,maxWidth:80},enfants:{page:1,x:417.9,top:471.9,fontSize:11,maxWidth:80},
+  equipementsBien:{page:1,x:132.9,top:506.9,fontSize:11,maxWidth:420},jj1:{page:1,x:75.9,top:555.9,fontSize:11,maxWidth:28},mm1:{page:1,x:107.9,top:555.9,fontSize:11,maxWidth:28},jj2:{page:1,x:184.9,top:554.9,fontSize:11,maxWidth:28},mm2:{page:1,x:214.9,top:555.9,fontSize:11,maxWidth:28},
+  heureArrivee:{page:1,x:168.9,top:570.9,fontSize:11,maxWidth:120},heureDepart:{page:1,x:169.9,top:587.9,fontSize:11,maxWidth:120},loyerTotal:{page:2,x:360.9,top:70.9,fontSize:11,maxWidth:180},acompteReservation:{page:2,x:382.9,top:97.9,fontSize:11,maxWidth:180},jjp:{page:2,x:319.9,top:113.9,fontSize:11,maxWidth:28},mmp:{page:2,x:367.9,top:114.9,fontSize:11,maxWidth:28},hhp:{page:2,x:450.9,top:113.9,fontSize:11,maxWidth:28},minp:{page:2,x:503.9,top:113.9,fontSize:11,maxWidth:28},idPaiement:{page:2,x:353.9,top:134.9,fontSize:11,maxWidth:230},soldeArrivee:{page:2,x:364.9,top:157.9,fontSize:11,maxWidth:180},modePaiement:{page:2,x:473.9,top:190.9,fontSize:11,maxWidth:200},caution:{page:2,x:193.9,top:453.9,fontSize:11,maxWidth:220},VS:{page:3,x:146.9,top:191.9,fontSize:11,maxWidth:110},JJs:{page:3,x:297.9,top:189.9,fontSize:11,maxWidth:28},MMS:{page:3,x:343.9,top:189.9,fontSize:11,maxWidth:28}
+};
+const st={pdf:null,page:1,scale:1,var:Object.keys(defaults)[0],map:{...defaults}};
+const c=document.getElementById('c'),ctx=c.getContext('2d'),ov=document.getElementById('overlay'),out=document.getElementById('out'),varList=document.getElementById('varList');
+function renderOut(){out.textContent=JSON.stringify(st.map,null,2)}
+function renderList(){varList.innerHTML='';Object.keys(st.map).forEach(k=>{const d=document.createElement('div');d.className='v'+(st.var===k?' active':'');d.textContent=k;d.onclick=()=>{st.var=k;document.getElementById('varName').value=k;renderList();};varList.appendChild(d);});}
+async function render(){if(!st.pdf)return;const p=await st.pdf.getPage(st.page);const v=p.getViewport({scale:st.scale});c.width=v.width;c.height=v.height;ov.style.width=v.width+'px';ov.style.height=v.height+'px';await p.render({canvasContext:ctx,viewport:v}).promise;drawDots();renderOut();renderList();}
+function drawDots(){ov.innerHTML='';Object.entries(st.map).forEach(([k,f])=>{if((f.page||1)!==st.page)return;const d=document.createElement('div');d.className='dot';d.textContent=k;d.style.left=(f.x*st.scale)+'px';d.style.top=(f.top*st.scale)+'px';ov.appendChild(d);});}
+ov.addEventListener('click',(e)=>{if(!st.pdf)return;const r=ov.getBoundingClientRect();const x=(e.clientX-r.left)/st.scale;const top=(e.clientY-r.top)/st.scale;const key=st.var||'fullName';st.map[key]=st.map[key]||{page:1,fontSize:11,maxWidth:220};st.map[key]={...st.map[key],page:st.page,x:+x.toFixed(1),top:+top.toFixed(1)};drawDots();renderOut();renderList();});
+document.getElementById('selectVar').onclick=()=>{const v=(document.getElementById('varName').value||'').trim();if(!v)return;st.var=v;st.map[v]=st.map[v]||{page:st.page,x:50,top:50,fontSize:11,maxWidth:220};renderList();renderOut();};
+document.getElementById('prev').onclick=()=>{st.page=Math.max(1,st.page-1);document.getElementById('pageInput').value=st.page;render();};
+document.getElementById('next').onclick=()=>{if(!st.pdf)return;st.page=Math.min(st.pdf.numPages,st.page+1);document.getElementById('pageInput').value=st.page;render();};
+document.getElementById('pageInput').onchange=(e)=>{st.page=Math.max(1,Number(e.target.value||1));render();};
+document.getElementById('copy').onclick=async()=>{await navigator.clipboard.writeText(JSON.stringify(st.map,null,2));};
+document.getElementById('loadDefault').onclick=async()=>{const res=await fetch('/server/assets/contrat_template.pdf');const bytes=new Uint8Array(await res.arrayBuffer());st.pdf=await pdfjsLib.getDocument({data:bytes}).promise;st.page=1;document.getElementById('pageInput').value=1;render();};
+renderOut();renderList();
+</script>
+</body>
+</html>

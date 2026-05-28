@@ -9397,6 +9397,53 @@ async function generateReservationClientContractPdf({
     String(bien?.titre || demand?.bien_titre || '').trim(),
     String(bien?.type || '').trim(),
   ].filter(Boolean).join(', ');
+  const contractTypeLogementValue = equipementsTitre || typeLogement || '-';
+  const equipementsFromArray = Array.isArray(bien?.caracteristiques)
+    ? bien.caracteristiques.map((row) => {
+        const text = String(row || '').trim();
+        if (!text) return '';
+        const idx = text.indexOf(':');
+        return (idx >= 0 ? text.slice(0, idx) : text).trim();
+      }).filter(Boolean)
+    : [];
+  const equipementsFromList = String(bien?.caracteristiques_list || '')
+    .split('||')
+    .map((row) => String(row || '').trim())
+    .filter(Boolean);
+  const equipementsFromFlags = [
+    bien?.climatisation ? 'Climatisation' : '',
+    bien?.cuisine_equipee ? 'Cuisine equipee' : '',
+    bien?.place_parking ? 'Place parking' : '',
+    bien?.chauffage_central ? 'Chauffage central' : '',
+    bien?.balcon ? 'Balcon' : '',
+    bien?.terrasse ? 'Terrasse' : '',
+    bien?.ascenseur ? 'Ascenseur' : '',
+    bien?.vue_mer ? 'Vue mer' : '',
+    bien?.gaz_ville ? 'Gaz de ville' : '',
+    bien?.proche_plage ? 'Proche plage' : '',
+  ].filter(Boolean);
+  const equipementsFromValues = [];
+  try {
+    const values = typeof bien?.caracteristique_valeurs === 'string'
+      ? JSON.parse(bien.caracteristique_valeurs)
+      : (bien?.caracteristique_valeurs || null);
+    if (values && typeof values === 'object') {
+      for (const [key, raw] of Object.entries(values)) {
+        const normalizedKey = String(key || '').trim();
+        if (!normalizedKey) continue;
+        if (raw === true) equipementsFromValues.push(normalizedKey);
+        else if (typeof raw === 'string' && raw.trim()) equipementsFromValues.push(`${normalizedKey}: ${raw.trim()}`);
+        else if (Array.isArray(raw) && raw.length > 0) equipementsFromValues.push(`${normalizedKey}: ${raw.join(', ')}`);
+      }
+    }
+  } catch (_) {
+    // Ignore malformed caracteristique_valeurs payloads.
+  }
+  const equipementsBienValue = Array.from(
+    new Set([...equipementsFromArray, ...equipementsFromList, ...equipementsFromFlags, ...equipementsFromValues]
+      .map((row) => String(row || '').trim())
+      .filter(Boolean))
+  ).join(', ') || '-';
   const repartitionVoyageurs = childGuests > 0
     ? `Adultes ${adultGuests} / Enfants ${childGuests}`
     : `Adultes ${adultGuests}`;
@@ -9459,57 +9506,61 @@ async function generateReservationClientContractPdf({
       }
     }
 
+    const CONTRACT_TEMPLATE_TOP_NUDGE = -8; // Move all mapped fields slightly upward.
     const writeTop = (page, text, left, top, opts = {}) => {
       const value = sanitizePdfWinAnsiText(text || '');
       if (!value) return;
       const size = opts.size || 11;
       const font = opts.bold ? fontBold : fontRegular;
+      const textColor = opts.color || color;
       const pageHeight = page.getHeight();
       const maxWidth = opts.maxWidth || (page.getWidth() - left - 36);
       const { line } = splitPdfTextByWidth(font, value, size, maxWidth);
-      page.drawText(line, { x: left, y: pageHeight - top - size, size, font, color });
+      const adjustedTop = Number(top) + CONTRACT_TEMPLATE_TOP_NUDGE;
+      page.drawText(line, { x: left, y: pageHeight - adjustedTop - size, size, font, color: textColor });
     };
 
     const periodLabel = `Du ${startDay}/${startMonth}/${start.yyyy || ''} au ${endDay}/${endMonth}/${end.yyyy || ''} (${nights} nuit${nights > 1 ? 's' : ''})`;
-    const finalizationLabel = `${finalDay}/${finalMonth}/${finalization.date.yyyy || ''} a ${finalHour}h${finalMinute}`;
-    const signatureVilleDate = `${villeSignature}, le ${jourSignature}/${moisSignature}/${signatureDate.yyyy || ''}`;
     const childGuestsLabel = String(Math.max(0, Number(childGuests || 0)));
-    const yearStart = String(start.yyyy || '');
-    const yearEnd = String(end.yyyy || '');
 
     // Page 1: overlay values using mapper coordinates (user-defined + completed fields).
     const contractFieldMap = {
-      fullName: { page: 1, x: 346.9, top: 272.9, fontSize: 11, maxWidth: 360, value: fullName },
+      fullName: { page: 1, x: 329.9, top: 274.9, fontSize: 11, maxWidth: 360, value: fullName },
       identityRef: { page: 1, x: 341.9, top: 294, fontSize: 11, maxWidth: 330, value: identityRef },
       userAddress: { page: 1, x: 345.9, top: 312.9, fontSize: 11, maxWidth: 455, value: userAddress || '-' },
       userPhone: { page: 1, x: 346.9, top: 338.9, fontSize: 11, maxWidth: 220, value: userPhone || '-' },
-      typeLogement: { page: 1, x: 199.9, top: 439.3, fontSize: 11, maxWidth: 180, value: typeLogement || '-' },
+      typeLogement: { page: 1, x: 199.9, top: 439.3, fontSize: 11, maxWidth: 180, value: contractTypeLogementValue },
       adresseBien: { page: 1, x: 240.9, top: 455.9, fontSize: 11, maxWidth: 220, value: adresseBien || '-' },
       capacite: { page: 1, x: 221.9, top: 472.9, fontSize: 11, maxWidth: 80, value: String(totalGuests) },
-      adultes: { page: 1, x: 329.9, top: 471.9, fontSize: 11, maxWidth: 80, value: String(adultGuests) },
-      enfants: { page: 1, x: 417.9, top: 471.9, fontSize: 11, maxWidth: 80, value: childGuestsLabel },
-      equipementsBien: { page: 1, x: 132.9, top: 506.9, fontSize: 11, maxWidth: 420, value: equipementsTitre || '-' },
+      adultes: { page: 1, x: 329.9, top: 471.9, fontSize: 11, maxWidth: 80, value: `${String(adultGuests)} adulte(s)` },
+      enfants: { page: 1, x: 417.9, top: 471.9, fontSize: 11, maxWidth: 80, value: `${childGuestsLabel} enfant(s)` },
+      equipementsBien: { page: 1, x: 132.9, top: 506.9, fontSize: 11, maxWidth: 420, value: equipementsBienValue },
       jj1: { page: 1, x: 75.9, top: 555.9, fontSize: 11, maxWidth: 28, value: startDay },
       mm1: { page: 1, x: 107.9, top: 555.9, fontSize: 11, maxWidth: 28, value: startMonth },
-      yyyy1: { page: 1, x: 139.9, top: 555.9, fontSize: 11, maxWidth: 52, value: yearStart },
       jj2: { page: 1, x: 184.9, top: 554.9, fontSize: 11, maxWidth: 28, value: endDay },
       mm2: { page: 1, x: 214.9, top: 555.9, fontSize: 11, maxWidth: 28, value: endMonth },
-      yyyy2: { page: 1, x: 246.9, top: 555.9, fontSize: 11, maxWidth: 52, value: yearEnd },
       heureArrivee: { page: 1, x: 168.9, top: 570.9, fontSize: 11, maxWidth: 120, value: heureArrivee || '-' },
       heureDepart: { page: 1, x: 169.9, top: 587.9, fontSize: 11, maxWidth: 120, value: heureDepart || '-' },
-      loyerTotal: { page: 1, x: 142, top: 648, fontSize: 11, maxWidth: 180, value: `${loyerTotal} TND` },
-      acompteReservation: { page: 1, x: 191, top: 676, fontSize: 11, maxWidth: 180, value: `${acompteReservation} TND` },
-      finalizationLabel: { page: 1, x: 236, top: 704, fontSize: 11, maxWidth: 260, value: finalizationLabel },
-      idPaiement: { page: 1, x: 130, top: 732, fontSize: 11, maxWidth: 230, value: idPaiement || '-' },
-      soldeArrivee: { page: 1, x: 181, top: 760, fontSize: 11, maxWidth: 180, value: `${soldeArrivee} TND` },
-      modePaiement: { page: 1, x: 160, top: 788, fontSize: 11, maxWidth: 200, value: modePaiement },
-      caution: { page: 1, x: 152, top: 816, fontSize: 11, maxWidth: 220, value: `${formatAmountTndRaw(caution)} TND` },
-      signatureVilleDate: { page: 1, x: 84, top: 844, fontSize: 11, maxWidth: 320, value: signatureVilleDate },
+      loyerTotal: { page: 2, x: 360.9, top: 70.9, fontSize: 11, maxWidth: 180, value: `${loyerTotal} TND` },
+      acompteReservation: { page: 2, x: 382.9, top: 97.9, fontSize: 11, maxWidth: 180, value: `${acompteReservation} TND` },
+      jjp: { page: 2, x: 319.9, top: 113.9, fontSize: 11, maxWidth: 28, value: finalDay },
+      mmp: { page: 2, x: 367.9, top: 114.9, fontSize: 11, maxWidth: 28, value: finalMonth },
+      hhp: { page: 2, x: 450.9, top: 113.9, fontSize: 11, maxWidth: 28, value: finalHour },
+      minp: { page: 2, x: 503.9, top: 113.9, fontSize: 11, maxWidth: 28, value: finalMinute },
+      idPaiement: { page: 2, x: 353.9, top: 134.9, fontSize: 11, maxWidth: 230, value: idPaiement || '-' },
+      soldeArrivee: { page: 2, x: 364.9, top: 157.9, fontSize: 11, maxWidth: 180, value: `${soldeArrivee} TND` },
+      modePaiement: { page: 2, x: 473.9, top: 190.9, fontSize: 11, maxWidth: 200, color: rgb(0.8, 0.1, 0.1), value: modePaiement },
+      caution: { page: 2, x: 193.9, top: 453.9, fontSize: 11, maxWidth: 220, value: `${formatAmountTndRaw(caution)}` },
+      VS: { page: 3, x: 146.9, top: 191.9, fontSize: 11, maxWidth: 110, value: villeSignature },
+      JJs: { page: 3, x: 297.9, top: 189.9, fontSize: 11, maxWidth: 28, value: jourSignature },
+      MMS: { page: 3, x: 343.9, top: 189.9, fontSize: 11, maxWidth: 28, value: moisSignature },
     };
 
     for (const field of Object.values(contractFieldMap)) {
-      if (Number(field.page || 1) !== 1) continue;
-      writeTop(page1, field.value, Number(field.x), Number(field.top), {
+      const pageIndex = Math.max(0, Number(field.page || 1) - 1);
+      const targetPage = pages[pageIndex];
+      if (!targetPage) continue;
+      writeTop(targetPage, field.value, Number(field.x), Number(field.top), {
         size: Number(field.fontSize || 11),
         maxWidth: Number(field.maxWidth || 220),
       });
