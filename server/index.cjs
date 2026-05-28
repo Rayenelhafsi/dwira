@@ -9487,6 +9487,25 @@ async function generateReservationClientContractPdf({
   const rightX = 320;
   page.drawText('Signature du Locataire', { x: leftX, y: signY, size: 11, font: fontBold, color });
   page.drawText('(precedee de la mention "Lu et approuve")', { x: leftX, y: signY - 14, size: 10, font: fontRegular, color });
+  try {
+    const stampPath = path.join(__dirname, 'assets', 'cachet.jpg');
+    if (fs.existsSync(stampPath)) {
+      const stampBytes = await fs.promises.readFile(stampPath);
+      const stampImg = await pdfDoc.embedJpg(stampBytes).catch(() => null);
+      if (stampImg) {
+        const stampWidth = 150;
+        const stampHeight = (stampImg.height / stampImg.width) * stampWidth;
+        page.drawImage(stampImg, {
+          x: leftX,
+          y: signY - 14 - stampHeight - 10,
+          width: stampWidth,
+          height: stampHeight,
+        });
+      }
+    }
+  } catch (_) {
+    // Keep contract generation resilient if stamp image is unavailable.
+  }
   page.drawText('Signature du Bailleur', { x: rightX, y: signY, size: 11, font: fontBold, color });
   page.drawText('(precedee de la mention "Lu et approuve")', { x: rightX, y: signY - 14, size: 10, font: fontRegular, color });
   page.drawText(representativeLabel, { x: rightX, y: signY - 36, size: 10, font: fontRegular, color });
