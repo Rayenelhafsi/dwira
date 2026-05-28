@@ -15,7 +15,7 @@ const appEntries: AppEntry[] = [
     key: "owner",
     title: "Application Proprietaire",
     subtitle: "Suivi des biens, calendrier, notifications et chat admin.",
-    androidUrl: "https://drive.usercontent.google.com/download?id=1jWvz0SduPr0lOdNQEFc4-i6kAlyVzs5V&export=download&authuser=0",
+    androidUrl: "/deploy-mobile/app-release.apk",
     iosUrl: "",
   },
 ];
@@ -38,8 +38,7 @@ function DownloadButton({ label, url }: { label: string; url: string }) {
   return (
     <a
       href={url}
-      target="_blank"
-      rel="noreferrer"
+      download
       className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
     >
       <Download className="h-4 w-4" />
@@ -83,7 +82,7 @@ export default function DeployAppsPage() {
 
             <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_190px]">
               <div className="space-y-3">
-                <DownloadButton label="Installer app propriétaire Android" url={entry.androidUrl} />
+                <DownloadButton label="Installer app proprietaire Android" url={entry.androidUrl} />
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
@@ -118,3 +117,4 @@ export default function DeployAppsPage() {
     </div>
   );
 }
+
