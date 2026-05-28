@@ -14404,36 +14404,6 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
       return res.status(400).json({ error: 'Aucun proprietaire lie a cette demande' });
     }
 
-    const alreadyWaitingOwnerReply =
-      String(current.status || '').trim() === 'en_attente_reponse_proprietaire' &&
-      current.owner_notified_at &&
-      !current.owner_response_at;
-    if (alreadyWaitingOwnerReply) {
-      const [unchangedRows] = await pool.query(
-        `SELECT
-           d.*,
-           b.titre AS bien_titre,
-           b.reference AS bien_reference,
-           p.nom AS proprietaire_nom,
-           DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
-           DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
-           DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
-           (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
-         FROM reservation_demands d
-         LEFT JOIN biens b ON b.id = d.bien_id
-         LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
-         WHERE d.id = ?
-         LIMIT 1`,
-        [demandId]
-      );
-      return res.json({
-        ok: true,
-        pushSkipped: true,
-        reason: 'owner_response_pending',
-        demand: formatReservationDemandRow(unchangedRows?.[0] || current),
-      });
-    }
-
     const now = getAgencySqlDateTime();
     const nextStatus = 'en_attente_reponse_proprietaire';
     // Admin can re-send availability request:
