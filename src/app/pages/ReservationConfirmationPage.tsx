@@ -336,7 +336,7 @@ export default function ReservationConfirmationPage() {
       if (!response.ok) throw new Error(String(data?.error || "Impossible de confirmer la demande"));
       saveReservationToCache(data);
       clearPendingReservationDraft();
-      if (isVisitRequest) {
+      if (isVisitRequest || !isInstantReservation) {
         setCreatedDemand({ id: data.id });
       }
       if (antiBotConfig.enabled && turnstileWidgetIdRef.current && (window as any).turnstile) {
@@ -346,12 +346,12 @@ export default function ReservationConfirmationPage() {
         } catch {}
       }
       await refreshData();
-      if (!isVisitRequest) {
-        toast.success(isInstantReservation ? "Reservation instantanee activee: passez au paiement." : "Demande confirmee: redirection vers la finalisation.");
+      if (!isVisitRequest && isInstantReservation) {
+        toast.success("Reservation instantanee activee: passez au paiement.");
         navigate(`/mes-reservations/${encodeURIComponent(String(data.id))}/paiement`);
         return;
       }
-      toast.success("Votre demande de visite est maintenant en attente.");
+      toast.success(isVisitRequest ? "Votre demande de visite est maintenant en attente." : "Votre demande est maintenant en attente.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible de confirmer la demande";
       if (/401|authentif|session/i.test(message)) {

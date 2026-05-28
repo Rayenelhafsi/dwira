@@ -15018,7 +15018,7 @@ app.post('/api/reservation-demands/:id/extract-identity', requireAuthenticatedSe
       return res.status(400).json({ error: 'Demande introuvable' });
     }
     const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
-    const current = demandRows[0];
+    let current = demandRows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
     if (!canAccessReservationDemand(req.authUser, current)) {
       void logSecurityEvent({
@@ -15427,6 +15427,19 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
     ]);
     if (!allowedUploadReceiptStatuses.has(currentStatus)) {
       return res.status(400).json({ error: 'Le recu ne peut pas etre envoye a cette etape' });
+    }
+
+    if (!String(current.contract_id || '').trim()) {
+      const actorId = String(req.authUser?.id || req.authUser?.email || current.client_user_id || current.client_email || 'client').trim();
+      try {
+        await ensureAutoContractForDemand(current, actorId);
+        const [refreshedRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+        current = refreshedRows?.[0] || current;
+      } catch (contractError) {
+        return res.status(400).json({
+          error: `Contrat non genere automatiquement (${String(contractError?.message || contractError || 'erreur inconnue')})`,
+        });
+      }
     }
 
     const now = getAgencySqlDateTime();
