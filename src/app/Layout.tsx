@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from "react-router";
 import { useEffect, useState } from "react";
 import { Header, Footer } from "./components/HeaderFooter";
+import { PartnersLogoMarquee } from "./components/PartnersLogoMarquee";
 import { ScrollToTop } from "./components/ScrollToTop";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
 import { SiteMaintenancePage } from "./components/SiteMaintenancePage";
@@ -85,6 +86,7 @@ export function Layout() {
       <main className="flex-grow">
         <Outlet />
       </main>
+      <PartnersLogoMarquee />
       <Footer />
       <CookieConsentBanner />
     </div>
