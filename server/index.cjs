@@ -14271,6 +14271,51 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
         now
       );
+
+      const ownerId = String(bien.proprietaire_id || '').trim();
+      if (ownerId) {
+        const availabilityMessage = `Confirmez la disponibilite du bien ${String(bien.titre || bien.reference || bien.id || 'bien')} pour la periode ${String(start_date || '')} -> ${String(end_date || '')}`;
+        await createOwnerMobileNotification({
+          ownerId,
+          type: 'warning',
+          message: availabilityMessage,
+          metadata: {
+            kind: 'reservation_availability_request',
+            demandId,
+            ownerId,
+            bienId: String(bien.id || '').trim(),
+            propertyTitle: String(bien.titre || bien.reference || '').trim(),
+            startDate: String(start_date || '').trim(),
+            endDate: String(end_date || '').trim(),
+            guests: Number(normalizedGuests || 1),
+          },
+          createdAt: now,
+        });
+        const pushResult = await pushToOwnerDevices(ownerId, {
+          title: 'Demande de disponibilite',
+          body: availabilityMessage,
+          data: {
+            title: 'Demande de disponibilite',
+            body: availabilityMessage,
+            kind: 'reservation_availability_request',
+            demandId,
+            ownerId,
+            bienId: String(bien.id || '').trim(),
+          },
+        });
+        await pool.query(
+          'UPDATE reservation_demands SET owner_notified_at = ?, updated_at = ? WHERE id = ?',
+          [now, now, demandId]
+        );
+        await appendReservationDemandHistory(
+          demandId,
+          initialDemandStatus,
+          'system',
+          'auto_owner_notifier',
+          `Demande de disponibilite envoyee automatiquement au proprietaire${pushResult?.sent ? ` (push envoye: ${pushResult.sent})` : ''}`,
+          now
+        );
+      }
     }
 
     if (requestType === 'reservation') {
@@ -16617,7 +16662,13 @@ async function pushToOwnerDevices(ownerId, payload) {
         android: isAvailabilityRequest
           ? {
               priority: 'high',
-              ttl: 0,
+              ttl: '86400s',
+              notification: {
+                channelId: 'owner_notifications',
+                sound: 'default',
+                priority: 'high',
+                defaultSound: true,
+              },
             }
           : {
               priority: 'high',
@@ -16647,12 +16698,10 @@ async function pushToOwnerDevices(ownerId, payload) {
         },
       };
 
-      if (!isAvailabilityRequest) {
-        message.notification = {
-          title: String(payload?.title || 'Dwira'),
-          body: String(payload?.body || ''),
-        };
-      }
+      message.notification = {
+        title: String(payload?.title || 'Dwira'),
+        body: String(payload?.body || ''),
+      };
 
       await firebaseMessaging.send(message);
       sent += 1;
