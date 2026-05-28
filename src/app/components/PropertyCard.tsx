@@ -162,6 +162,31 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     
   return (
     <div className={`group overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_20px_48px_rgba(15,23,42,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_62px_rgba(15,23,42,0.16)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'} ${hasInstantReservation ? 'dwira-instant-card' : ''}`}>
+      {hasInstantReservation ? (
+        <span aria-hidden="true" className="dwira-electric-frame">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+              <filter id="dwira-electric-jitter" x="-40%" y="-40%" width="180%" height="180%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.018 0.35" numOctaves="2" seed="3" result="noise">
+                  <animate attributeName="baseFrequency" values="0.018 0.35;0.024 0.42;0.015 0.31;0.018 0.35" dur="0.38s" repeatCount="indefinite" />
+                </feTurbulence>
+                <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.8" xChannelSelector="R" yChannelSelector="G" />
+              </filter>
+              <filter id="dwira-electric-glow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="1.6" result="blur1" />
+                <feGaussianBlur stdDeviation="3.4" result="blur2" />
+                <feMerge>
+                  <feMergeNode in="blur2" />
+                  <feMergeNode in="blur1" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <rect className="dwira-electric-path dwira-electric-path--glow" x="1.8" y="1.8" width="96.4" height="96.4" rx="9.5" ry="9.5" pathLength="1000" />
+            <rect className="dwira-electric-path dwira-electric-path--core" x="1.8" y="1.8" width="96.4" height="96.4" rx="9.5" ry="9.5" pathLength="1000" />
+          </svg>
+        </span>
+      ) : null}
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <SmartImage

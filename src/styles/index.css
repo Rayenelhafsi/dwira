@@ -26,34 +26,23 @@ body {
   will-change: transform;
 }
 
-@keyframes dwira-instant-edge-flow {
+@keyframes dwira-electric-trace {
   0% {
-    transform: translate3d(-48%, -46%, 0) rotate(0deg);
-    opacity: 0.35;
+    stroke-dasharray: 180 820;
+    stroke-dashoffset: 1000;
   }
-  50% {
-    transform: translate3d(46%, 42%, 0) rotate(180deg);
-    opacity: 0.68;
+  18% {
+    stroke-dasharray: 250 750;
+  }
+  48% {
+    stroke-dasharray: 185 815;
+  }
+  74% {
+    stroke-dasharray: 260 740;
   }
   100% {
-    transform: translate3d(-48%, -46%, 0) rotate(360deg);
-    opacity: 0.35;
-  }
-}
-
-@keyframes dwira-instant-glow-breathe {
-  0%,
-  100% {
-    box-shadow:
-      0 18px 44px rgba(15, 23, 42, 0.11),
-      0 0 0 0 rgba(251, 191, 36, 0.24),
-      0 0 0 1px rgba(245, 158, 11, 0.16);
-  }
-  50% {
-    box-shadow:
-      0 24px 56px rgba(15, 23, 42, 0.16),
-      0 0 0 7px rgba(251, 191, 36, 0.14),
-      0 0 0 1px rgba(245, 158, 11, 0.3);
+    stroke-dasharray: 190 810;
+    stroke-dashoffset: 0;
   }
 }
 
@@ -80,28 +69,46 @@ body {
 .dwira-instant-card {
   position: relative;
   isolation: isolate;
-  animation: dwira-instant-glow-breathe 3.2s ease-in-out infinite;
-}
-
-.dwira-instant-card::before {
-  content: "";
-  position: absolute;
-  inset: -30%;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    conic-gradient(from 0deg,
-      rgba(245, 158, 11, 0),
-      rgba(245, 158, 11, 0.35),
-      rgba(250, 204, 21, 0.05),
-      rgba(245, 158, 11, 0));
-  filter: blur(14px);
-  animation: dwira-instant-edge-flow 6.4s linear infinite;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.1);
 }
 
 .dwira-instant-card > * {
   position: relative;
   z-index: 1;
+}
+
+.dwira-electric-frame {
+  position: absolute;
+  inset: -3px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.dwira-electric-frame svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.dwira-electric-path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: dwira-electric-trace 1.25s linear infinite;
+}
+
+.dwira-electric-path--glow {
+  stroke: rgba(251, 191, 36, 0.9);
+  stroke-width: 2.1;
+  filter: url(#dwira-electric-glow) url(#dwira-electric-jitter);
+  opacity: 0.95;
+}
+
+.dwira-electric-path--core {
+  stroke: #fff7c6;
+  stroke-width: 1.15;
+  filter: url(#dwira-electric-jitter);
 }
 
 .dwira-instant-badge svg {
@@ -231,7 +238,7 @@ body {
   }
 
   .dwira-instant-card,
-  .dwira-instant-card::before,
+  .dwira-electric-path,
   .dwira-instant-badge svg {
     animation: none !important;
   }

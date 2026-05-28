@@ -9472,28 +9472,48 @@ async function generateReservationClientContractPdf({
 
     const periodLabel = `Du ${startDay}/${startMonth}/${start.yyyy || ''} au ${endDay}/${endMonth}/${end.yyyy || ''} (${nights} nuit${nights > 1 ? 's' : ''})`;
     const finalizationLabel = `${finalDay}/${finalMonth}/${finalization.date.yyyy || ''} a ${finalHour}h${finalMinute}`;
+    const signatureVilleDate = `${villeSignature}, le ${jourSignature}/${moisSignature}/${signatureDate.yyyy || ''}`;
+    const childGuestsLabel = String(Math.max(0, Number(childGuests || 0)));
+    const yearStart = String(start.yyyy || '');
+    const yearEnd = String(end.yyyy || '');
 
-    // Page 1: overlay values in the existing template blanks.
-    writeTop(page1, fullName, 175, 193, { size: 11, maxWidth: 360 });
-    writeTop(page1, identityRef, 205, 221, { size: 11, maxWidth: 330 });
-    writeTop(page1, userAddress || '-', 108, 249, { size: 11, maxWidth: 455 });
-    writeTop(page1, userPhone || '-', 83, 277, { size: 11, maxWidth: 220 });
-    writeTop(page1, typeLogement || '-', 174, 370, { size: 11, maxWidth: 180 });
-    writeTop(page1, adresseBien || '-', 210, 397, { size: 11, maxWidth: 350 });
-    writeTop(page1, String(totalGuests), 205, 425, { size: 11, maxWidth: 120 });
-    writeTop(page1, repartitionVoyageurs, 174, 453, { size: 11, maxWidth: 260 });
-    writeTop(page1, equipementsTitre || '-', 82, 481, { size: 11, maxWidth: 500 });
-    writeTop(page1, periodLabel, 82, 536, { size: 11, maxWidth: 500 });
-    writeTop(page1, heureArrivee || '-', 156, 565, { size: 11, maxWidth: 180 });
-    writeTop(page1, heureDepart || '-', 148, 592, { size: 11, maxWidth: 180 });
-    writeTop(page1, `${loyerTotal} TND`, 142, 648, { size: 11, maxWidth: 180 });
-    writeTop(page1, `${acompteReservation} TND`, 191, 676, { size: 11, maxWidth: 180 });
-    writeTop(page1, finalizationLabel, 236, 704, { size: 11, maxWidth: 240 });
-    writeTop(page1, idPaiement || '-', 130, 732, { size: 11, maxWidth: 230 });
-    writeTop(page1, `${soldeArrivee} TND`, 181, 760, { size: 11, maxWidth: 180 });
-    writeTop(page1, modePaiement, 160, 788, { size: 11, maxWidth: 200 });
-    writeTop(page1, `${formatAmountTndRaw(caution)} TND`, 152, 816, { size: 11, maxWidth: 220 });
-    writeTop(page1, `${villeSignature}, le ${jourSignature}/${moisSignature}/${signatureDate.yyyy || ''}`, 84, 844, { size: 11, maxWidth: 320 });
+    // Page 1: overlay values using mapper coordinates (user-defined + completed fields).
+    const contractFieldMap = {
+      fullName: { page: 1, x: 346.9, top: 272.9, fontSize: 11, maxWidth: 360, value: fullName },
+      identityRef: { page: 1, x: 341.9, top: 294, fontSize: 11, maxWidth: 330, value: identityRef },
+      userAddress: { page: 1, x: 345.9, top: 312.9, fontSize: 11, maxWidth: 455, value: userAddress || '-' },
+      userPhone: { page: 1, x: 346.9, top: 338.9, fontSize: 11, maxWidth: 220, value: userPhone || '-' },
+      typeLogement: { page: 1, x: 199.9, top: 439.3, fontSize: 11, maxWidth: 180, value: typeLogement || '-' },
+      adresseBien: { page: 1, x: 240.9, top: 455.9, fontSize: 11, maxWidth: 220, value: adresseBien || '-' },
+      capacite: { page: 1, x: 221.9, top: 472.9, fontSize: 11, maxWidth: 80, value: String(totalGuests) },
+      adultes: { page: 1, x: 329.9, top: 471.9, fontSize: 11, maxWidth: 80, value: String(adultGuests) },
+      enfants: { page: 1, x: 417.9, top: 471.9, fontSize: 11, maxWidth: 80, value: childGuestsLabel },
+      equipementsBien: { page: 1, x: 132.9, top: 506.9, fontSize: 11, maxWidth: 420, value: equipementsTitre || '-' },
+      jj1: { page: 1, x: 75.9, top: 555.9, fontSize: 11, maxWidth: 28, value: startDay },
+      mm1: { page: 1, x: 107.9, top: 555.9, fontSize: 11, maxWidth: 28, value: startMonth },
+      yyyy1: { page: 1, x: 139.9, top: 555.9, fontSize: 11, maxWidth: 52, value: yearStart },
+      jj2: { page: 1, x: 184.9, top: 554.9, fontSize: 11, maxWidth: 28, value: endDay },
+      mm2: { page: 1, x: 214.9, top: 555.9, fontSize: 11, maxWidth: 28, value: endMonth },
+      yyyy2: { page: 1, x: 246.9, top: 555.9, fontSize: 11, maxWidth: 52, value: yearEnd },
+      heureArrivee: { page: 1, x: 168.9, top: 570.9, fontSize: 11, maxWidth: 120, value: heureArrivee || '-' },
+      heureDepart: { page: 1, x: 169.9, top: 587.9, fontSize: 11, maxWidth: 120, value: heureDepart || '-' },
+      loyerTotal: { page: 1, x: 142, top: 648, fontSize: 11, maxWidth: 180, value: `${loyerTotal} TND` },
+      acompteReservation: { page: 1, x: 191, top: 676, fontSize: 11, maxWidth: 180, value: `${acompteReservation} TND` },
+      finalizationLabel: { page: 1, x: 236, top: 704, fontSize: 11, maxWidth: 260, value: finalizationLabel },
+      idPaiement: { page: 1, x: 130, top: 732, fontSize: 11, maxWidth: 230, value: idPaiement || '-' },
+      soldeArrivee: { page: 1, x: 181, top: 760, fontSize: 11, maxWidth: 180, value: `${soldeArrivee} TND` },
+      modePaiement: { page: 1, x: 160, top: 788, fontSize: 11, maxWidth: 200, value: modePaiement },
+      caution: { page: 1, x: 152, top: 816, fontSize: 11, maxWidth: 220, value: `${formatAmountTndRaw(caution)} TND` },
+      signatureVilleDate: { page: 1, x: 84, top: 844, fontSize: 11, maxWidth: 320, value: signatureVilleDate },
+    };
+
+    for (const field of Object.values(contractFieldMap)) {
+      if (Number(field.page || 1) !== 1) continue;
+      writeTop(page1, field.value, Number(field.x), Number(field.top), {
+        size: Number(field.fontSize || 11),
+        maxWidth: Number(field.maxWidth || 220),
+      });
+    }
 
     // Keep the signature representative and add the stamp under tenant signature.
     writeTop(page3, representativeLabel, 336, 736, { size: 10, maxWidth: 220 });
