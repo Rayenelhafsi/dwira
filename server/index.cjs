@@ -14430,7 +14430,7 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
         ok: true,
         pushSkipped: true,
         reason: 'owner_response_pending',
-        demand: formatReservationDemandForAdmin(unchangedRows?.[0] || current),
+        demand: formatReservationDemandRow(unchangedRows?.[0] || current),
       });
     }
 
@@ -16656,19 +16656,15 @@ async function pushToOwnerDevices(ownerId, payload) {
   let sent = 0;
   for (const token of tokens) {
     try {
+      const title = String(payload?.title || 'Dwira');
+      const body = String(payload?.body || '');
       const message = {
         token,
         data: dataPayload,
         android: isAvailabilityRequest
           ? {
               priority: 'high',
-              ttl: '86400s',
-              notification: {
-                channelId: 'owner_notifications',
-                sound: 'default',
-                priority: 'high',
-                defaultSound: true,
-              },
+              ttl: 86400000,
             }
           : {
               priority: 'high',
@@ -16685,10 +16681,7 @@ async function pushToOwnerDevices(ownerId, payload) {
           },
           payload: {
             aps: {
-              alert: {
-                title: String(payload?.title || 'Dwira'),
-                body: String(payload?.body || ''),
-              },
+              alert: isAvailabilityRequest ? undefined : { title, body },
               sound: isAvailabilityRequest
                 ? 'availability_request.wav'
                 : 'default',
@@ -16698,10 +16691,9 @@ async function pushToOwnerDevices(ownerId, payload) {
         },
       };
 
-      message.notification = {
-        title: String(payload?.title || 'Dwira'),
-        body: String(payload?.body || ''),
-      };
+      if (!isAvailabilityRequest) {
+        message.notification = { title, body };
+      }
 
       await firebaseMessaging.send(message);
       sent += 1;
