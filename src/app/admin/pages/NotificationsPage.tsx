@@ -1017,6 +1017,8 @@ export default function NotificationsPage() {
             const isExpanded = Boolean(expandedDemandIds[demand.id]);
             const receiptUrl = demand.payment_receipt_image_url ? resolveAssetUrl(demand.payment_receipt_image_url) : '';
             const hasReceipt = Boolean(receiptUrl);
+            const cinPhotoUrl = demand.identity_document_image_url ? resolveAssetUrl(demand.identity_document_image_url) : '';
+            const hasCinPhoto = Boolean(cinPhotoUrl);
             const isAmicaleDemand = String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
             const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : '';
             return (
@@ -1141,6 +1143,23 @@ export default function NotificationsPage() {
                         }}
                       >
                         Voir recu
+                      </a>
+                      <a
+                        href={hasCinPhoto ? cinPhotoUrl : undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-disabled={!hasCinPhoto}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                          hasCinPhoto
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                            : 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
+                        }`}
+                        onClick={(event) => {
+                          if (hasCinPhoto) return;
+                          event.preventDefault();
+                        }}
+                      >
+                        Voir photo CIN
                       </a>
                       <button
                         type="button"

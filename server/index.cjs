@@ -7265,14 +7265,70 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
 
   const rawName = String(current.client_name || '').trim();
   const nameParts = rawName.split(/\s+/).filter(Boolean);
-  const identityLastName = String(current.identity_last_name || nameParts[0] || '').trim();
-  const identityFirstName = String(current.identity_first_name || nameParts.slice(1).join(' ') || '').trim();
-  const identityDocumentType = normalizeIdentityDocumentType(current.identity_document_type, null);
-  const identityDocumentNumber = normalizeIdentityNumber(current.identity_document_number || '') || '';
-  if (!identityDocumentType || !identityDocumentNumber || !identityFirstName || !identityLastName) {
-    throw new Error('Informations identite incomplètes: CIN/Passeport + nom/prenom requis avant generation du contrat');
+  let identityLastName = String(current.identity_last_name || nameParts[0] || '').trim();
+  let identityFirstName = String(current.identity_first_name || nameParts.slice(1).join(' ') || '').trim();
+  let identityDocumentType = normalizeIdentityDocumentType(current.identity_document_type, null);
+  let identityDocumentNumber = normalizeIdentityNumber(current.identity_document_number || '') || '';
+  let identityDocumentImageUrl = String(current.identity_document_image_url || '').trim() || '';
+
+  const normalizedClientEmail = normalizeEmailForCompare(current.client_email || '');
+  const [userRows] = await pool.query(
+    `SELECT nom, email, cin, cin_image_url
+     FROM utilisateurs
+     WHERE id = ? OR (email = ? AND ? <> '')
+     LIMIT 1`,
+    [String(current.client_user_id || '').trim(), normalizedClientEmail, normalizedClientEmail]
+  );
+  const userRow = userRows?.[0] || null;
+  if (!identityDocumentImageUrl && userRow?.cin_image_url) {
+    identityDocumentImageUrl = String(userRow.cin_image_url || '').trim();
   }
+  if (!identityDocumentNumber && userRow?.cin) {
+    identityDocumentNumber = normalizeIdentityNumber(userRow.cin || '') || '';
+    identityDocumentType = identityDocumentType || (identityDocumentNumber ? 'cin_tn' : null);
+  }
+  if ((!identityFirstName || !identityLastName) && userRow?.nom) {
+    const userNameParts = String(userRow.nom || '').trim().split(/\s+/).filter(Boolean);
+    if (!identityLastName) identityLastName = String(userNameParts[0] || '').trim();
+    if (!identityFirstName) identityFirstName = String(userNameParts.slice(1).join(' ') || '').trim();
+  }
+
+  if (!identityFirstName || !identityLastName || !identityDocumentType || !identityDocumentNumber) {
+    const [locataireRows] = await pool.query(
+      `SELECT nom, cin
+       FROM locataires
+       WHERE email = ? AND ? <> ''
+       LIMIT 1`,
+      [normalizedClientEmail, normalizedClientEmail]
+    );
+    const locataireRow = locataireRows?.[0] || null;
+    if ((!identityFirstName || !identityLastName) && locataireRow?.nom) {
+      const locNameParts = String(locataireRow.nom || '').trim().split(/\s+/).filter(Boolean);
+      if (!identityLastName) identityLastName = String(locNameParts[0] || '').trim();
+      if (!identityFirstName) identityFirstName = String(locNameParts.slice(1).join(' ') || '').trim();
+    }
+    if (!identityDocumentNumber && locataireRow?.cin) {
+      identityDocumentNumber = normalizeIdentityNumber(locataireRow.cin || '') || '';
+      identityDocumentType = identityDocumentType || (identityDocumentNumber ? 'cin_tn' : null);
+    }
+  }
+
+  if (!identityDocumentImageUrl) {
+    throw new Error('Photo CIN/Passeport requise avant generation du contrat');
+  }
+  if (!identityDocumentType || !identityDocumentNumber || !identityFirstName || !identityLastName) {
+    throw new Error('Informations identite incompletes: CIN/Passeport + nom/prenom requis avant generation du contrat');
+  }
+
   const clientEmail = normalizeEmailForCompare(current.client_email || '') || `${demandId}@dwira.local`;
+  const demandForContract = {
+    ...current,
+    identity_document_type: identityDocumentType,
+    identity_document_number: identityDocumentNumber,
+    identity_first_name: identityFirstName,
+    identity_last_name: identityLastName,
+    identity_document_image_url: identityDocumentImageUrl,
+  };
 
   const locataireId = await upsertLocataireFromReservationProfile({
     userId: current.client_user_id ? String(current.client_user_id).trim() : null,
@@ -7295,7 +7351,7 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
 
   const [contractUrl, ownerContractUrl] = await Promise.all([
     generateReservationClientContractPdf({
-      demand: current,
+      demand: demandForContract,
       bien,
       contractId,
       contractCreatedAt: now,
@@ -7308,7 +7364,7 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
       identityLastName,
     }),
     generateReservationOwnerContractHtml({
-      demand: current,
+      demand: demandForContract,
       bien,
       owner: { nom: bien.proprietaire_nom, email: bien.proprietaire_email },
       contractId,
@@ -7335,9 +7391,10 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
          identity_document_number = COALESCE(identity_document_number, ?),
          identity_first_name = COALESCE(identity_first_name, ?),
          identity_last_name = COALESCE(identity_last_name, ?),
+         identity_document_image_url = COALESCE(identity_document_image_url, ?),
          updated_at = ?
      WHERE id = ?`,
-    [contractId, now, now, identityDocumentType, identityDocumentNumber, identityFirstName, identityLastName, now, demandId]
+    [contractId, now, now, identityDocumentType, identityDocumentNumber, identityFirstName, identityLastName, identityDocumentImageUrl, now, demandId]
   );
 
   await appendReservationDemandHistory(
