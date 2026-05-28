@@ -51,6 +51,7 @@ export default function ReservationConfirmationPage() {
   const property = properties.find((item) => propertyMatchesRouteToken(item, slug));
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
+  const isInstantReservation = !isVisitRequest && Boolean((property as any)?.seasonalConfig?.reservationInstantanee);
   const isAmicaleFlow = draft?.paymentMode === 'amicale';
   const isAmicalePricingActive = Boolean(pricingAmicaleId) && isAmicaleFlow;
   const seasonalConfig = property?.seasonalConfig;
@@ -343,6 +344,11 @@ export default function ReservationConfirmationPage() {
         } catch {}
       }
       await refreshData();
+      if (isInstantReservation) {
+        toast.success("Reservation instantanee activee: passez au paiement.");
+        navigate(`/mes-reservations/${encodeURIComponent(String(data.id))}/paiement`);
+        return;
+      }
       toast.success(isVisitRequest ? "Votre demande de visite est maintenant en attente." : "Votre demande est maintenant en attente.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible de confirmer la demande";

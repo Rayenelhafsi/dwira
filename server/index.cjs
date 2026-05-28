@@ -1055,6 +1055,39 @@ async function confirmHotelClickToPayDemand({ demandId, currentRow = null, allow
     ]
   );
 
+  if (reservationPaymentId) {
+    const [bookedRows] = await pool.query(
+      `SELECT id FROM unavailable_dates
+       WHERE bien_id = ?
+         AND start_date = ?
+         AND end_date = ?
+         AND status = 'booked'
+       LIMIT 1`,
+      [current.bien_id, current.start_date, current.end_date]
+    );
+    if (!bookedRows?.[0]) {
+      if (String(current.unavailable_date_id || '').trim()) {
+        await pool.query(
+          `UPDATE unavailable_dates
+           SET status = 'booked', payment_deadline = NULL
+           WHERE id = ?`,
+          [current.unavailable_date_id]
+        );
+      } else {
+        const bookedId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        await pool.query(
+          `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+           VALUES (?, ?, ?, ?, 'booked', ?, NULL)`,
+          [bookedId, current.bien_id, current.start_date, current.end_date, demandId]
+        );
+        await pool.query(
+          'UPDATE reservation_demands SET unavailable_date_id = ?, updated_at = ? WHERE id = ?',
+          [bookedId, now, demandId]
+        );
+      }
+    }
+  }
+
   if (decision.isSuccess) {
     const refreshed = await fetchHotelReservationDemandRow(safeDemandId);
     if (!String(refreshed?.reservation_payment_id || '').trim()) {
@@ -11975,7 +12008,6 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     }
 
     const demandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const unavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const contractId = `c${Date.now()}`;
     const [ownerRows] = await pool.query(
       'SELECT id, nom, email FROM proprietaires WHERE id = ? LIMIT 1',
@@ -14150,7 +14182,6 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
 
     const now = getAgencySqlDateTime();
     const demandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const unavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const paymentDeadline = getAgencySqlDateTime(new Date(Date.now() + (48 * 60 * 60 * 1000)));
     const ownerUserId = bien.proprietaire_id
       ? (await fetchClienteleProfileBySource('proprietaires', bien.proprietaire_id))?.linkedUserId || null
@@ -14193,7 +14224,15 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     }
     const balancedAdultGuests = normalizedAdultGuests;
     const balancedChildGuests = normalizedChildGuests;
-    const initialDemandStatus = isAmicaleFlow ? 'attente_validation_amicale' : 'en_attente_reponse_proprietaire';
+    const instantReservationEnabled = !isAmicaleFlow
+      && requestType === 'reservation'
+      && Boolean(saisonCfg?.reservation_instantanee || saisonCfg?.reservationInstantanee);
+    const initialDemandStatus = isAmicaleFlow
+      ? 'attente_validation_amicale'
+      : (instantReservationEnabled ? 'client_procede_vers_paiement_en_cours' : 'en_attente_reponse_proprietaire');
+    const unavailableDateId = instantReservationEnabled
+      ? null
+      : `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     await pool.query(
       `INSERT INTO reservation_demands (
@@ -14249,11 +14288,13 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       ]
     );
 
-    await pool.query(
-      `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-      [unavailableDateId, bien_id, start_date, end_date, demandId, paymentDeadline]
-    );
+    if (unavailableDateId) {
+      await pool.query(
+        `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+        [unavailableDateId, bien_id, start_date, end_date, demandId, paymentDeadline]
+      );
+    }
 
     await appendReservationDemandHistory(
       demandId,
@@ -14265,7 +14306,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         : `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
     );
 
-    if (!isAmicaleFlow) {
+    if (!isAmicaleFlow && !instantReservationEnabled) {
       await createAdminNotification(
         'warning',
         `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
@@ -14328,6 +14369,18 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       }).catch((error) => {
         console.warn('Failed to upsert locataire from reservation profile:', error?.message || error);
       });
+    }
+
+    if (instantReservationEnabled) {
+      const [currentRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+      const current = currentRows?.[0] || null;
+      if (current) {
+        try {
+          await ensureAutoContractForDemand(current, resolvedClientUserId || resolvedClientEmail || 'client');
+        } catch (error) {
+          console.warn('Instant reservation: auto contract generation failed:', error?.message || error);
+        }
+      }
     }
 
     await appendClientInteraction({

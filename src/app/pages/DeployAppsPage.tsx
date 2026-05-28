@@ -1,4 +1,4 @@
-import { Download, Smartphone, ShieldCheck } from "lucide-react";
+import { Download, Smartphone } from "lucide-react";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 
@@ -24,6 +24,12 @@ const appEntries: AppEntry[] = [
 function qrUrl(target: string) {
   const encoded = encodeURIComponent(target);
   return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encoded}`;
+}
+
+function toAbsoluteDownloadUrl(target: string) {
+  if (!target) return "";
+  if (/^https?:\/\//i.test(target)) return target;
+  return `https://www.dwiraimmobilier.com${target.startsWith("/") ? target : `/${target}`}`;
 }
 
 function DownloadButton({ label, url }: { label: string; url: string }) {
@@ -88,7 +94,7 @@ export default function DeployAppsPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
                 {entry.androidUrl || entry.iosUrl ? (
                   <img
-                    src={qrUrl(entry.androidUrl || entry.iosUrl)}
+                    src={qrUrl(toAbsoluteDownloadUrl(entry.androidUrl || entry.iosUrl))}
                     alt={`QR ${entry.title}`}
                     className="h-[180px] w-[180px] rounded-lg object-cover"
                   />
@@ -103,17 +109,7 @@ export default function DeployAppsPage() {
         ))}
       </div>
 
-      <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-700" />
-          <div className="text-sm text-emerald-900">
-            <p className="font-semibold">Checklist avant publication Android/iOS</p>
-            <p className="mt-1">
-              Verifier Firebase (Auth, Firestore, Messaging), certificats de signature, bundle ID iOS, package Android et liens de telechargement.
-            </p>
-          </div>
-        </div>
-      </div>
+      
     </div>
   );
 }

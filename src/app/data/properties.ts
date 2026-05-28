@@ -90,6 +90,7 @@ export interface Property {
     matelasSupplementairePrix?: number | null;
     matelasSupplementairesMax?: number | null;
     avancePourcentage?: number | null;
+    reservationInstantanee?: boolean;
     fraisMenageDisponible?: boolean;
     fraisServiceDisponible?: boolean;
     servicesPayants?: Array<{ id: string; label: string; prix: number; enabled: boolean }>;
