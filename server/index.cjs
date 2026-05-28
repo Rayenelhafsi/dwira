@@ -14555,7 +14555,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     const requester = req.authUser || null;
     const rawBody = req.body || {};
     const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
-    const current = rows[0];
+    let current = rows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
     if (!canAccessReservationDemand(requester, current)) {
       void logSecurityEvent({
@@ -15618,6 +15618,17 @@ app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymen
     if (req.authUser?.role !== 'admin') {
       return res.status(403).json({ error: 'Paiement valide manuellement par admin. Veuillez envoyer votre recu de paiement.' });
     }
+    if (!current.contract_id) {
+      try {
+        await ensureAutoContractForDemand(current, actorId);
+        const [refreshedRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+        current = refreshedRows?.[0] || current;
+      } catch (contractError) {
+        return res.status(400).json({
+          error: `Le contrat doit etre genere avant le paiement (${String(contractError?.message || contractError || 'generation auto impossible')})`,
+        });
+      }
+    }
     if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
 
     try {
@@ -15682,9 +15693,21 @@ app.post('/api/reservation-demands/:id/flouci/create-checkout', requireAuthentic
     }
 
     const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
-    const current = rows[0];
+    let current = rows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
     if (!canAccessReservationDemand(req.authUser, current)) return res.status(403).json({ error: 'Acces refuse a cette demande' });
+    if (!current.contract_id) {
+      try {
+        const actorId = String(req.authUser?.id || req.authUser?.email || 'client').trim() || 'client';
+        await ensureAutoContractForDemand(current, actorId);
+        const [refreshedRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+        current = refreshedRows?.[0] || current;
+      } catch (contractError) {
+        return res.status(400).json({
+          error: `Le contrat doit etre genere avant le paiement (${String(contractError?.message || contractError || 'generation auto impossible')})`,
+        });
+      }
+    }
     if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
 
     const reservationAmount = Number.isFinite(Number(current.amount_due_now))
@@ -15792,9 +15815,17 @@ app.post('/api/reservation-demands/:id/flouci/confirm', requireAuthenticatedSess
     const incomingPaymentId = String(req.body?.payment_id || req.body?.paymentId || '').trim();
     if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
     const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
-    const current = rows[0];
+    let current = rows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
     if (!canAccessReservationDemand(req.authUser, current)) return res.status(403).json({ error: 'Acces refuse a cette demande' });
+
+    if (!current.contract_id) {
+      const actorId = String(req.authUser?.id || req.authUser?.email || 'client').trim() || 'client';
+      await ensureAutoContractForDemand(current, actorId);
+      const [refreshedRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+      current = refreshedRows?.[0] || current;
+      if (!current.contract_id) return res.status(400).json({ error: 'Le contrat doit etre genere avant le paiement' });
+    }
 
     const paymentId = incomingPaymentId || String(current.flouci_checkout_id || '').trim();
     if (!paymentId) return res.status(400).json({ error: 'Aucun payment_id Flouci a verifier' });
