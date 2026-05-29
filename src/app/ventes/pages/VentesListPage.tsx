@@ -5,21 +5,8 @@ import { Building2, MapPin, Home, CheckCircle2, XCircle, Phone, MessageCircle, C
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from '../../utils/deepLinks';
+import { resolveMediaUrl } from '../../utils/media';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
-
-const resolveMediaUrl = (url?: string | null) => {
-  const value = String(url || '').trim();
-  if (!value) return '';
-  if (/^https?:\/\//i.test(value)) return value;
-  const base = /^https?:\/\//i.test(API_URL)
-    ? API_URL
-    : (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
-        ? `${window.location.protocol}//${window.location.hostname}:3001`
-        : window.location.origin);
-  const origin = new URL(base, window.location.origin).origin;
-  return value.startsWith('/') ? `${origin}${value}` : value;
-};
 
 const typeLabel: Record<string, string> = {
   appartement: 'Appartement',
@@ -284,3 +271,4 @@ export default function VentesListPage() {
     </div>
   );
 }
+

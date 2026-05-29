@@ -28,6 +28,7 @@ import {
 } from "date-fns";
 import { fr } from "date-fns/locale";
 import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
+import { resolveMediaUrl } from "../utils/media";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -549,13 +550,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return `${url}${separator}v=${imageCacheBustTokenRef.current}`;
   };
   const resolveZoneImageUrl = (url?: string | null) => {
-    const value = String(url || '').trim();
+    const value = resolveMediaUrl(url);
     if (!value) return 'about:blank';
     if (/^https?:\/\//i.test(value)) return withCacheBust(value);
     return withCacheBust(value.startsWith('/') ? `${window.location.origin}${value}` : value);
   };
   const resolveTypeImageUrl = (url?: string | null) => {
-    const value = String(url || '').trim();
+    const value = resolveMediaUrl(url);
     if (!value) return TYPE_FALLBACK_IMAGE;
     if (/^https?:\/\//i.test(value)) return withCacheBust(value);
     return withCacheBust(value.startsWith('/') ? `${window.location.origin}${value}` : value);

@@ -5,6 +5,7 @@ import { Bien, BienUiConfig, Zone } from '../../admin/types';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ImageGallery } from './ImageGallery';
+import { resolveMediaUrl as resolveMediaAssetUrl } from '../../utils/media';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -55,18 +56,6 @@ type PublicBienPageViewProps = {
   featureReloadKey?: number;
 };
 
-const resolveMediaUrl = (url?: string | null) => {
-  const value = String(url || '').trim();
-  if (!value) return '';
-  if (/^https?:\/\//i.test(value)) return value;
-  const base = /^https?:\/\//i.test(API_URL)
-    ? API_URL
-    : (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
-        ? `${window.location.protocol}//${window.location.hostname}:3001`
-        : window.location.origin);
-  const origin = new URL(base, window.location.origin).origin;
-  return value.startsWith('/') ? `${origin}${value}` : value;
-};
 const formatMoney = (value?: number | null) => Number(value || 0).toLocaleString('fr-FR');
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 const toGalleryImages = (urls: string[], altPrefix: string) => urls.map((url, index) => ({ url, alt: `${altPrefix} ${index + 1}` }));
@@ -76,10 +65,10 @@ const listText = (items?: Array<string | null> | null) => {
   return values.length > 0 ? values.join(', ') : '-';
 };
 function publicMainImages(bien: Bien) {
-  return (bien.media || []).filter((m) => !String(m.motif_upload || '').startsWith('preuve_type_') && !String(m.motif_upload || '').startsWith('gallery_unite|')).map((m) => resolveMediaUrl(m.url)).filter(Boolean);
+  return (bien.media || []).filter((m) => !String(m.motif_upload || '').startsWith('preuve_type_') && !String(m.motif_upload || '').startsWith('gallery_unite|')).map((m) => resolveMediaAssetUrl(m.url)).filter(Boolean);
 }
 function unitImages(bien: Bien, unitKey: string) {
-  return (bien.media || []).filter((m) => String(m.motif_upload || '') === `gallery_unite|vente|${bien.type}|${unitKey}`).map((m) => resolveMediaUrl(m.url)).filter(Boolean);
+  return (bien.media || []).filter((m) => String(m.motif_upload || '') === `gallery_unite|vente|${bien.type}|${unitKey}`).map((m) => resolveMediaAssetUrl(m.url)).filter(Boolean);
 }
 function getPublicPriceRows(
   bien: Bien,
@@ -297,3 +286,4 @@ export default function PublicBienPageView({ bien, zones, backHref = '/ventes', 
     </div>
   );
 }
+

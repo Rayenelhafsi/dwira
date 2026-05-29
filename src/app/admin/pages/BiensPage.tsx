@@ -15,7 +15,7 @@ import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils
 import { canRenderVideoInIframe, isFacebookVideoUrl, isSupportedVideoUrl, toVideoEmbedUrl, toVideoExternalUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../../utils/bienCapacity';
 import { resolveCurrentPricing } from '../../utils/seasonalPricing';
-import { fetchAmicalesAdmin } from '../../utils/amicales';
+import { resolveMediaUrl } from '../../utils/media';
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -26,20 +26,6 @@ const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK = (locationSaisonniereSer
 );
 const buildDefaultPaidServices = (services: ServicePayantBien[] = LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK) =>
   services.map((service) => normalizeServicePayant(service));
-
-const resolveMediaUrl = (url?: string | null) => {
-  const value = String(url || '').trim();
-  if (!value) return '';
-  if (/^https?:\/\//i.test(value)) return value;
-  const base = /^https?:\/\//i.test(API_URL)
-    ? API_URL
-    : (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
-        ? `${window.location.protocol}//${window.location.hostname}:3001`
-        : window.location.origin);
-  const origin = new URL(base, window.location.origin).origin;
-  if (value.startsWith('/')) return `${origin}${value}`;
-  return value;
-};
 
 const renderFeatureIconPreview = (
   iconName?: string | null,
@@ -4176,8 +4162,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const handleAddProprietaire = async () => {
     const firstName = newOwnerFirstName.trim();
     const lastName = newOwnerName.trim();
-    if (!firstName) return toast.error('Prénom du propriétaire requis');
-    if (!lastName) return toast.error('Nom du propriétaire requis');
+    if (!firstName) return toast.error('Prï¿½nom du propriï¿½taire requis');
+    if (!lastName) return toast.error('Nom du propriï¿½taire requis');
     const fullName = `${firstName} ${lastName}`.replace(/\s+/g, ' ').trim();
     const ownerEmail = newOwnerEmail.trim();
     const ownerPhone = newOwnerPhone.trim();
@@ -4247,9 +4233,9 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setNewOwnerEmail('');
       setNewOwnerCin('');
       setShowAddProprietaire(false);
-      toast.success('Propriétaire ajouté');
+      toast.success('Propriï¿½taire ajoutï¿½');
     } catch {
-      toast.error('Erreur ajout propriétaire');
+      toast.error('Erreur ajout propriï¿½taire');
     }
   };
 
@@ -5969,28 +5955,28 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                   )}
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Propriétaire</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Propriï¿½taire</label>
                   <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
-                    <option value="">-- Choisir un propriétaire --</option>
+                    <option value="">-- Choisir un propriï¿½taire --</option>
                     {proprietaireOptions.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
                   </select>
                   <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriétaire</button>
-                    <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propriétaire sélectionné</button>
+                    <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un propriï¿½taire</button>
+                    <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer propriï¿½taire sï¿½lectionnï¿½</button>
                   </div>
                   {showAddProprietaire && (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                      <input type="text" value={newOwnerFirstName} onChange={(e) => setNewOwnerFirstName(e.target.value)} placeholder="Prénom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newOwnerFirstName} onChange={(e) => setNewOwnerFirstName(e.target.value)} placeholder="Prï¿½nom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="text" value={newOwnerName} onChange={(e) => setNewOwnerName(e.target.value)} placeholder="Nom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <input type="text" value={newOwnerPhone} onChange={(e) => setNewOwnerPhone(e.target.value)} placeholder="Téléphone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+                      <input type="text" value={newOwnerPhone} onChange={(e) => setNewOwnerPhone(e.target.value)} placeholder="Tï¿½lï¿½phone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="email" value={newOwnerEmail} onChange={(e) => setNewOwnerEmail(e.target.value)} placeholder="Email (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
                       <input type="text" value={newOwnerCin} onChange={(e) => setNewOwnerCin(e.target.value)} placeholder="CIN (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
-                      <button type="button" onClick={handleAddProprietaire} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer propriétaire</button>
+                      <button type="button" onClick={handleAddProprietaire} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer propriï¿½taire</button>
                     </div>
                   )}
                 </div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propriétaire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Numéro propriétaire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propriï¿½taire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Numï¿½ro propriï¿½taire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
               </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
               <div className="flex justify-end"><button type="button" onClick={() => validateStepBeforeContinue(1, 2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>

@@ -4,6 +4,7 @@ import { Bien, BienUiConfig, LocationSaisonniereConfig, Zone } from '../../admin
 import { resolveBienCapacity } from '../../utils/bienCapacity';
 import { canRenderVideoInIframe, isFacebookReelUrl, isFacebookVideoUrl, isVerticalVideoUrl, toVideoEmbedUrl, toVideoExternalUrl } from '../../utils/videoLinks';
 import { SmartImage } from '../../components/SmartImage';
+import { resolveMediaUrl as resolveMediaAssetUrl } from '../../utils/media';
 import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import logo from '../../../../logo dwira.jpg';
@@ -89,19 +90,6 @@ const FEATURE_LABELS: Record<string, string> = {
   coin_angle: "Coin d'angle",
   electricite_3_phases: 'Electricite 3 phases',
   alarme: 'Alarme',
-};
-
-const resolveMediaUrl = (url?: string | null) => {
-  const value = String(url || '').trim();
-  if (!value) return '';
-  if (/^https?:\/\//i.test(value)) return value;
-  const base = /^https?:\/\//i.test(API_URL)
-    ? API_URL
-    : (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
-        ? `${window.location.protocol}//${window.location.hostname}:3001`
-        : window.location.origin);
-  const origin = new URL(base, window.location.origin).origin;
-  return value.startsWith('/') ? `${origin}${value}` : value;
 };
 
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
@@ -265,7 +253,7 @@ export default function LocationPublicBienPageView({
     return () => { disposed = true; };
   }, [bien.id, bien.mode, bien.type, featureReloadKey]);
 
-  const images = (bien.media || []).filter((item) => item.type !== 'video').map((item) => resolveMediaUrl(item.url)).filter(Boolean);
+  const images = (bien.media || []).filter((item) => item.type !== 'video').map((item) => resolveMediaAssetUrl(item.url)).filter(Boolean);
   const videos = (bien.media || []).filter((item) => item.type === 'video').map((item) => String(item.url || '').trim()).filter(Boolean);
   const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
   const [facebookEmbedUnavailableByUrl, setFacebookEmbedUnavailableByUrl] = useState<Record<string, boolean>>({});
@@ -899,6 +887,7 @@ out body 20;
     </div>
   );
 }
+
 
 
 

@@ -12,6 +12,8 @@ const CLOUDINARY_FETCH_FLAG = String(import.meta.env.VITE_ENABLE_CLOUDINARY_FETC
 const ENABLE_CLOUDINARY_FETCH =
   CLOUDINARY_FETCH_FLAG === "true";
 
+const MEDIA_BASENAME_WITH_EXT_RE = /^[^/?#\\]+\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|webp|mp4|mov|webm|m4v)$/i;
+
 function toRuntimeUploadPath(uploadPath: string): string {
   // In local dev, images are commonly served by backend via /api/uploads/*
   // while production serves /uploads/* directly behind nginx.
@@ -19,6 +21,20 @@ function toRuntimeUploadPath(uploadPath: string): string {
     return uploadPath.replace(/^\/uploads\//, "/api/uploads/");
   }
   return uploadPath;
+}
+
+function coerceToUploadPath(value: string): string | null {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+
+  if (normalized.startsWith("/uploads/")) return normalized;
+  if (normalized.startsWith("/api/uploads/")) {
+    return normalized.replace(/^\/api\/uploads\//, "/uploads/");
+  }
+  if (normalized.startsWith("uploads/")) return `/${normalized}`;
+  if (normalized.startsWith("./uploads/")) return `/${normalized.replace(/^\.\//, "")}`;
+  if (MEDIA_BASENAME_WITH_EXT_RE.test(normalized)) return `/uploads/${normalized}`;
+  return null;
 }
 
 function buildCloudinaryFetchUrl(uploadPath: string, options: MediaVariantOptions = {}): string | null {
@@ -43,15 +59,27 @@ function extractUploadPath(url: string): string | null {
   const value = String(url || "").trim();
   if (!value) return null;
 
-  if (value.startsWith("/uploads/")) return value;
-  if (value.startsWith("/api/uploads/")) return value.replace(/^\/api\/uploads\//, "/uploads/");
+  const directUploadPath = coerceToUploadPath(value);
+  if (directUploadPath) return directUploadPath;
 
   const parsed = parseUrl(value);
   if (!parsed) return null;
 
-  if (parsed.pathname.startsWith("/uploads/")) return parsed.pathname;
-  if (parsed.pathname.startsWith("/api/uploads/")) return parsed.pathname.replace(/^\/api\/uploads\//, "/uploads/");
+  const fromPathname = coerceToUploadPath(parsed.pathname);
+  if (fromPathname) return fromPathname;
   return null;
+}
+
+export function resolveMediaUrl(url?: string | null): string {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^(?:https?:)?\/\//i.test(value) || value.startsWith("data:") || value.startsWith("blob:")) {
+    return value;
+  }
+  const uploadPath = extractUploadPath(value);
+  if (uploadPath) return toRuntimeUploadPath(uploadPath);
+  if (value.startsWith("/")) return value;
+  return value;
 }
 
 function optimizeUnsplashUrl(url: string, width: number, quality: number): string {
