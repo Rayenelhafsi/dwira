@@ -50,6 +50,7 @@ export default function ReservationPaymentPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("carte");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptNote, setReceiptNote] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [startingFlouciScope, setStartingFlouciScope] = useState<PaymentScope | null>(null);
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
@@ -222,6 +223,7 @@ export default function ReservationPaymentPage() {
       const formData = new FormData();
       formData.append("receipt", receiptFile);
       if (receiptNote.trim()) formData.append("payment_receipt_note", receiptNote.trim());
+      if (paymentReference.trim()) formData.append("payment_id", paymentReference.trim());
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/upload-payment-receipt`, {
         method: "POST",
         credentials: "include",
@@ -232,6 +234,7 @@ export default function ReservationPaymentPage() {
       setDemand(updated);
       setReceiptFile(null);
       setReceiptNote("");
+      setPaymentReference("");
       toast.success("Recu envoye. L'admin va verifier avant validation du paiement.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Envoi du recu impossible");
@@ -356,6 +359,13 @@ export default function ReservationPaymentPage() {
                     onChange={(event) => setReceiptNote(event.target.value)}
                     rows={2}
                     placeholder="Note (optionnelle)"
+                    className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={paymentReference}
+                    onChange={(event) => setPaymentReference(event.target.value)}
+                    placeholder="N° quittance / ID virement"
                     className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm"
                   />
                   <button

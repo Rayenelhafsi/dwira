@@ -3813,6 +3813,14 @@ app.post('/api/hotel-reservation-demands/:id/upload-payment-receipt', requireAut
     const now = getAgencySqlDateTime();
     const receiptUrl = `/uploads/reservation-payment-receipts/${req.file.filename}`;
     const receiptNote = String(req.body?.payment_receipt_note || req.body?.note || '').trim() || null;
+    const providedPaymentRef = String(
+      req.body?.payment_id
+      || req.body?.payment_reference
+      || req.body?.virement_id
+      || req.body?.quittance_id
+      || ''
+    ).trim() || null;
+    const resolvedPaymentId = providedPaymentRef || String(current.payment_id || '').trim() || null;
     await pool.query(
       `UPDATE hotel_reservation_demands
        SET status = ?, payment_receipt_image_url = ?, payment_receipt_uploaded_at = ?, payment_receipt_note = ?, payment_method = ?, updated_at = ?
@@ -9397,15 +9405,21 @@ async function generateReservationClientContractPdf({
     demand?.arrival_time
       || seasonalConfig?.heure_arrivee
       || seasonalConfig?.checkin_time
+      || seasonalConfig?.checkin
+      || seasonalConfig?.heureArrivee
+      || seasonalConfig?.arrivalHour
       || seasonalConfig?.arrival_time
-      || ''
+      || '14:00'
   ).trim();
   const heureDepart = String(
     demand?.departure_time
       || seasonalConfig?.heure_depart
       || seasonalConfig?.checkout_time
+      || seasonalConfig?.checkout
+      || seasonalConfig?.heureDepart
+      || seasonalConfig?.departureHour
       || seasonalConfig?.departure_time
-      || ''
+      || '11:00'
   ).trim();
   const typeLogement = String(bien?.configuration || bien?.type || '');
   const adresseParts = [
@@ -16039,9 +16053,10 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
            payment_receipt_image_url = ?,
            payment_receipt_uploaded_at = ?,
            payment_receipt_note = ?,
+           payment_id = ?,
            updated_at = ?
        WHERE id = ?`,
-      [nextStatus, receiptUrl, now, receiptNote, now, demandId]
+      [nextStatus, receiptUrl, now, receiptNote, resolvedPaymentId, now, demandId]
     );
 
     await appendReservationDemandHistory(
