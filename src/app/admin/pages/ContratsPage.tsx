@@ -230,6 +230,18 @@ export default function ContratsPage() {
   const [loadingManualCalendar, setLoadingManualCalendar] = useState(false);
   const [selectedManualServiceIds, setSelectedManualServiceIds] = useState<string[]>([]);
   const [selectedManualServiceCategory, setSelectedManualServiceCategory] = useState<string>('all');
+  const [templateVarsEditorOpen, setTemplateVarsEditorOpen] = useState(false);
+  const [templateVarsTargetContract, setTemplateVarsTargetContract] = useState<ContratApi | null>(null);
+  const [templateVarsDraft, setTemplateVarsDraft] = useState<Record<string, string>>({});
+
+  const templateVarKeys = [
+    'fullName', 'identityRef', 'userAddress', 'userPhone',
+    'typeLogement', 'adresseBien', 'capacite', 'adultes', 'enfants', 'equipementsBien',
+    'jj1', 'mm1', 'jj2', 'mm2', 'heureArrivee', 'heureDepart',
+    'loyerTotal', 'acompteReservation', 'jjp', 'mmp', 'hhp', 'minp',
+    'idPaiement', 'soldeArrivee', 'modePaiement', 'caution',
+    'VS', 'JJs', 'MMS'
+  ];
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -600,27 +612,45 @@ export default function ContratsPage() {
     }
   };
 
-  const handleEditTemplateVars = async (contrat: ContratApi) => {
-    const currentRaw = String(contrat.template_vars_json || '').trim();
-    const seeded = currentRaw || JSON.stringify({ fullName: '', identityRef: '', userAddress: '' }, null, 2);
-    const edited = window.prompt('Variables JSON du contrat (ex: {"fullName":"..."}):', seeded);
-    if (edited === null) return;
+  const handleEditTemplateVars = (contrat: ContratApi) => {
     let parsed: Record<string, string> = {};
-    try {
-      parsed = JSON.parse(edited);
-    } catch {
-      toast.error('JSON invalide');
-      return;
+    const currentRaw = String(contrat.template_vars_json || '').trim();
+    if (currentRaw) {
+      try {
+        const obj = JSON.parse(currentRaw);
+        if (obj && typeof obj === 'object') {
+          for (const [k, v] of Object.entries(obj)) {
+            parsed[String(k)] = String(v ?? '');
+          }
+        }
+      } catch {
+        parsed = {};
+      }
     }
+    setTemplateVarsTargetContract(contrat);
+    setTemplateVarsDraft(parsed);
+    setTemplateVarsEditorOpen(true);
+  };
+
+  const handleSaveTemplateVars = async () => {
+    if (!templateVarsTargetContract) return;
     try {
-      const saveResponse = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}/template-vars`, {
+      const payload = Object.fromEntries(
+        Object.entries(templateVarsDraft)
+          .map(([k, v]) => [k, String(v || '').trim()])
+          .filter(([, v]) => v.length > 0)
+      );
+      const saveResponse = await fetch(`${API_URL}/contrats/${encodeURIComponent(templateVarsTargetContract.id)}/template-vars`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template_vars: parsed }),
+        body: JSON.stringify({ template_vars: payload }),
       });
       if (!saveResponse.ok) throw new Error(await getApiErrorMessage(saveResponse, 'Sauvegarde variables impossible'));
-      await handleRegenerateTemplatePdf(contrat);
+      await handleRegenerateTemplatePdf(templateVarsTargetContract);
+      setTemplateVarsEditorOpen(false);
+      setTemplateVarsTargetContract(null);
+      setTemplateVarsDraft({});
     } catch (error: any) {
       toast.error(error?.message || 'Sauvegarde variables impossible');
     }
@@ -1203,6 +1233,50 @@ export default function ContratsPage() {
       </div>
 
       <div className="text-sm text-gray-500">{filteredAndSorted.length} contrat(s) trouve(s)</div>
+
+      {templateVarsEditorOpen && templateVarsTargetContract && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-sky-900">
+              Variables contrat: {templateVarsTargetContract.id}
+            </h3>
+            <button
+              type="button"
+              onClick={() => {
+                setTemplateVarsEditorOpen(false);
+                setTemplateVarsTargetContract(null);
+                setTemplateVarsDraft({});
+              }}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Fermer
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {templateVarKeys.map((key) => (
+              <label key={key} className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-700">{key}</span>
+                <input
+                  type="text"
+                  value={templateVarsDraft[key] || ''}
+                  onChange={(event) => setTemplateVarsDraft((prev) => ({ ...prev, [key]: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  placeholder="Laisser vide = valeur auto"
+                />
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleSaveTemplateVars()}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Sauvegarder + regenerer
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {filteredAndSorted.map((contrat) => {

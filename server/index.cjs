@@ -9425,8 +9425,16 @@ async function generateReservationClientContractPdf({
     String(bien?.type || '').trim(),
   ].filter(Boolean).join(', ');
   const contractTypeLogementValue = equipementsTitre || typeLogement || '-';
-  const equipementsFromArray = Array.isArray(bien?.caracteristiques)
-    ? bien.caracteristiques.map((row) => {
+  const rawCaracteristiques = (() => {
+    if (Array.isArray(bien?.caracteristiques)) return bien.caracteristiques;
+    if (typeof bien?.caracteristiques === 'string') {
+      const parsed = safeParseJson(bien.caracteristiques, null);
+      if (Array.isArray(parsed)) return parsed;
+    }
+    return [];
+  })();
+  const equipementsFromArray = Array.isArray(rawCaracteristiques)
+    ? rawCaracteristiques.map((row) => {
         const text = String(row || '').trim();
         if (!text) return '';
         const idx = text.indexOf(':');
@@ -9524,7 +9532,7 @@ async function generateReservationClientContractPdf({
     const normalizedClientEmail = normalizeEmailForCompare(demand?.client_email || '');
     if (!userPhone || !userAddress) {
       const [userRows] = await pool.query(
-        `SELECT telephone
+        `SELECT telephone, address
          FROM utilisateurs
          WHERE id = ? OR (email = ? AND ? <> '')
          LIMIT 1`,
@@ -9532,6 +9540,7 @@ async function generateReservationClientContractPdf({
       );
       const userRow = userRows?.[0] || null;
       if (!userPhone && userRow?.telephone) userPhone = String(userRow.telephone || '').trim();
+      if (!userAddress && userRow?.address) userAddress = String(userRow.address || '').trim();
       if (!userAddress) {
         try {
           const [locRows] = await pool.query(
@@ -9600,7 +9609,9 @@ async function generateReservationClientContractPdf({
     if (templateVars && typeof templateVars === 'object') {
       for (const [key, raw] of Object.entries(templateVars)) {
         if (!contractFieldMap[key] || raw === undefined || raw === null) continue;
-        contractFieldMap[key].value = String(raw);
+        const normalized = String(raw).trim();
+        if (!normalized) continue;
+        contractFieldMap[key].value = normalized;
       }
     }
 
@@ -11902,6 +11913,22 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
               b.titre AS bien_titre,
               b.reference AS bien_reference,
               b.type AS bien_type,
+              b.configuration AS bien_configuration,
+              b.ville AS bien_ville,
+              b.adresse AS bien_adresse,
+              b.caracteristiques AS bien_caracteristiques,
+              b.caracteristiques_list AS bien_caracteristiques_list,
+              b.caracteristique_valeurs AS bien_caracteristique_valeurs,
+              b.climatisation,
+              b.cuisine_equipee,
+              b.place_parking,
+              b.chauffage_central,
+              b.balcon,
+              b.terrasse,
+              b.ascenseur,
+              b.vue_mer,
+              b.gaz_ville,
+              b.proche_plage,
               b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
               b.prix_nuitee,
               b.avance,
@@ -11977,6 +12004,22 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
       reference: contract.bien_reference || '',
       titre: contract.bien_titre || '',
       type: contract.bien_type || '',
+      configuration: contract.bien_configuration || '',
+      ville: contract.bien_ville || '',
+      adresse: contract.bien_adresse || '',
+      caracteristiques: contract.bien_caracteristiques || null,
+      caracteristiques_list: contract.bien_caracteristiques_list || null,
+      caracteristique_valeurs: contract.bien_caracteristique_valeurs || null,
+      climatisation: Number(contract.climatisation || 0) === 1,
+      cuisine_equipee: Number(contract.cuisine_equipee || 0) === 1,
+      place_parking: Number(contract.place_parking || 0) === 1,
+      chauffage_central: Number(contract.chauffage_central || 0) === 1,
+      balcon: Number(contract.balcon || 0) === 1,
+      terrasse: Number(contract.terrasse || 0) === 1,
+      ascenseur: Number(contract.ascenseur || 0) === 1,
+      vue_mer: Number(contract.vue_mer || 0) === 1,
+      gaz_ville: Number(contract.gaz_ville || 0) === 1,
+      proche_plage: Number(contract.proche_plage || 0) === 1,
       location_saisonniere_config_json: contract.bien_location_saisonniere_config_json || null,
       zone_nom: contract.zone_nom || null,
       zone_quartier: contract.zone_quartier || null,
@@ -11984,7 +12027,6 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
       zone_region: contract.zone_region || null,
       zone_pays: contract.zone_pays || null,
       caution: contract.caution,
-      ville: String(demand.ville || demand.city || '').trim() || 'Kelibia',
     };
 
     const previousUrl = String(contract.url_pdf || '').trim() || null;
