@@ -55,6 +55,36 @@ function parseUrl(value: string): URL | null {
   }
 }
 
+function extractCloudinaryUploadPath(url: URL): string | null {
+  if (!/res\.cloudinary\.com$/i.test(url.hostname) || !/\/image\/upload\//i.test(url.pathname)) return null;
+  const marker = "/image/upload/";
+  const index = url.pathname.indexOf(marker);
+  if (index < 0) return null;
+  const tail = url.pathname.slice(index + marker.length);
+  const segments = tail.split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+
+  let cursor = 0;
+  while (cursor < segments.length) {
+    const part = segments[cursor] || "";
+    const looksLikeTransform =
+      /,/.test(part) || /^(?:w_|h_|c_|q_|f_|dpr_|g_|e_|ar_|b_|bo_|x_|y_|z_)/i.test(part);
+    if (!looksLikeTransform) break;
+    cursor += 1;
+  }
+  if (cursor < segments.length && /^v\d+$/i.test(segments[cursor] || "")) {
+    cursor += 1;
+  }
+  const publicIdParts = segments.slice(cursor);
+  if (publicIdParts.length === 0) return null;
+  const publicIdPath = publicIdParts.join("/");
+
+  // Historical uploads are commonly under "dwira_uploads/<scope>/...".
+  const withoutLegacyRoot = publicIdPath.replace(/^dwira_uploads\//i, "");
+  const normalizedPath = withoutLegacyRoot || publicIdPath;
+  return normalizedPath ? `/uploads/${normalizedPath}` : null;
+}
+
 function extractUploadPath(url: string): string | null {
   const value = String(url || "").trim();
   if (!value) return null;
@@ -65,6 +95,12 @@ function extractUploadPath(url: string): string | null {
   const parsed = parseUrl(value);
   if (!parsed) return null;
 
+  // Cloudinary "image/upload" assets can become unauthorized (401) when account
+  // policies change. For legacy assets, map Cloudinary public_id back to
+  // "/uploads/*" so UI keeps rendering from origin-hosted files.
+  const cloudinaryUploadPath = extractCloudinaryUploadPath(parsed);
+  if (cloudinaryUploadPath) return cloudinaryUploadPath;
+
   const fromPathname = coerceToUploadPath(parsed.pathname);
   if (fromPathname) return fromPathname;
   return null;
@@ -73,11 +109,10 @@ function extractUploadPath(url: string): string | null {
 export function resolveMediaUrl(url?: string | null): string {
   const value = String(url || "").trim();
   if (!value) return "";
-  if (/^(?:https?:)?\/\//i.test(value) || value.startsWith("data:") || value.startsWith("blob:")) {
-    return value;
-  }
+  if (value.startsWith("data:") || value.startsWith("blob:")) return value;
   const uploadPath = extractUploadPath(value);
   if (uploadPath) return toRuntimeUploadPath(uploadPath);
+  if (/^(?:https?:)?\/\//i.test(value)) return value;
   if (value.startsWith("/")) return value;
   return value;
 }
