@@ -1754,13 +1754,22 @@ export default function PropertiesPage() {
           && !selectedSubTypeKeys.includes(propertySubTypeKey)
           && requestedSPlusValues.some((requested) => propertySPlusValue !== null && Math.abs(propertySPlusValue - requested) === 1);
         const propertyRegionZone = getPropertyRegionZone(property);
+        const propertyGovernorate = getPropertyGovernorate(property);
         const hasLocationAlternative = !hasExactLocationMatch && selectedLocations.length > 0 && selectedLocations.some((loc) => {
+          const selectedGovernorate = extractSelectedGovernorate(loc);
           const selectedRegionZone = extractSelectedLocationRegionZone(loc);
-          return Boolean(selectedRegionZone.region)
+          const sameGovernorate = Boolean(selectedGovernorate)
+            && propertyGovernorate === selectedGovernorate;
+          const sameRegionDifferentZone = Boolean(selectedRegionZone.region)
             && propertyRegionZone.region === selectedRegionZone.region
             && propertyRegionZone.zone
             && selectedRegionZone.zone
             && propertyRegionZone.zone !== selectedRegionZone.zone;
+          const differentRegionSameGovernorate = sameGovernorate
+            && Boolean(selectedRegionZone.region)
+            && Boolean(propertyRegionZone.region)
+            && propertyRegionZone.region !== selectedRegionZone.region;
+          return sameRegionDifferentZone || differentRegionSameGovernorate;
         });
         const hasComfortFallbackFromBeach = selectedSeasideOptions.includes("pied_dans_eau")
           && !propertyMatchesSeasideOption(property, "pied_dans_eau")
