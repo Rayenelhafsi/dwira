@@ -1782,6 +1782,7 @@ export default function PropertiesPage() {
           hasTypeAlternative31,
           hasTypeAlternative32,
           hasComfortAlternative,
+          hasComfortFallbackFromBeach,
           hasDateRuleAlternative,
           dateRuleType,
           dateFailureReason,
@@ -1920,18 +1921,32 @@ export default function PropertiesPage() {
     return list.sort((a, b) => b.score - a.score);
   }, [scoringBuckets.alternatives]);
   const groupedAlternativeSections = useMemo(() => {
-    const sectionDefs: Array<{ key: string; title: string; match: (row: (typeof alternativeScoredResults)[number]) => boolean }> = [
-      { key: "location_dates", title: "Alternative emplacement et dates de sejour", match: (row) => row.hasLocationAlternative && row.hasDateRuleAlternative },
-      { key: "location_type", title: "Alternative emplacement et type de bien", match: (row) => row.hasLocationAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
-      { key: "location_comfort", title: "Alternative emplacement et confort", match: (row) => row.hasLocationAlternative && row.hasComfortAlternative },
-      { key: "dates_type", title: "Alternative date de sejour et type de bien", match: (row) => row.hasDateRuleAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
-      { key: "dates_comfort", title: "Alternative date de sejour et confort", match: (row) => row.hasDateRuleAlternative && row.hasComfortAlternative },
-      { key: "type_comfort", title: "Alternative type de bien et confort", match: (row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && row.hasComfortAlternative },
-      { key: "location", title: "Alternatives emplacement", match: (row) => row.hasLocationAlternative },
-      { key: "dates", title: "Alternative dates de sejour", match: (row) => row.hasDateRuleAlternative },
-      { key: "type", title: "Alternative type de bien", match: (row) => row.hasTypeAlternative31 || row.hasTypeAlternative32 },
-      { key: "comfort", title: "Alternative confort", match: (row) => row.hasComfortAlternative },
-    ];
+    const prioritizeBeachComfort = selectedSeasideOptions.includes("pied_dans_eau");
+    const sectionDefs: Array<{ key: string; title: string; match: (row: (typeof alternativeScoredResults)[number]) => boolean }> = prioritizeBeachComfort
+      ? [
+          { key: "comfort", title: "Alternative confort", match: (row) => row.hasComfortFallbackFromBeach || row.hasComfortAlternative },
+          { key: "location_comfort", title: "Alternative emplacement et confort", match: (row) => row.hasLocationAlternative && row.hasComfortAlternative },
+          { key: "dates_comfort", title: "Alternative date de sejour et confort", match: (row) => row.hasDateRuleAlternative && row.hasComfortAlternative },
+          { key: "type_comfort", title: "Alternative type de bien et confort", match: (row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && row.hasComfortAlternative },
+          { key: "location_dates", title: "Alternative emplacement et dates de sejour", match: (row) => row.hasLocationAlternative && row.hasDateRuleAlternative },
+          { key: "location_type", title: "Alternative emplacement et type de bien", match: (row) => row.hasLocationAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
+          { key: "dates_type", title: "Alternative date de sejour et type de bien", match: (row) => row.hasDateRuleAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
+          { key: "location", title: "Alternatives emplacement", match: (row) => row.hasLocationAlternative },
+          { key: "dates", title: "Alternative dates de sejour", match: (row) => row.hasDateRuleAlternative },
+          { key: "type", title: "Alternative type de bien", match: (row) => row.hasTypeAlternative31 || row.hasTypeAlternative32 },
+        ]
+      : [
+          { key: "location_dates", title: "Alternative emplacement et dates de sejour", match: (row) => row.hasLocationAlternative && row.hasDateRuleAlternative },
+          { key: "location_type", title: "Alternative emplacement et type de bien", match: (row) => row.hasLocationAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
+          { key: "location_comfort", title: "Alternative emplacement et confort", match: (row) => row.hasLocationAlternative && row.hasComfortAlternative },
+          { key: "dates_type", title: "Alternative date de sejour et type de bien", match: (row) => row.hasDateRuleAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
+          { key: "dates_comfort", title: "Alternative date de sejour et confort", match: (row) => row.hasDateRuleAlternative && row.hasComfortAlternative },
+          { key: "type_comfort", title: "Alternative type de bien et confort", match: (row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && row.hasComfortAlternative },
+          { key: "location", title: "Alternatives emplacement", match: (row) => row.hasLocationAlternative },
+          { key: "dates", title: "Alternative dates de sejour", match: (row) => row.hasDateRuleAlternative },
+          { key: "type", title: "Alternative type de bien", match: (row) => row.hasTypeAlternative31 || row.hasTypeAlternative32 },
+          { key: "comfort", title: "Alternative confort", match: (row) => row.hasComfortAlternative },
+        ];
     const buckets = new Map<string, { key: string; title: string; rows: typeof alternativeScoredResults }>();
     for (const def of sectionDefs) {
       buckets.set(def.key, { key: def.key, title: def.title, rows: [] });
@@ -1955,7 +1970,7 @@ export default function PropertiesPage() {
       });
     }
     return sections;
-  }, [alternativeScoredResults]);
+  }, [alternativeScoredResults, selectedSeasideOptions]);
   const hasStrictStaySearch = selectedMode === "location_saisonniere" && stayRanges.some((range) => isValidStayRange(range.start, range.end));
   const visibleSortedScoredResults = useMemo(
     () => (showAllResults ? sortedScoredResults : sortedScoredResults.slice(0, visibleCount)),
