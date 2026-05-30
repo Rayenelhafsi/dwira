@@ -23,6 +23,7 @@ type HomeComfortOptionKey =
   | "piscine_privee"
   | "piscine_partagee"
   | "rdc"
+  | "premier_etage"
   | "toutes_pieces_climatisees"
   | "jardin_gazon"
   | "terrasse";
@@ -49,6 +50,7 @@ const COMFORT_OPTION_LABELS: Record<HomeComfortOptionKey, string> = {
   piscine_privee: "Piscine privee",
   piscine_partagee: "Piscine partagee",
   rdc: "RDC",
+  premier_etage: "1er etage",
   toutes_pieces_climatisees: "Toutes les pieces climatisees",
   jardin_gazon: "Jardin / Gazon",
   terrasse: "Terrasse",
@@ -58,6 +60,7 @@ const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = [
   "climatise",
   "toutes_pieces_climatisees",
   "rdc",
+  "premier_etage",
   "jardin_gazon",
   "terrasse",
   "piscine_privee",
@@ -432,6 +435,10 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   if (option === "piscine_privee") return hasExteriorAny("piscine privee") || hasAny("piscine privee");
   if (option === "piscine_partagee") return hasExteriorAny("piscine partagee", "piscine commune", "piscine collective") || hasAny("piscine partagee", "piscine commune", "piscine collective");
   if (option === "rdc") return String(property?.seasonalConfig?.etage || "").toLowerCase() === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  if (option === "premier_etage") {
+    return String(property?.seasonalConfig?.etage || "").toLowerCase() === "1er etage"
+      || hasAny("1er etage", "1er étage", "premier etage", "premier étage", "1st floor");
+  }
   if (option === "jardin_gazon") return hasExteriorAny("jardin", "gazon", "pelouse", "espace vert") || hasAny("jardin", "gazon", "pelouse", "espace vert");
   if (option === "terrasse") return Boolean(sc?.terrasse) || hasExteriorAny("terrasse") || hasAny("terrasse");
   return false;
@@ -1434,6 +1441,14 @@ export default function PropertiesPage() {
                 || item.includes("ground floor")
               );
           }
+          if (token.includes("1er etage") || token.includes("premier etage") || token.includes("1st floor")) {
+            return String(property.seasonalConfig?.etage || "").toLowerCase() === "1er etage"
+              || normalizedAmenities.some((item) =>
+                item.includes("1er etage")
+                || item.includes("premier etage")
+                || item.includes("1st floor")
+              );
+          }
           if (token.includes("jardin") || token.includes("gazon") || token.includes("pelouse")) {
             return normalizedAmenities.some((item) =>
               item.includes("jardin")
@@ -1774,8 +1789,13 @@ export default function PropertiesPage() {
         const hasComfortFallbackFromBeach = selectedSeasideOptions.includes("pied_dans_eau")
           && !propertyMatchesSeasideOption(property, "pied_dans_eau")
           && matchesPresPlage;
-        const hasComfortAlternative = (selectedComfortOptions.length > 0 && !matchComfort)
-          || hasComfortFallbackFromBeach;
+        const hasComfortFallbackFromRdc = selectedComfortOptions.includes("rdc")
+          && !propertyMatchesComfortOption(property, "rdc")
+          && propertyMatchesComfortOption(property, "premier_etage");
+        const genericComfortAlternative = selectedComfortOptions.length > 0 && !matchComfort;
+        const hasComfortAlternative = selectedComfortOptions.includes("rdc")
+          ? hasComfortFallbackFromRdc || hasComfortFallbackFromBeach
+          : genericComfortAlternative || hasComfortFallbackFromBeach;
         const hasDateRuleAlternative = Boolean(
           hasDateFilter
           && !exactDateAvailable
@@ -1810,6 +1830,7 @@ export default function PropertiesPage() {
           hasTypeAlternative32,
           hasComfortAlternative,
           hasComfortFallbackFromBeach,
+          hasComfortFallbackFromRdc,
           hasDateRuleAlternative,
           dateRuleType,
           dateFailureReason,
@@ -2128,6 +2149,46 @@ export default function PropertiesPage() {
         ) : null}
         {" -> "}
         <span className="font-semibold text-red-600">{altRegionZone}</span>
+      </p>
+    );
+  };
+  const renderComfortAlternativeLine = (row: any) => {
+    const parts: JSX.Element[] = [];
+    if (row.hasComfortFallbackFromRdc && selectedComfortOptions.includes("rdc")) {
+      parts.push(
+        <span key="rdc-alt">
+          <span className="text-gray-500 line-through">RDC</span>
+          {" -> "}
+          <span className="font-semibold text-red-600">1er etage</span>
+        </span>
+      );
+    }
+    if (row.hasComfortFallbackFromBeach && selectedSeasideOptions.includes("pied_dans_eau")) {
+      parts.push(
+        <span key="beach-alt">
+          <span className="text-gray-500 line-through">Pied dans l'eau</span>
+          {" -> "}
+          <span className="font-semibold text-red-600">Proche de la plage</span>
+        </span>
+      );
+    }
+    if (parts.length > 0) {
+      return (
+        <p>
+          {parts.map((part, index) => (
+            <span key={`comfort-alt-${index}`}>
+              {index > 0 ? <span className="text-gray-400"> | </span> : null}
+              {part}
+            </span>
+          ))}
+        </p>
+      );
+    }
+    return (
+      <p>
+        <span className="text-gray-500 line-through">{requestedComfortLabel}</span>
+        {" -> "}
+        <span className="font-semibold text-red-600">Confort alternatif</span>
       </p>
     );
   };
@@ -2866,13 +2927,7 @@ export default function PropertiesPage() {
                                   </p>
                                 )}
                                 {row.hasComfortAlternative && requestedComfortLabel && (
-                                  <p>
-                                    <span className="text-gray-500 line-through">{requestedComfortLabel}</span>
-                                    {" -> "}
-                                    <span className="font-semibold text-red-600">
-                                      {row.hasComfortFallbackFromBeach ? "Proche de la plage" : "Confort alternatif"}
-                                    </span>
-                                  </p>
+                                  renderComfortAlternativeLine(row)
                                 )}
                                 <p className="text-amber-700">{getStayAvailabilityAlternativeLabel(row.stayDateAlternative) || "Alternative"}</p>
                               </div>
