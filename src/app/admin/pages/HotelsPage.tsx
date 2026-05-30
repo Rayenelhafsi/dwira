@@ -50,6 +50,7 @@ export default function HotelsPage() {
   const [loading, setLoading] = useState(true);
   const [cities, setCities] = useState<HotelCity[]>([]);
   const [selectedCityId, setSelectedCityId] = useState<number | "all">("all");
+  const [hotelNameQuery, setHotelNameQuery] = useState("");
   const [hotels, setHotels] = useState<HotelSummary[]>([]);
   const [globalMarkupPercent, setGlobalMarkupPercent] = useState("0");
   const [rulesByHotelId, setRulesByHotelId] = useState<Record<string, LocalRuleState>>({});
@@ -107,9 +108,13 @@ export default function HotelsPage() {
   }, []);
 
   const filteredHotels = useMemo(() => {
-    if (selectedCityId === "all") return hotels;
-    return hotels.filter((hotel) => Number(hotel?.City?.Id || 0) === Number(selectedCityId));
-  }, [hotels, selectedCityId]);
+    const query = String(hotelNameQuery || "").trim().toLowerCase();
+    return hotels.filter((hotel) => {
+      const byCity = selectedCityId === "all" ? true : Number(hotel?.City?.Id || 0) === Number(selectedCityId);
+      const byName = !query || String(hotel?.Name || "").toLowerCase().includes(query);
+      return byCity && byName;
+    });
+  }, [hotels, selectedCityId, hotelNameQuery]);
 
   const handleChangeCity = async (next: string) => {
     const nextCityId = next === "all" ? "all" : Number(next);
@@ -259,7 +264,7 @@ export default function HotelsPage() {
           </button>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-[1fr,1fr,auto]">
+        <div className="mt-6 grid gap-4 md:grid-cols-[1fr,1fr,1fr,auto]">
           <label className="space-y-2">
             <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
               <Search size={14} />
@@ -277,6 +282,19 @@ export default function HotelsPage() {
                 </option>
               ))}
             </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <Search size={14} />
+              Recherche hotel
+            </span>
+            <input
+              value={hotelNameQuery}
+              onChange={(event) => setHotelNameQuery(event.target.value)}
+              placeholder="Nom de l'hotel"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            />
           </label>
 
           <label className="space-y-2">
