@@ -25,6 +25,26 @@ function toNumberOrNull(value: string): number | null {
   return parsed;
 }
 
+function resolveHotelApiPrice(hotel: HotelSummary): number | null {
+  const candidates = [
+    hotel?.Price?.PriceWithAffiliateMarkup,
+    hotel?.Price?.Price,
+    hotel?.Price?.BasePrice,
+  ];
+  for (const value of candidates) {
+    if (value == null) continue;
+    const parsed = Number(String(value).replace(",", ".").trim());
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function formatMoney(value: number, currency?: string | null) {
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(value)} ${String(currency || "TND").trim() || "TND"}`;
+}
+
 export default function HotelsPage() {
   const [loading, setLoading] = useState(true);
   const [cities, setCities] = useState<HotelCity[]>([]);
@@ -228,6 +248,7 @@ export default function HotelsPage() {
           {filteredHotels.map((hotel) => {
             const hotelId = String(hotel.Id);
             const localRule = rulesByHotelId[hotelId] || { displayedPrice: "", markupPercent: "0" };
+            const apiPrice = resolveHotelApiPrice(hotel);
             return (
               <article key={hotelId} className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
                 <div className="flex items-start gap-3">
@@ -244,6 +265,13 @@ export default function HotelsPage() {
                   </div>
                 </div>
 
+                <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">Prix API</p>
+                  <p className="mt-1 text-sm font-semibold text-sky-900">
+                    {apiPrice == null ? "Non disponible" : formatMoney(apiPrice, hotel.Currency)}
+                  </p>
+                </div>
+
                 <div className="mt-4 space-y-3">
                   <label className="block space-y-1">
                     <span className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">Prix affiche client (optionnel)</span>
@@ -256,7 +284,7 @@ export default function HotelsPage() {
                         }))
                       }
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                      placeholder="Ex: 220"
+                      placeholder={apiPrice == null ? "Ex: 220" : `API: ${apiPrice}`}
                     />
                   </label>
 
