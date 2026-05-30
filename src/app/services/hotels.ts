@@ -307,6 +307,22 @@ export type CreateHotelReservationDemandRequest = {
   hotelContext?: Record<string, unknown> | null;
 };
 
+export type HotelPricingOverride = {
+  hotelId: string;
+  hotelName?: string | null;
+  hotelCityId?: string | null;
+  hotelCityName?: string | null;
+  displayedPrice?: number | null;
+  markupPercent: number;
+  updatedAt?: string | null;
+};
+
+export type HotelPricingRulesResponse = {
+  globalMarkupPercent: number;
+  updatedAt?: string | null;
+  overrides: HotelPricingOverride[];
+};
+
 function buildApiUrl(path: string) {
   const base = String(API_URL || "/api").replace(/\/+$/, "");
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
@@ -485,4 +501,45 @@ export async function saveHotelVoucherLayout(layout: HotelVoucherLayout) {
     body: JSON.stringify(layout),
   });
   return readApiResponse<HotelVoucherLayout>(response);
+}
+
+export async function getAdminHotelPricingRules() {
+  const response = await fetch(buildApiUrl("/admin/hotels/pricing-rules"), {
+    credentials: "include",
+  });
+  return readApiResponse<HotelPricingRulesResponse>(response);
+}
+
+export async function saveAdminHotelGlobalMarkup(globalMarkupPercent: number) {
+  const response = await fetch(buildApiUrl("/admin/hotels/pricing-rules/global"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ globalMarkupPercent }),
+  });
+  return readApiResponse<HotelPricingRulesResponse>(response);
+}
+
+export async function saveAdminHotelPricingOverride(hotelId: string, patch: {
+  hotelName?: string | null;
+  hotelCityId?: string | null;
+  hotelCityName?: string | null;
+  displayedPrice?: number | null;
+  markupPercent?: number;
+}) {
+  const response = await fetch(buildApiUrl(`/admin/hotels/pricing-rules/${encodeURIComponent(String(hotelId).trim())}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(patch),
+  });
+  return readApiResponse<HotelPricingRulesResponse>(response);
+}
+
+export async function deleteAdminHotelPricingOverride(hotelId: string) {
+  const response = await fetch(buildApiUrl(`/admin/hotels/pricing-rules/${encodeURIComponent(String(hotelId).trim())}`), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  return readApiResponse<HotelPricingRulesResponse>(response);
 }

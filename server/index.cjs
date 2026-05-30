@@ -804,6 +804,74 @@ async function ensureHotelReservationDemandSchema() {
   }
 }
 
+async function ensureHotelPricingRulesSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hotel_pricing_settings (
+      id TINYINT PRIMARY KEY,
+      global_markup_percent DECIMAL(7,2) NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hotel_pricing_overrides (
+      hotel_id VARCHAR(80) PRIMARY KEY,
+      hotel_name VARCHAR(255) NULL,
+      hotel_city_id VARCHAR(80) NULL,
+      hotel_city_name VARCHAR(255) NULL,
+      displayed_price DECIMAL(12,2) NULL,
+      markup_percent DECIMAL(7,2) NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL,
+      KEY idx_hotel_pricing_overrides_city (hotel_city_id),
+      KEY idx_hotel_pricing_overrides_updated_at (updated_at)
+    )
+  `);
+
+  const [rows] = await pool.query('SELECT id FROM hotel_pricing_settings WHERE id = 1 LIMIT 1');
+  if (!Array.isArray(rows) || rows.length === 0) {
+    await pool.query(
+      'INSERT INTO hotel_pricing_settings (id, global_markup_percent, updated_at) VALUES (1, 0, ?)',
+      [getAgencySqlDateTime()]
+    );
+  }
+}
+
+async function getHotelPricingRules() {
+  await ensureHotelPricingRulesSchema();
+  const [settingsRows] = await pool.query(
+    `SELECT global_markup_percent, DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_pricing_settings
+      WHERE id = 1
+      LIMIT 1`
+  );
+  const [overrideRows] = await pool.query(
+    `SELECT
+       hotel_id,
+       hotel_name,
+       hotel_city_id,
+       hotel_city_name,
+       displayed_price,
+       markup_percent,
+       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM hotel_pricing_overrides
+     ORDER BY updated_at DESC`
+  );
+  const settings = Array.isArray(settingsRows) && settingsRows[0] ? settingsRows[0] : {};
+  return {
+    globalMarkupPercent: Number(settings.global_markup_percent || 0),
+    updatedAt: settings.updated_at || null,
+    overrides: (Array.isArray(overrideRows) ? overrideRows : []).map((row) => ({
+      hotelId: String(row.hotel_id || '').trim(),
+      hotelName: row.hotel_name || null,
+      hotelCityId: row.hotel_city_id || null,
+      hotelCityName: row.hotel_city_name || null,
+      displayedPrice: row.displayed_price == null ? null : Number(row.displayed_price),
+      markupPercent: Number(row.markup_percent || 0),
+      updatedAt: row.updated_at || null,
+    })),
+  };
+}
+
 const DEFAULT_HOTEL_VOUCHER_LAYOUT = {
   version: 1,
   canvasWidth: 1536,
@@ -3563,6 +3631,84 @@ app.post('/api/hotels/bookings/cancel', async (req, res) => {
       code: error?.code || 'MYGO_HOTEL_ERROR',
       providerCode: error?.providerCode ?? null,
     });
+  }
+});
+
+app.get('/api/admin/hotels/pricing-rules', requireAdminSession, async (req, res) => {
+  try {
+    return res.json(await getHotelPricingRules());
+  } catch (error) {
+    console.error('Error fetching hotel pricing rules:', error);
+    return res.status(500).json({ error: 'Impossible de charger les regles de prix hotels' });
+  }
+});
+
+app.put('/api/admin/hotels/pricing-rules/global', requireAdminSession, express.json({ limit: '200kb' }), async (req, res) => {
+  try {
+    const rawPercent = Number(req.body?.globalMarkupPercent);
+    const nextPercent = Number.isFinite(rawPercent) ? Math.max(-100, Math.min(1000, rawPercent)) : 0;
+    const now = getAgencySqlDateTime();
+    await ensureHotelPricingRulesSchema();
+    await pool.query('UPDATE hotel_pricing_settings SET global_markup_percent = ?, updated_at = ? WHERE id = 1', [nextPercent, now]);
+    return res.json(await getHotelPricingRules());
+  } catch (error) {
+    console.error('Error saving global hotel pricing markup:', error);
+    return res.status(500).json({ error: 'Impossible d enregistrer la majoration globale hotels' });
+  }
+});
+
+app.put('/api/admin/hotels/pricing-rules/:hotelId', requireAdminSession, express.json({ limit: '200kb' }), async (req, res) => {
+  try {
+    const hotelId = String(req.params?.hotelId || '').trim();
+    if (!hotelId) {
+      return res.status(400).json({ error: 'hotelId requis' });
+    }
+    const hotelName = String(req.body?.hotelName || '').trim() || null;
+    const hotelCityId = String(req.body?.hotelCityId || '').trim() || null;
+    const hotelCityName = String(req.body?.hotelCityName || '').trim() || null;
+    const rawDisplayedPrice = req.body?.displayedPrice;
+    const displayedPrice = rawDisplayedPrice === '' || rawDisplayedPrice == null
+      ? null
+      : (() => {
+          const parsed = Number(rawDisplayedPrice);
+          return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+        })();
+    const rawMarkupPercent = Number(req.body?.markupPercent);
+    const markupPercent = Number.isFinite(rawMarkupPercent) ? Math.max(-100, Math.min(1000, rawMarkupPercent)) : 0;
+    const now = getAgencySqlDateTime();
+    await ensureHotelPricingRulesSchema();
+    await pool.query(
+      `INSERT INTO hotel_pricing_overrides (
+         hotel_id, hotel_name, hotel_city_id, hotel_city_name, displayed_price, markup_percent, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         hotel_name = VALUES(hotel_name),
+         hotel_city_id = VALUES(hotel_city_id),
+         hotel_city_name = VALUES(hotel_city_name),
+         displayed_price = VALUES(displayed_price),
+         markup_percent = VALUES(markup_percent),
+         updated_at = VALUES(updated_at)`,
+      [hotelId, hotelName, hotelCityId, hotelCityName, displayedPrice, markupPercent, now]
+    );
+    return res.json(await getHotelPricingRules());
+  } catch (error) {
+    console.error('Error saving hotel pricing override:', error);
+    return res.status(500).json({ error: 'Impossible d enregistrer ce reglage hotel' });
+  }
+});
+
+app.delete('/api/admin/hotels/pricing-rules/:hotelId', requireAdminSession, async (req, res) => {
+  try {
+    const hotelId = String(req.params?.hotelId || '').trim();
+    if (!hotelId) {
+      return res.status(400).json({ error: 'hotelId requis' });
+    }
+    await ensureHotelPricingRulesSchema();
+    await pool.query('DELETE FROM hotel_pricing_overrides WHERE hotel_id = ?', [hotelId]);
+    return res.json(await getHotelPricingRules());
+  } catch (error) {
+    console.error('Error deleting hotel pricing override:', error);
+    return res.status(500).json({ error: 'Impossible de supprimer ce reglage hotel' });
   }
 });
 

@@ -119,6 +119,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     { name: 'Contrats', path: '/admin/contrats', icon: FileText },
     { name: 'Paiements', path: '/admin/paiements', icon: CreditCard },
     { name: 'Amicales', path: '/admin/amicales', icon: Handshake },
+    { name: 'Hotels', path: '/admin/hotels', icon: Hotel },
     { name: 'Reservations hotels', path: '/admin/reservations-hotels', icon: Hotel },
     { name: 'Maintenance', path: '/admin/maintenance', icon: Wrench },
     { name: 'Notifications', path: '/admin/notifications', icon: Bell, badgeCount: notificationAlertCount },
