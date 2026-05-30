@@ -2673,11 +2673,6 @@ export default function PropertiesPage() {
                   <div key={row.property.id} className="space-y-2">
                     <PropertyCard property={row.property} searchParams={searchParams.toString()} />
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-                      <div className="mb-1 grid grid-cols-3 gap-1 text-[11px] text-gray-600">
-                        <span className="rounded-md bg-white px-2 py-1 text-center">Carac: {row.details.amenitiesMatched}</span>
-                        <span className="rounded-md bg-white px-2 py-1 text-center">Onglets: {row.details.tabsMatched}</span>
-                        <span className="rounded-md bg-white px-2 py-1 text-center">Services: {row.details.servicesMatched}</span>
-                      </div>
                       {row.hints.length > 0 && (
                         <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
                       )}

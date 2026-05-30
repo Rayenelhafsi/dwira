@@ -169,7 +169,9 @@ export function getStayAvailabilityAlternativeLabel(alternative: StayAvailabilit
     const delta = Math.max(1, Math.abs(Number(alternative.nightDelta || 1)));
     return `+${delta} nuit${delta > 1 ? "s" : ""}`;
   }
-  return (alternative.shiftDays || 0) > 0 ? "+7 j" : "-7 j";
+  const shift = Number(alternative.shiftDays || 0);
+  const absShift = Math.max(1, Math.abs(shift));
+  return `${shift >= 0 ? "+" : "-"}${absShift} j`;
 }
 
 function buildStayAvailabilityAlternative(
@@ -223,20 +225,24 @@ export function findBestStayRangeAlternative(params: {
 
   const candidateRanges: Array<{ start: string | null; end: string | null }> = [];
 
-  if (maxNightDelta >= 1) {
+  // 1) Try nearest same-duration shifts first in the [-maxShiftDays, +maxShiftDays] window.
+  for (let offset = 1; offset <= maxShiftDays; offset += 1) {
     candidateRanges.push(
-      { start: requestedStart, end: shiftDateOnly(requestedEnd, -1) },
-      { start: shiftDateOnly(requestedStart, 1), end: requestedEnd },
-      { start: shiftDateOnly(requestedStart, -1), end: requestedEnd },
-      { start: requestedStart, end: shiftDateOnly(requestedEnd, 1) }
+      { start: shiftDateOnly(requestedStart, -offset), end: shiftDateOnly(requestedEnd, -offset) },
+      { start: shiftDateOnly(requestedStart, offset), end: shiftDateOnly(requestedEnd, offset) }
     );
   }
 
-  if (maxShiftDays >= 7) {
-    candidateRanges.push(
-      { start: shiftDateOnly(requestedStart, -7), end: shiftDateOnly(requestedEnd, -7) },
-      { start: shiftDateOnly(requestedStart, 7), end: shiftDateOnly(requestedEnd, 7) }
-    );
+  // 2) Then try reduced/extended durations around requested stay.
+  if (maxNightDelta >= 1) {
+    for (let delta = 1; delta <= maxNightDelta; delta += 1) {
+      candidateRanges.push(
+        { start: requestedStart, end: shiftDateOnly(requestedEnd, -delta) },
+        { start: shiftDateOnly(requestedStart, delta), end: requestedEnd },
+        { start: shiftDateOnly(requestedStart, -delta), end: requestedEnd },
+        { start: requestedStart, end: shiftDateOnly(requestedEnd, delta) }
+      );
+    }
   }
 
   for (const candidate of candidateRanges) {
