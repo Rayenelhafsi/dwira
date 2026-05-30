@@ -388,6 +388,12 @@ export default function HotelsPage() {
             const searchedApiCurrency = apiPricesByHotelId[hotelId]?.currency;
             const apiPrice = searchedApiPrice ?? listPrice;
             const apiCurrency = searchedApiCurrency ?? hotel.Currency;
+            const globalPct = Number(globalMarkupPercent || 0);
+            const hotelPct = Number(localRule.markupPercent || 0);
+            const basePrice = apiPrice;
+            const fallbackComputedFinal = basePrice == null ? null : Math.round(basePrice * (1 + ((globalPct + hotelPct) / 100)) * 100) / 100;
+            const displayedPriceOverride = toNumberOrNull(localRule.displayedPrice);
+            const finalPrice = displayedPriceOverride ?? fallbackComputedFinal;
             return (
               <article key={hotelId} className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
                 <div className="flex items-start gap-3">
@@ -409,6 +415,13 @@ export default function HotelsPage() {
                   <p className="mt-1 text-sm font-semibold text-sky-900">
                     {apiPrice == null ? "Non disponible" : formatMoney(apiPrice, apiCurrency)}
                   </p>
+                </div>
+
+                <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  <p><span className="font-semibold">Prix base:</span> {basePrice == null ? "Non disponible" : formatMoney(basePrice, apiCurrency)}</p>
+                  <p><span className="font-semibold">Majoration globale:</span> {globalPct}%</p>
+                  <p><span className="font-semibold">Majoration hotel:</span> {hotelPct}%</p>
+                  <p><span className="font-semibold">Prix final:</span> {finalPrice == null ? "Non disponible" : formatMoney(finalPrice, apiCurrency)}</p>
                 </div>
 
                 <div className="mt-4 space-y-3">

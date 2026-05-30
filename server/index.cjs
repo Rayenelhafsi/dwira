@@ -872,6 +872,72 @@ async function getHotelPricingRules() {
   };
 }
 
+function parseHotelNumericPrice(value) {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const parsed = Number(String(value).replace(',', '.').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roundHotelPrice(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function applyHotelMarkupToPriceTree(node, factor) {
+  if (!node || typeof node !== 'object') return node;
+  if (Array.isArray(node)) return node.map((entry) => applyHotelMarkupToPriceTree(entry, factor));
+  const result = { ...node };
+  for (const [key, rawValue] of Object.entries(result)) {
+    if (rawValue && typeof rawValue === 'object') {
+      result[key] = applyHotelMarkupToPriceTree(rawValue, factor);
+      continue;
+    }
+    if (!['Price', 'BasePrice', 'PriceWithAffiliateMarkup'].includes(key)) continue;
+    const numeric = parseHotelNumericPrice(rawValue);
+    if (numeric == null) continue;
+    result[key] = roundHotelPrice(numeric * factor);
+  }
+  return result;
+}
+
+function resolveHotelIdFromPayload(hotel) {
+  const rawId = hotel?.Id ?? hotel?.id ?? hotel?.Hotel ?? null;
+  return String(rawId == null ? '' : rawId).trim();
+}
+
+function applyHotelPricingRulesToHotel(hotel, pricingRules) {
+  if (!hotel || typeof hotel !== 'object') return hotel;
+  const hotelId = resolveHotelIdFromPayload(hotel);
+  const overrides = Array.isArray(pricingRules?.overrides) ? pricingRules.overrides : [];
+  const override = overrides.find((entry) => String(entry?.hotelId || '').trim() === hotelId) || null;
+  const globalPercent = Number(pricingRules?.globalMarkupPercent || 0);
+  const specificPercent = Number(override?.markupPercent || 0);
+  const factor = 1 + ((globalPercent + specificPercent) / 100);
+  const safeFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+  const cloned = { ...hotel };
+  if (cloned.Price && typeof cloned.Price === 'object') {
+    cloned.Price = applyHotelMarkupToPriceTree(cloned.Price, safeFactor);
+  }
+  if (override && override.displayedPrice != null) {
+    const fixed = parseHotelNumericPrice(override.displayedPrice);
+    if (fixed != null) {
+      const nextPrice = cloned.Price && typeof cloned.Price === 'object' ? { ...cloned.Price } : {};
+      nextPrice.Price = roundHotelPrice(fixed);
+      nextPrice.PriceWithAffiliateMarkup = roundHotelPrice(fixed);
+      if (nextPrice.BasePrice == null) {
+        nextPrice.BasePrice = roundHotelPrice(fixed);
+      }
+      cloned.Price = nextPrice;
+    }
+  }
+  return cloned;
+}
+
+function applyHotelPricingRulesToHotels(hotels, pricingRules) {
+  if (!Array.isArray(hotels)) return [];
+  return hotels.map((hotel) => applyHotelPricingRulesToHotel(hotel, pricingRules));
+}
+
 const DEFAULT_HOTEL_VOUCHER_LAYOUT = {
   version: 1,
   canvasWidth: 1536,
@@ -3460,8 +3526,9 @@ app.get('/api/hotels/list', async (req, res) => {
   try {
     const cityId = Number(req.query?.cityId || 0);
     const payload = await callMyGoHotelService('ListHotel', cityId > 0 ? { City: cityId } : {});
+    const pricingRules = await getHotelPricingRules();
     return res.json({
-      hotels: extractMyGoHotelData(payload, 'ListHotel'),
+      hotels: applyHotelPricingRulesToHotels(extractMyGoHotelData(payload, 'ListHotel'), pricingRules),
       countResults: Number(payload?.CountResults || 0),
     });
   } catch (error) {
@@ -3524,8 +3591,9 @@ app.post('/api/hotels/search', async (req, res) => {
       },
     });
 
+    const pricingRules = await getHotelPricingRules();
     return res.json({
-      hotels: normalizeMyGoHotelSearchResults(payload),
+      hotels: applyHotelPricingRulesToHotels(normalizeMyGoHotelSearchResults(payload), pricingRules),
       countResults: Number(payload?.CountResults || 0),
     });
   } catch (error) {
@@ -4215,7 +4283,8 @@ app.get('/api/hotels/:id', async (req, res) => {
     }
 
     const payload = await callMyGoHotelService('HotelDetail', { Hotel: hotelId });
-    const hotel = extractMyGoHotelData(payload, 'HotelDetail')[0] || null;
+    const pricingRules = await getHotelPricingRules();
+    const hotel = applyHotelPricingRulesToHotel(extractMyGoHotelData(payload, 'HotelDetail')[0] || null, pricingRules);
     if (!hotel) {
       return res.status(404).json({
         error: 'Hotel introuvable.',
