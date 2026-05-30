@@ -123,6 +123,7 @@ export default function HotelDetailsPage() {
   const [passkeyPromptEmail, setPasskeyPromptEmail] = useState("");
   const [passkeyPromptName, setPasskeyPromptName] = useState("");
   const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
+  const [hasAutoOpenedReserve, setHasAutoOpenedReserve] = useState(false);
   const [profilePromptForm, setProfilePromptForm] = useState({
     firstName: "",
     lastName: "",
@@ -221,7 +222,17 @@ export default function HotelDetailsPage() {
     [hotel]
   );
   const practicalNote = useMemo(() => renderHotelRichText(hotel?.Note || ""), [hotel]);
-  const roomOffers = useMemo(() => flattenHotelRoomOffers(searchHotel), [searchHotel]);
+  const preferredBoardingId = Math.max(0, Number(searchParams.get("boardingId") || 0) || 0);
+  const shouldAutoOpenReserve = String(searchParams.get("reserve") || "") === "1";
+  const roomOffers = useMemo(() => {
+    const offers = flattenHotelRoomOffers(searchHotel);
+    if (preferredBoardingId <= 0) return offers;
+    return [...offers].sort((a, b) => {
+      const aScore = Number(Number(a.boardingId || 0) === preferredBoardingId);
+      const bScore = Number(Number(b.boardingId || 0) === preferredBoardingId);
+      return bScore - aScore;
+    });
+  }, [searchHotel, preferredBoardingId]);
   const activeRequestOffer = requestOfferIndex !== null ? roomOffers[requestOfferIndex] || null : null;
   const mapsLink = useMemo(() => buildMapsLink(hotel), [hotel]);
   const backHref = searchParams.toString() ? `/hotels?${searchParams.toString()}` : "/hotels";
@@ -302,6 +313,15 @@ export default function HotelDetailsPage() {
     clearPendingHotelDraft();
     setRequestOfferIndex(offerIndex);
   };
+  useEffect(() => {
+    if (!shouldAutoOpenReserve || hasAutoOpenedReserve || roomOffers.length === 0 || requestOfferIndex !== null) return;
+    const preferredIndex = preferredBoardingId > 0
+      ? roomOffers.findIndex((offer) => Number(offer.boardingId || 0) === preferredBoardingId)
+      : 0;
+    const targetIndex = preferredIndex >= 0 ? preferredIndex : 0;
+    setHasAutoOpenedReserve(true);
+    openReservationRequest(targetIndex);
+  }, [shouldAutoOpenReserve, hasAutoOpenedReserve, roomOffers, requestOfferIndex, preferredBoardingId]);
 
   const submitHotelReservationDemand = async () => {
     if (!user || !hotel || !activeRequestOffer) {
