@@ -265,11 +265,20 @@ const extractSelectedLocationRegionZone = (value: string): { region: string; zon
   const single = parts[0] || normalizeFeatureName(value);
   return { region: single, zone: single };
 };
+const extractSelectedGovernorate = (value: string): string => {
+  const parts = String(value || "").split("/").map((item) => normalizeFeatureName(item)).filter(Boolean);
+  if (parts.length >= 2) return parts[0];
+  return parts[0] || "";
+};
 const getPropertyRegionZone = (property: any): { region: string; zone: string } => {
   const h = property?.filterProfile?.locationHierarchy || {};
   const region = normalizeFeatureName(h?.region || h?.gouvernerat || h?.pays || property?.filterProfile?.locationLabel || property?.location || "");
   const zone = normalizeFeatureName(h?.quartier || h?.zone || property?.filterProfile?.locationLabel || property?.location || "");
   return { region, zone };
+};
+const getPropertyGovernorate = (property: any): string => {
+  const h = property?.filterProfile?.locationHierarchy || {};
+  return normalizeFeatureName(h?.gouvernerat || "");
 };
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
@@ -1322,11 +1331,20 @@ export default function PropertiesPage() {
       .filter(Boolean)
       .map((value) => getCanonicalSubTypeKey(value))
       .filter(Boolean);
+    const selectedGovernorates = new Set(
+      selectedLocations
+        .map((value) => extractSelectedGovernorate(value))
+        .filter(Boolean)
+    );
 
     const rows = properties
       .filter((property) => {
         const mode = property.mode || "location_saisonniere";
-        return mode === selectedMode;
+        if (mode !== selectedMode) return false;
+        if (selectedGovernorates.size === 0) return true;
+        const propertyGovernorate = getPropertyGovernorate(property);
+        if (!propertyGovernorate) return false;
+        return selectedGovernorates.has(propertyGovernorate);
       })
       .map((property) => {
         const sourceBien = bienById.get(String(property.id));
