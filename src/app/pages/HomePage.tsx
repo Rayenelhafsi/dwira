@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent } from "lucide-react";
+import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
@@ -8,7 +8,7 @@ import logo from "../../../logo dwira.jpg";
 import titaTravelLogo from "../../../logo Tita travel.jpg";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
-import { getHotelConfig, listHotelCities, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
+import { getHotelConfig, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
 import { extractHotelMinPrice, flattenHotelRoomOffers, formatHotelStarLabel, getHotelCardDescription, pickHotelDisplayedPrice } from "../utils/hotelHelpers";
 import { 
   format, 
@@ -354,15 +354,8 @@ function buildDefaultHotelSearch() {
     checkIn: checkIn.toISOString().slice(0, 10),
     checkOut: checkOut.toISOString().slice(0, 10),
     adults: 2,
-    childAgesText: "",
+    childAges: [] as number[],
   };
-}
-
-function parseHotelChildAges(value: string) {
-  return String(value || "")
-    .split(",")
-    .map((item) => Number(item.trim()))
-    .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
 }
 
 function formatHotelPrice(value: number | null) {
@@ -477,11 +470,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [hotelResults, setHotelResults] = useState<HotelSummary[]>([]);
   const [loadingHotelCities, setLoadingHotelCities] = useState(false);
   const [loadingHotelResults, setLoadingHotelResults] = useState(false);
+  const [loadingHotelsByCity, setLoadingHotelsByCity] = useState(false);
   const [hotelCityId, setHotelCityId] = useState<number>(() => Number(searchParams.get("cityId") || 0) || 0);
+  const [hotelDestinationQuery, setHotelDestinationQuery] = useState(() => searchParams.get("q") || "");
+  const [hotelDestinationOpen, setHotelDestinationOpen] = useState(false);
   const [hotelCheckIn, setHotelCheckIn] = useState(() => searchParams.get("checkIn") || hotelDefaults.checkIn);
   const [hotelCheckOut, setHotelCheckOut] = useState(() => searchParams.get("checkOut") || hotelDefaults.checkOut);
   const [hotelAdults, setHotelAdults] = useState(() => Math.max(1, Number(searchParams.get("adults") || hotelDefaults.adults)));
-  const [hotelChildAgesText, setHotelChildAgesText] = useState(() => searchParams.get("children") || hotelDefaults.childAgesText);
+  const [hotelChildAges, setHotelChildAges] = useState<number[]>(() => {
+    const parsed = String(searchParams.get("children") || "")
+      .split(",")
+      .map((item) => Number(item.trim()))
+      .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
+    return parsed.length > 0 ? parsed : hotelDefaults.childAges;
+  });
+  const [hotelsByCity, setHotelsByCity] = useState<HotelSummary[]>([]);
+  const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
   const applyAmicaleParam = (params: URLSearchParams) => {
     if (activeAmicaleId) {
@@ -508,6 +512,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const selectedHotelCity = useMemo(
     () => hotelCities.find((item) => Number(item.Id) === Number(hotelCityId)) || null,
     [hotelCities, hotelCityId]
+  );
+  const hotelDestinationNeedle = String(hotelDestinationQuery || "").trim().toLowerCase();
+  const filteredHotelCities = useMemo(
+    () => hotelCities.filter((city) => !hotelDestinationNeedle || String(city.Name || "").toLowerCase().includes(hotelDestinationNeedle)).slice(0, 12),
+    [hotelCities, hotelDestinationNeedle]
+  );
+  const filteredHotelsByCity = useMemo(
+    () => hotelsByCity.filter((hotel) => !hotelDestinationNeedle || String(hotel.Name || "").toLowerCase().includes(hotelDestinationNeedle)).slice(0, 12),
+    [hotelsByCity, hotelDestinationNeedle]
   );
   const hotelPublicErrorMessage = hotelProviderError ? getClientFacingHotelError(hotelProviderError) : "";
   const sortedHotelResults = useMemo(
@@ -1046,6 +1059,36 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setCheckIn(firstRange.start ? parseISO(firstRange.start) : null);
     setCheckOut(firstRange.end ? parseISO(firstRange.end) : null);
   }, []);
+
+  useEffect(() => {
+    const selected = hotelCities.find((item) => Number(item.Id) === Number(hotelCityId));
+    if (selected && !hotelDestinationQuery.trim()) {
+      setHotelDestinationQuery(selected.Name);
+    }
+  }, [hotelCities, hotelCityId, hotelDestinationQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!hotelCityId) {
+      setHotelsByCity([]);
+      setLoadingHotelsByCity(false);
+      return;
+    }
+    setLoadingHotelsByCity(true);
+    void (async () => {
+      try {
+        const rows = await listHotels(hotelCityId);
+        if (!cancelled) setHotelsByCity(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setHotelsByCity([]);
+      } finally {
+        if (!cancelled) setLoadingHotelsByCity(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hotelCityId]);
   useEffect(() => {
     if (selectedLocations.length === 0) {
       setLocation("");
@@ -1252,7 +1295,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   };
 
   const runHotelSearch = async (options?: { replace?: boolean; scroll?: boolean }) => {
-    const nextChildAges = parseHotelChildAges(hotelChildAgesText);
+    const nextChildAges = [...hotelChildAges];
+    const keywords = hotelDestinationQuery.trim();
     setHasSearched(true);
     setLoadingHotelResults(true);
     setHotelProviderError("");
@@ -1264,6 +1308,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         checkOut: hotelCheckOut,
         adults: hotelAdults,
         childAges: nextChildAges,
+        keywords: keywords || undefined,
         onlyAvailable: true,
       });
       setHotelResults(hotels);
@@ -1285,6 +1330,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       nextParams.set("adults", String(hotelAdults));
       if (nextChildAges.length > 0) nextParams.set("children", nextChildAges.join(","));
       else nextParams.delete("children");
+      if (keywords) nextParams.set("q", keywords);
+      else nextParams.delete("q");
       setSearchParams(nextParams, { replace: Boolean(options?.replace) });
 
       if (options?.scroll !== false) {
@@ -1560,31 +1607,71 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               {isHotelMode ? (
                 <>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-                    <label className="md:col-span-4">
+                    <div className="relative md:col-span-4">
                       <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                         <MapPin size={16} className="text-sky-600" />
-                        Ville
+                        Destination
                       </span>
-                      <select
-                        value={hotelCityId}
-                        onChange={(event) => setHotelCityId(Number(event.target.value) || 0)}
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-                        disabled={loadingHotelCities}
+                      <button
+                        type="button"
+                        onClick={() => setHotelDestinationOpen((prev) => !prev)}
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:bg-white"
                       >
-                        <option value={0}>{loadingHotelCities ? "Chargement des villes..." : "Choisir une ville"}</option>
-                        {hotelCities.map((city) => (
-                          <option key={city.Id} value={city.Id}>
-                            {city.Name}
-                            {city.Region ? ` - ${city.Region}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                        {hotelDestinationQuery.trim() || selectedHotelCity?.Name || "Ville ou nom hotel"}
+                      </button>
+                      {hotelDestinationOpen && (
+                        <div className="absolute left-0 right-0 top-[84px] z-30 max-h-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl">
+                          <div className="border-b border-slate-200 p-3">
+                            <div className="flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2">
+                              <Search size={16} className="text-slate-500" />
+                              <input
+                                value={hotelDestinationQuery}
+                                onChange={(event) => setHotelDestinationQuery(event.target.value)}
+                                placeholder="ex. ville, nom hotel"
+                                className="w-full border-0 bg-transparent text-sm outline-none"
+                              />
+                            </div>
+                          </div>
+                          {filteredHotelCities.map((city) => (
+                            <button
+                              key={`home-hotel-city-${city.Id}`}
+                              type="button"
+                              onClick={() => {
+                                setHotelCityId(city.Id);
+                                setHotelDestinationQuery(city.Name);
+                                setHotelDestinationOpen(false);
+                              }}
+                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left hover:bg-slate-50"
+                            >
+                              <MapPin size={14} className="text-slate-500" />
+                              <span className="text-sm font-medium text-slate-800">{city.Name}</span>
+                            </button>
+                          ))}
+                          {hotelCityId > 0 && filteredHotelsByCity.map((hotel) => (
+                            <button
+                              key={`home-hotel-name-${hotel.Id}`}
+                              type="button"
+                              onClick={() => {
+                                setHotelDestinationQuery(hotel.Name);
+                                setHotelDestinationOpen(false);
+                              }}
+                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left hover:bg-slate-50"
+                            >
+                              <BedDouble size={14} className="text-slate-500" />
+                              <span className="text-sm font-medium text-slate-800">{hotel.Name}</span>
+                            </button>
+                          ))}
+                          {(loadingHotelCities || loadingHotelsByCity) && (
+                            <div className="px-3 py-3 text-xs text-slate-500">Chargement...</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
                     <label className="md:col-span-2">
                       <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                         <Calendar size={16} className="text-sky-600" />
-                        Arrivée
+                        Arrivee
                       </span>
                       <input
                         type="date"
@@ -1597,7 +1684,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <label className="md:col-span-2">
                       <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                         <Calendar size={16} className="text-sky-600" />
-                        Départ
+                        Depart
                       </span>
                       <input
                         type="date"
@@ -1607,35 +1694,73 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       />
                     </label>
 
-                    <label className="md:col-span-2">
+                    <div className="md:col-span-2">
                       <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                         <Users size={16} className="text-sky-600" />
-                        Adultes
+                        Voyageurs
                       </span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={8}
-                        value={hotelAdults}
-                        onChange={(event) => setHotelAdults(Math.max(1, Number(event.target.value) || 1))}
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-                      />
-                    </label>
+                      <button
+                        type="button"
+                        onClick={() => setHotelTravellersOpen((prev) => !prev)}
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:bg-white"
+                      >
+                        {hotelAdults} adultes - {hotelChildAges.length} enfants
+                      </button>
+                    </div>
 
-                    <label className="md:col-span-2">
+                    <div className="md:col-span-2">
                       <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                         <BedDouble size={16} className="text-sky-600" />
-                        Âges enfants
+                        Ages enfants
                       </span>
-                      <input
-                        type="text"
-                        value={hotelChildAgesText}
-                        onChange={(event) => setHotelChildAgesText(event.target.value)}
-                        placeholder="Ex: 4,8"
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-                      />
-                    </label>
+                      <div className="h-14 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 flex items-center">
+                        {hotelChildAges.length > 0 ? hotelChildAges.map((age) => `${age}`).join(", ") : "Aucun"}
+                      </div>
+                    </div>
                   </div>
+
+                  {hotelTravellersOpen && (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-slate-900">Adultes</p>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => setHotelAdults((prev) => Math.max(1, prev - 1))} className="rounded-lg border border-slate-300 p-2"><Minus size={14} /></button>
+                          <span className="w-6 text-center font-semibold">{hotelAdults}</span>
+                          <button type="button" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))} className="rounded-lg border border-slate-300 p-2"><Plus size={14} /></button>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <p className="text-sm font-semibold text-slate-900">Enfants</p>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => setHotelChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))} className="rounded-lg border border-slate-300 p-2"><Minus size={14} /></button>
+                          <span className="w-6 text-center font-semibold">{hotelChildAges.length}</span>
+                          <button type="button" onClick={() => setHotelChildAges((prev) => [...prev, 0])} className="rounded-lg border border-slate-300 p-2"><Plus size={14} /></button>
+                        </div>
+                      </div>
+                      {hotelChildAges.length > 0 && (
+                        <div className="mt-3 grid gap-2 md:grid-cols-3">
+                          {hotelChildAges.map((age, index) => (
+                            <label key={`home-child-age-${index}`} className="text-xs text-slate-600">
+                              Age enfant {index + 1}
+                              <select
+                                value={age}
+                                onChange={(event) => setHotelChildAges((prev) => {
+                                  const next = [...prev];
+                                  next[index] = Number(event.target.value) || 0;
+                                  return next;
+                                })}
+                                className="mt-1 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                              >
+                                {Array.from({ length: 18 }).map((_, ageOption) => (
+                                  <option key={`home-age-opt-${index}-${ageOption}`} value={ageOption}>{ageOption} ans</option>
+                                ))}
+                              </select>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
                     <div className="text-sm text-slate-500">
@@ -2673,7 +2798,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     detailParams.set("checkIn", hotelCheckIn);
                     detailParams.set("checkOut", hotelCheckOut);
                     detailParams.set("adults", String(hotelAdults));
-                    const childAges = parseHotelChildAges(hotelChildAgesText);
+                    const childAges = hotelChildAges;
                     if (childAges.length > 0) detailParams.set("children", childAges.join(","));
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
 
