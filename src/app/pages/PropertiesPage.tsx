@@ -1814,14 +1814,20 @@ export default function PropertiesPage() {
         && row.score >= threshold
         && (!hasDateFilter || row.exactDateAvailable)
     );
+    const hasExplicitTypeFilter = selectedMainTypes.length > 0 || selectedSubTypeKeys.length > 0;
     const alternatives = rows.filter((row) => {
       const hasNonDateAlternative = Boolean(
         row.hasLocationAlternative
         || row.hasTypeAlternative31
         || row.hasTypeAlternative32
         || row.hasComfortAlternative
-        || !row.strictTypeMatch
+        || (!hasExplicitTypeFilter && !row.strictTypeMatch)
       );
+      // When type filter is set, never allow broad type drift in alternatives.
+      // Only keep type alternatives that respect configured margins/rules.
+      if (hasExplicitTypeFilter && !row.strictTypeMatch && !row.hasTypeAlternative31 && !row.hasTypeAlternative32) {
+        return false;
+      }
       if (hasDateFilter) {
         const hasDateAlternative = row.hasDateRuleAlternative;
         const hasNonDateAlternativeWithExactDates = row.exactDateAvailable && hasNonDateAlternative;
