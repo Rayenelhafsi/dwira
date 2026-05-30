@@ -1620,7 +1620,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         {hotelDestinationQuery.trim() || selectedHotelCity?.Name || "Ville ou nom hotel"}
                       </button>
                       {hotelDestinationOpen && (
-                        <div className="absolute left-0 right-0 top-[84px] z-30 max-h-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl">
+                        <div className="absolute left-0 right-0 top-[84px] z-30 hidden max-h-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl md:block">
                           <div className="border-b border-slate-200 p-3">
                             <div className="flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2">
                               <Search size={16} className="text-slate-500" />
@@ -1720,7 +1720,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   </div>
 
                   {hotelTravellersOpen && (
-                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mt-4 hidden rounded-2xl border border-slate-200 bg-slate-50 p-4 md:block">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-slate-900">Adultes</p>
                         <div className="flex items-center gap-2">
@@ -1759,6 +1759,117 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           ))}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {hotelDestinationOpen && (
+                    <div className="fixed inset-0 z-[120] bg-white md:hidden">
+                      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
+                        <h3 className="text-2xl font-semibold text-slate-900">Indiquez la destination</h3>
+                        <button type="button" onClick={() => setHotelDestinationOpen(false)} className="rounded-full p-2 text-slate-700">
+                          <X size={26} />
+                        </button>
+                      </div>
+                      <div className="border-b border-slate-200 p-4">
+                        <div className="flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-3">
+                          <Search size={18} className="text-slate-500" />
+                          <input
+                            value={hotelDestinationQuery}
+                            onChange={(event) => setHotelDestinationQuery(event.target.value)}
+                            placeholder="ex. ville, nom hotel"
+                            className="w-full border-0 bg-transparent text-base outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-[calc(100vh-130px)] overflow-y-auto">
+                        {filteredHotelCities.map((city) => (
+                          <button
+                            key={`mobile-home-hotel-city-${city.Id}`}
+                            type="button"
+                            onClick={() => {
+                              setHotelCityId(city.Id);
+                              setHotelDestinationQuery(city.Name);
+                              setHotelDestinationOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-4 text-left"
+                          >
+                            <MapPin size={18} className="text-slate-500" />
+                            <div>
+                              <p className="text-base font-semibold text-slate-900">{city.Name}</p>
+                              <p className="text-sm text-slate-500">Tunisie</p>
+                            </div>
+                          </button>
+                        ))}
+                        {hotelCityId > 0 && filteredHotelsByCity.map((hotel) => (
+                          <button
+                            key={`mobile-home-hotel-name-${hotel.Id}`}
+                            type="button"
+                            onClick={() => {
+                              setHotelDestinationQuery(hotel.Name);
+                              setHotelDestinationOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-4 text-left"
+                          >
+                            <BedDouble size={18} className="text-slate-500" />
+                            <div>
+                              <p className="text-base font-semibold text-slate-900">{hotel.Name}</p>
+                              <p className="text-sm text-slate-500">{selectedHotelCity?.Name || "Hotel"}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {hotelTravellersOpen && (
+                    <div className="fixed inset-0 z-[120] bg-white p-5 md:hidden">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-2xl font-semibold text-slate-900">Voyageurs</h3>
+                        <button type="button" onClick={() => setHotelTravellersOpen(false)} className="rounded-full p-2 text-slate-700">
+                          <X size={26} />
+                        </button>
+                      </div>
+                      <div className="space-y-5">
+                        <div className="flex items-center justify-between">
+                          <p className="text-3xl font-medium text-slate-900">Adultes</p>
+                          <div className="flex items-center gap-3 rounded-lg border border-slate-300 px-4 py-2">
+                            <button type="button" onClick={() => setHotelAdults((prev) => Math.max(1, prev - 1))}><Minus size={20} /></button>
+                            <span className="w-8 text-center text-xl font-semibold">{hotelAdults}</span>
+                            <button type="button" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))}><Plus size={20} /></button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <p className="text-3xl font-medium text-slate-900">Enfants</p>
+                          <div className="flex items-center gap-3 rounded-lg border border-slate-300 px-4 py-2">
+                            <button type="button" onClick={() => setHotelChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))}><Minus size={20} /></button>
+                            <span className="w-8 text-center text-xl font-semibold">{hotelChildAges.length}</span>
+                            <button type="button" onClick={() => setHotelChildAges((prev) => [...prev, 0])}><Plus size={20} /></button>
+                          </div>
+                        </div>
+                        {hotelChildAges.length > 0 && (
+                          <div className="space-y-3">
+                            <p className="text-lg font-semibold text-slate-900">Age des enfants (obligatoire)</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              {hotelChildAges.map((age, index) => (
+                                <select
+                                  key={`mobile-home-age-${index}`}
+                                  value={age}
+                                  onChange={(event) => setHotelChildAges((prev) => {
+                                    const next = [...prev];
+                                    next[index] = Number(event.target.value) || 0;
+                                    return next;
+                                  })}
+                                  className="h-12 rounded-xl border border-red-300 bg-white px-3 text-base"
+                                >
+                                  {Array.from({ length: 18 }).map((_, ageOption) => (
+                                    <option key={`mobile-age-opt-${index}-${ageOption}`} value={ageOption}>{ageOption} ans</option>
+                                  ))}
+                                </select>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
