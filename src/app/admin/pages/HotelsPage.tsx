@@ -264,7 +264,7 @@ export default function HotelsPage() {
           </button>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-[1fr,1fr,1fr,auto]">
+        <div className="mt-6 grid gap-4 md:grid-cols-[1fr,320px,220px,auto]">
           <label className="space-y-2">
             <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
               <Search size={14} />

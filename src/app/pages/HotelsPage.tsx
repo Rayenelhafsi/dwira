@@ -4,10 +4,15 @@ import {
   AlertCircle,
   BedDouble,
   CalendarDays,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   ExternalLink,
   LoaderCircle,
   MapPin,
+  Minus,
+  Plus,
+  X,
   Search,
   ShieldCheck,
   ShieldX,
@@ -17,7 +22,7 @@ import {
   Users,
 } from "lucide-react";
 import { SmartImage } from "../components/SmartImage";
-import { getHotelConfig, listHotelCities, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
+import { getHotelConfig, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
 import {
   extractHotelBoardingNames,
   extractHotelMinPrice,
@@ -45,15 +50,8 @@ function buildDefaultSearch() {
     checkIn: toDateInputValue(checkIn),
     checkOut: toDateInputValue(checkOut),
     adults: 2,
-    childAgesText: "",
+    childAges: [] as number[],
   };
-}
-
-function parseChildAges(value: string) {
-  return String(value || "")
-    .split(",")
-    .map((item) => Number(item.trim()))
-    .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
 }
 
 function formatPrice(value: number | null) {
@@ -113,10 +111,21 @@ export default function HotelsPage() {
   const [loadingResults, setLoadingResults] = useState(false);
   const [hasSearched, setHasSearched] = useState(initialHasSearchParams);
   const [cityId, setCityId] = useState<number>(() => Number(searchParams.get("cityId") || 0) || 0);
+  const [destinationQuery, setDestinationQuery] = useState("");
+  const [destinationOpen, setDestinationOpen] = useState(false);
+  const [travellersOpen, setTravellersOpen] = useState(false);
+  const [cityHotels, setCityHotels] = useState<HotelSummary[]>([]);
+  const [loadingCityHotels, setLoadingCityHotels] = useState(false);
   const [checkIn, setCheckIn] = useState(() => searchParams.get("checkIn") || defaults.checkIn);
   const [checkOut, setCheckOut] = useState(() => searchParams.get("checkOut") || defaults.checkOut);
   const [adults, setAdults] = useState(() => Math.max(1, Number(searchParams.get("adults") || defaults.adults)));
-  const [childAgesText, setChildAgesText] = useState(() => searchParams.get("children") || defaults.childAgesText);
+  const [childAges, setChildAges] = useState<number[]>(() => {
+    const parsed = String(searchParams.get("children") || "")
+      .split(",")
+      .map((item) => Number(item.trim()))
+      .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
+    return parsed.length > 0 ? parsed : defaults.childAges;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -163,7 +172,8 @@ export default function HotelsPage() {
   }, []);
 
   const runSearch = async (options?: { replace?: boolean }) => {
-    const nextChildAges = parseChildAges(childAgesText);
+    const nextChildAges = [...childAges];
+    const keywords = destinationQuery.trim();
     setHasSearched(true);
     setLoadingResults(true);
     setProviderError("");
@@ -175,6 +185,7 @@ export default function HotelsPage() {
         checkOut,
         adults,
         childAges: nextChildAges,
+        keywords: keywords || undefined,
         onlyAvailable: true,
       });
       setResults(hotels);
@@ -185,6 +196,7 @@ export default function HotelsPage() {
       nextParams.set("checkOut", checkOut);
       nextParams.set("adults", String(adults));
       if (nextChildAges.length > 0) nextParams.set("children", nextChildAges.join(","));
+      if (keywords) nextParams.set("q", keywords);
       setSearchParams(nextParams, { replace: Boolean(options?.replace) });
     } catch (error) {
       setResults([]);
@@ -202,7 +214,47 @@ export default function HotelsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCities]);
 
+  useEffect(() => {
+    const selected = cities.find((item) => Number(item.Id) === Number(cityId));
+    if (selected && !destinationQuery.trim()) {
+      setDestinationQuery(selected.Name);
+    }
+  }, [cities, cityId, destinationQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!cityId) {
+      setCityHotels([]);
+      setLoadingCityHotels(false);
+      return;
+    }
+    setLoadingCityHotels(true);
+    void (async () => {
+      try {
+        const hotels = await listHotels(cityId);
+        if (!cancelled) setCityHotels(Array.isArray(hotels) ? hotels : []);
+      } catch {
+        if (!cancelled) setCityHotels([]);
+      } finally {
+        if (!cancelled) setLoadingCityHotels(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cityId]);
+
   const selectedCity = cities.find((item) => Number(item.Id) === Number(cityId)) || null;
+  const childrenCount = childAges.length;
+  const destinationNeedle = destinationQuery.trim().toLowerCase();
+  const matchingCities = useMemo(
+    () => cities.filter((city) => !destinationNeedle || String(city.Name || "").toLowerCase().includes(destinationNeedle)).slice(0, 12),
+    [cities, destinationNeedle]
+  );
+  const matchingHotelsInCity = useMemo(
+    () => cityHotels.filter((hotel) => !destinationNeedle || String(hotel.Name || "").toLowerCase().includes(destinationNeedle)).slice(0, 12),
+    [cityHotels, destinationNeedle]
+  );
   const publicErrorMessage = providerError ? getClientFacingHotelError(providerError) : "";
   const sortedResults = useMemo(
     () => [...results].sort((left, right) => {
@@ -252,28 +304,32 @@ export default function HotelsPage() {
       <section className="container mx-auto -mt-12 px-4 pb-12 md:px-6">
         <div className="rounded-[32px] border border-white/70 bg-white/95 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur md:p-6">
           <div className="grid gap-4 md:grid-cols-12">
-            <label className="md:col-span-4">
-              <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <button
+              type="button"
+              onClick={() => setDestinationOpen(true)}
+              className="md:col-span-4 h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:bg-white hover:border-sky-300"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <MapPin size={16} className="text-sky-600" />
-                Ville
+                {destinationQuery.trim() || selectedCity?.Name || "Ville ou nom hotel"}
               </span>
-              <select
-                value={cityId}
-                onChange={(event) => setCityId(Number(event.target.value) || 0)}
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-                disabled={loadingCities}
-              >
-                <option value={0}>{loadingCities ? "Chargement des villes..." : "Choisir une ville"}</option>
-                {cities.map((city) => (
-                  <option key={city.Id} value={city.Id}>
-                    {city.Name}
-                    {city.Region ? ` - ${city.Region}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            </button>
 
             <label className="md:col-span-2">
+              <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <Users size={16} className="text-sky-600" />
+                Voyageurs
+              </span>
+              <button
+                type="button"
+                onClick={() => setTravellersOpen((prev) => !prev)}
+                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:bg-white hover:border-sky-300"
+              >
+                {adults} adultes - {childrenCount} enfants
+              </button>
+            </label>
+
+            <label className="md:col-span-3">
               <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <CalendarDays size={16} className="text-sky-600" />
                 Arrivee
@@ -286,7 +342,7 @@ export default function HotelsPage() {
               />
             </label>
 
-            <label className="md:col-span-2">
+            <label className="md:col-span-3">
               <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <CalendarDays size={16} className="text-sky-600" />
                 Depart
@@ -299,34 +355,6 @@ export default function HotelsPage() {
               />
             </label>
 
-            <label className="md:col-span-2">
-              <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <Users size={16} className="text-sky-600" />
-                Adultes
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={8}
-                value={adults}
-                onChange={(event) => setAdults(Math.max(1, Number(event.target.value) || 1))}
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-              />
-            </label>
-
-            <label className="md:col-span-2">
-              <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <BedDouble size={16} className="text-sky-600" />
-                Ages enfants
-              </span>
-              <input
-                type="text"
-                value={childAgesText}
-                onChange={(event) => setChildAgesText(event.target.value)}
-                placeholder="Ex: 4,8"
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-              />
-            </label>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
@@ -363,6 +391,128 @@ export default function HotelsPage() {
           )}
         </div>
       </section>
+
+      {destinationOpen && (
+        <div className="fixed inset-0 z-50 bg-white md:hidden">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
+            <h3 className="text-xl font-semibold text-slate-900">Indiquez la destination</h3>
+            <button type="button" onClick={() => setDestinationOpen(false)} className="rounded-full p-2 text-slate-700">
+              <X size={22} />
+            </button>
+          </div>
+          <div className="border-b border-slate-200 px-4 py-3">
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-3">
+              <Search size={18} className="text-slate-500" />
+              <input
+                value={destinationQuery}
+                onChange={(event) => setDestinationQuery(event.target.value)}
+                placeholder="ex. ville, nom hotel"
+                className="w-full border-0 bg-transparent text-base outline-none"
+              />
+            </div>
+          </div>
+          <div className="max-h-[calc(100vh-140px)] overflow-y-auto">
+            {matchingCities.map((city) => (
+              <button
+                key={`city-${city.Id}`}
+                type="button"
+                onClick={() => {
+                  setCityId(city.Id);
+                  setDestinationQuery(city.Name);
+                  setDestinationOpen(false);
+                }}
+                className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-4 text-left"
+              >
+                <MapPin size={18} className="text-slate-500" />
+                <div>
+                  <p className="text-base font-semibold text-slate-900">{city.Name}</p>
+                  <p className="text-sm text-slate-500">Tunisie</p>
+                </div>
+              </button>
+            ))}
+            {cityId > 0 && matchingHotelsInCity.map((hotel) => (
+              <button
+                key={`hotel-${hotel.Id}`}
+                type="button"
+                onClick={() => {
+                  setDestinationQuery(hotel.Name);
+                  setDestinationOpen(false);
+                }}
+                className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-4 text-left"
+              >
+                <BedDouble size={18} className="text-slate-500" />
+                <div>
+                  <p className="text-base font-semibold text-slate-900">{hotel.Name}</p>
+                  <p className="text-sm text-slate-500">{hotel.City?.Name || selectedCity?.Name || "Hotel"}</p>
+                </div>
+              </button>
+            ))}
+            {loadingCityHotels && (
+              <div className="px-4 py-4 text-sm text-slate-500">Chargement des hotels...</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {travellersOpen && (
+        <div className="mt-[-28px] container mx-auto px-4 pb-6 md:px-6">
+          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900">Adultes</p>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setAdults((prev) => Math.max(1, prev - 1))} className="rounded-lg border border-slate-300 p-2"><Minus size={16} /></button>
+                <span className="w-6 text-center font-semibold">{adults}</span>
+                <button type="button" onClick={() => setAdults((prev) => Math.min(8, prev + 1))} className="rounded-lg border border-slate-300 p-2"><Plus size={16} /></button>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900">Enfants</p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))}
+                  className="rounded-lg border border-slate-300 p-2"
+                ><Minus size={16} /></button>
+                <span className="w-6 text-center font-semibold">{childrenCount}</span>
+                <button
+                  type="button"
+                  onClick={() => setChildAges((prev) => [...prev, 0])}
+                  className="rounded-lg border border-slate-300 p-2"
+                ><Plus size={16} /></button>
+              </div>
+            </div>
+            {childrenCount > 0 && (
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {childAges.map((age, index) => (
+                  <label key={`child-age-${index}`} className="text-xs text-slate-600">
+                    Age enfant {index + 1}
+                    <select
+                      value={age}
+                      onChange={(event) => setChildAges((prev) => {
+                        const next = [...prev];
+                        next[index] = Number(event.target.value) || 0;
+                        return next;
+                      })}
+                      className="mt-1 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                    >
+                      {Array.from({ length: 18 }).map((_, ageOption) => (
+                        <option key={`age-opt-${index}-${ageOption}`} value={ageOption}>{ageOption} ans</option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setTravellersOpen(false)}
+              className="mt-4 w-full rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
 
       {hasSearched && (
         <section className="container mx-auto px-4 pb-20 md:px-6">
