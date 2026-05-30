@@ -2078,6 +2078,24 @@ export default function PropertiesPage() {
     setTimeout(() => scrollToFilters(), 80);
   };
   const requestedLocationLabel = selectedLocations.join(" | ");
+  const requestedGovernorateLabel = Array.from(
+    new Set(
+      selectedLocations
+        .map((value) => {
+          const parts = String(value || "").split("/").map((item) => String(item || "").trim()).filter(Boolean);
+          return parts[0] || "";
+        })
+        .filter(Boolean)
+    )
+  ).join(" | ");
+  const requestedRegionZoneLabel = selectedLocations
+    .map((value) => {
+      const parts = String(value || "").split("/").map((item) => String(item || "").trim()).filter(Boolean);
+      if (parts.length <= 1) return "";
+      return parts.slice(1).join(" / ");
+    })
+    .filter(Boolean)
+    .join(" | ");
   const requestedMainTypeLabel = selectedMainTypes.map((item) => MAIN_TYPE_LABELS[item]).join(" | ");
   const requestedSubTypeLabel = selectedCategories.join(" | ");
   const requestedComfortLabel = [
@@ -2796,7 +2814,15 @@ export default function PropertiesPage() {
                               <div className="space-y-1 text-xs">
                                 {row.hasLocationAlternative && requestedLocationLabel && (
                                   <p>
-                                    <span className="text-gray-500 line-through">{requestedLocationLabel}</span>
+                                    {requestedGovernorateLabel && (
+                                      <span className="text-gray-600">{requestedGovernorateLabel}</span>
+                                    )}
+                                    {requestedRegionZoneLabel && (
+                                      <>
+                                        {requestedGovernorateLabel ? <span className="text-gray-500"> / </span> : null}
+                                        <span className="text-gray-500 line-through">{requestedRegionZoneLabel}</span>
+                                      </>
+                                    )}
                                     {" -> "}
                                     <span className="font-semibold text-red-600">{row.property?.filterProfile?.locationLabel || row.property?.location || "-"}</span>
                                   </p>
