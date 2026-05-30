@@ -373,6 +373,15 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
   return "";
 };
 const normalizeTypeToken = (value?: string | null) => String(value || "").trim().toLowerCase();
+const getPropertyFloorRaw = (property: any) =>
+  String(
+    property?.seasonalConfig?.etage
+    ?? property?.etage
+    ?? property?.filterProfile?.etage
+    ?? ""
+  )
+    .trim()
+    .toLowerCase();
 
 const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKey) => {
   const textBlob = normalizeFeatureName(
@@ -434,9 +443,12 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   }
   if (option === "piscine_privee") return hasExteriorAny("piscine privee") || hasAny("piscine privee");
   if (option === "piscine_partagee") return hasExteriorAny("piscine partagee", "piscine commune", "piscine collective") || hasAny("piscine partagee", "piscine commune", "piscine collective");
-  if (option === "rdc") return String(property?.seasonalConfig?.etage || "").toLowerCase() === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  if (option === "rdc") {
+    const etageRaw = getPropertyFloorRaw(property);
+    return etageRaw === "rdc" || etageRaw === "0" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  }
   if (option === "premier_etage") {
-    const etageRaw = String(property?.seasonalConfig?.etage ?? "").trim().toLowerCase();
+    const etageRaw = getPropertyFloorRaw(property);
     return etageRaw === "1"
       || etageRaw === "1er"
       || etageRaw === "1er etage"
@@ -888,10 +900,14 @@ export default function PropertiesPage() {
     () => SEASIDE_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesSeasideOption(property, key))),
     [modeProperties]
   );
-  const availableComfortOptions = useMemo(
-    () => COMFORT_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesComfortOption(property, key))),
-    [modeProperties]
-  );
+  const availableComfortOptions = useMemo(() => {
+    const detected = COMFORT_OPTION_KEYS.filter((key) => modeProperties.some((property) => propertyMatchesComfortOption(property, key)));
+    if (detected.includes("rdc") && !detected.includes("premier_etage")) {
+      const rdcIndex = detected.indexOf("rdc");
+      detected.splice(rdcIndex + 1, 0, "premier_etage");
+    }
+    return detected;
+  }, [modeProperties]);
 
   const amenitiesList = useMemo(
     () => {
@@ -1437,7 +1453,8 @@ export default function PropertiesPage() {
             );
           }
           if (token.includes("rdc") || token.includes("rez de chaussee") || token.includes("ground floor")) {
-            return String(property.seasonalConfig?.etage || "").toLowerCase() === "rdc"
+            const etageRaw = getPropertyFloorRaw(property);
+            return etageRaw === "rdc" || etageRaw === "0"
               || normalizedAmenities.some((item) =>
                 item.includes("rdc")
                 || item.includes("rez de chaussee")
@@ -1446,7 +1463,7 @@ export default function PropertiesPage() {
               );
           }
           if (token.includes("1er etage") || token.includes("premier etage") || token.includes("1st floor")) {
-            const etageRaw = String(property.seasonalConfig?.etage ?? "").trim().toLowerCase();
+            const etageRaw = getPropertyFloorRaw(property);
             return etageRaw === "1"
               || etageRaw === "1er"
               || etageRaw === "1er etage"
