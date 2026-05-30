@@ -2078,30 +2078,50 @@ export default function PropertiesPage() {
     setTimeout(() => scrollToFilters(), 80);
   };
   const requestedLocationLabel = selectedLocations.join(" | ");
-  const requestedGovernorateLabel = Array.from(
-    new Set(
-      selectedLocations
-        .map((value) => {
-          const parts = String(value || "").split("/").map((item) => String(item || "").trim()).filter(Boolean);
-          return parts[0] || "";
-        })
-        .filter(Boolean)
-    )
-  ).join(" | ");
-  const requestedRegionZoneLabel = selectedLocations
-    .map((value) => {
-      const parts = String(value || "").split("/").map((item) => String(item || "").trim()).filter(Boolean);
-      if (parts.length <= 1) return "";
-      return parts.slice(1).join(" / ");
-    })
-    .filter(Boolean)
-    .join(" | ");
   const requestedMainTypeLabel = selectedMainTypes.map((item) => MAIN_TYPE_LABELS[item]).join(" | ");
   const requestedSubTypeLabel = selectedCategories.join(" | ");
   const requestedComfortLabel = [
     ...selectedSeasideOptions.map((key) => SEASIDE_OPTION_LABELS[key]),
     ...selectedComfortOptions.map((key) => COMFORT_OPTION_LABELS[key]),
   ].join(" | ");
+  const renderLocationAlternativeLine = (row: any) => {
+    const requestedRaw = String(selectedLocations[0] || "").trim();
+    const requestedParts = requestedRaw.split("/").map((item) => String(item || "").trim()).filter(Boolean);
+    const requestedGov = requestedParts[0] || "";
+    const requestedRegion = requestedParts.length >= 2 ? requestedParts[1] : "";
+    const requestedZone = requestedParts.length >= 3 ? requestedParts[2] : "";
+
+    const altHierarchy = row?.property?.filterProfile?.locationHierarchy || {};
+    const altGov = String(altHierarchy?.gouvernerat || "").trim();
+    const altRegion = String(altHierarchy?.region || "").trim();
+    const altZone = String(altHierarchy?.quartier || row?.property?.filterProfile?.locationLabel || row?.property?.location || "").trim();
+
+    const sameRegion = Boolean(
+      normalizeFeatureName(requestedRegion)
+      && normalizeFeatureName(requestedRegion) === normalizeFeatureName(altRegion)
+    );
+    const altRegionZone = [altRegion, altZone].filter(Boolean).join(" / ") || altZone || "-";
+
+    return (
+      <p>
+        {requestedGov ? <span className="text-gray-600">{requestedGov}</span> : null}
+        {requestedRegion ? (
+          <>
+            {requestedGov ? <span className="text-gray-500"> / </span> : null}
+            <span className={sameRegion ? "text-gray-600" : "text-gray-500 line-through"}>{requestedRegion}</span>
+          </>
+        ) : null}
+        {requestedZone ? (
+          <>
+            {(requestedGov || requestedRegion) ? <span className="text-gray-500"> / </span> : null}
+            <span className="text-gray-500 line-through">{requestedZone}</span>
+          </>
+        ) : null}
+        {" -> "}
+        <span className="font-semibold text-red-600">{altRegionZone}</span>
+      </p>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 pt-32">
@@ -2813,19 +2833,7 @@ export default function PropertiesPage() {
                             <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
                               <div className="space-y-1 text-xs">
                                 {row.hasLocationAlternative && requestedLocationLabel && (
-                                  <p>
-                                    {requestedGovernorateLabel && (
-                                      <span className="text-gray-600">{requestedGovernorateLabel}</span>
-                                    )}
-                                    {requestedRegionZoneLabel && (
-                                      <>
-                                        {requestedGovernorateLabel ? <span className="text-gray-500"> / </span> : null}
-                                        <span className="text-gray-500 line-through">{requestedRegionZoneLabel}</span>
-                                      </>
-                                    )}
-                                    {" -> "}
-                                    <span className="font-semibold text-red-600">{row.property?.filterProfile?.locationLabel || row.property?.location || "-"}</span>
-                                  </p>
+                                  renderLocationAlternativeLine(row)
                                 )}
                                 {(row.hasTypeAlternative31 || row.hasTypeAlternative32) && (requestedMainTypeLabel || requestedSubTypeLabel) && (
                                   <p>
