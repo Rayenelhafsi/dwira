@@ -1832,18 +1832,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       <div className="space-y-5">
                         <div className="flex items-center justify-between">
                           <p className="text-3xl font-medium text-slate-900">Adultes</p>
-                          <div className="flex items-center gap-3 rounded-lg border border-slate-300 px-4 py-2">
-                            <button type="button" onClick={() => setHotelAdults((prev) => Math.max(1, prev - 1))}><Minus size={20} /></button>
-                            <span className="w-8 text-center text-xl font-semibold">{hotelAdults}</span>
-                            <button type="button" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))}><Plus size={20} /></button>
+                          <div className="flex items-center gap-3 rounded-lg border border-slate-300 px-4 py-2 text-slate-900">
+                            <button type="button" className="text-slate-900" onClick={() => setHotelAdults((prev) => Math.max(1, prev - 1))}><Minus size={20} /></button>
+                            <span className="w-8 text-center text-xl font-semibold text-slate-900">{hotelAdults}</span>
+                            <button type="button" className="text-slate-900" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))}><Plus size={20} /></button>
                           </div>
                         </div>
                         <div className="flex items-center justify-between">
                           <p className="text-3xl font-medium text-slate-900">Enfants</p>
-                          <div className="flex items-center gap-3 rounded-lg border border-slate-300 px-4 py-2">
-                            <button type="button" onClick={() => setHotelChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))}><Minus size={20} /></button>
-                            <span className="w-8 text-center text-xl font-semibold">{hotelChildAges.length}</span>
-                            <button type="button" onClick={() => setHotelChildAges((prev) => [...prev, 0])}><Plus size={20} /></button>
+                          <div className="flex items-center gap-3 rounded-lg border border-slate-300 px-4 py-2 text-slate-900">
+                            <button type="button" className="text-slate-900" onClick={() => setHotelChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))}><Minus size={20} /></button>
+                            <span className="w-8 text-center text-xl font-semibold text-slate-900">{hotelChildAges.length}</span>
+                            <button type="button" className="text-slate-900" onClick={() => setHotelChildAges((prev) => [...prev, 0])}><Plus size={20} /></button>
                           </div>
                         </div>
                         {hotelChildAges.length > 0 && (
