@@ -38,6 +38,7 @@ type HomeComfortOptionKey =
   | "piscine_privee"
   | "piscine_partagee"
   | "rdc"
+  | "premier_etage"
   | "toutes_pieces_climatisees"
   | "jardin_gazon"
   | "terrasse";
@@ -76,6 +77,7 @@ const COMFORT_OPTION_LABELS: Record<HomeComfortOptionKey, string> = {
   piscine_privee: "Piscine privee",
   piscine_partagee: "Piscine partagee",
   rdc: "RDC",
+  premier_etage: "1er etage",
   toutes_pieces_climatisees: "Toutes les pieces climatisees",
   jardin_gazon: "Jardin / Gazon",
   terrasse: "Terrasse",
@@ -85,6 +87,7 @@ const COMFORT_OPTION_KEYS: HomeComfortOptionKey[] = [
   "climatise",
   "toutes_pieces_climatisees",
   "rdc",
+  "premier_etage",
   "jardin_gazon",
   "terrasse",
   "piscine_privee",
@@ -221,6 +224,15 @@ const propertyMatchesSeasideOption = (property: any, option: HomeSeasideOptionKe
   return false;
 };
 const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKey) => {
+  const getFloorRaw = () =>
+    String(
+      property?.seasonalConfig?.etage
+      ?? property?.etage
+      ?? property?.filterProfile?.etage
+      ?? ""
+    )
+      .trim()
+      .toLowerCase();
   const normalizeToken = (value?: string | null) =>
     String(value || "")
       .toLowerCase()
@@ -256,7 +268,18 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   }
   if (option === "piscine_privee") return hasExteriorAny("piscine privee") || hasAny("piscine privee");
   if (option === "piscine_partagee") return hasExteriorAny("piscine partagee", "piscine commune", "piscine collective") || hasAny("piscine partagee", "piscine commune", "piscine collective");
-  if (option === "rdc") return String(property?.seasonalConfig?.etage || "").toLowerCase() === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  if (option === "rdc") {
+    const floor = getFloorRaw();
+    return floor === "rdc" || floor === "0" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+  }
+  if (option === "premier_etage") {
+    const floor = getFloorRaw();
+    return floor === "1"
+      || floor === "1er"
+      || floor === "1er etage"
+      || floor === "1er étage"
+      || hasAny("1er etage", "1er étage", "premier etage", "premier étage", "1st floor");
+  }
   if (option === "jardin_gazon") return hasExteriorAny("jardin", "gazon", "pelouse", "espace vert") || hasAny("jardin", "gazon", "pelouse", "espace vert");
   if (option === "terrasse") return Boolean(sc?.terrasse) || hasExteriorAny("terrasse") || hasAny("terrasse");
   return false;
