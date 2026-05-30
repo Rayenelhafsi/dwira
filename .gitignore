@@ -62,3 +62,4 @@ migrations/2026-04-23-fix-facebook-avatar-urls.sql
 tmp/*.zip
 tmp/*.tar.gz
 tmp/remote_*.sh
+scripts/backup-local.ps1

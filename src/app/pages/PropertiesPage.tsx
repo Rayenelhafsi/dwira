@@ -234,6 +234,27 @@ const formatDateLabel = (value: string) => {
     ? String(value)
     : new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" }).format(parsed);
 };
+const getSPlusValue = (value?: string | null): number | null => {
+  const key = getCanonicalSubTypeKey(value);
+  const match = key.match(/^s\+(\d+)$/i);
+  if (!match?.[1]) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const extractSelectedLocationRegionZone = (value: string): { region: string; zone: string } => {
+  const parts = String(value || "").split("/").map((item) => normalizeFeatureName(item)).filter(Boolean);
+  if (parts.length >= 2) {
+    return { region: parts[parts.length - 2], zone: parts[parts.length - 1] };
+  }
+  const single = parts[0] || normalizeFeatureName(value);
+  return { region: single, zone: single };
+};
+const getPropertyRegionZone = (property: any): { region: string; zone: string } => {
+  const h = property?.filterProfile?.locationHierarchy || {};
+  const region = normalizeFeatureName(h?.region || h?.gouvernerat || h?.pays || property?.filterProfile?.locationLabel || property?.location || "");
+  const zone = normalizeFeatureName(h?.quartier || h?.zone || property?.filterProfile?.locationLabel || property?.location || "");
+  return { region, zone };
+};
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
@@ -1463,6 +1484,7 @@ export default function PropertiesPage() {
         let stayDateAlternative:
           | { kind: "shorter" | "longer" | "shifted_week"; shiftDays?: number; nightDelta?: number; start: string; end: string }
           | null = null;
+        let dateFailureReason = "";
 
         const queryValue = query.trim().toLowerCase();
         if (queryValue) {
@@ -1498,6 +1520,7 @@ export default function PropertiesPage() {
         }
 
         const matchSeaside = selectedSeasideOptions.some((option) => propertyMatchesSeasideOption(property, option));
+        const matchesPresPlage = propertyMatchesSeasideOption(property, "pres_plage");
         if (selectedSeasideOptions.length > 0) {
           maxScore += 10;
           if (matchSeaside) score += 10;
@@ -1630,6 +1653,7 @@ export default function PropertiesPage() {
                 })
                 .filter(Boolean) as NonNullable<typeof stayDateAlternative>[];
               stayDateAlternative = alternatives[0] || null;
+              dateFailureReason = failureReason;
               if (!stayDateAlternative) {
                 missing.push(failureReason || "Dates non disponibles");
               } else {
@@ -1655,6 +1679,53 @@ export default function PropertiesPage() {
         const normalizedScore = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 100;
         const strictMainTypeMatch = selectedMainTypes.length === 0 || selectedMainTypes.includes(propertyMainType);
         const strictSubTypeMatch = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
+        const selectedRange = validStayRanges[0] || null;
+        const requestedNights = selectedRange
+          ? Math.max(0, Math.round((new Date(`${selectedRange.end}T00:00:00`).getTime() - new Date(`${selectedRange.start}T00:00:00`).getTime()) / 86400000))
+          : 0;
+        const altNights = stayDateAlternative
+          ? Math.max(0, Math.round((new Date(`${stayDateAlternative.end}T00:00:00`).getTime() - new Date(`${stayDateAlternative.start}T00:00:00`).getTime()) / 86400000))
+          : 0;
+        const shiftDays = stayDateAlternative && selectedRange
+          ? Math.round((new Date(`${stayDateAlternative.start}T00:00:00`).getTime() - new Date(`${selectedRange.start}T00:00:00`).getTime()) / 86400000)
+          : 0;
+        const hasDateShiftAlt = Boolean(
+          stayDateAlternative
+          && requestedNights > 0
+          && altNights === requestedNights
+          && Math.abs(shiftDays) <= 7
+        );
+        const hasDateReducedAlt = Boolean(
+          stayDateAlternative
+          && requestedNights > 1
+          && altNights === (requestedNights - 1)
+          && (Math.abs(shiftDays) <= 1 || stayDateAlternative.kind === "shorter")
+        );
+        const requestedSPlusValues = selectedSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
+        const propertySPlusValue = getSPlusValue(propertySubTypeKey);
+        const hasTypeAlternative31 = selectedSubTypeKeys.length > 0
+          && selectedMainTypes.length > 0
+          && selectedSubTypeKeys.includes(propertySubTypeKey)
+          && !selectedMainTypes.includes(propertyMainType);
+        const hasTypeAlternative32 = selectedMainTypes.length > 0
+          && selectedSubTypeKeys.length > 0
+          && selectedMainTypes.includes(propertyMainType)
+          && !selectedSubTypeKeys.includes(propertySubTypeKey)
+          && requestedSPlusValues.some((requested) => propertySPlusValue !== null && Math.abs(propertySPlusValue - requested) === 1);
+        const propertyRegionZone = getPropertyRegionZone(property);
+        const hasLocationAlternative = selectedLocations.length > 0 && selectedLocations.some((loc) => {
+          const selectedRegionZone = extractSelectedLocationRegionZone(loc);
+          return Boolean(selectedRegionZone.region)
+            && propertyRegionZone.region === selectedRegionZone.region
+            && propertyRegionZone.zone
+            && selectedRegionZone.zone
+            && propertyRegionZone.zone !== selectedRegionZone.zone;
+        });
+        const hasComfortFallbackFromBeach = selectedSeasideOptions.includes("pied_dans_eau")
+          && !propertyMatchesSeasideOption(property, "pied_dans_eau")
+          && matchesPresPlage;
+        const hasComfortAlternative = (selectedComfortOptions.length > 0 && !matchComfort)
+          || hasComfortFallbackFromBeach;
         return {
           property,
           score: normalizedScore,
@@ -1674,6 +1745,13 @@ export default function PropertiesPage() {
           },
           hints: hints.slice(0, 2),
           missing: missing.slice(0, 2),
+          hasLocationAlternative,
+          hasDateShiftAlt,
+          hasDateReducedAlt,
+          hasTypeAlternative31,
+          hasTypeAlternative32,
+          hasComfortAlternative,
+          dateFailureReason,
         };
       });
 
@@ -1799,6 +1877,61 @@ export default function PropertiesPage() {
     const list = [...scoringBuckets.alternatives];
     return list.sort((a, b) => b.score - a.score);
   }, [scoringBuckets.alternatives]);
+  const groupedAlternativeSections = useMemo(() => {
+    const sections: Array<{ key: string; title: string; rows: typeof alternativeScoredResults }> = [
+      {
+        key: "location",
+        title: "Alternatives emplacement",
+        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && !row.hasDateShiftAlt && !row.hasDateReducedAlt && !row.hasTypeAlternative31 && !row.hasTypeAlternative32 && !row.hasComfortAlternative),
+      },
+      {
+        key: "dates",
+        title: "Alternative dates de sejour",
+        rows: alternativeScoredResults.filter((row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && !row.hasLocationAlternative && !row.hasTypeAlternative31 && !row.hasTypeAlternative32 && !row.hasComfortAlternative),
+      },
+      {
+        key: "type",
+        title: "Alternative type de bien",
+        rows: alternativeScoredResults.filter((row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && !row.hasLocationAlternative && !row.hasDateShiftAlt && !row.hasDateReducedAlt && !row.hasComfortAlternative),
+      },
+      {
+        key: "comfort",
+        title: "Alternative confort",
+        rows: alternativeScoredResults.filter((row) => row.hasComfortAlternative && !row.hasLocationAlternative && !row.hasDateShiftAlt && !row.hasDateReducedAlt && !row.hasTypeAlternative31 && !row.hasTypeAlternative32),
+      },
+      {
+        key: "location_dates",
+        title: "Alternative emplacement et dates de sejour",
+        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && (row.hasDateShiftAlt || row.hasDateReducedAlt)),
+      },
+      {
+        key: "location_type",
+        title: "Alternative emplacement et type de bien",
+        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32)),
+      },
+      {
+        key: "location_comfort",
+        title: "Alternative emplacement et confort",
+        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && row.hasComfortAlternative),
+      },
+      {
+        key: "dates_type",
+        title: "Alternative date de sejour et type de bien",
+        rows: alternativeScoredResults.filter((row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && (row.hasTypeAlternative31 || row.hasTypeAlternative32)),
+      },
+      {
+        key: "dates_comfort",
+        title: "Alternative date de sejour et confort",
+        rows: alternativeScoredResults.filter((row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && row.hasComfortAlternative),
+      },
+      {
+        key: "type_comfort",
+        title: "Alternative type de bien et confort",
+        rows: alternativeScoredResults.filter((row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && row.hasComfortAlternative),
+      },
+    ];
+    return sections.filter((section) => section.rows.length > 0);
+  }, [alternativeScoredResults]);
   const hasStrictStaySearch = selectedMode === "location_saisonniere" && stayRanges.some((range) => isValidStayRange(range.start, range.end));
   const visibleSortedScoredResults = useMemo(
     () => (showAllResults ? sortedScoredResults : sortedScoredResults.slice(0, visibleCount)),
@@ -2600,42 +2733,52 @@ export default function PropertiesPage() {
             {showAlternatives && alternativeScoredResults.length > 0 && (
               <div ref={alternativesAnchorRef} className="mt-10">
                 <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900">Choix alternatives: -1 nuit / +1 nuit / -7j / +7j</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Choix alternatives</h3>
                   <span className="text-sm text-gray-500">{alternativeScoredResults.length} bien(s)</span>
                 </div>
-                <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-                  {alternativeScoredResults.map((row) => (
-                    <div key={`alt-${row.property.id}`} className="space-y-2">
-                      <PropertyCard
-                        property={row.property}
-                        searchParams={(() => {
-                          const params = new URLSearchParams(searchParams);
-                          if (row.stayDateAlternative?.start) params.set("checkIn", row.stayDateAlternative.start);
-                          if (row.stayDateAlternative?.end) params.set("checkOut", row.stayDateAlternative.end);
-                          if (row.stayDateAlternative?.start || row.stayDateAlternative?.end) {
-                            params.set("stayRanges", serializeStayRangesParam([{
-                              start: row.stayDateAlternative?.start || "",
-                              end: row.stayDateAlternative?.end || "",
-                            }]));
-                          }
-                          return params.toString();
-                        })()}
-                      />
-                      <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
-                        <div className="mb-1 flex items-center justify-between">
-                          <span className="inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
-                            <Percent size={14} />
-                            Matching {row.score}%
-                          </span>
-                          <span className="text-xs text-amber-700">
-                            {getStayAvailabilityAlternativeLabel(row.stayDateAlternative) || "Alternative"}
-                          </span>
-                        </div>
-                        {row.stayDateAlternative && (
-                          <p className="text-xs text-amber-800">
-                            {formatDateLabel(row.stayDateAlternative.start)} - {formatDateLabel(row.stayDateAlternative.end)}
-                          </p>
-                        )}
+                <div className="space-y-10">
+                  {groupedAlternativeSections.map((section) => (
+                    <div key={section.key}>
+                      <div className="mb-4 flex items-center justify-between">
+                        <h4 className="text-base font-semibold text-gray-900">{section.title}</h4>
+                        <span className="text-xs text-gray-500">{section.rows.length} bien(s)</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                        {section.rows.map((row) => (
+                          <div key={`${section.key}-${row.property.id}`} className="space-y-2">
+                            <PropertyCard
+                              property={row.property}
+                              searchParams={(() => {
+                                const params = new URLSearchParams(searchParams);
+                                if (row.stayDateAlternative?.start) params.set("checkIn", row.stayDateAlternative.start);
+                                if (row.stayDateAlternative?.end) params.set("checkOut", row.stayDateAlternative.end);
+                                if (row.stayDateAlternative?.start || row.stayDateAlternative?.end) {
+                                  params.set("stayRanges", serializeStayRangesParam([{
+                                    start: row.stayDateAlternative?.start || "",
+                                    end: row.stayDateAlternative?.end || "",
+                                  }]));
+                                }
+                                return params.toString();
+                              })()}
+                            />
+                            <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                              <div className="mb-1 flex items-center justify-between">
+                                <span className="inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
+                                  <Percent size={14} />
+                                  Matching {row.score}%
+                                </span>
+                                <span className="text-xs text-amber-700">
+                                  {getStayAvailabilityAlternativeLabel(row.stayDateAlternative) || "Alternative"}
+                                </span>
+                              </div>
+                              {row.stayDateAlternative && (
+                                <p className="text-xs text-amber-800">
+                                  {formatDateLabel(row.stayDateAlternative.start)} - {formatDateLabel(row.stayDateAlternative.end)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
