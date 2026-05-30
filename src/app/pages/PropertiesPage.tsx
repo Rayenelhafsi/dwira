@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
@@ -436,7 +436,11 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   if (option === "piscine_partagee") return hasExteriorAny("piscine partagee", "piscine commune", "piscine collective") || hasAny("piscine partagee", "piscine commune", "piscine collective");
   if (option === "rdc") return String(property?.seasonalConfig?.etage || "").toLowerCase() === "rdc" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
   if (option === "premier_etage") {
-    return String(property?.seasonalConfig?.etage || "").toLowerCase() === "1er etage"
+    const etageRaw = String(property?.seasonalConfig?.etage ?? "").trim().toLowerCase();
+    return etageRaw === "1"
+      || etageRaw === "1er"
+      || etageRaw === "1er etage"
+      || etageRaw === "1er étage"
       || hasAny("1er etage", "1er étage", "premier etage", "premier étage", "1st floor");
   }
   if (option === "jardin_gazon") return hasExteriorAny("jardin", "gazon", "pelouse", "espace vert") || hasAny("jardin", "gazon", "pelouse", "espace vert");
@@ -1442,7 +1446,11 @@ export default function PropertiesPage() {
               );
           }
           if (token.includes("1er etage") || token.includes("premier etage") || token.includes("1st floor")) {
-            return String(property.seasonalConfig?.etage || "").toLowerCase() === "1er etage"
+            const etageRaw = String(property.seasonalConfig?.etage ?? "").trim().toLowerCase();
+            return etageRaw === "1"
+              || etageRaw === "1er"
+              || etageRaw === "1er etage"
+              || etageRaw === "1er étage"
               || normalizedAmenities.some((item) =>
                 item.includes("1er etage")
                 || item.includes("premier etage")
@@ -3209,4 +3217,6 @@ export default function PropertiesPage() {
     </div>
   );
 }
+
+
 
