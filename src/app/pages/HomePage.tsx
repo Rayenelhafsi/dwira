@@ -290,6 +290,36 @@ const buildHierarchicalLocationLabel = (parts: Array<string | null | undefined>)
   const cleaned = parts.map((item) => String(item || "").trim()).filter(Boolean);
   return cleaned.join(" / ");
 };
+const dedupeHierarchicalLocations = (values: string[]) => {
+  const byNormalized = new Map<string, string>();
+  for (const raw of values) {
+    const item = String(raw || "").trim();
+    if (!item) continue;
+    byNormalized.set(item.toLowerCase(), item);
+  }
+  const unique = Array.from(byNormalized.values());
+  return unique.filter((item) => {
+    const token = item.toLowerCase();
+    return !unique.some((other) => {
+      if (other === item) return false;
+      const otherParts = other.toLowerCase().split("/").map((part) => part.trim()).filter(Boolean);
+      if (otherParts.length <= 1) return false;
+      const lastPart = otherParts[otherParts.length - 1];
+      return token === lastPart;
+    });
+  });
+};
+const hasLocationTokenSelected = (selectedValues: string[], token: string) => {
+  const normalizedToken = String(token || "").trim().toLowerCase();
+  if (!normalizedToken) return false;
+  return selectedValues.some((value) => {
+    const normalizedValue = String(value || "").trim().toLowerCase();
+    if (!normalizedValue) return false;
+    if (normalizedValue === normalizedToken) return true;
+    const parts = normalizedValue.split("/").map((part) => part.trim()).filter(Boolean);
+    return parts.includes(normalizedToken);
+  });
+};
 
 function buildDefaultHotelSearch() {
   const today = new Date();
@@ -372,7 +402,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   // Filter states
   const [location, setLocation] = useState("");
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
-    parseCsvParam(searchParams.get("locations") || searchParams.get("location"))
+    dedupeHierarchicalLocations(parseCsvParam(searchParams.get("locations") || searchParams.get("location")))
   );
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedMainType, setSelectedMainType] = useState<PropertyMainType | "">("");
@@ -603,11 +633,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   };
   const addCurrentLocationToDraft = () => {
     if (!currentDraftLocationValue) return;
-    setDraftSelectedLocations((prev) => (prev.includes(currentDraftLocationValue) ? prev : [...prev, currentDraftLocationValue]));
+    setDraftSelectedLocations((prev) => dedupeHierarchicalLocations(prev.includes(currentDraftLocationValue) ? prev : [...prev, currentDraftLocationValue]));
     resetCurrentLocationPath();
   };
   const confirmLocationSelection = () => {
-    setSelectedLocations(draftSelectedLocations);
+    setSelectedLocations(dedupeHierarchicalLocations(draftSelectedLocations));
     setShowCalendar(true);
     setShowCategoryDropdown(false);
     setShowLocationDropdown(false);
@@ -1680,7 +1710,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 ? [{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))]
                                 : [([{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationPays) || { label: "Tous pays", value: "" })]
                               ).map((item) => {
-                                const selected = draftSelectedLocations.includes(item.value);
+                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
                                 return (
                                   <button
                                     key={`home-pays-card-${item.label}`}
@@ -1713,7 +1743,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 ? [{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))]
                                 : [([{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationGouvernerat) || { label: "Tous gouvernorats", value: "" })]
                               ).map((item) => {
-                                const selected = draftSelectedLocations.includes(item.value);
+                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
                                 return (
                                   <button
                                     key={`home-gouv-card-${item.label}`}
@@ -1745,7 +1775,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 ? [{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))]
                                 : [([{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationRegion) || { label: "Toutes regions", value: "" })]
                               ).map((item) => {
-                                const selected = draftSelectedLocations.includes(item.value);
+                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
                                 return (
                                   <button
                                     key={`home-region-card-${item.label}`}
@@ -1776,7 +1806,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 ? [{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))]
                                 : [([{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationZone) || { label: "Toutes zones", value: "" })]
                               ).map((item) => {
-                                const selected = draftSelectedLocations.includes(item.value);
+                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
                                 return (
                                   <button
                                     key={`home-zone-card-${item.label}`}
@@ -1788,7 +1818,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                       }
                                       setLocationZone(item.value);
                                       if (item.value) {
-                                        setDraftSelectedLocations((prev) => (prev.includes(item.value) ? prev : [...prev, item.value]));
+                                        const hierarchicalValue = buildHierarchicalLocationLabel([
+                                          locationPays && String(locationPays).trim().toLowerCase() !== "tunisie" ? locationPays : "",
+                                          locationGouvernerat,
+                                          locationRegion,
+                                          item.value,
+                                        ]) || item.value;
+                                        setDraftSelectedLocations((prev) =>
+                                          dedupeHierarchicalLocations(prev.includes(hierarchicalValue) ? prev : [...prev, hierarchicalValue])
+                                        );
                                       }
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
@@ -2252,7 +2290,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       ? [{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))]
                       : [([{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationPays) || { label: "Tous pays", value: "" })]
                     ).map((item) => (
-                      <button key={`mobile-pays-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "pays") { setOpenLocationLevel("pays"); return; } setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); setOpenLocationLevel("gouvernerat"); }} className={`relative h-24 min-w-[140px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-pays-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "pays") { setOpenLocationLevel("pays"); return; } setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); setOpenLocationLevel("gouvernerat"); }} className={`relative h-24 min-w-[140px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("pays", item.value || cascadePaysOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -2267,7 +2305,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       ? [{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))]
                       : [([{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationGouvernerat) || { label: "Tous gouvernorats", value: "" })]
                     ).map((item) => (
-                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "gouvernerat") { setOpenLocationLevel("gouvernerat"); return; } setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); setOpenLocationLevel("region"); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "gouvernerat") { setOpenLocationLevel("gouvernerat"); return; } setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); setOpenLocationLevel("region"); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -2282,7 +2320,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       ? [{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))]
                       : [([{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationRegion) || { label: "Toutes regions", value: "" })]
                     ).map((item) => (
-                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "region") { setOpenLocationLevel("region"); return; } setLocationRegion(item.value); setLocationZone(""); setOpenLocationLevel("zone"); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "region") { setOpenLocationLevel("region"); return; } setLocationRegion(item.value); setLocationZone(""); setOpenLocationLevel("zone"); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -2297,7 +2335,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       ? [{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))]
                       : [([{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationZone) || { label: "Toutes zones", value: "" })]
                     ).map((item) => (
-                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "zone") { setOpenLocationLevel("zone"); return; } setLocationZone(item.value); if (item.value) { setDraftSelectedLocations((prev) => (prev.includes(item.value) ? prev : [...prev, item.value])); } }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${draftSelectedLocations.includes(item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "zone") { setOpenLocationLevel("zone"); return; } setLocationZone(item.value); if (item.value) { const hierarchicalValue = buildHierarchicalLocationLabel([locationPays && String(locationPays).trim().toLowerCase() !== "tunisie" ? locationPays : "", locationGouvernerat, locationRegion, item.value]) || item.value; setDraftSelectedLocations((prev) => dedupeHierarchicalLocations(prev.includes(hierarchicalValue) ? prev : [...prev, hierarchicalValue])); } }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
