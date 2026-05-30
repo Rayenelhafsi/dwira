@@ -6,6 +6,7 @@ import {
   getAdminHotelPricingRules,
   listHotelCities,
   listHotels,
+  searchHotels,
   saveAdminHotelGlobalMarkup,
   saveAdminHotelPricingOverride,
   type HotelCity,
@@ -54,6 +55,13 @@ export default function HotelsPage() {
   const [rulesByHotelId, setRulesByHotelId] = useState<Record<string, LocalRuleState>>({});
   const [savingGlobal, setSavingGlobal] = useState(false);
   const [savingHotelId, setSavingHotelId] = useState<string | null>(null);
+  const [loadingApiPrices, setLoadingApiPrices] = useState(false);
+  const [apiCheckIn, setApiCheckIn] = useState("");
+  const [apiCheckOut, setApiCheckOut] = useState("");
+  const [apiAdults, setApiAdults] = useState("2");
+  const [apiChildren, setApiChildren] = useState("0");
+  const [apiChildAges, setApiChildAges] = useState<string[]>([]);
+  const [apiPricesByHotelId, setApiPricesByHotelId] = useState<Record<string, { value: number; currency?: string | null }>>({});
 
   const loadAll = async (cityId?: number | "all") => {
     setLoading(true);
@@ -82,6 +90,18 @@ export default function HotelsPage() {
   };
 
   useEffect(() => {
+    const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
+    end.setDate(end.getDate() + 3);
+    const toIsoDate = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    setApiCheckIn(toIsoDate(start));
+    setApiCheckOut(toIsoDate(end));
     void loadAll("all");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -95,6 +115,58 @@ export default function HotelsPage() {
     const nextCityId = next === "all" ? "all" : Number(next);
     setSelectedCityId(nextCityId);
     await loadAll(nextCityId);
+  };
+
+  const loadApiPrices = async () => {
+    if (!apiCheckIn || !apiCheckOut) {
+      toast.error("Dates API obligatoires");
+      return;
+    }
+    const adults = Math.max(1, Number(apiAdults || 1));
+    const childrenCount = Math.max(0, Number(apiChildren || 0));
+    const childAges = apiChildAges
+      .slice(0, childrenCount)
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 17);
+    if (childAges.length !== childrenCount) {
+      toast.error("Veuillez renseigner l'age de chaque enfant (0 a 17)");
+      return;
+    }
+    setLoadingApiPrices(true);
+    try {
+      const payload = await searchHotels({
+        cityId: selectedCityId === "all" ? undefined : Number(selectedCityId),
+        checkIn: apiCheckIn,
+        checkOut: apiCheckOut,
+        adults,
+        childAges,
+        onlyAvailable: false,
+      });
+      const nextMap: Record<string, { value: number; currency?: string | null }> = {};
+      for (const hotel of Array.isArray(payload) ? payload : []) {
+        const id = String(hotel?.Id || "").trim();
+        if (!id) continue;
+        const price = resolveHotelApiPrice(hotel);
+        if (price != null) {
+          nextMap[id] = { value: price, currency: hotel?.Currency || null };
+        }
+      }
+      setApiPricesByHotelId(nextMap);
+      toast.success("Prix API charges");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de charger les prix API");
+    } finally {
+      setLoadingApiPrices(false);
+    }
+  };
+
+  const handleChildrenCountChange = (next: string) => {
+    const count = Math.max(0, Number(next || 0));
+    setApiChildren(String(count));
+    setApiChildAges((prev) => {
+      if (count <= prev.length) return prev.slice(0, count);
+      return [...prev, ...Array.from({ length: count - prev.length }, () => "")];
+    });
   };
 
   const saveGlobal = async () => {
@@ -230,6 +302,69 @@ export default function HotelsPage() {
             Sauver global
           </button>
         </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr,1fr,120px,120px,auto]">
+          <input
+            type="date"
+            value={apiCheckIn}
+            onChange={(event) => setApiCheckIn(event.target.value)}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+          />
+          <input
+            type="date"
+            value={apiCheckOut}
+            onChange={(event) => setApiCheckOut(event.target.value)}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+          />
+          <input
+            type="number"
+            min={1}
+            value={apiAdults}
+            onChange={(event) => setApiAdults(event.target.value)}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Adultes"
+          />
+          <input
+            type="number"
+            min={0}
+            value={apiChildren}
+            onChange={(event) => handleChildrenCountChange(event.target.value)}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Enfants"
+          />
+          <button
+            type="button"
+            onClick={() => void loadApiPrices()}
+            disabled={loadingApiPrices}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loadingApiPrices ? <LoaderCircle size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            Charger prix API
+          </button>
+        </div>
+
+        {Math.max(0, Number(apiChildren || 0)) > 0 ? (
+          <div className="mt-3 grid gap-2 md:grid-cols-4 xl:grid-cols-6">
+            {Array.from({ length: Math.max(0, Number(apiChildren || 0)) }).map((_, index) => (
+              <input
+                key={`child-age-${index}`}
+                type="number"
+                min={0}
+                max={17}
+                value={apiChildAges[index] || ""}
+                onChange={(event) =>
+                  setApiChildAges((prev) => {
+                    const next = [...prev];
+                    next[index] = event.target.value;
+                    return next;
+                  })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                placeholder={`Age enfant ${index + 1}`}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {loading ? (
@@ -248,7 +383,11 @@ export default function HotelsPage() {
           {filteredHotels.map((hotel) => {
             const hotelId = String(hotel.Id);
             const localRule = rulesByHotelId[hotelId] || { displayedPrice: "", markupPercent: "0" };
-            const apiPrice = resolveHotelApiPrice(hotel);
+            const listPrice = resolveHotelApiPrice(hotel);
+            const searchedApiPrice = apiPricesByHotelId[hotelId]?.value;
+            const searchedApiCurrency = apiPricesByHotelId[hotelId]?.currency;
+            const apiPrice = searchedApiPrice ?? listPrice;
+            const apiCurrency = searchedApiCurrency ?? hotel.Currency;
             return (
               <article key={hotelId} className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
                 <div className="flex items-start gap-3">
@@ -268,7 +407,7 @@ export default function HotelsPage() {
                 <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">Prix API</p>
                   <p className="mt-1 text-sm font-semibold text-sky-900">
-                    {apiPrice == null ? "Non disponible" : formatMoney(apiPrice, hotel.Currency)}
+                    {apiPrice == null ? "Non disponible" : formatMoney(apiPrice, apiCurrency)}
                   </p>
                 </div>
 
