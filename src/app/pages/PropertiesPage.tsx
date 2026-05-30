@@ -1763,10 +1763,19 @@ export default function PropertiesPage() {
         && (!hasDateFilter || row.exactDateAvailable)
     );
     const alternatives = rows.filter((row) => {
+      const hasNonDateAlternative = Boolean(
+        row.hasLocationAlternative
+        || row.hasTypeAlternative31
+        || row.hasTypeAlternative32
+        || row.hasComfortAlternative
+        || !row.strictTypeMatch
+      );
       if (hasDateFilter) {
-        return !row.exactDateAvailable && Boolean(row.stayDateAlternative);
+        const hasDateAlternative = !row.exactDateAvailable && Boolean(row.stayDateAlternative);
+        const hasNonDateAlternativeWithExactDates = row.exactDateAvailable && hasNonDateAlternative;
+        return hasDateAlternative || hasNonDateAlternativeWithExactDates;
       }
-      return !row.strictTypeMatch;
+      return hasNonDateAlternative;
     }).sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (a.property.isFeatured !== b.property.isFeatured) return a.property.isFeatured ? -1 : 1;
@@ -1878,59 +1887,41 @@ export default function PropertiesPage() {
     return list.sort((a, b) => b.score - a.score);
   }, [scoringBuckets.alternatives]);
   const groupedAlternativeSections = useMemo(() => {
-    const sections: Array<{ key: string; title: string; rows: typeof alternativeScoredResults }> = [
-      {
-        key: "location",
-        title: "Alternatives emplacement",
-        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && !row.hasDateShiftAlt && !row.hasDateReducedAlt && !row.hasTypeAlternative31 && !row.hasTypeAlternative32 && !row.hasComfortAlternative),
-      },
-      {
-        key: "dates",
-        title: "Alternative dates de sejour",
-        rows: alternativeScoredResults.filter((row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && !row.hasLocationAlternative && !row.hasTypeAlternative31 && !row.hasTypeAlternative32 && !row.hasComfortAlternative),
-      },
-      {
-        key: "type",
-        title: "Alternative type de bien",
-        rows: alternativeScoredResults.filter((row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && !row.hasLocationAlternative && !row.hasDateShiftAlt && !row.hasDateReducedAlt && !row.hasComfortAlternative),
-      },
-      {
-        key: "comfort",
-        title: "Alternative confort",
-        rows: alternativeScoredResults.filter((row) => row.hasComfortAlternative && !row.hasLocationAlternative && !row.hasDateShiftAlt && !row.hasDateReducedAlt && !row.hasTypeAlternative31 && !row.hasTypeAlternative32),
-      },
-      {
-        key: "location_dates",
-        title: "Alternative emplacement et dates de sejour",
-        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && (row.hasDateShiftAlt || row.hasDateReducedAlt)),
-      },
-      {
-        key: "location_type",
-        title: "Alternative emplacement et type de bien",
-        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32)),
-      },
-      {
-        key: "location_comfort",
-        title: "Alternative emplacement et confort",
-        rows: alternativeScoredResults.filter((row) => row.hasLocationAlternative && row.hasComfortAlternative),
-      },
-      {
-        key: "dates_type",
-        title: "Alternative date de sejour et type de bien",
-        rows: alternativeScoredResults.filter((row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && (row.hasTypeAlternative31 || row.hasTypeAlternative32)),
-      },
-      {
-        key: "dates_comfort",
-        title: "Alternative date de sejour et confort",
-        rows: alternativeScoredResults.filter((row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && row.hasComfortAlternative),
-      },
-      {
-        key: "type_comfort",
-        title: "Alternative type de bien et confort",
-        rows: alternativeScoredResults.filter((row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && row.hasComfortAlternative),
-      },
+    const sectionDefs: Array<{ key: string; title: string; match: (row: (typeof alternativeScoredResults)[number]) => boolean }> = [
+      { key: "location_dates", title: "Alternative emplacement et dates de sejour", match: (row) => row.hasLocationAlternative && (row.hasDateShiftAlt || row.hasDateReducedAlt) },
+      { key: "location_type", title: "Alternative emplacement et type de bien", match: (row) => row.hasLocationAlternative && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
+      { key: "location_comfort", title: "Alternative emplacement et confort", match: (row) => row.hasLocationAlternative && row.hasComfortAlternative },
+      { key: "dates_type", title: "Alternative date de sejour et type de bien", match: (row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && (row.hasTypeAlternative31 || row.hasTypeAlternative32) },
+      { key: "dates_comfort", title: "Alternative date de sejour et confort", match: (row) => (row.hasDateShiftAlt || row.hasDateReducedAlt) && row.hasComfortAlternative },
+      { key: "type_comfort", title: "Alternative type de bien et confort", match: (row) => (row.hasTypeAlternative31 || row.hasTypeAlternative32) && row.hasComfortAlternative },
+      { key: "location", title: "Alternatives emplacement", match: (row) => row.hasLocationAlternative },
+      { key: "dates", title: "Alternative dates de sejour", match: (row) => row.hasDateShiftAlt || row.hasDateReducedAlt },
+      { key: "type", title: "Alternative type de bien", match: (row) => row.hasTypeAlternative31 || row.hasTypeAlternative32 },
+      { key: "comfort", title: "Alternative confort", match: (row) => row.hasComfortAlternative },
     ];
-    return sections.filter((section) => section.rows.length > 0);
+    const buckets = new Map<string, { key: string; title: string; rows: typeof alternativeScoredResults }>();
+    for (const def of sectionDefs) {
+      buckets.set(def.key, { key: def.key, title: def.title, rows: [] });
+    }
+    const fallbackRows: typeof alternativeScoredResults = [];
+    for (const row of alternativeScoredResults) {
+      const firstMatch = sectionDefs.find((def) => def.match(row));
+      if (!firstMatch) {
+        fallbackRows.push(row);
+        continue;
+      }
+      const target = buckets.get(firstMatch.key);
+      if (target) target.rows.push(row);
+    }
+    const sections = Array.from(buckets.values()).filter((section) => section.rows.length > 0);
+    if (fallbackRows.length > 0) {
+      sections.push({
+        key: "other",
+        title: "Autres alternatives",
+        rows: fallbackRows,
+      });
+    }
+    return sections;
   }, [alternativeScoredResults]);
   const hasStrictStaySearch = selectedMode === "location_saisonniere" && stayRanges.some((range) => isValidStayRange(range.start, range.end));
   const visibleSortedScoredResults = useMemo(
