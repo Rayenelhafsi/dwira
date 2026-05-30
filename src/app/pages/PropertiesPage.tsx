@@ -2802,7 +2802,9 @@ export default function PropertiesPage() {
                                   <p>
                                     <span className="text-gray-500 line-through">{requestedComfortLabel}</span>
                                     {" -> "}
-                                    <span className="font-semibold text-red-600">Confort alternatif</span>
+                                    <span className="font-semibold text-red-600">
+                                      {row.hasComfortFallbackFromBeach ? "Proche de la plage" : "Confort alternatif"}
+                                    </span>
                                   </p>
                                 )}
                                 <p className="text-amber-700">{getStayAvailabilityAlternativeLabel(row.stayDateAlternative) || "Alternative"}</p>
