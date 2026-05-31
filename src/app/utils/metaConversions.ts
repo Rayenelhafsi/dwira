@@ -49,7 +49,14 @@ export async function trackMetaEvent({
   eventName: "PageView" | "ViewContent" | "Lead" | "InitiateCheckout" | "Purchase" | "Contact";
   eventId?: string;
   customData?: Record<string, unknown>;
-  userData?: { email?: string; phone?: string; externalId?: string };
+  userData?: {
+    email?: string;
+    phone?: string;
+    externalId?: string;
+    firstName?: string;
+    lastName?: string;
+    fbLoginId?: string;
+  };
 }) {
   const finalEventId = String(eventId || randomId(`meta_${eventName.toLowerCase()}`)).trim();
 
@@ -70,6 +77,9 @@ export async function trackMetaEvent({
           email: String(userData?.email || "").trim().toLowerCase() || undefined,
           phone: String(userData?.phone || "").trim() || undefined,
           external_id: String(userData?.externalId || "").trim() || undefined,
+          first_name: String(userData?.firstName || "").trim() || undefined,
+          last_name: String(userData?.lastName || "").trim() || undefined,
+          fb_login_id: String(userData?.fbLoginId || "").trim() || undefined,
           fbp: readCookie("_fbp") || undefined,
           fbc: readCookie("_fbc") || undefined,
         },

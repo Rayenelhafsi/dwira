@@ -359,6 +359,17 @@ export default function ReservationConfirmationPage() {
           bedrooms: Number(property.bedrooms || 0),
         },
       }).catch(() => {});
+      const rawCustomerName = String(
+        isAmicaleFlow ? (draft.amicaleName || "") : (user?.name || "")
+      ).trim();
+      const nameParts = rawCustomerName.split(/\s+/).filter(Boolean);
+      const firstName = nameParts.length > 0 ? nameParts[0] : undefined;
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
+      const externalIdValue = isAmicaleFlow
+        ? undefined
+        : (user?.authProvider === "facebook"
+          ? String(user?.providerUserId || user?.id || "")
+          : String(user?.id || ""));
       await trackMetaEvent({
         eventName: "Lead",
         customData: {
@@ -366,12 +377,23 @@ export default function ReservationConfirmationPage() {
           content_ids: [String(property.id)],
           value: Number(summary.dueNow || 0),
           currency: "TND",
+          property_reference: String(property.reference || property.id || ""),
+          bedrooms: Number(property.bedrooms || 0),
+          reservation_start_date: String(draft.startDate || ""),
+          reservation_end_date: String(draft.endDate || ""),
+          total_amount: Number(summary.total || 0),
+          amount_due_now: Number(summary.dueNow || 0),
+          request_type: requestType,
         },
         userData: {
           email: isAmicaleFlow ? undefined : user?.email,
-          externalId: isAmicaleFlow ? undefined : (user?.authProvider === 'facebook'
-            ? String(user?.providerUserId || user?.id || '')
-            : String(user?.id || '')),
+          phone: isAmicaleFlow ? undefined : (user?.telephone || undefined),
+          externalId: externalIdValue || undefined,
+          firstName,
+          lastName,
+          fbLoginId: !isAmicaleFlow && user?.authProvider === "facebook"
+            ? String(user?.providerUserId || "")
+            : undefined,
         },
       });
       saveReservationToCache(data);

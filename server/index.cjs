@@ -694,6 +694,9 @@ async function sendMetaConversionEvent({
   const rawEmail = String(userData?.email || '').trim().toLowerCase();
   const rawPhone = normalizeDigits(userData?.phone);
   const rawExternalId = String(userData?.externalId || '').trim();
+  const rawFirstName = String(userData?.firstName || '').trim().toLowerCase();
+  const rawLastName = String(userData?.lastName || '').trim().toLowerCase();
+  const rawFbLoginId = String(userData?.fbLoginId || '').trim();
   const fbp = String(userData?.fbp || '').trim();
   const fbc = String(userData?.fbc || '').trim();
 
@@ -709,6 +712,9 @@ async function sendMetaConversionEvent({
           em: rawEmail ? [sha256Hex(rawEmail)] : undefined,
           ph: rawPhone ? [sha256Hex(rawPhone)] : undefined,
           external_id: rawExternalId ? [sha256Hex(rawExternalId)] : undefined,
+          fn: rawFirstName ? [sha256Hex(rawFirstName)] : undefined,
+          ln: rawLastName ? [sha256Hex(rawLastName)] : undefined,
+          fb_login_id: rawFbLoginId || undefined,
           client_ip_address: req ? getClientIp(req) : undefined,
           client_user_agent: req ? String(req.headers['user-agent'] || '').trim() || undefined : undefined,
           fbp: fbp || undefined,
@@ -20694,6 +20700,9 @@ app.post('/api/meta/conversions', metaCapiRateLimit, async (req, res) => {
         email: userDataInput?.email || null,
         phone: userDataInput?.phone || null,
         externalId: userDataInput?.external_id || userDataInput?.externalId || null,
+        firstName: userDataInput?.first_name || userDataInput?.firstName || null,
+        lastName: userDataInput?.last_name || userDataInput?.lastName || null,
+        fbLoginId: userDataInput?.fb_login_id || userDataInput?.fbLoginId || null,
         fbp: userDataInput?.fbp || null,
         fbc: userDataInput?.fbc || null,
       },
