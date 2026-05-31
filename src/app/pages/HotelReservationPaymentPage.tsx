@@ -305,6 +305,21 @@ export default function HotelReservationPaymentPage() {
     }
     setUploadingReceipt(true);
     try {
+      await trackMetaEvent({
+        eventName: "InitiateCheckout",
+        customData: {
+          content_name: demand.hotel_name || "Reservation hotel",
+          content_ids: [String(demand.hotel_id || demand.id)],
+          value: Number(demand.amount_due_now || demand.total_amount || 0),
+          currency: String(demand.currency || "TND"),
+          payment_method: "receipt",
+        },
+        userData: {
+          email: user?.email,
+          phone: user?.telephone || undefined,
+          externalId: String(user?.providerUserId || user?.id || ""),
+        },
+      });
       const formData = new FormData();
       formData.append("receipt", receiptFile);
       if (receiptNote.trim()) formData.append("payment_receipt_note", receiptNote.trim());
