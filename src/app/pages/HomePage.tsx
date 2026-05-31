@@ -3317,8 +3317,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             </p>
                           </div>
 
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-3">
                               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                                 <TicketPercent size={14} className="text-sky-600" />
                                 Tarif client
@@ -3334,7 +3334,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               </p>
                             </div>
 
-                            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                            <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-3">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                                   <BedDouble size={14} className="text-emerald-600" />
@@ -3346,9 +3346,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                   <button type="button" onClick={() => setLocalRoomCountByHotel((prev) => ({ ...prev, [hotelId]: Math.min(4, roomCount + 1) }))} className="rounded-lg border border-slate-300 p-1 text-slate-800"><Plus size={12} /></button>
                                 </div>
                               </div>
-                              <div className="mt-3 space-y-3">
+                              <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
                                 {resolvedRoomChoices.map((choice) => (
-                                  <div key={`${hotelId}-room-choice-${choice.roomIndex}`} className="rounded-xl border border-slate-200 bg-white p-2">
+                                  <div key={`${hotelId}-room-choice-${choice.roomIndex}`} className="rounded-lg border border-slate-200 bg-white p-2">
                                     <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">Chambre {choice.roomIndex + 1}</p>
                                     <select
                                       value={choice.selectedBoardingKey}
@@ -3360,7 +3360,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                           return { ...prev, [hotelId]: current };
                                         });
                                       }}
-                                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
+                                      className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
                                     >
                                       {boardingOptions.length > 0 ? boardingOptions.map((option) => (
                                         <option key={`${hotel.Id}-${option.key}-${choice.roomIndex}`} value={option.key}>
@@ -3379,7 +3379,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                           return { ...prev, [hotelId]: current };
                                         });
                                       }}
-                                      className="mt-2 h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
+                                      className="mt-1.5 h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
                                     >
                                       {choice.roomOptions.length > 0 ? choice.roomOptions.map((option) => (
                                         <option key={`${hotel.Id}-room-${option.key}-${choice.roomIndex}`} value={option.key}>
@@ -3387,7 +3387,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                         </option>
                                       )) : <option value="">Types de chambre indisponibles</option>}
                                     </select>
-                                    <p className="mt-1 text-[11px] font-semibold text-slate-700">Tarif chambre: {choice.price !== null ? `${formatHotelPrice(choice.price)} TND` : "Sur demande"}</p>
+                                    <p className="mt-1 text-[10px] font-semibold text-slate-700">Tarif chambre: {choice.price !== null ? `${formatHotelPrice(choice.price)} TND` : "Sur demande"}</p>
                                   </div>
                                 ))}
                               </div>
