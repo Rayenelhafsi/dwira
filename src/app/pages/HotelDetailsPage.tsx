@@ -223,19 +223,25 @@ export default function HotelDetailsPage() {
   );
   const practicalNote = useMemo(() => renderHotelRichText(hotel?.Note || ""), [hotel]);
   const preferredBoardingId = Math.max(0, Number(searchParams.get("boardingId") || 0) || 0);
+  const preferredRoomId = Math.max(0, Number(searchParams.get("roomId") || 0) || 0);
   const shouldAutoOpenReserve = String(searchParams.get("reserve") || "") === "1";
   const roomOffers = useMemo(() => {
     const offers = flattenHotelRoomOffers(searchHotel);
-    if (preferredBoardingId <= 0) return offers;
+    if (preferredBoardingId <= 0 && preferredRoomId <= 0) return offers;
     return [...offers].sort((a, b) => {
+      const aRoomScore = Number(Number(a.room?.Id || 0) === preferredRoomId);
+      const bRoomScore = Number(Number(b.room?.Id || 0) === preferredRoomId);
+      if (aRoomScore !== bRoomScore) return bRoomScore - aRoomScore;
       const aScore = Number(Number(a.boardingId || 0) === preferredBoardingId);
       const bScore = Number(Number(b.boardingId || 0) === preferredBoardingId);
       return bScore - aScore;
     });
-  }, [searchHotel, preferredBoardingId]);
+  }, [searchHotel, preferredBoardingId, preferredRoomId]);
   const activeRequestOffer = requestOfferIndex !== null ? roomOffers[requestOfferIndex] || null : null;
   const mapsLink = useMemo(() => buildMapsLink(hotel), [hotel]);
-  const backHref = searchParams.toString() ? `/hotels?${searchParams.toString()}` : "/hotels";
+  const backParams = new URLSearchParams(searchParams);
+  backParams.set("mode", "hotellerie");
+  const backHref = `/?${backParams.toString()}`;
   const infoCards = useMemo(
     () => [
       {
@@ -315,13 +321,15 @@ export default function HotelDetailsPage() {
   };
   useEffect(() => {
     if (!shouldAutoOpenReserve || hasAutoOpenedReserve || roomOffers.length === 0 || requestOfferIndex !== null) return;
-    const preferredIndex = preferredBoardingId > 0
-      ? roomOffers.findIndex((offer) => Number(offer.boardingId || 0) === preferredBoardingId)
-      : 0;
+    const preferredIndex = roomOffers.findIndex((offer) => {
+      if (preferredRoomId > 0 && Number(offer.room?.Id || 0) === preferredRoomId) return true;
+      if (preferredBoardingId > 0 && Number(offer.boardingId || 0) === preferredBoardingId) return true;
+      return false;
+    });
     const targetIndex = preferredIndex >= 0 ? preferredIndex : 0;
     setHasAutoOpenedReserve(true);
     openReservationRequest(targetIndex);
-  }, [shouldAutoOpenReserve, hasAutoOpenedReserve, roomOffers, requestOfferIndex, preferredBoardingId]);
+  }, [shouldAutoOpenReserve, hasAutoOpenedReserve, roomOffers, requestOfferIndex, preferredBoardingId, preferredRoomId]);
 
   const submitHotelReservationDemand = async () => {
     if (!user || !hotel || !activeRequestOffer) {

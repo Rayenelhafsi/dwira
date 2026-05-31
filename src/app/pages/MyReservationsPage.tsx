@@ -141,6 +141,7 @@ export default function MyReservationsPage() {
   const [activeRejectedDemandId, setActiveRejectedDemandId] = useState<string | null>(null);
   const [loadingContractId, setLoadingContractId] = useState<string | null>(null);
   const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
+  const [cancellingHotelDemandId, setCancellingHotelDemandId] = useState<string | null>(null);
 
   const fetchReservations = useCallback(async () => {
     if (!user?.email) return;
@@ -304,6 +305,24 @@ export default function MyReservationsPage() {
       toast.error(error instanceof Error ? error.message : "Annulation impossible");
     } finally {
       setCancellingDemandId(null);
+    }
+  };
+
+  const cancelHotelReservation = async (reservation: HotelReservationDemand) => {
+    setCancellingHotelDemandId(reservation.id);
+    try {
+      const response = await fetch(`${API_URL}/hotel-reservation-demands/${encodeURIComponent(reservation.id)}/cancel-booking`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Annulation hotel impossible"));
+      const updated = await response.json();
+      setHotelReservations((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      toast.success("Reservation hotel annulee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Annulation hotel impossible");
+    } finally {
+      setCancellingHotelDemandId(null);
     }
   };
 
@@ -597,6 +616,16 @@ export default function MyReservationsPage() {
                         >
                           Consulter voucher
                         </a>
+                      ) : null}
+                      {!reservation.voucher_url && reservation.reservation_payment_id && reservation.status !== "annulee" ? (
+                        <button
+                          type="button"
+                          onClick={() => void cancelHotelReservation(reservation)}
+                          disabled={cancellingHotelDemandId === reservation.id}
+                          className="inline-flex rounded-full border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                        >
+                          {cancellingHotelDemandId === reservation.id ? "Annulation..." : "Annuler reservation"}
+                        </button>
                       ) : null}
                     </div>
                   </div>

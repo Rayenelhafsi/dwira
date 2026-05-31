@@ -597,15 +597,14 @@ function normalizeMyGoHotelBookingRoom(room, index = 0) {
     return { Name: name, Surname: surname, Age: age };
   };
 
+  const viewIds = parseMyGoHotelIntegerArray(room.viewIds ?? room.View ?? room.views);
+  const supplementIds = parseMyGoHotelIntegerArray(room.supplementIds ?? room.Supplement ?? room.supplements);
+
   return {
     Id: typeof roomIdRaw === 'string' ? roomIdRaw.trim() : Number(roomIdRaw),
     Boarding: boardingId,
-    ...(parseMyGoHotelIntegerArray(room.viewIds ?? room.View ?? room.views).length > 0
-      ? { View: parseMyGoHotelIntegerArray(room.viewIds ?? room.View ?? room.views) }
-      : {}),
-    ...(parseMyGoHotelIntegerArray(room.supplementIds ?? room.Supplement ?? room.supplements).length > 0
-      ? { Supplement: parseMyGoHotelIntegerArray(room.supplementIds ?? room.Supplement ?? room.supplements) }
-      : {}),
+    View: viewIds,
+    Supplement: supplementIds,
     Pax: {
       Adult: adults.map(normalizeAdult),
       ...(children.length > 0 ? { Child: children.map(normalizeChild) } : {}),
@@ -667,6 +666,91 @@ function normalizeMyGoHotelBookingResponse(payload) {
   return booking && typeof booking === 'object' ? booking : {};
 }
 
+function splitDemandClientName(fullName) {
+  const cleaned = String(fullName || '').trim().replace(/\s+/g, ' ');
+  if (!cleaned) return { firstName: 'Client', lastName: 'Dwira' };
+  const parts = cleaned.split(' ');
+  if (parts.length === 1) return { firstName: parts[0], lastName: 'Dwira' };
+  return {
+    firstName: parts.slice(0, -1).join(' '),
+    lastName: parts.slice(-1).join(' '),
+  };
+}
+
+function buildMyGoHotelBookingPayloadFromDemand(demandRow) {
+  const context = safeParseJson(demandRow?.hotel_context_json, {}) || {};
+  const token = String(context?.token || context?.Token || '').trim();
+  const cityId = Number(demandRow?.hotel_city_id || context?.hotel?.City?.Id || 0);
+  const hotelId = Number(demandRow?.hotel_id || context?.hotel?.Id || 0);
+  const checkIn = String(demandRow?.check_in || '').trim();
+  const checkOut = String(demandRow?.check_out || '').trim();
+  const roomId = Number(demandRow?.room_id || context?.offer?.room?.Id || 0);
+  const boardingId = Number(demandRow?.boarding_id || context?.offer?.boardingId || 0);
+  const childAges = parseJsonArray(demandRow?.child_ages_json).map((age) => Number(age)).filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
+  const adultsCount = Math.max(1, Number(demandRow?.adults || 1));
+  const room = context?.offer?.room && typeof context.offer.room === 'object' ? context.offer.room : {};
+  const viewIds = parseMyGoHotelIntegerArray(Array.isArray(room?.View) ? room.View.map((entry) => entry?.Id) : []);
+  const supplementIds = parseMyGoHotelIntegerArray(
+    Array.isArray(room?.Supplement)
+      ? room.Supplement.filter((entry) => entry?.Required === true).map((entry) => entry?.Id)
+      : []
+  );
+
+  if (!token || cityId <= 0 || hotelId <= 0 || roomId <= 0 || boardingId <= 0 || !isMyGoHotelIsoDate(checkIn) || !isMyGoHotelIsoDate(checkOut)) {
+    throw new Error('Contexte booking hotel incomplet pour creer la reservation fournisseur.');
+  }
+
+  const parsedName = splitDemandClientName(demandRow?.client_name);
+  const adults = Array.from({ length: adultsCount }).map((_, index) => ({
+    Civility: 'Mr',
+    Name: index === 0 ? parsedName.firstName : `Adult${index + 1}`,
+    Surname: index === 0 ? parsedName.lastName : parsedName.lastName,
+    Holder: index === 0,
+  }));
+  const children = childAges.map((age, index) => ({
+    Name: `Child${index + 1}`,
+    Surname: parsedName.lastName,
+    Age: age,
+  }));
+
+  return buildMyGoHotelBookingPayload({
+    token,
+    cityId,
+    hotelId,
+    checkIn,
+    checkOut,
+    currency: String(demandRow?.currency || '').trim() || undefined,
+    rooms: [
+      {
+        roomId,
+        boardingId,
+        viewIds,
+        supplementIds,
+        adults,
+        children,
+      },
+    ],
+  }, { preBooking: false });
+}
+
+async function createMyGoHotelBookingForDemand(demandRow) {
+  const payload = buildMyGoHotelBookingPayloadFromDemand(demandRow);
+  const providerResponse = await callMyGoHotelService('BookingCreation', payload);
+  return normalizeMyGoHotelBookingResponse(providerResponse);
+}
+
+async function cancelMyGoHotelBookingForDemand(demandRow) {
+  const bookingId = Number(demandRow?.provider_booking_id || 0);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    throw new Error('Aucune reservation fournisseur a annuler.');
+  }
+  const payload = await callMyGoHotelService('BookingCancellation', {
+    Booking: bookingId,
+    Currency: String(demandRow?.provider_booking_currency || demandRow?.currency || '').trim() || undefined,
+  });
+  return payload && typeof payload === 'object' ? payload : {};
+}
+
 async function ensureHotelReservationDemandSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS hotel_reservation_demands (
@@ -714,6 +798,12 @@ async function ensureHotelReservationDemandSchema() {
       voucher_sent_at DATETIME NULL,
       voucher_qr_payload TEXT NULL,
       voucher_qr_image_url VARCHAR(700) NULL,
+      provider_booking_id VARCHAR(120) NULL,
+      provider_booking_state VARCHAR(40) NULL,
+      provider_booking_currency VARCHAR(10) NULL,
+      provider_cancel_fee DECIMAL(12,2) NULL,
+      provider_cancelled_at DATETIME NULL,
+      provider_cancel_payload_json LONGTEXT NULL,
       status VARCHAR(40) NOT NULL,
       client_note TEXT NULL,
       admin_note TEXT NULL,
@@ -801,6 +891,24 @@ async function ensureHotelReservationDemandSchema() {
   }
   if (!(await columnExists('hotel_reservation_demands', 'voucher_qr_image_url'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN voucher_qr_image_url VARCHAR(700) NULL AFTER voucher_qr_payload');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'provider_booking_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN provider_booking_id VARCHAR(120) NULL AFTER voucher_qr_image_url');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'provider_booking_state'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN provider_booking_state VARCHAR(40) NULL AFTER provider_booking_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'provider_booking_currency'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN provider_booking_currency VARCHAR(10) NULL AFTER provider_booking_state');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'provider_cancel_fee'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN provider_cancel_fee DECIMAL(12,2) NULL AFTER provider_booking_currency');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'provider_cancelled_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN provider_cancelled_at DATETIME NULL AFTER provider_cancel_fee');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'provider_cancel_payload_json'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN provider_cancel_payload_json LONGTEXT NULL AFTER provider_cancelled_at');
   }
 }
 
@@ -1091,6 +1199,18 @@ function formatHotelReservationDemandRow(row) {
     clicktopay_checkout_url: row.clicktopay_checkout_url || null,
     clicktopay_paid_at: row.clicktopay_paid_at || null,
     voucher_qr_image_url: row.voucher_qr_image_url || null,
+    provider_booking_id: row.provider_booking_id || null,
+    provider_booking_state: row.provider_booking_state || null,
+    provider_booking_currency: row.provider_booking_currency || null,
+    provider_cancel_fee: row.provider_cancel_fee === null || row.provider_cancel_fee === undefined ? null : Number(row.provider_cancel_fee),
+    provider_cancelled_at: row.provider_cancelled_at || null,
+    provider_cancel_payload: (() => {
+      try {
+        return row.provider_cancel_payload_json ? JSON.parse(row.provider_cancel_payload_json) : null;
+      } catch {
+        return null;
+      }
+    })(),
     hotel_context: (() => {
       try {
         return row.hotel_context_json ? JSON.parse(row.hotel_context_json) : null;
@@ -1127,6 +1247,7 @@ async function fetchHotelReservationDemandRow(demandId) {
        DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
        DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
        DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+       DATE_FORMAT(provider_cancelled_at, '%Y-%m-%d %H:%i:%s') AS provider_cancelled_at,
        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
      FROM hotel_reservation_demands
@@ -1463,19 +1584,40 @@ async function applyHotelReservationDemandPayment({ current, demandId, method, e
   }
   const now = getAgencySqlDateTime();
   const paymentId = `${explicitPaymentIdPrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+  let providerBooking = null;
+  let providerBookingError = null;
+  try {
+    providerBooking = await createMyGoHotelBookingForDemand(current);
+  } catch (error) {
+    providerBookingError = String(error?.message || error || '').trim() || 'Booking fournisseur impossible';
+  }
+  const providerBookingId = String(providerBooking?.Id || '').trim() || null;
+  const providerBookingState = String(providerBooking?.State || '').trim() || null;
+  const providerBookingCurrency = String(providerBooking?.Currency || current.currency || '').trim() || null;
+  const existingAdminNote = String(current.admin_note || '').trim();
+  const bookingErrorAdminNote = providerBookingError
+    ? `${existingAdminNote ? `${existingAdminNote}\n` : ''}[Booking API] ${providerBookingError}`
+    : existingAdminNote || null;
+  const nextStatus = providerBookingId ? 'voucher_en_cours' : 'succes_paiement';
   await pool.query(
     `UPDATE hotel_reservation_demands
      SET reservation_payment_id = ?,
          reservation_payment_paid_at = ?,
          payment_method = ?,
          status = ?,
+         provider_booking_id = ?,
+         provider_booking_state = ?,
+         provider_booking_currency = ?,
+         admin_note = ?,
          updated_at = ?
      WHERE id = ?`,
-    [paymentId, now, method, 'voucher_en_cours', now, demandId]
+    [paymentId, now, method, nextStatus, providerBookingId, providerBookingState, providerBookingCurrency, bookingErrorAdminNote, now, demandId]
   );
   await createAdminNotification(
-    'success',
-    `Paiement ${method} recu pour la demande hotel ${demandId}. Voucher a preparer.`,
+    providerBookingId ? 'success' : 'warning',
+    providerBookingId
+      ? `Paiement ${method} recu pour la demande hotel ${demandId}. Booking fournisseur cree, voucher a preparer.`
+      : `Paiement ${method} recu pour la demande hotel ${demandId}. Booking fournisseur a verifier manuellement.`,
     now
   );
 }
@@ -3827,6 +3969,7 @@ app.get('/api/hotel-reservation-demands', requireAuthenticatedSession, async (re
          DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
          DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
          DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+         DATE_FORMAT(provider_cancelled_at, '%Y-%m-%d %H:%i:%s') AS provider_cancelled_at,
          DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
          DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
        FROM hotel_reservation_demands
@@ -3960,6 +4103,10 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
     let voucherUrl = current.voucher_url || null;
     let voucherGeneratedAt = current.voucher_generated_at || null;
     let voucherSentAt = current.voucher_sent_at || null;
+    let providerCancelFee = current.provider_cancel_fee;
+    let providerCancelledAt = current.provider_cancelled_at || null;
+    let providerCancelPayloadJson = current.provider_cancel_payload_json || null;
+    let providerBookingState = current.provider_booking_state || null;
     if (requesterIsAdmin && (forceGenerateVoucher || nextStatus === 'voucher_en_cours' || nextStatus === 'voucher_envoye')) {
       if (!voucherId) {
         return res.status(400).json({ error: 'Identifiant voucher obligatoire pour generer le voucher' });
@@ -3984,20 +4131,86 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
       }
     }
 
+    if (requesterIsAdmin && nextStatus === 'annulee' && String(current.provider_booking_id || '').trim() && !providerCancelledAt) {
+      try {
+        const cancellation = await cancelMyGoHotelBookingForDemand(current);
+        providerCancelFee = Number.isFinite(Number(cancellation?.Fee)) ? Number(cancellation.Fee) : null;
+        providerCancelledAt = getAgencySqlDateTime();
+        providerCancelPayloadJson = JSON.stringify(cancellation || {});
+        providerBookingState = String(cancellation?.State || cancellation?.Cancelled || 'Cancelled').trim() || 'Cancelled';
+      } catch (cancelError) {
+        return res.status(409).json({
+          error: `Annulation fournisseur impossible: ${String(cancelError?.message || cancelError || '').trim() || 'Erreur inconnue'}`,
+        });
+      }
+    }
+
     await pool.query(
       `UPDATE hotel_reservation_demands
        SET status = ?, admin_note = ?, client_note = ?,
            voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
            voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?,
+           provider_booking_state = ?, provider_cancel_fee = ?, provider_cancelled_at = ?, provider_cancel_payload_json = ?,
            updated_at = ?
        WHERE id = ?`,
-      [nextStatus, nextAdminNote, nextClientNote, voucherId, voucherNumber, voucherQrPayload, voucherQrImageUrl, voucherUrl, voucherGeneratedAt, voucherSentAt, now, demandId]
+      [
+        nextStatus,
+        nextAdminNote,
+        nextClientNote,
+        voucherId,
+        voucherNumber,
+        voucherQrPayload,
+        voucherQrImageUrl,
+        voucherUrl,
+        voucherGeneratedAt,
+        voucherSentAt,
+        providerBookingState,
+        providerCancelFee,
+        providerCancelledAt,
+        providerCancelPayloadJson,
+        now,
+        demandId,
+      ]
     );
 
     return res.json(await fetchHotelReservationDemandRow(demandId));
   } catch (error) {
     console.error('Error updating hotel reservation demand:', error);
     return res.status(500).json({ error: 'Impossible de mettre a jour la demande hotellerie' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/cancel-booking', requireAuthenticatedSession, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!canAccessHotelReservationDemand(req.authUser, current)) {
+      return res.status(403).json({ error: 'Acces refuse a cette demande hotel' });
+    }
+    if (!String(current.provider_booking_id || '').trim()) {
+      return res.status(400).json({ error: 'Aucune reservation fournisseur liee a cette demande' });
+    }
+    if (current.provider_cancelled_at) {
+      return res.json(await fetchHotelReservationDemandRow(demandId));
+    }
+    const cancellation = await cancelMyGoHotelBookingForDemand(current);
+    const now = getAgencySqlDateTime();
+    const fee = Number.isFinite(Number(cancellation?.Fee)) ? Number(cancellation.Fee) : null;
+    const bookingState = String(cancellation?.State || cancellation?.Cancelled || 'Cancelled').trim() || 'Cancelled';
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET status = ?, provider_booking_state = ?, provider_cancel_fee = ?, provider_cancelled_at = ?, provider_cancel_payload_json = ?, updated_at = ?
+       WHERE id = ?`,
+      ['annulee', bookingState, fee, now, JSON.stringify(cancellation || {}), now, demandId]
+    );
+    return res.json(await fetchHotelReservationDemandRow(demandId));
+  } catch (error) {
+    console.error('Error cancelling hotel provider booking:', error);
+    return res.status(500).json({ error: 'Impossible d annuler la reservation hotel chez le fournisseur' });
   }
 });
 
@@ -4187,6 +4400,7 @@ app.post('/api/hotel-reservation-demands/:id/flouci/confirm', requireAuthenticat
               DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
               DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
               DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+              DATE_FORMAT(provider_cancelled_at, '%Y-%m-%d %H:%i:%s') AS provider_cancelled_at,
               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
               DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
        FROM hotel_reservation_demands

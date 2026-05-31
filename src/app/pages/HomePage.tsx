@@ -1,16 +1,19 @@
 ﻿import { useState, useRef, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
+import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { Zone } from "../admin/types";
 import logo from "../../../logo dwira.jpg";
 import titaTravelLogo from "../../../logo Tita travel.jpg";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
-import { getHotelConfig, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
+import { createHotelReservationDemand, getHotelConfig, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
 import { extractHotelMinPrice, flattenHotelRoomOffers, formatHotelStarLabel, getHotelCardDescription, pickHotelDisplayedPrice } from "../utils/hotelHelpers";
+import { saveAuthReturnTo } from "../utils/pendingReservation";
+import { toast } from "sonner";
 import { 
   format, 
   startOfMonth, 
@@ -401,8 +404,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const hotelDefaults = useMemo(() => buildDefaultHotelSearch(), []);
   // Use shared context for properties
   const { properties, zones, modePriorities, loading } = useProperties();
+  const { user } = useAuth();
   
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const resultsRef = useRef<HTMLDivElement>(null);
   const filterControlsRef = useRef<HTMLDivElement>(null);
@@ -489,7 +494,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   });
   const [hotelsByCity, setHotelsByCity] = useState<HotelSummary[]>([]);
   const [selectedBoardingByHotel, setSelectedBoardingByHotel] = useState<Record<number, string>>({});
+  const [selectedRoomByHotel, setSelectedRoomByHotel] = useState<Record<number, string>>({});
+  const [localAdultsByHotel, setLocalAdultsByHotel] = useState<Record<number, number>>({});
+  const [localChildAgesByHotel, setLocalChildAgesByHotel] = useState<Record<number, number[]>>({});
   const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
+  const [hotelReserveModal, setHotelReserveModal] = useState<null | {
+    hotel: HotelSummary;
+    adults: number;
+    childAges: number[];
+    boardingId: number | null;
+    boardingName: string | null;
+    roomId: number | null;
+    roomName: string | null;
+    totalPrice: number | null;
+    phone: string;
+    note: string;
+  }>(null);
+  const [submittingHotelReserve, setSubmittingHotelReserve] = useState(false);
   useEffect(() => {
     if (!hotelDestinationOpen && !hotelTravellersOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -1371,6 +1392,84 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       setHotelProviderError(error instanceof Error ? error.message : "Recherche hoteliere impossible.");
     } finally {
       setLoadingHotelResults(false);
+    }
+  };
+
+  const openHotelReserveModal = (payload: {
+    hotel: HotelSummary;
+    adults: number;
+    childAges: number[];
+    boardingId: number | null;
+    boardingName: string | null;
+    roomId: number | null;
+    roomName: string | null;
+    totalPrice: number | null;
+  }) => {
+    if (!user || user.role !== "user" || !user.email) {
+      const returnTo = `${routerLocation.pathname}${routerLocation.search}`;
+      saveAuthReturnTo(returnTo);
+      navigate(`/login?return_to=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    setHotelReserveModal({
+      ...payload,
+      phone: String(user.telephone || "").trim(),
+      note: "",
+    });
+  };
+
+  const submitHotelReserveFromHome = async () => {
+    if (!hotelReserveModal) return;
+    if (!user || user.role !== "user" || !user.email) {
+      const returnTo = `${routerLocation.pathname}${routerLocation.search}`;
+      saveAuthReturnTo(returnTo);
+      navigate(`/login?return_to=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    const phone = String(hotelReserveModal.phone || "").trim();
+    if (!phone) {
+      toast.error("Numero de telephone obligatoire.");
+      return;
+    }
+
+    setSubmittingHotelReserve(true);
+    try {
+      const created = await createHotelReservationDemand({
+        hotelId: hotelReserveModal.hotel.Id,
+        hotelName: hotelReserveModal.hotel.Name,
+        hotelCityId: hotelReserveModal.hotel.City?.Id || null,
+        hotelCityName: hotelReserveModal.hotel.City?.Name || null,
+        hotelImageUrl: String(hotelReserveModal.hotel.Image || "").trim() || null,
+        checkIn: hotelCheckIn,
+        checkOut: hotelCheckOut,
+        adults: hotelReserveModal.adults,
+        childAges: hotelReserveModal.childAges,
+        boardingId: hotelReserveModal.boardingId || null,
+        boardingName: hotelReserveModal.boardingName || null,
+        roomId: hotelReserveModal.roomId || null,
+        roomName: hotelReserveModal.roomName || null,
+        totalPrice: hotelReserveModal.totalPrice,
+        currency: "TND",
+        clientPhone: phone,
+        clientNote: String(hotelReserveModal.note || "").trim() || null,
+        hotelContext: {
+          source: "homepage_card",
+        },
+      });
+      setHotelReserveModal(null);
+      toast.success("Demande créée. Passez maintenant au paiement.");
+      navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Impossible de creer la demande hotel.";
+      if (/401|auth|connect|session|acces refuse|forbidden/i.test(message)) {
+        const returnTo = `${routerLocation.pathname}${routerLocation.search}`;
+        saveAuthReturnTo(returnTo);
+        navigate(`/login?return_to=${encodeURIComponent(returnTo)}`);
+        return;
+      }
+      toast.error(message);
+    } finally {
+      setSubmittingHotelReserve(false);
     }
   };
 
@@ -2828,6 +2927,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               {!loadingHotelResults && sortedHotelResults.length > 0 && (
                 <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                   {sortedHotelResults.map((hotel) => {
+                    const hotelId = Number(hotel.Id || 0);
                     const minPrice = extractHotelMinPrice(hotel);
                     const roomOffers = flattenHotelRoomOffers(hotel);
                     const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room) !== null) || roomOffers[0] || null;
@@ -2858,22 +2958,40 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       const bPrice = b.price ?? Number.POSITIVE_INFINITY;
                       return aPrice - bPrice;
                     });
-                    const selectedBoardingKey = selectedBoardingByHotel[Number(hotel.Id)] || boardingOptions[0]?.key || "";
+                    const localAdults = Math.max(1, Number(localAdultsByHotel[hotelId] ?? hotelAdults) || hotelAdults);
+                    const localChildAges = Array.isArray(localChildAgesByHotel[hotelId]) ? localChildAgesByHotel[hotelId] : hotelChildAges;
+                    const selectedBoardingKey = selectedBoardingByHotel[hotelId] || boardingOptions[0]?.key || "";
                     const selectedBoardingOption = boardingOptions.find((item) => item.key === selectedBoardingKey) || boardingOptions[0] || null;
-                    const displayedClientPrice = selectedBoardingOption?.price ?? leadOfferPrice ?? minPrice;
+                    const roomOptions = roomOffers
+                      .filter((offer) => {
+                        if (!selectedBoardingOption) return true;
+                        if (selectedBoardingOption.boardingId) return Number(offer.boardingId || 0) === Number(selectedBoardingOption.boardingId || 0);
+                        return String(offer.boardingName || "").trim().toLowerCase() === String(selectedBoardingOption.boardingName || "").trim().toLowerCase();
+                      })
+                      .map((offer, index) => {
+                        const room = offer.room;
+                        const roomPrice = pickHotelDisplayedPrice(room);
+                        const roomId = Number(room?.Id || 0);
+                        const key = roomId > 0 ? `id:${roomId}` : `idx:${index}`;
+                        return {
+                          key,
+                          roomId: roomId > 0 ? roomId : null,
+                          roomName: String(room?.Name || "").trim() || `Chambre ${index + 1}`,
+                          price: roomPrice,
+                        };
+                      });
+                    const selectedRoomKey = selectedRoomByHotel[hotelId] || roomOptions[0]?.key || "";
+                    const selectedRoomOption = roomOptions.find((item) => item.key === selectedRoomKey) || roomOptions[0] || null;
+                    const displayedClientPrice = selectedRoomOption?.price ?? selectedBoardingOption?.price ?? leadOfferPrice ?? minPrice;
                     const detailParams = new URLSearchParams();
                     if (hotelCityId > 0) detailParams.set("cityId", String(hotelCityId));
                     detailParams.set("checkIn", hotelCheckIn);
                     detailParams.set("checkOut", hotelCheckOut);
-                    detailParams.set("adults", String(hotelAdults));
-                    const childAges = hotelChildAges;
-                    if (childAges.length > 0) detailParams.set("children", childAges.join(","));
+                    detailParams.set("adults", String(localAdults));
+                    if (localChildAges.length > 0) detailParams.set("children", localChildAges.join(","));
                     if (selectedBoardingOption?.boardingId) detailParams.set("boardingId", String(selectedBoardingOption.boardingId));
+                    if (selectedRoomOption?.roomId) detailParams.set("roomId", String(selectedRoomOption.roomId));
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
-                    const reserveParams = new URLSearchParams(detailParams);
-                    reserveParams.set("reserve", "1");
-                    const reserveLinkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${reserveParams.toString() ? `?${reserveParams.toString()}` : ""}`;
-
                     return (
                       <article
                         key={hotel.Id}
@@ -2946,8 +3064,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                   const nextKey = event.target.value;
                                   setSelectedBoardingByHotel((prev) => ({
                                     ...prev,
-                                    [Number(hotel.Id)]: nextKey,
+                                    [hotelId]: nextKey,
                                   }));
+                                  setSelectedRoomByHotel((prev) => {
+                                    const next = { ...prev };
+                                    delete next[hotelId];
+                                    return next;
+                                  });
                                 }}
                                 className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
                               >
@@ -2960,6 +3083,32 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                   ))
                                 ) : (
                                   <option value="">Selon les offres disponibles</option>
+                                )}
+                              </select>
+                              <div className="mt-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                <BedDouble size={14} className="text-sky-600" />
+                                Type de chambre
+                              </div>
+                              <select
+                                value={selectedRoomKey}
+                                onChange={(event) => {
+                                  const nextKey = event.target.value;
+                                  setSelectedRoomByHotel((prev) => ({
+                                    ...prev,
+                                    [hotelId]: nextKey,
+                                  }));
+                                }}
+                                className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
+                              >
+                                {roomOptions.length > 0 ? (
+                                  roomOptions.map((option) => (
+                                    <option key={`${hotel.Id}-room-${option.key}`} value={option.key}>
+                                      {option.roomName}
+                                      {option.price !== null ? ` - ${formatHotelPrice(option.price)} TND` : ""}
+                                    </option>
+                                  ))
+                                ) : (
+                                  <option value="">Types de chambre indisponibles</option>
                                 )}
                               </select>
                             </div>
@@ -2978,18 +3127,113 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               </span>
                             )}
                           </div>
+                          <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Voyageurs (local)</p>
+                            <div className="mt-2 grid grid-cols-2 gap-3">
+                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Adultes</p>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => setLocalAdultsByHotel((prev) => ({ ...prev, [hotelId]: Math.max(1, localAdults - 1) }))}
+                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
+                                  >
+                                    <Minus size={13} />
+                                  </button>
+                                  <span className="text-sm font-semibold text-slate-900">{localAdults}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setLocalAdultsByHotel((prev) => ({ ...prev, [hotelId]: Math.min(8, localAdults + 1) }))}
+                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Enfants</p>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLocalChildAgesByHotel((prev) => {
+                                        const current = Array.isArray(prev[hotelId]) ? prev[hotelId] : localChildAges;
+                                        return { ...prev, [hotelId]: current.slice(0, Math.max(0, current.length - 1)) };
+                                      })
+                                    }
+                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
+                                  >
+                                    <Minus size={13} />
+                                  </button>
+                                  <span className="text-sm font-semibold text-slate-900">{localChildAges.length}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLocalChildAgesByHotel((prev) => {
+                                        const current = Array.isArray(prev[hotelId]) ? prev[hotelId] : localChildAges;
+                                        return { ...prev, [hotelId]: [...current, 0] };
+                                      })
+                                    }
+                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            {localChildAges.length > 0 && (
+                              <div className="mt-3 grid grid-cols-2 gap-2">
+                                {localChildAges.map((age, index) => (
+                                  <select
+                                    key={`${hotelId}-child-age-${index}`}
+                                    value={age}
+                                    onChange={(event) => {
+                                      const nextAge = Number(event.target.value) || 0;
+                                      setLocalChildAgesByHotel((prev) => {
+                                        const current = Array.isArray(prev[hotelId]) ? [...prev[hotelId]] : [...localChildAges];
+                                        current[index] = nextAge;
+                                        return { ...prev, [hotelId]: current };
+                                      });
+                                    }}
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
+                                  >
+                                    {Array.from({ length: 18 }).map((_, ageOption) => (
+                                      <option key={`${hotelId}-${index}-age-${ageOption}`} value={ageOption}>
+                                        Age enfant {index + 1}: {ageOption} ans
+                                      </option>
+                                    ))}
+                                  </select>
+                                ))}
+                              </div>
+                            )}
+                          </div>
 
                           <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
                             <div className="text-xs text-slate-500">
-                              {selectedHotelCity?.Name || hotel.City?.Name || "Destination"} • {hotelAdults} adulte{hotelAdults > 1 ? "s" : ""}
+                              {selectedHotelCity?.Name || hotel.City?.Name || "Destination"} • {localAdults} adulte{localAdults > 1 ? "s" : ""}{localChildAges.length > 0 ? ` - ${localChildAges.length} enfant${localChildAges.length > 1 ? "s" : ""}` : ""}
                             </div>
                             <div className="flex items-center gap-2">
                               <Link to={linkTo} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-sky-600 hover:text-sky-700">
                                 Voir le détail
                               </Link>
-                              <Link to={reserveLinkTo} className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openHotelReserveModal({
+                                    hotel,
+                                    adults: localAdults,
+                                    childAges: localChildAges,
+                                    boardingId: selectedBoardingOption?.boardingId || null,
+                                    boardingName: selectedBoardingOption?.boardingName || null,
+                                    roomId: selectedRoomOption?.roomId || null,
+                                    roomName: selectedRoomOption?.roomName || null,
+                                    totalPrice: displayedClientPrice,
+                                  })
+                                }
+                                className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
+                              >
                                 Réserver
-                              </Link>
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -3268,6 +3512,73 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     </div>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {hotelReserveModal && (
+            <div className="fixed inset-0 z-[10000] bg-slate-950/40 px-4 py-8 backdrop-blur-[1px]">
+              <div className="mx-auto w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Reservation hotel</p>
+                    <h3 className="mt-1 text-xl font-semibold text-slate-900">{hotelReserveModal.hotel.Name}</h3>
+                    <p className="mt-1 text-sm text-slate-500">{hotelReserveModal.hotel.City?.Name || "Destination"}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHotelReserveModal(null)}
+                    className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
+                  <p>Periode: <span className="font-semibold text-slate-900">{hotelCheckIn}</span> au <span className="font-semibold text-slate-900">{hotelCheckOut}</span></p>
+                  <p>Voyageurs: <span className="font-semibold text-slate-900">{hotelReserveModal.adults} adulte{hotelReserveModal.adults > 1 ? "s" : ""}{hotelReserveModal.childAges.length > 0 ? ` - ${hotelReserveModal.childAges.length} enfant${hotelReserveModal.childAges.length > 1 ? "s" : ""}` : ""}</span></p>
+                  <p>Offre: <span className="font-semibold text-slate-900">{hotelReserveModal.boardingName || "Selon disponibilite"}</span></p>
+                  <p>Chambre: <span className="font-semibold text-slate-900">{hotelReserveModal.roomName || "Selon disponibilite"}</span></p>
+                  <p>Prix client: <span className="font-semibold text-slate-900">{hotelReserveModal.totalPrice !== null ? `${formatHotelPrice(hotelReserveModal.totalPrice)} TND` : "Sur demande"}</span></p>
+                </div>
+                <div className="mt-4 space-y-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Telephone</span>
+                    <input
+                      type="tel"
+                      value={hotelReserveModal.phone}
+                      onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, phone: event.target.value } : prev))}
+                      className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                      placeholder="Ex: 98 123 456"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Note (optionnel)</span>
+                    <textarea
+                      value={hotelReserveModal.note}
+                      onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, note: event.target.value } : prev))}
+                      className="min-h-24 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500"
+                      placeholder="Informations supplementaires"
+                    />
+                  </label>
+                </div>
+                <div className="mt-5 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setHotelReserveModal(null)}
+                    className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    disabled={submittingHotelReserve}
+                    onClick={() => void submitHotelReserveFromHome()}
+                    className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {submittingHotelReserve ? <LoaderCircle size={16} className="animate-spin" /> : null}
+                    Proceder au paiement
+                  </button>
+                </div>
               </div>
             </div>
           )}

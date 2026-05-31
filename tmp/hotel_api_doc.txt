@@ -1,0 +1,878 @@
+Static Data:
+
+Before searching for availability, you will need to save the static data in your system.
+
+Below are Static Data method requests and responses
+
+•        ListCity Methode :
+                                                               Request
+
+               Root               Mondatory           Format                                Description
+
+    Credential                        Y
+
+           Login                      Y             string        The login with which you will connect
+
+           Password                   Y             string        The password with which you will log in
+
+
+                                                               Response
+
+           Root         Mondatory         Format                                        Description
+
+    Id                        Y               int        The city's unique identifier
+
+
+
+    Name                      Y           string         The name of the city
+
+    Region                    Y           string         The name of the region to which the city belongs
+
+
+
+•        ListBoarding Methode :
+                                                               Request
+
+               Root               Mondatory           Format                                Description
+
+    Credential                        Y
+
+           Login                      Y             string        The login with which you will connect
+
+           Password                   Y             string        The password with which you will log in
+
+
+                                                               Response
+
+           Root         Mondatory         Format                                        Description
+
+    Id                        Y               int        The Boarding's unique identifier
+
+    Code                      Y           string         Boarding short code
+
+    Name                      Y           string         Boarding name
+
+
+
+
+1
+•     ListTag Methode :
+                                                              Request
+
+               Root            Mondatory            Format                                 Description
+
+    Credential                       Y
+
+          Login                      Y            string          The login with which you will connect
+
+          Password                   Y            string          The password with which you will log in
+
+
+                                                              Response
+
+             Root     Mondatory            Format                                        Description
+
+     Id                      Y           int               The Tag's unique identifier
+     Title                   Y           string            The Tag Title
+
+
+
+•     ListCurrency Methode :
+                                                              Request
+
+               Root            Mondatory            Format                                 Description
+
+    Credential                       Y
+
+          Login                      Y            string          The login with which you will connect
+
+          Password                   Y            string          The password with which you will log in
+
+
+                                                              Response
+
+             Root     Mondatory            Format                                        Description
+
+     Code                    Y           string            Currency code
+
+     Symbol                  Y           string            Currency symbol
+
+
+
+
+•     ListHotel Methode :
+                                                              Request
+
+              Root          Mondatory          Format                                    Description
+
+    Credential                   Y
+
+
+
+2
+           Login                Y       string           The login with which you will connect
+
+           Password             Y       string           The password with which you will log in
+
+    City                       N        int             This is the city id of the ListCity method
+
+
+
+
+                                                        Response
+
+                Root          Mondatory             Format                           Description
+
+Id                                  Y         int               Hotel Id
+
+Name                                Y         string            Hotel Name
+
+    Category                        Y
+
+           Title                    Y         string            Categorie title
+
+           Star                     Y         string            Stars number
+
+    City
+
+           Id                       Y         int               City Id
+
+           Name                     Y         string            City name
+
+           ShortDescription         N         string            City short description
+
+           Adress                   N         string            City Adress
+
+    Localization                    N
+
+           Longitude                Y         string            Longitude
+
+           Latitude                 Y         string            Latitude
+
+    Image                           N         string           Hotel principal image
+
+    Facilities                      N         Array()
+
+           Title                    Y         string
+
+           Category                 Y         string
+
+Theme                               N         Array(string)
+
+Note                                Y         string
+
+
+
+
+3
+•        HotelDetail Methode :
+
+                                                                      Request
+
+                Root      Mondatory                Format                                     Description
+
+    Credential                   Y
+
+            Login                Y           string
+
+            Password             Y           string
+
+    Hotel                        Y           int                This is the hotel id of the ListHotel method
+
+
+
+
+                                                                Response
+
+                   Root              Mondatory               Format                            Description
+
+    Id                                   Y             int
+
+    Name                                 Y             string
+
+    Category                             Y
+
+           Title                         Y             string
+
+           Star                          Y             string
+
+    City
+
+           Id                            Y             int
+
+           Name                          Y             string
+
+    ShortDescription                    N              string
+
+    LongDescription                     N              string
+
+    Adress
+
+    Localization                        N
+
+
+
+4
+        Longitude                   Y          string
+
+        Latitude                    Y          string
+
+    Album                           N          Array()
+
+        Url                         Y          string
+
+        Description                 N          string
+
+    Facilities                      N          Array()
+
+        Title                       Y          string
+
+    Category                        Y          string
+
+    Option                          N          Array(string)
+
+        Id                           Y         int
+
+        Title                        Y         string
+
+    Theme                           N          Array(string)
+
+    Note                            N          string
+
+
+
+HotelSearch Methode :
+
+Once the static data is saved in your system, you can use it to have the list of our hotels with the HotelSearch
+method which allows you to have the list of hotels as well as their rates according to the search criteria that
+you will send.
+
+
+                                                        Request
+
+                    Root          Mondatory            Format                         Description
+
+Credential                               Y
+
+      Login                              Y       string
+
+      Password                           Y       string
+
+SearchDetails                            Y       int
+
+      BookingDetails                     Y
+
+             CheckIn                     Y       string           format YYYY-MM-DD
+
+             Checkout                    Y       string           format YYYY-MM-DD
+
+             City                        Y       int              This is the city id of the ListCity method
+
+             Hotel                       N       int              This is the hotel id of the ListHotel method
+
+
+
+5
+           Currency                N         string
+
+     Filters                       N
+
+           Keywords                N         int
+
+           Category                N         Array(int)
+
+           OnlyAvailable           N         boolean          True if you only want hotels available
+
+           Tags                    N         Array(int)
+
+     Rooms                         Y
+
+           Adult                   Y         int              number of adult
+
+           Child                   N         Array(int)       ages of children
+
+
+
+
+                                                   Response
+
+               Root        Mandatory     Format                                  Description
+
+Hotel                          Y
+
+Token                         Y                        To return to us in prebooking and booking api
+
+    Id                         Y       int
+
+    Name                       Y       string
+
+    Category                   Y
+
+     Title                     Y       string
+
+     Star                      Y       string
+
+    City                       Y
+
+     Id                        Y       int
+
+     Name                      Y       string
+
+    ShortDescription          N        string
+
+    Adress                    N        string
+
+    Localization              N
+
+     Longitude                 Y       string
+
+     Latitude                  Y       string
+
+
+
+6
+    Image               N    string
+
+    Facilities          N    Array()
+
+      Title             Y    string
+
+      Category          Y    string
+
+    Theme               N    Array(string)
+
+    Note                N    string
+
+Available               Y    boolean
+
+Price                   Y
+
+    Boarding            Y    Array()
+
+      Id                Y    int
+
+      Code              Y    string
+
+      Name              Y    string
+
+      Pax               Y    Array()
+
+        Adult           Y    int
+
+        Child           N    Array(int)
+
+
+      Rooms             Y   Array()
+
+           Id           Y   int
+
+           Name         Y   string
+
+           OnRequest    Y   boolean
+
+           View         N   Array()
+
+                Id      Y   int
+
+                Name    Y   string
+
+                Price   Y   decimal
+
+           Supplement   N   Array()
+
+                Id      Y   int
+
+                Name    Y   string
+
+                Price   Y   decimal
+
+
+
+
+7
+                 Required     Y   boolean
+
+         Price                Y   decimal
+
+         MinStay              N   int       MinStay of room
+
+         StopSales            N             StopSales of room
+
+                 Title        Y   string
+
+                 FromDate     Y   string    YYYY-MM-DD
+
+                 ToDate       Y   string    YYYY-MM-DD
+
+         NotRefundable        N   boolean
+
+         CancellationPolicy   N   Array()
+
+                 Fees         Y   decimal
+
+                 Type         Y   string    PRICE|PERCENT|NIGHT
+
+                 Nature       Y   string    NO_SHOW|PREMATURE_DEPARTURE|BEFORE_ARRIVAL
+
+                 FromDate     N   string    YYYY-MM-DD HH24:MI
+
+                 MinStay      N   int
+
+                 MaxStay      N   int
+
+      MinStay                 N   int       MinStay of board
+
+      StopSales               N             StopSales of board
+
+         Title                Y   string
+
+         FromDate             Y   string    YYYY-MM-DD
+
+         ToDate               Y   string    YYYY-MM-DD
+
+MinStay                       N   int       MinStay of hotel
+
+StopSales                     N             StopSales of hotel
+
+ Title                        Y   string
+
+    FromDate                  Y   string    YYYY-MM-DD
+
+    ToDate                    Y   string    YYYY-MM-DD
+
+Source                        N   int
+
+Currency                      Y   string
+
+Promotion                     N
+
+
+
+8
+    Title                       Y        string
+
+    Description                 Y        string
+
+    Rate                        Y        decimal
+
+
+
+
+BookingCreation Methode:
+
+The BookingCreation method allows you to create reservations.
+
+
+                                                        Request
+
+              Root           Mondatory            Format                         Description
+
+Credential                          Y
+
+      Login                         Y      string
+
+      Password                      Y      string
+
+HotelBooking                        Y
+
+      PreBooking                    N      boolean            this attribute is not mandatory, by setting true,
+                                                              your reservation will not be saved in our system,
+                                                              it is preferable to use it before the final
+                                                              confirmation to ensure that there is no change in
+                                                              prices or availability
+
+      Token                         Y      String             The token of the hotel returned in availability
+                                                              response
+      MethodPayment                 N      int                You must return 10 if you want that the client
+                                                              pay the amount returned In prebook at hotel
+      Currency                      N      string
+
+      City                          Y      int
+
+      Hotel                         Y      int
+
+      CheckIn                       Y      string
+
+      CheckOut                      Y      string
+
+      Option                        N      Array(int)         these options are free but subject to availability
+                                                              in the hotel
+
+      Rooms                         Y       Array()
+
+             Id                     Y       int
+
+             Boarding               Y       int
+
+
+
+9
+            View                     Y            Array(int)
+
+            Supplement               Y            Array(int)
+
+            Pax                      Y            Array()
+
+                  Adult              N            Array()
+
+                  Civility           Y            string
+
+                  Name               Y            string
+
+                  Surname            Y            string
+
+                  Holder             Y            boolean
+
+            Child                    N            Array()
+
+                  Name               Y            string
+
+                  Surname            Y            string
+
+                  Age                Y            int
+
+
+
+
+                                                           Response
+
+            Root             Mondatory         Format                       Description
+
+Id                               Y       int
+
+Hotel                            Y
+
+     Id                          Y       int
+
+     Name                        Y       string
+
+     Category                    Y
+
+             Title               Y       string
+
+             Star                Y       string
+
+     City                        Y
+
+             Id                  Y       int
+
+             Name                Y       string
+
+     ShortDescription           N        string
+
+     Adress                     N        string
+
+CheckIn                          Y       string                YYYY-MM-DD
+
+
+10
+CheckOut                  Y    string          YYYY-MM-DD
+
+AtHotel                   No   int             If the PreBooking attribute is True, AtHotel can contain
+                                               the amount that the customer can pay on the
+                                               day of check-in to the hotel directly. If this
+                                               option exists (it is not available for all hotels)
+                                               and want to use it, you must return to us in
+                                               the CreateBooking request the
+                                               attribute MethodPayment = 10 You will
+                                               also have to mention the amount to be paid
+                                               to the hotel in the customer's voucher to
+                                               inform the hotel
+Rooms                     Y    Array()
+
+     Id                   Y    int
+
+     Name                 Y    string
+
+     Boarding             Y
+
+            Id            Y    int
+
+            Code          Y    string
+
+            Name          Y    string
+
+     View                 N    Array()
+
+            Id            Y    int
+
+            Name          Y    string
+
+     Supplement           N    Array()
+
+            Id            Y    int
+
+            Name          Y    string
+
+            Required      Y    boolean
+
+     Reduction            N    Array(string)
+
+     CancellationPolicy   N    Array()
+
+          Fees            Y    decimal
+
+          Type            Y    string          PRICE|PERCENT|NIGHT
+
+          Nature          Y    string          NO_SHOW|PREMATURE_DEPARTURE|BEFORE_ARRIVAL
+
+          FromDate        N    string          YYYY-MM-DD HH24:MI
+
+          MinStay         N    int
+
+
+
+11
+             MaxStay             N       int
+
+     NotRefundable               N       boolean
+
+     Pax                         Y
+
+             Adult               N       Array()
+
+                  Civility       Y       string
+
+                  Name           Y       string
+
+                  Surname        Y       string
+
+                  Holder         Y       boolean
+
+             Child               N       Array()
+
+                  Name           Y       string
+
+                  Surname        Y       string
+
+                  Age            Y       int
+
+Source                           N       int
+
+Currency                         Y       string
+
+State                            Y       string         OnRequest|Validated|Cancelled
+
+TotalPrice                       Y       decimal
+
+Option                           N       Array()
+
+     Id                          Y       int
+
+     Title                       Y       string
+
+
+
+BookingCancellation methode :
+
+This method allows you to cancel a reservation already made, it is possible that cancellation fees will be
+applied.
+
+
+                                                      Request
+
+          Root          Mondatory       Format                               Description
+
+ Credential                  Y
+
+          Login              Y       string
+
+          Password           Y       string
+
+
+
+
+12
+ Booking                Y        int
+
+ PreCancelled           N        boolean
+
+ Currency               N        string
+
+
+                                                   Response
+
+      Root         Mondatory           Format                             Description
+
+Booking                 Y        int
+
+Fee                     Y        decimal
+
+Currency                Y        string
+
+PreCancelled            N        boolean
+
+Nature                  N        string
+
+Cancelled               N        string          YYYY-MM-DD HH24:MI
+
+
+
+
+BookingList methode :
+
+This method allows you to have the list of reservations you have made before
+
+
+                                                   Request
+
+          Root      Mondatory           Format                           Description
+
+Credential               Y
+
+      Login              Y        string
+
+      Password           Y        string
+
+Currency                 N        string
+
+Filters                  N
+
+      Booking            N        int
+
+      Hotel              N        int
+
+      FromDate           N        string         YYYY-MM-DD , creation date
+
+      ToDate             N        string         YYYY-MM-DD , creation date
+
+      State              N        string         OnRequest|Validated|Cancelled
+
+
+
+
+13
+                                                        Response
+
+               Root          Mondatory         Format                   Description
+
+BookingDetail                    Y       Array()
+
+     Id                          Y       int
+
+     Hotel                       Y
+
+          Id                     Y       int
+
+          Name                   Y       string
+
+          Category               Y
+
+                 Title           Y       string
+
+                 Star            Y       string
+
+          City                   Y
+
+                  Id             Y       int
+
+                  Name           Y       string
+
+          ShortDescription      N        string
+
+          Adress                N        string
+
+
+     CheckIn                    Y        string            YYYY-MM-DD
+
+     CheckOut                   Y        string            YYYY-MM-DD
+
+     Rooms                      Y        Array()
+
+          Id                    Y        int
+
+          Name                  Y        string
+
+          Boarding              Y
+
+                 Id             Y        int
+
+                 Code           Y        string
+
+                 Name           Y        string
+
+          View                  N        Array()
+
+                 Id             Y        int
+
+                 Name           Y        string
+
+
+
+14
+           Supplement        N   Array()
+
+                  Id         Y   int
+
+                  Name       Y   string
+
+                  Required   Y   boolean
+
+     Reduction               N   Array(string)
+
+     CancellationPolicy      N   Array()
+
+           Fees              Y   decimal
+
+           Type              Y   string          PRICE|PERCENT|NIGHT
+
+           Nature            Y   string          NO_SHOW|PREMATURE_DEPARTURE|BEFORE_ARRIVAL
+
+           FromDate          N   string          YYYY-MM-DD HH24:MI
+
+           MinStay           N   int
+
+           MaxStay           N   int
+
+     NotRefundable           N   boolean
+
+     Pax                     Y
+
+        Adult                N   Array()
+
+               Civility      Y   string
+
+               Name          Y   string
+
+               Surname       Y   string
+
+               Holder        Y   boolean
+
+        Child                N   Array()
+
+               Name          Y   string
+
+               Surname       Y   string
+
+               Age           Y   int
+
+     Source                  N   int
+
+     Currency                Y   string
+
+     State                   Y   string          OnRequest|Validated|Cancelled
+
+     TotalPrice              Y   decimal
+
+     Created                 Y   string          YYYY-MM-DD HH24:MI
+
+
+
+15
+     Validated   N   string    YYYY-MM-DD HH24:MI
+
+     Cancelled   N   string    YYYY-MM-DD HH24:MI
+
+     Fee         N   decimal
+
+     Option      N   Array()
+
+       Id        Y   int
+
+       Title     Y   string
+
+
+
+
+16
+

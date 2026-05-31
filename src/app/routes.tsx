@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { Navigate, createBrowserRouter, useLocation } from "react-router";
 import { Layout } from "./Layout";
 import HomePage from "./pages/HomePage";
 import { VentesLayout } from "./ventes/VentesLayout";
@@ -53,6 +53,13 @@ const ventesRoutes = PUBLIC_COMING_SOON.ventes
       },
     ];
 
+function HotelsSearchRedirect() {
+  const location = useLocation();
+  const incoming = new URLSearchParams(location.search);
+  incoming.set("mode", "hotellerie");
+  return <Navigate to={`/?${incoming.toString()}`} replace />;
+}
+
 export const router = createBrowserRouter([
   {
     path: MAINTENANCE_ACCESS_PATH,
@@ -64,7 +71,7 @@ export const router = createBrowserRouter([
     HydrateFallback: () => <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>,
     children: [
       { index: true, Component: HomePage },
-      { path: "hotels", lazy: lazyPage(() => import("./pages/HotelsPage")) },
+      { path: "hotels", Component: HotelsSearchRedirect },
       { path: "hotels/:id", lazy: lazyPage(() => import("./pages/HotelDetailsPage")) },
       { path: "logements", lazy: lazyPage(() => import("./pages/PropertiesPage")) },
       { path: "properties/:slug", lazy: lazyPage(() => import("./pages/PropertyDetailsPage")) },
