@@ -19392,10 +19392,27 @@ app.get('/api/anti-bot/config', (req, res) => {
   });
 });
 
-app.get('/api/auth/session', (req, res) => {
+app.get('/api/auth/session', async (req, res) => {
   const cookies = parseCookies(req.headers?.cookie);
   const hasSessionCookie = Boolean(String(cookies?.[SESSION_COOKIE_NAME] || '').trim());
-  const user = getSessionUserFromRequest(req);
+  let user = getSessionUserFromRequest(req);
+  if (user && (!String(user.authProvider || '').trim() || !String(user.providerUserId || '').trim()) && (user.email || user.id)) {
+    try {
+      const [rows] = await pool.query(
+        `SELECT auth_provider, provider_user_id
+         FROM utilisateurs
+         WHERE email = ? OR id = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [String(user.email || '').trim().toLowerCase(), String(user.id || '').trim()]
+      );
+      const dbAuthProvider = String(rows?.[0]?.auth_provider || '').trim() || null;
+      const dbProviderUserId = String(rows?.[0]?.provider_user_id || '').trim() || null;
+      if (dbAuthProvider || dbProviderUserId) {
+        user = { ...user, authProvider: dbAuthProvider || user.authProvider, providerUserId: dbProviderUserId || user.providerUserId };
+      }
+    } catch {}
+  }
   logMobileFlow('auth_session_check', req, {
     hasSessionCookie,
     authenticated: Boolean(user),
@@ -20714,19 +20731,18 @@ app.post('/api/meta/conversions', metaCapiRateLimit, async (req, res) => {
     if (!resolvedFbLoginId) {
       resolvedFbLoginId = String(sessionUser?.providerUserId || '').trim();
     }
-    if (!resolvedFbLoginId) {
-      const isLikelyFacebookAuth = String(sessionUser?.authProvider || '').trim().toLowerCase() === 'facebook';
-      if (isLikelyFacebookAuth && (sessionUser?.email || sessionUser?.id)) {
-        const [rows] = await pool.query(
-          `SELECT provider_user_id
-           FROM utilisateurs
-           WHERE (email = ? OR id = ?)
-             AND auth_provider = 'facebook'
-           LIMIT 1`,
-          [String(sessionUser?.email || '').trim().toLowerCase(), String(sessionUser?.id || '').trim()]
-        );
-        resolvedFbLoginId = String(rows?.[0]?.provider_user_id || '').trim();
-      }
+    if (!resolvedFbLoginId && (sessionUser?.email || sessionUser?.id)) {
+      const [rows] = await pool.query(
+        `SELECT provider_user_id
+         FROM utilisateurs
+         WHERE (email = ? OR id = ?)
+           AND provider_user_id IS NOT NULL
+           AND provider_user_id <> ''
+         ORDER BY (auth_provider = 'facebook') DESC, updated_at DESC
+         LIMIT 1`,
+        [String(sessionUser?.email || '').trim().toLowerCase(), String(sessionUser?.id || '').trim()]
+      );
+      resolvedFbLoginId = String(rows?.[0]?.provider_user_id || '').trim();
     }
 
     const result = await sendMetaConversionEvent({
