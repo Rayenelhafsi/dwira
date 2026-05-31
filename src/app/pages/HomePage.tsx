@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, ArrowRight, Star, Key, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus } from "lucide-react";
+import { Search, MapPin, Calendar, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -1531,17 +1531,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     saveAuthReturnTo(returnTo);
     markAuthPendingLogin();
     setIsAwaitingLogin(true);
-    const popupUrl = buildApiUrl(`/auth/${provider}/start?return_to=${encodeURIComponent(returnTo)}`);
-    const popup = window.open(
-      popupUrl,
-      "dwiraAuthPopup",
-      "popup=yes,width=560,height=760,menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes"
-    );
-    if (!popup) {
-      startSocialLogin(provider, returnTo);
-      return;
-    }
-    popup.focus();
+    setShowLoginPrompt(false);
+    // Keep auth in the same tab/page flow (no popup window).
+    startSocialLogin(provider, returnTo);
   };
 
   const handlePromptPasskeyLogin = async () => {
@@ -3781,44 +3773,48 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
           {showLoginPrompt && (
             <div className="fixed inset-0 z-[10010] bg-slate-950/45 px-4 py-8 backdrop-blur-[1px]">
-              <div className="mx-auto w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
+              <div className="mx-auto w-full max-w-md rounded-[28px] border border-white/60 bg-white p-6 shadow-[0_30px_80px_rgba(15,23,42,0.24)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Connexion requise</p>
-                    <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                      {loginPromptStep === "profile_setup" ? "Completez votre profil" : "Connectez-vous pour reserver"}
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Connexion client</p>
+                    <h3 className="mt-2 text-2xl font-bold text-gray-900">
+                      {loginPromptStep === "profile_setup" ? "Completez votre profil" : "Connectez-vous pour continuer"}
                     </h3>
+                    {loginPromptStep !== "profile_setup" ? (
+                      <p className="mt-2 text-sm leading-6 text-gray-500">Connectez-vous en tant que client pour envoyer une demande de reservation.</p>
+                    ) : null}
                   </div>
-                  <button type="button" onClick={() => setShowLoginPrompt(false)} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50">
+                  <button type="button" onClick={() => setShowLoginPrompt(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100">
                     <X size={18} />
                   </button>
                 </div>
 
                 {loginPromptStep === "choices" && (
-                  <div className="mt-4 space-y-3">
-                    <button type="button" onClick={() => handlePromptSocialLogin("google")} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                  <div className="mt-5 space-y-3">
+                    <button type="button" disabled={!providers.google} onClick={() => handlePromptSocialLogin("google")} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      <Globe className="h-5 w-5 text-emerald-700" />
                       Continuer avec Google
                     </button>
-                    <button type="button" onClick={() => handlePromptSocialLogin("facebook")} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                    <button type="button" disabled={!providers.facebook} onClick={() => handlePromptSocialLogin("facebook")} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      <Facebook className="h-5 w-5 text-blue-600" />
                       Continuer avec Facebook
                     </button>
-                    <button type="button" disabled={isPasskeyPromptLoading} onClick={() => void handlePromptPasskeyLogin()} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-900 disabled:opacity-60">
-                      {isPasskeyPromptLoading ? "Connexion Passkey..." : "Continuer avec Passkey"}
-                    </button>
-                    <button type="button" onClick={() => setLoginPromptStep("passkey_setup")} className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
-                      Creer une Passkey
+                    <button type="button" disabled={isPasskeyPromptLoading || !providers.passkey} onClick={() => void handlePromptPasskeyLogin()} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      <KeyRound className="h-5 w-5 text-emerald-700" />
+                      {isPasskeyPromptLoading ? "Verification Passkey..." : "Continuer avec Passkey"}
                     </button>
                   </div>
                 )}
 
                 {loginPromptStep === "passkey_setup" && (
                   <div className="mt-4 space-y-3">
-                    <input type="email" value={passkeyPromptEmail} onChange={(e) => setPasskeyPromptEmail(e.target.value)} placeholder="Email" className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900" />
-                    <input type="text" value={passkeyPromptName} onChange={(e) => setPasskeyPromptName(e.target.value)} placeholder="Nom complet (optionnel)" className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900" />
+                    <button type="button" onClick={() => setLoginPromptStep("choices")} className="text-xs font-semibold text-emerald-700">Retour</button>
+                    <input type="email" value={passkeyPromptEmail} onChange={(e) => setPasskeyPromptEmail(e.target.value)} placeholder="Email client" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
+                    <input type="text" value={passkeyPromptName} onChange={(e) => setPasskeyPromptName(e.target.value)} placeholder="Nom (optionnel)" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
                     <div className="flex items-center justify-end gap-2">
-                      <button type="button" onClick={() => setLoginPromptStep("choices")} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Retour</button>
-                      <button type="button" disabled={isPasskeyCreateLoading} onClick={() => void handlePromptPasskeyCreate()} className="rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                        {isPasskeyCreateLoading ? "Creation..." : "Creer et connecter"}
+                      <button type="button" disabled={isPasskeyCreateLoading} onClick={() => void handlePromptPasskeyCreate()} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50">
+                        <KeyRound className="h-5 w-5 text-white" />
+                        {isPasskeyCreateLoading ? "Creation Passkey..." : "Creer et continuer"}
                       </button>
                     </div>
                   </div>
@@ -3826,15 +3822,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
                 {loginPromptStep === "profile_setup" && (
                   <div className="mt-4 space-y-3">
+                    <p className="text-sm text-gray-600">Completez votre identite pour continuer la reservation hotel.</p>
                     <div className="grid grid-cols-2 gap-3">
-                      <input type="text" value={profilePromptForm.firstName} onChange={(e) => setProfilePromptForm((p) => ({ ...p, firstName: e.target.value }))} placeholder="Prenom" className="h-11 rounded-xl border border-slate-300 px-3 text-sm text-slate-900" />
-                      <input type="text" value={profilePromptForm.lastName} onChange={(e) => setProfilePromptForm((p) => ({ ...p, lastName: e.target.value }))} placeholder="Nom" className="h-11 rounded-xl border border-slate-300 px-3 text-sm text-slate-900" />
+                      <input type="text" value={profilePromptForm.firstName} onChange={(e) => setProfilePromptForm((p) => ({ ...p, firstName: e.target.value }))} placeholder="Prenom *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
+                      <input type="text" value={profilePromptForm.lastName} onChange={(e) => setProfilePromptForm((p) => ({ ...p, lastName: e.target.value }))} placeholder="Nom *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
                     </div>
-                    <input type="tel" value={profilePromptForm.telephone} onChange={(e) => setProfilePromptForm((p) => ({ ...p, telephone: e.target.value }))} placeholder="Telephone" className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900" />
-                    <input type="text" value={profilePromptForm.address} onChange={(e) => setProfilePromptForm((p) => ({ ...p, address: e.target.value }))} placeholder="Adresse" className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900" />
-                    <input type="text" value={profilePromptForm.cin} onChange={(e) => setProfilePromptForm((p) => ({ ...p, cin: e.target.value }))} placeholder="CIN (optionnel)" className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900" />
+                    <input type="tel" value={profilePromptForm.telephone} onChange={(e) => setProfilePromptForm((p) => ({ ...p, telephone: e.target.value }))} placeholder="Telephone *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
+                    <input type="text" value={profilePromptForm.address} onChange={(e) => setProfilePromptForm((p) => ({ ...p, address: e.target.value }))} placeholder="Adresse *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
+                    <input type="text" value={profilePromptForm.cin} onChange={(e) => setProfilePromptForm((p) => ({ ...p, cin: e.target.value }))} placeholder="CIN (optionnel)" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
                     <div className="flex items-center justify-end">
-                      <button type="button" disabled={isProfilePromptSaving} onClick={() => void handlePromptProfileComplete()} className="rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      <button type="button" disabled={isProfilePromptSaving} onClick={() => void handlePromptProfileComplete()} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50">
                         {isProfilePromptSaving ? "Sauvegarde..." : "Enregistrer et continuer"}
                       </button>
                     </div>
