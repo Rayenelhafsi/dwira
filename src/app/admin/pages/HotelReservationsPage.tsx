@@ -53,6 +53,39 @@ function resolveAssetUrl(url?: string | null) {
   return `${window.location.origin}${raw.startsWith("/") ? raw : `/${raw}`}`;
 }
 
+type HotelSelectedRoom = {
+  boardingName?: string | null;
+  roomName?: string | null;
+  price?: number | null;
+};
+
+function parseSelectedRooms(row: HotelReservationDemand): HotelSelectedRoom[] {
+  const rawContext = row.hotel_context && typeof row.hotel_context === "object" ? row.hotel_context : null;
+  const rawRooms = Array.isArray((rawContext as any)?.rooms) ? (rawContext as any).rooms : [];
+  const mapped = rawRooms
+    .map((item: any) => ({
+      boardingName: String(item?.boardingName || "").trim() || null,
+      roomName: String(item?.roomName || "").trim() || null,
+      price: Number.isFinite(Number(item?.price)) ? Number(item.price) : null,
+    }))
+    .filter((item) => item.boardingName || item.roomName || item.price !== null);
+  if (mapped.length > 0) return mapped;
+  if (row.boarding_name || row.room_name || Number.isFinite(Number(row.total_price))) {
+    return [{
+      boardingName: row.boarding_name || null,
+      roomName: row.room_name || null,
+      price: Number.isFinite(Number(row.total_price)) ? Number(row.total_price) : null,
+    }];
+  }
+  return [];
+}
+
+function formatTnd(value?: number | null) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return "Sur demande";
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(num)} TND`;
+}
+
 export default function HotelReservationsPage() {
   const [rows, setRows] = useState<HotelReservationDemand[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,6 +213,12 @@ export default function HotelReservationsPage() {
         <div className="grid gap-5">
           {rows.map((row) => (
             <article key={row.id} className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+              {(() => {
+                const selectedRooms = parseSelectedRooms(row);
+                const selectedRoomsTotal = selectedRooms.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+                const resolvedTotal = Number(row.amount_due_now || row.total_price || selectedRoomsTotal || 0);
+                return (
+                  <>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex items-start gap-4">
                   {row.hotel_image_url ? (
@@ -214,11 +253,31 @@ export default function HotelReservationsPage() {
                   <div className="text-right">
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Prix indicatif</p>
                     <p className="mt-1 text-xl font-semibold text-slate-900">
-                      {row.amount_due_now || row.total_price ? `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Number(row.amount_due_now || row.total_price || 0))} ${row.currency || "TND"}` : "Sur demande"}
+                      {resolvedTotal > 0 ? `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(resolvedTotal)} ${row.currency || "TND"}` : "Sur demande"}
                     </p>
                   </div>
                 </div>
               </div>
+
+              {selectedRooms.length > 0 ? (
+                <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Details selection client</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    {row.adults} adulte(s){Array.isArray(row.child_ages) && row.child_ages.length > 0 ? `, ${row.child_ages.length} enfant(s)` : ""} • {selectedRooms.length} chambre(s)
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    {selectedRooms.map((item, idx) => (
+                      <div key={`${row.id}-selected-room-${idx}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                        <p className="font-semibold text-slate-900">Chambre {idx + 1}</p>
+                        <p className="mt-1">Offre: <span className="font-medium">{item.boardingName || "-"}</span></p>
+                        <p>Type: <span className="font-medium">{item.roomName || "-"}</span></p>
+                        <p>Tarif chambre: <span className="font-semibold">{formatTnd(item.price)}</span></p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-slate-900">Total selectionne: {formatTnd(selectedRoomsTotal || resolvedTotal)}</p>
+                </div>
+              ) : null}
 
               <div className="mt-6 grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
                 <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
@@ -351,6 +410,9 @@ export default function HotelReservationsPage() {
                   </div>
                 </div>
               </div>
+                  </>
+                );
+              })()}
             </article>
           ))}
         </div>

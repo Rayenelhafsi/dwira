@@ -113,10 +113,13 @@ type PendingHomeHotelReserve = {
   hotel: HotelSummary;
   adults: number;
   childAges: number[];
-  boardingId: number | null;
-  boardingName: string | null;
-  roomId: number | null;
-  roomName: string | null;
+  rooms: Array<{
+    boardingId: number | null;
+    boardingName: string | null;
+    roomId: number | null;
+    roomName: string | null;
+    price: number | null;
+  }>;
   totalPrice: number | null;
 };
 
@@ -531,19 +534,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return parsed.length > 0 ? parsed : hotelDefaults.childAges;
   });
   const [hotelsByCity, setHotelsByCity] = useState<HotelSummary[]>([]);
-  const [selectedBoardingByHotel, setSelectedBoardingByHotel] = useState<Record<number, string>>({});
-  const [selectedRoomByHotel, setSelectedRoomByHotel] = useState<Record<number, string>>({});
   const [localAdultsByHotel, setLocalAdultsByHotel] = useState<Record<number, number>>({});
   const [localChildAgesByHotel, setLocalChildAgesByHotel] = useState<Record<number, number[]>>({});
+  const [localRoomCountByHotel, setLocalRoomCountByHotel] = useState<Record<number, number>>({});
+  const [localRoomSelectionsByHotel, setLocalRoomSelectionsByHotel] = useState<Record<number, Array<{ boardingKey: string; roomKey: string }>>>({});
   const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
   const [hotelReserveModal, setHotelReserveModal] = useState<null | {
     hotel: HotelSummary;
     adults: number;
     childAges: number[];
-    boardingId: number | null;
-    boardingName: string | null;
-    roomId: number | null;
-    roomName: string | null;
+    rooms: Array<{
+      boardingId: number | null;
+      boardingName: string | null;
+      roomId: number | null;
+      roomName: string | null;
+      price: number | null;
+    }>;
     totalPrice: number | null;
     phone: string;
     note: string;
@@ -567,13 +573,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     cin: "",
   });
   useEffect(() => {
-    if (!hotelDestinationOpen && !hotelTravellersOpen) return;
+    if (!hotelDestinationOpen && !hotelTravellersOpen && !showLoginPrompt && !hotelReserveModal) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [hotelDestinationOpen, hotelTravellersOpen]);
+  }, [hotelDestinationOpen, hotelTravellersOpen, showLoginPrompt, hotelReserveModal]);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
   const applyAmicaleParam = (params: URLSearchParams) => {
     if (activeAmicaleId) {
@@ -1454,10 +1460,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     hotel: HotelSummary;
     adults: number;
     childAges: number[];
-    boardingId: number | null;
-    boardingName: string | null;
-    roomId: number | null;
-    roomName: string | null;
+    rooms: Array<{
+      boardingId: number | null;
+      boardingName: string | null;
+      roomId: number | null;
+      roomName: string | null;
+      price: number | null;
+    }>;
     totalPrice: number | null;
   }) => {
     if (!user || user.role !== "user" || !user.email) {
@@ -1639,16 +1648,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         checkOut: hotelCheckOut,
         adults: hotelReserveModal.adults,
         childAges: hotelReserveModal.childAges,
-        boardingId: hotelReserveModal.boardingId || null,
-        boardingName: hotelReserveModal.boardingName || null,
-        roomId: hotelReserveModal.roomId || null,
-        roomName: hotelReserveModal.roomName || null,
+        boardingId: hotelReserveModal.rooms[0]?.boardingId || null,
+        boardingName: hotelReserveModal.rooms[0]?.boardingName || null,
+        roomId: hotelReserveModal.rooms[0]?.roomId || null,
+        roomName: hotelReserveModal.rooms[0]?.roomName || null,
         totalPrice: hotelReserveModal.totalPrice,
         currency: "TND",
         clientPhone: phone,
         clientNote: String(hotelReserveModal.note || "").trim() || null,
         hotelContext: {
           source: "homepage_card",
+          rooms: hotelReserveModal.rooms,
+          roomCount: hotelReserveModal.rooms.length,
         },
       });
       setHotelReserveModal(null);
@@ -1662,10 +1673,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           hotel: hotelReserveModal.hotel,
           adults: hotelReserveModal.adults,
           childAges: hotelReserveModal.childAges,
-          boardingId: hotelReserveModal.boardingId,
-          boardingName: hotelReserveModal.boardingName,
-          roomId: hotelReserveModal.roomId,
-          roomName: hotelReserveModal.roomName,
+          rooms: hotelReserveModal.rooms,
           totalPrice: hotelReserveModal.totalPrice,
         });
         setLoginPromptStep("choices");
@@ -3215,37 +3223,52 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     });
                     const localAdults = Math.max(1, Number(localAdultsByHotel[hotelId] ?? hotelAdults) || hotelAdults);
                     const localChildAges = Array.isArray(localChildAgesByHotel[hotelId]) ? localChildAgesByHotel[hotelId] : hotelChildAges;
-                    const selectedBoardingKey = selectedBoardingByHotel[hotelId] || boardingOptions[0]?.key || "";
-                    const selectedBoardingOption = boardingOptions.find((item) => item.key === selectedBoardingKey) || boardingOptions[0] || null;
-                    const roomOptions = roomOffers
-                      .filter((offer) => {
-                        if (!selectedBoardingOption) return true;
-                        if (selectedBoardingOption.boardingId) return Number(offer.boardingId || 0) === Number(selectedBoardingOption.boardingId || 0);
-                        return String(offer.boardingName || "").trim().toLowerCase() === String(selectedBoardingOption.boardingName || "").trim().toLowerCase();
-                      })
-                      .map((offer, index) => {
-                        const room = offer.room;
-                        const roomPrice = pickHotelDisplayedPrice(room);
-                        const roomId = Number(room?.Id || 0);
-                        const key = roomId > 0 ? `id:${roomId}` : `idx:${index}`;
-                        return {
-                          key,
-                          roomId: roomId > 0 ? roomId : null,
-                          roomName: String(room?.Name || "").trim() || `Chambre ${index + 1}`,
-                          price: roomPrice,
-                        };
-                      });
-                    const selectedRoomKey = selectedRoomByHotel[hotelId] || roomOptions[0]?.key || "";
-                    const selectedRoomOption = roomOptions.find((item) => item.key === selectedRoomKey) || roomOptions[0] || null;
-                    const displayedClientPrice = selectedRoomOption?.price ?? selectedBoardingOption?.price ?? leadOfferPrice ?? minPrice;
+                    const roomCount = Math.max(1, Math.min(4, Number(localRoomCountByHotel[hotelId] ?? 1) || 1));
+                    const roomSelections = Array.isArray(localRoomSelectionsByHotel[hotelId]) ? localRoomSelectionsByHotel[hotelId] : [];
+                    const resolvedRoomChoices = Array.from({ length: roomCount }).map((_, roomIndex) => {
+                      const selection = roomSelections[roomIndex] || null;
+                      const selectedBoardingKey = selection?.boardingKey || boardingOptions[0]?.key || "";
+                      const selectedBoardingOption = boardingOptions.find((item) => item.key === selectedBoardingKey) || boardingOptions[0] || null;
+                      const roomOptions = roomOffers
+                        .filter((offer) => {
+                          if (!selectedBoardingOption) return true;
+                          if (selectedBoardingOption.boardingId) return Number(offer.boardingId || 0) === Number(selectedBoardingOption.boardingId || 0);
+                          return String(offer.boardingName || "").trim().toLowerCase() === String(selectedBoardingOption.boardingName || "").trim().toLowerCase();
+                        })
+                        .map((offer, index) => {
+                          const room = offer.room;
+                          const roomPrice = pickHotelDisplayedPrice(room);
+                          const roomId = Number(room?.Id || 0);
+                          const key = roomId > 0 ? `id:${roomId}` : `idx:${index}`;
+                          return {
+                            key,
+                            roomId: roomId > 0 ? roomId : null,
+                            roomName: String(room?.Name || "").trim() || `Chambre ${index + 1}`,
+                            price: roomPrice,
+                          };
+                        });
+                      const selectedRoomKey = selection?.roomKey || roomOptions[0]?.key || "";
+                      const selectedRoomOption = roomOptions.find((item) => item.key === selectedRoomKey) || roomOptions[0] || null;
+                      return {
+                        roomIndex,
+                        selectedBoardingKey,
+                        selectedBoardingOption,
+                        roomOptions,
+                        selectedRoomKey,
+                        selectedRoomOption,
+                        price: selectedRoomOption?.price ?? selectedBoardingOption?.price ?? leadOfferPrice ?? minPrice,
+                      };
+                    });
+                    const displayedClientPrice = resolvedRoomChoices[0]?.price ?? leadOfferPrice ?? minPrice;
+                    const totalClientPrice = resolvedRoomChoices.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
                     const detailParams = new URLSearchParams();
                     if (hotelCityId > 0) detailParams.set("cityId", String(hotelCityId));
                     detailParams.set("checkIn", hotelCheckIn);
                     detailParams.set("checkOut", hotelCheckOut);
                     detailParams.set("adults", String(localAdults));
                     if (localChildAges.length > 0) detailParams.set("children", localChildAges.join(","));
-                    if (selectedBoardingOption?.boardingId) detailParams.set("boardingId", String(selectedBoardingOption.boardingId));
-                    if (selectedRoomOption?.roomId) detailParams.set("roomId", String(selectedRoomOption.roomId));
+                    if (resolvedRoomChoices[0]?.selectedBoardingOption?.boardingId) detailParams.set("boardingId", String(resolvedRoomChoices[0].selectedBoardingOption.boardingId));
+                    if (resolvedRoomChoices[0]?.selectedRoomOption?.roomId) detailParams.set("roomId", String(resolvedRoomChoices[0].selectedRoomOption.roomId));
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
                     return (
                       <article
@@ -3304,68 +3327,70 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 {displayedClientPrice !== null ? `${formatHotelPrice(displayedClientPrice)} TND` : "Sur demande"}
                               </p>
                               <p className="mt-1 text-xs text-slate-500">
-                                {selectedBoardingOption?.boardingName || leadOffer?.boardingName || "Selon les chambres et les dates"}
+                                {resolvedRoomChoices[0]?.selectedBoardingOption?.boardingName || leadOffer?.boardingName || "Selon les chambres et les dates"}
+                              </p>
+                              <p className="mt-2 text-xs font-semibold text-slate-700">
+                                Total ({roomCount} chambre{roomCount > 1 ? "s" : ""}): {Number.isFinite(totalClientPrice) && totalClientPrice > 0 ? `${formatHotelPrice(totalClientPrice)} TND` : "Sur demande"}
                               </p>
                             </div>
 
                             <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                <BedDouble size={14} className="text-emerald-600" />
-                                Type d'offre
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                  <BedDouble size={14} className="text-emerald-600" />
+                                  Chambres
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button type="button" onClick={() => setLocalRoomCountByHotel((prev) => ({ ...prev, [hotelId]: Math.max(1, roomCount - 1) }))} className="rounded-lg border border-slate-300 p-1 text-slate-800"><Minus size={12} /></button>
+                                  <span className="text-sm font-semibold text-slate-900">{roomCount}</span>
+                                  <button type="button" onClick={() => setLocalRoomCountByHotel((prev) => ({ ...prev, [hotelId]: Math.min(4, roomCount + 1) }))} className="rounded-lg border border-slate-300 p-1 text-slate-800"><Plus size={12} /></button>
+                                </div>
                               </div>
-                              <select
-                                value={selectedBoardingKey}
-                                onChange={(event) => {
-                                  const nextKey = event.target.value;
-                                  setSelectedBoardingByHotel((prev) => ({
-                                    ...prev,
-                                    [hotelId]: nextKey,
-                                  }));
-                                  setSelectedRoomByHotel((prev) => {
-                                    const next = { ...prev };
-                                    delete next[hotelId];
-                                    return next;
-                                  });
-                                }}
-                                className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
-                              >
-                                {boardingOptions.length > 0 ? (
-                                  boardingOptions.map((option) => (
-                                    <option key={`${hotel.Id}-${option.key}`} value={option.key}>
-                                      {option.boardingName}
-                                      {option.price !== null ? ` - ${formatHotelPrice(option.price)} TND` : ""}
-                                    </option>
-                                  ))
-                                ) : (
-                                  <option value="">Selon les offres disponibles</option>
-                                )}
-                              </select>
-                              <div className="mt-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                <BedDouble size={14} className="text-sky-600" />
-                                Type de chambre
+                              <div className="mt-3 space-y-3">
+                                {resolvedRoomChoices.map((choice) => (
+                                  <div key={`${hotelId}-room-choice-${choice.roomIndex}`} className="rounded-xl border border-slate-200 bg-white p-2">
+                                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">Chambre {choice.roomIndex + 1}</p>
+                                    <select
+                                      value={choice.selectedBoardingKey}
+                                      onChange={(event) => {
+                                        const nextKey = event.target.value;
+                                        setLocalRoomSelectionsByHotel((prev) => {
+                                          const current = Array.isArray(prev[hotelId]) ? [...prev[hotelId]] : [];
+                                          current[choice.roomIndex] = { boardingKey: nextKey, roomKey: "" };
+                                          return { ...prev, [hotelId]: current };
+                                        });
+                                      }}
+                                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
+                                    >
+                                      {boardingOptions.length > 0 ? boardingOptions.map((option) => (
+                                        <option key={`${hotel.Id}-${option.key}-${choice.roomIndex}`} value={option.key}>
+                                          {option.boardingName}{option.price !== null ? ` - ${formatHotelPrice(option.price)} TND` : ""}
+                                        </option>
+                                      )) : <option value="">Selon les offres disponibles</option>}
+                                    </select>
+                                    <select
+                                      value={choice.selectedRoomKey}
+                                      onChange={(event) => {
+                                        const nextKey = event.target.value;
+                                        setLocalRoomSelectionsByHotel((prev) => {
+                                          const current = Array.isArray(prev[hotelId]) ? [...prev[hotelId]] : [];
+                                          const currentBoardingKey = current[choice.roomIndex]?.boardingKey || choice.selectedBoardingKey;
+                                          current[choice.roomIndex] = { boardingKey: currentBoardingKey, roomKey: nextKey };
+                                          return { ...prev, [hotelId]: current };
+                                        });
+                                      }}
+                                      className="mt-2 h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
+                                    >
+                                      {choice.roomOptions.length > 0 ? choice.roomOptions.map((option) => (
+                                        <option key={`${hotel.Id}-room-${option.key}-${choice.roomIndex}`} value={option.key}>
+                                          {option.roomName}{option.price !== null ? ` - ${formatHotelPrice(option.price)} TND` : ""}
+                                        </option>
+                                      )) : <option value="">Types de chambre indisponibles</option>}
+                                    </select>
+                                    <p className="mt-1 text-[11px] font-semibold text-slate-700">Tarif chambre: {choice.price !== null ? `${formatHotelPrice(choice.price)} TND` : "Sur demande"}</p>
+                                  </div>
+                                ))}
                               </div>
-                              <select
-                                value={selectedRoomKey}
-                                onChange={(event) => {
-                                  const nextKey = event.target.value;
-                                  setSelectedRoomByHotel((prev) => ({
-                                    ...prev,
-                                    [hotelId]: nextKey,
-                                  }));
-                                }}
-                                className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
-                              >
-                                {roomOptions.length > 0 ? (
-                                  roomOptions.map((option) => (
-                                    <option key={`${hotel.Id}-room-${option.key}`} value={option.key}>
-                                      {option.roomName}
-                                      {option.price !== null ? ` - ${formatHotelPrice(option.price)} TND` : ""}
-                                    </option>
-                                  ))
-                                ) : (
-                                  <option value="">Types de chambre indisponibles</option>
-                                )}
-                              </select>
                             </div>
                           </div>
 
@@ -3478,11 +3503,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                     hotel,
                                     adults: localAdults,
                                     childAges: localChildAges,
-                                    boardingId: selectedBoardingOption?.boardingId || null,
-                                    boardingName: selectedBoardingOption?.boardingName || null,
-                                    roomId: selectedRoomOption?.roomId || null,
-                                    roomName: selectedRoomOption?.roomName || null,
-                                    totalPrice: displayedClientPrice,
+                                    rooms: resolvedRoomChoices.map((item) => ({
+                                      boardingId: item.selectedBoardingOption?.boardingId || null,
+                                      boardingName: item.selectedBoardingOption?.boardingName || null,
+                                      roomId: item.selectedRoomOption?.roomId || null,
+                                      roomName: item.selectedRoomOption?.roomName || null,
+                                      price: item.price ?? null,
+                                    })),
+                                    totalPrice: Number.isFinite(totalClientPrice) && totalClientPrice > 0 ? totalClientPrice : null,
                                   })
                                 }
                                 className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
@@ -3772,7 +3800,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           )}
 
           {showLoginPrompt && (
-            <div className="fixed inset-0 z-[10010] bg-slate-950/45 px-4 py-8 backdrop-blur-[1px]">
+            <div className="fixed inset-0 z-[10010] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[1px]">
               <div className="mx-auto w-full max-w-md rounded-[28px] border border-white/60 bg-white p-6 shadow-[0_30px_80px_rgba(15,23,42,0.24)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -3842,7 +3870,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           )}
 
           {hotelReserveModal && (
-            <div className="fixed inset-0 z-[10000] bg-slate-950/40 px-4 py-8 backdrop-blur-[1px]">
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[1px]">
               <div className="mx-auto w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -3861,8 +3889,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
                   <p>Periode: <span className="font-semibold text-slate-900">{hotelCheckIn}</span> au <span className="font-semibold text-slate-900">{hotelCheckOut}</span></p>
                   <p>Voyageurs: <span className="font-semibold text-slate-900">{hotelReserveModal.adults} adulte{hotelReserveModal.adults > 1 ? "s" : ""}{hotelReserveModal.childAges.length > 0 ? ` - ${hotelReserveModal.childAges.length} enfant${hotelReserveModal.childAges.length > 1 ? "s" : ""}` : ""}</span></p>
-                  <p>Offre: <span className="font-semibold text-slate-900">{hotelReserveModal.boardingName || "Selon disponibilite"}</span></p>
-                  <p>Chambre: <span className="font-semibold text-slate-900">{hotelReserveModal.roomName || "Selon disponibilite"}</span></p>
+                  <p>Chambres: <span className="font-semibold text-slate-900">{hotelReserveModal.rooms.length}</span></p>
+                  <div className="space-y-1">
+                    {hotelReserveModal.rooms.map((room, roomIndex) => (
+                      <p key={`modal-room-${roomIndex}`} className="text-xs text-slate-700">
+                        Chambre {roomIndex + 1}: <span className="font-semibold text-slate-900">{room.boardingName || "Offre"} / {room.roomName || "Type chambre"}</span>
+                        {room.price !== null ? ` - ${formatHotelPrice(room.price)} TND` : ""}
+                      </p>
+                    ))}
+                  </div>
                   <p>Prix client: <span className="font-semibold text-slate-900">{hotelReserveModal.totalPrice !== null ? `${formatHotelPrice(hotelReserveModal.totalPrice)} TND` : "Sur demande"}</span></p>
                 </div>
                 <div className="mt-4 space-y-3">
