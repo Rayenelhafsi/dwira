@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import type { HotelReservationDemand } from "../services/hotels";
 import { getSessionUser } from "../services/auth";
 import { trackMetaEvent } from "../utils/metaConversions";
+import CenterStatusPopup from "../components/CenterStatusPopup";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -51,6 +52,11 @@ export default function HotelReservationPaymentPage() {
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
   const [startingClickToPay, setStartingClickToPay] = useState(false);
   const [confirmingClickToPay, setConfirmingClickToPay] = useState(false);
+  const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: "",
+    message: "",
+  });
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -120,7 +126,11 @@ export default function HotelReservationPaymentPage() {
               : String(user?.id || ''),
           },
         });
-        toast.success("Paiement Flouci confirme.");
+        setCenterSuccess({
+          open: true,
+          title: "Paiement confirme",
+          message: "Votre paiement Flouci a ete confirme avec succes.",
+        });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Flouci impossible");
       } finally {
@@ -178,7 +188,11 @@ export default function HotelReservationPaymentPage() {
               : String(user?.id || ''),
           },
         });
-        toast.success("Paiement Click to Pay confirme.");
+        setCenterSuccess({
+          open: true,
+          title: "Paiement confirme",
+          message: "Votre paiement Click to Pay a ete confirme avec succes.",
+        });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Click to Pay impossible");
       } finally {
@@ -261,7 +275,11 @@ export default function HotelReservationPaymentPage() {
       setDemand(updated);
       setReceiptFile(null);
       setReceiptNote("");
-      toast.success("Recu envoye. L'admin va verifier avant validation du paiement.");
+      setCenterSuccess({
+        open: true,
+        title: "Recu envoye",
+        message: "L'admin va verifier avant validation du paiement.",
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Envoi du recu impossible");
     } finally {
@@ -301,7 +319,14 @@ export default function HotelReservationPaymentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
+    <>
+      <CenterStatusPopup
+        open={centerSuccess.open}
+        title={centerSuccess.title}
+        message={centerSuccess.message}
+        onClose={() => setCenterSuccess({ open: false, title: "", message: "" })}
+      />
+      <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
       <div className="container mx-auto max-w-5xl px-4 md:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
@@ -458,7 +483,8 @@ export default function HotelReservationPaymentPage() {
           </aside>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

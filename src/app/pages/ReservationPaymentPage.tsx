@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
 import { getSessionUser } from "../services/auth";
 import { trackMetaEvent } from "../utils/metaConversions";
+import CenterStatusPopup from "../components/CenterStatusPopup";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -55,6 +56,11 @@ export default function ReservationPaymentPage() {
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [startingFlouciScope, setStartingFlouciScope] = useState<PaymentScope | null>(null);
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
+  const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: "",
+    message: "",
+  });
   const showFlouciBlock = true;
   const showReceiptBlock = true;
 
@@ -134,7 +140,11 @@ export default function ReservationPaymentPage() {
               : String(user?.id || ''),
           },
         });
-        toast.success("Paiement Flouci confirme.");
+        setCenterSuccess({
+          open: true,
+          title: "Paiement confirme",
+          message: "Votre paiement Flouci a ete confirme avec succes.",
+        });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Flouci impossible");
       } finally {
@@ -209,13 +219,16 @@ export default function ReservationPaymentPage() {
             : String(user?.id || ''),
         },
       });
-      toast.success(
-        scope === "combined"
-          ? "Paiement reservation + services enregistre."
-          : scope === "services"
-            ? "Paiement des services enregistre."
-            : "Paiement de la reservation enregistre."
-      );
+      setCenterSuccess({
+        open: true,
+        title: "Paiement enregistre",
+        message:
+          scope === "combined"
+            ? "Paiement reservation + services enregistre."
+            : scope === "services"
+              ? "Paiement des services enregistre."
+              : "Paiement de la reservation enregistre.",
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Paiement impossible");
     } finally {
@@ -268,7 +281,11 @@ export default function ReservationPaymentPage() {
       setReceiptFile(null);
       setReceiptNote("");
       setPaymentReference("");
-      toast.success("Recu envoye. L'admin va verifier avant validation du paiement.");
+      setCenterSuccess({
+        open: true,
+        title: "Recu envoye",
+        message: "L'admin va verifier avant validation du paiement.",
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Envoi du recu impossible");
     } finally {
@@ -310,7 +327,14 @@ export default function ReservationPaymentPage() {
   const summary = paymentSummary;
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
+    <>
+      <CenterStatusPopup
+        open={centerSuccess.open}
+        title={centerSuccess.title}
+        message={centerSuccess.message}
+        onClose={() => setCenterSuccess({ open: false, title: "", message: "" })}
+      />
+      <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
       <div className="container mx-auto max-w-5xl px-4 md:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
@@ -480,7 +504,8 @@ export default function ReservationPaymentPage() {
           </aside>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

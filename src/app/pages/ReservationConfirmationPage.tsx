@@ -15,6 +15,7 @@ import { buildPropertyDetailsPath, propertyMatchesRouteToken } from "../utils/pr
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 import { trackMetaEvent } from "../utils/metaConversions";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
+import CenterStatusPopup from "../components/CenterStatusPopup";
 
 type LocationState = {
   draft?: PendingReservationDraft;
@@ -42,6 +43,11 @@ export default function ReservationConfirmationPage() {
   const [antiBotConfig, setAntiBotConfig] = useState<{ enabled: boolean; siteKey: string | null }>({ enabled: false, siteKey: null });
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileError, setTurnstileError] = useState<string | null>(null);
+  const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: "",
+    message: "",
+  });
   const turnstileErrorCountRef = useRef(0);
   const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
@@ -381,11 +387,21 @@ export default function ReservationConfirmationPage() {
       }
       await refreshData();
       if (!isVisitRequest && isInstantReservation) {
-        toast.success("Reservation rapide activee: passez au paiement.");
+        setCenterSuccess({
+          open: true,
+          title: "Reservation reussie",
+          message: "Reservation rapide activee. Passez au paiement.",
+        });
         navigate(`/mes-reservations/${encodeURIComponent(String(data.id))}/paiement`);
         return;
       }
-      toast.success(isVisitRequest ? "Votre demande de visite est maintenant en attente." : "Votre demande est maintenant en attente.");
+      setCenterSuccess({
+        open: true,
+        title: isVisitRequest ? "Visite enregistree" : "Reservation enregistree",
+        message: isVisitRequest
+          ? "Votre demande de visite est maintenant en attente."
+          : "Votre demande de reservation est maintenant en attente.",
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible de confirmer la demande";
       if (/401|authentif|session/i.test(message)) {
@@ -406,19 +422,26 @@ export default function ReservationConfirmationPage() {
 
   if (createdDemand) {
     return (
-      <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
-        <div className="container mx-auto max-w-4xl px-4 md:px-6">
-          <div className="overflow-hidden rounded-[28px] border border-emerald-100 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
-            <div className="bg-emerald-950 px-6 py-8 text-white md:px-10">
-              <div className="inline-flex items-center gap-3 rounded-full bg-white/10 px-4 py-2 text-sm font-medium">
-                <CheckCircle2 className="h-4 w-4 text-amber-300" />
-                {isVisitRequest ? 'Visite en attente' : 'Demande en attente'}
+      <>
+        <CenterStatusPopup
+          open={centerSuccess.open}
+          title={centerSuccess.title}
+          message={centerSuccess.message}
+          onClose={() => setCenterSuccess({ open: false, title: "", message: "" })}
+        />
+        <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
+          <div className="container mx-auto max-w-4xl px-4 md:px-6">
+            <div className="overflow-hidden rounded-[28px] border border-emerald-100 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
+              <div className="bg-emerald-950 px-6 py-8 text-white md:px-10">
+                <div className="inline-flex items-center gap-3 rounded-full bg-white/10 px-4 py-2 text-sm font-medium">
+                  <CheckCircle2 className="h-4 w-4 text-amber-300" />
+                  {isVisitRequest ? 'Visite en attente' : 'Demande en attente'}
+                </div>
+                <h1 className="mt-4 text-3xl font-bold">{isVisitRequest ? 'Votre demande de visite est en attente' : 'Votre demande de reservation est en attente'}</h1>
+                <p className="mt-2 text-sm text-emerald-100/80">
+                  Merci d&apos;attendre notre retour. Identifiant de demande: <span className="font-semibold text-white">{createdDemand.id}</span>
+                </p>
               </div>
-              <h1 className="mt-4 text-3xl font-bold">{isVisitRequest ? 'Votre demande de visite est en attente' : 'Votre demande de reservation est en attente'}</h1>
-              <p className="mt-2 text-sm text-emerald-100/80">
-                Merci d&apos;attendre notre retour. Identifiant de demande: <span className="font-semibold text-white">{createdDemand.id}</span>
-              </p>
-            </div>
 
             <div className="grid gap-8 px-6 py-8 md:grid-cols-[1.1fr,0.9fr] md:px-10">
               <div>
@@ -549,14 +572,22 @@ export default function ReservationConfirmationPage() {
               </div>
             </div>
           </div>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#d9f5e9_0%,#f8fbfa_42%,#ffffff_100%)] pt-28 pb-20">
-      <div className="container mx-auto max-w-6xl px-4 md:px-6">
+    <>
+      <CenterStatusPopup
+        open={centerSuccess.open}
+        title={centerSuccess.title}
+        message={centerSuccess.message}
+        onClose={() => setCenterSuccess({ open: false, title: "", message: "" })}
+      />
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#d9f5e9_0%,#f8fbfa_42%,#ffffff_100%)] pt-28 pb-20">
+        <div className="container mx-auto max-w-6xl px-4 md:px-6">
         <div className="mb-6">
           <button
             type="button"
@@ -705,7 +736,8 @@ export default function ReservationConfirmationPage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
