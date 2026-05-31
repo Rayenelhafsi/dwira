@@ -15,6 +15,8 @@ export interface AuthUser {
   cin?: string | null;
   cinImageUrl?: string | null;
   profileCompleted?: boolean;
+  authProvider?: 'local' | 'google' | 'facebook' | 'phone' | 'email' | 'passkey' | null;
+  providerUserId?: string | null;
 }
 
 interface AdminLoginResponse {

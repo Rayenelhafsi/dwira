@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { HotelReservationDemand } from "../services/hotels";
 import { getSessionUser } from "../services/auth";
+import { trackMetaEvent } from "../utils/metaConversions";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -103,6 +104,22 @@ export default function HotelReservationPaymentPage() {
         if (!response.ok) throw new Error(await getApiErrorMessage(response, "Confirmation Flouci impossible"));
         const updated = await response.json();
         setDemand(updated);
+        await trackMetaEvent({
+          eventName: "Purchase",
+          customData: {
+            content_name: demand.hotel_name || "Reservation hotel",
+            content_ids: [String(demand.hotel_id || demand.id)],
+            value: Number(demand.amount_due_now || demand.total_amount || 0),
+            currency: String(demand.currency || "TND"),
+            payment_method: "flouci",
+          },
+          userData: {
+            email: user?.email,
+            externalId: user?.authProvider === 'facebook'
+              ? String(user?.providerUserId || user?.id || '')
+              : String(user?.id || ''),
+          },
+        });
         toast.success("Paiement Flouci confirme.");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Flouci impossible");
@@ -145,6 +162,22 @@ export default function HotelReservationPaymentPage() {
         if (!response.ok) throw new Error(await getApiErrorMessage(response, "Confirmation Click to Pay impossible"));
         const updated = await response.json();
         setDemand(updated);
+        await trackMetaEvent({
+          eventName: "Purchase",
+          customData: {
+            content_name: demand.hotel_name || "Reservation hotel",
+            content_ids: [String(demand.hotel_id || demand.id)],
+            value: Number(demand.amount_due_now || demand.total_amount || 0),
+            currency: String(demand.currency || "TND"),
+            payment_method: "clicktopay",
+          },
+          userData: {
+            email: user?.email,
+            externalId: user?.authProvider === 'facebook'
+              ? String(user?.providerUserId || user?.id || '')
+              : String(user?.id || ''),
+          },
+        });
         toast.success("Paiement Click to Pay confirme.");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Click to Pay impossible");

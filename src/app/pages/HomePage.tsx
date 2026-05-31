@@ -3493,7 +3493,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               {selectedHotelCity?.Name || hotel.City?.Name || "Destination"} • {localAdults} adulte{localAdults > 1 ? "s" : ""}{localChildAges.length > 0 ? ` - ${localChildAges.length} enfant${localChildAges.length > 1 ? "s" : ""}` : ""}
                             </div>
                             <div className="flex items-center gap-2">
-                              <Link to={linkTo} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-sky-600 hover:text-sky-700">
+                              <Link
+                                to={linkTo}
+                                className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 transition hover:border-sky-600 hover:text-sky-700 sm:px-4 sm:text-sm"
+                              >
                                 Voir le détail
                               </Link>
                               <button
@@ -3513,7 +3516,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                     totalPrice: Number.isFinite(totalClientPrice) && totalClientPrice > 0 ? totalClientPrice : null,
                                   })
                                 }
-                                className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
+                                className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 sm:px-4 sm:text-sm"
                               >
                                 Réserver
                               </button>

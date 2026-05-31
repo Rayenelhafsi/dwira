@@ -17,6 +17,8 @@ interface User {
   cin?: string | null;
   cinImageUrl?: string | null;
   profileCompleted?: boolean;
+  authProvider?: 'local' | 'google' | 'facebook' | 'phone' | 'email' | 'passkey' | null;
+  providerUserId?: string | null;
 }
 
 interface AuthContextType {
@@ -52,6 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           cin: serverUser.cin || undefined,
           cinImageUrl: serverUser.cinImageUrl || undefined,
           profileCompleted: serverUser.profileCompleted,
+          authProvider: serverUser.authProvider || undefined,
+          providerUserId: serverUser.providerUserId || undefined,
         };
         if (!isMounted) return;
         setUser(normalizedUser);

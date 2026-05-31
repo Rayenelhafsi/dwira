@@ -65,6 +65,9 @@ const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || process.en
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_OCR_MODEL = String(process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini').trim();
 const CLOUDINARY_UPLOAD_SOURCE_BASE_URL = String(process.env.CLOUDINARY_UPLOAD_SOURCE_BASE_URL || 'https://www.dwiraimmobilier.com').trim().replace(/\/+$/, '');
+const META_CAPI_PIXEL_ID = String(process.env.META_CAPI_PIXEL_ID || '').trim();
+const META_CAPI_ACCESS_TOKEN = String(process.env.META_CAPI_ACCESS_TOKEN || '').trim();
+const META_CAPI_TEST_EVENT_CODE = String(process.env.META_CAPI_TEST_EVENT_CODE || '').trim();
 const MEDIA_UPLOAD_PROVIDER = String(process.env.MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
 const MEDIA_REQUIRED_UPLOAD = String(
   process.env.MEDIA_REQUIRED_UPLOAD || process.env.CLOUDINARY_REQUIRED_UPLOAD || ''
@@ -664,6 +667,72 @@ function buildMyGoHotelBookingPayload(body, { preBooking = false } = {}) {
 function normalizeMyGoHotelBookingResponse(payload) {
   const booking = payload?.BookingDetail || payload?.BookingCreation || payload?.Booking || payload || {};
   return booking && typeof booking === 'object' ? booking : {};
+}
+
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(String(value || '').trim().toLowerCase(), 'utf8').digest('hex');
+}
+
+function normalizeDigits(value) {
+  return String(value || '').replace(/\D+/g, '');
+}
+
+async function sendMetaConversionEvent({
+  req = null,
+  eventName,
+  eventId = null,
+  eventSourceUrl = null,
+  actionSource = 'website',
+  userData = null,
+  customData = null,
+}) {
+  if (!META_CAPI_PIXEL_ID || !META_CAPI_ACCESS_TOKEN) return { skipped: true, reason: 'meta_capi_not_configured' };
+  const eventNameValue = String(eventName || '').trim();
+  if (!eventNameValue) return { skipped: true, reason: 'meta_event_name_missing' };
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rawEmail = String(userData?.email || '').trim().toLowerCase();
+  const rawPhone = normalizeDigits(userData?.phone);
+  const rawExternalId = String(userData?.externalId || '').trim();
+  const fbp = String(userData?.fbp || '').trim();
+  const fbc = String(userData?.fbc || '').trim();
+
+  const payload = {
+    data: [
+      {
+        event_name: eventNameValue,
+        event_time: nowSec,
+        action_source: String(actionSource || 'website').trim() || 'website',
+        event_id: eventId ? String(eventId).trim() : undefined,
+        event_source_url: eventSourceUrl ? String(eventSourceUrl).trim() : undefined,
+        user_data: {
+          em: rawEmail ? [sha256Hex(rawEmail)] : undefined,
+          ph: rawPhone ? [sha256Hex(rawPhone)] : undefined,
+          external_id: rawExternalId ? [sha256Hex(rawExternalId)] : undefined,
+          client_ip_address: req ? getClientIp(req) : undefined,
+          client_user_agent: req ? String(req.headers['user-agent'] || '').trim() || undefined : undefined,
+          fbp: fbp || undefined,
+          fbc: fbc || undefined,
+        },
+        custom_data: customData && typeof customData === 'object' ? customData : undefined,
+      },
+    ],
+    test_event_code: META_CAPI_TEST_EVENT_CODE || undefined,
+  };
+
+  const endpoint = new URL(`https://graph.facebook.com/v21.0/${encodeURIComponent(META_CAPI_PIXEL_ID)}/events`);
+  endpoint.searchParams.set('access_token', META_CAPI_ACCESS_TOKEN);
+  const response = await fetch(endpoint.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) {
+    const err = String(result?.error?.message || result?.message || `HTTP ${response.status}`).trim();
+    throw new Error(`Meta CAPI failed: ${err}`);
+  }
+  return { ok: true, result };
 }
 
 function splitDemandClientName(fullName) {
@@ -2539,6 +2608,8 @@ function buildAuthUser(user) {
     cin: user?.cin || null,
     cinImageUrl: user?.cinImageUrl || null,
     profileCompleted: Boolean(user?.profileCompleted),
+    authProvider: user?.authProvider || user?.auth_provider || null,
+    providerUserId: user?.providerUserId || user?.provider_user_id || null,
   };
 }
 
@@ -3842,6 +3913,13 @@ app.post('/api/hotels/bookings/cancel', async (req, res) => {
       providerCode: error?.providerCode ?? null,
     });
   }
+});
+
+const metaCapiRateLimit = createRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  max: 120,
+  keyPrefix: 'meta-capi',
+  message: 'Trop de requetes de tracking. Reessayez plus tard.',
 });
 
 app.get('/api/admin/hotels/pricing-rules', requireAdminSession, async (req, res) => {
@@ -20579,6 +20657,46 @@ app.post('/api/client-interactions', async (req, res) => {
   } catch (error) {
     console.error('Error creating client interaction:', error);
     res.status(500).json({ error: "Impossible d'enregistrer l interaction client" });
+  }
+});
+
+app.post('/api/meta/conversions', metaCapiRateLimit, async (req, res) => {
+  try {
+    const eventName = String(req.body?.event_name || req.body?.eventName || '').trim();
+    const eventId = String(req.body?.event_id || req.body?.eventId || '').trim() || null;
+    const eventSourceUrl = String(req.body?.event_source_url || req.body?.eventSourceUrl || '').trim() || null;
+    const actionSource = String(req.body?.action_source || req.body?.actionSource || 'website').trim() || 'website';
+    const userDataInput = req.body?.user_data && typeof req.body.user_data === 'object'
+      ? req.body.user_data
+      : (req.body?.userData && typeof req.body.userData === 'object' ? req.body.userData : {});
+    const customData = req.body?.custom_data && typeof req.body.custom_data === 'object'
+      ? req.body.custom_data
+      : (req.body?.customData && typeof req.body.customData === 'object' ? req.body.customData : null);
+
+    if (!eventName) return res.status(400).json({ error: 'event_name requis' });
+    const allowed = new Set(['PageView', 'ViewContent', 'Lead', 'InitiateCheckout', 'Purchase', 'Contact']);
+    if (!allowed.has(eventName)) return res.status(400).json({ error: 'event_name non supporte' });
+
+    const result = await sendMetaConversionEvent({
+      req,
+      eventName,
+      eventId,
+      eventSourceUrl,
+      actionSource,
+      userData: {
+        email: userDataInput?.email || null,
+        phone: userDataInput?.phone || null,
+        externalId: userDataInput?.external_id || userDataInput?.externalId || null,
+        fbp: userDataInput?.fbp || null,
+        fbc: userDataInput?.fbc || null,
+      },
+      customData,
+    });
+
+    return res.status(202).json({ ok: true, ...result });
+  } catch (error) {
+    console.error('Meta conversions endpoint error:', error);
+    return res.status(500).json({ error: 'meta_capi_send_failed' });
   }
 });
 

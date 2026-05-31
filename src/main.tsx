@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./app/App.tsx";
 import "leaflet/dist/leaflet.css";
 import "./styles/index.css";
+import { initMetaPixel, trackMetaPageViewOncePerPath } from "./app/utils/metaConversions.ts";
 
 function installApiCredentialsFetchPatch() {
   if (typeof window === "undefined") return;
@@ -54,5 +55,7 @@ function installApiCredentialsFetchPatch() {
 }
 
 installApiCredentialsFetchPatch();
+initMetaPixel();
+trackMetaPageViewOncePerPath();
 
 createRoot(document.getElementById("root")!).render(<App />);

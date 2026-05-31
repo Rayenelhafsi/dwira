@@ -66,6 +66,7 @@ type ClientInteraction = {
   source?: 'admin' | 'site_public';
   clientEmail?: string;
   clientUserId?: string;
+  metadata?: Record<string, unknown> | null;
 };
 
 type ClientDossier = {
@@ -407,6 +408,7 @@ export default function ClientelesPage() {
             source: interaction.source === 'admin' ? 'admin' as const : 'site_public' as const,
             clientEmail: interaction.clientEmail,
             clientUserId: interaction.clientUserId,
+            metadata: interaction.metadata && typeof interaction.metadata === 'object' ? interaction.metadata : null,
           };
         });
         setPublicInteractions(nextInteractions);
@@ -1076,11 +1078,16 @@ export default function ClientelesPage() {
 
   function getInteractionLabel(interaction: ClientInteraction) {
     const bienTitle = interaction.bienId ? getBienDisplayLabel(interaction.bienId) : 'site';
-    if (interaction.type === 'visite') return `Visite du bien ${bienTitle}`;
+    const propertyCategory = String(interaction.metadata?.propertyCategory || '').trim();
+    const bedroomsValue = Number(interaction.metadata?.bedrooms || 0);
+    const bedrooms = Number.isFinite(bedroomsValue) && bedroomsValue > 0 ? bedroomsValue : 0;
+    const details = [propertyCategory, bedrooms > 0 ? `${bedrooms} ch` : ''].filter(Boolean).join(', ');
+    const suffix = details ? ` (${details})` : '';
+    if (interaction.type === 'visite') return `Visite du bien ${bienTitle}${suffix}`;
     if (interaction.type === 'like') return `Like sur le bien ${bienTitle}`;
     if (interaction.type === 'partage') return `Partage du bien ${bienTitle}`;
-    if (interaction.type === 'reservation_attempt') return `Tentative de reservation sur ${bienTitle}`;
-    if (interaction.type === 'reservation_submitted') return `Reservation envoyee sur ${bienTitle}`;
+    if (interaction.type === 'reservation_attempt') return `Tentative de reservation sur ${bienTitle}${suffix}`;
+    if (interaction.type === 'reservation_submitted') return `Reservation envoyee sur ${bienTitle}${suffix}`;
     if (interaction.type === 'session_start') return 'Session client demarree';
     return 'Ouverture du site';
   }

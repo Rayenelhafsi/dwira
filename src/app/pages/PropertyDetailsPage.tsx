@@ -1742,6 +1742,10 @@ out body 40;
       clientName: user?.role === 'user' ? user.name : undefined,
       sessionId: getOrCreateTrackingSessionId(),
       path: window.location.pathname + window.location.search,
+      metadata: {
+        propertyCategory: String(property.category || '').trim() || null,
+        bedrooms: Number(property.bedrooms || 0),
+      },
     }).catch(() => {});
   }, [property, user, consentRevision]);
 
@@ -2456,6 +2460,25 @@ out body 40;
       amicaleCode: paymentMode === "amicale" ? amicaleCode.trim() : undefined,
       reservationNote: reservationNote.trim(),
     };
+
+    if (hasTrackingConsent()) {
+      void trackPublicClientInteraction({
+        type: 'reservation_attempt',
+        bienId: String(property.id),
+        propertyTitle: property.title,
+        clientUserId: user?.role === 'user' ? user.id : undefined,
+        clientEmail: user?.role === 'user' ? user.email : undefined,
+        clientName: user?.role === 'user' ? user.name : undefined,
+        sessionId: getOrCreateTrackingSessionId(),
+        path: window.location.pathname + window.location.search,
+        metadata: {
+          requestType: isSaleProperty ? 'visite' : 'reservation',
+          paymentMode,
+          propertyCategory: String(property.category || '').trim() || null,
+          bedrooms: Number(property.bedrooms || 0),
+        },
+      }).catch(() => {});
+    }
 
     if (paymentMode === "amicale") {
       const selectedAmicale = amicaleOptions.find((item) => item.id === amicaleSelectionId) || null;

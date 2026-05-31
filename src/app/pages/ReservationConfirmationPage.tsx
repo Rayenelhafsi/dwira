@@ -13,6 +13,8 @@ import { clearPendingReservationDraft, readPendingReservationDraft, savePendingR
 import { getAntiBotConfig } from "../services/auth";
 import { buildPropertyDetailsPath, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { trackMetaEvent } from "../utils/metaConversions";
+import { trackPublicClientInteraction } from "../utils/clientInteractions";
 
 type LocationState = {
   draft?: PendingReservationDraft;
@@ -334,6 +336,38 @@ export default function ReservationConfirmationPage() {
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Impossible de confirmer la demande"));
+      void trackPublicClientInteraction({
+        type: 'reservation_submitted',
+        bienId: String(property.id),
+        propertyTitle: property.title,
+        clientUserId: isAmicaleFlow ? undefined : user?.id,
+        clientEmail: isAmicaleFlow ? undefined : user?.email,
+        clientName: isAmicaleFlow ? String(draft.amicaleName || "").trim() || undefined : user?.name,
+        sessionId,
+        path: window.location.pathname + window.location.search,
+        metadata: {
+          requestType: requestType,
+          paymentMode: summary.paymentMode,
+          demandId: data?.id || null,
+          propertyCategory: String(property.category || '').trim() || null,
+          bedrooms: Number(property.bedrooms || 0),
+        },
+      }).catch(() => {});
+      await trackMetaEvent({
+        eventName: isVisitRequest ? "Lead" : "InitiateCheckout",
+        customData: {
+          content_name: property.title,
+          content_ids: [String(property.id)],
+          value: Number(summary.dueNow || 0),
+          currency: "TND",
+        },
+        userData: {
+          email: isAmicaleFlow ? undefined : user?.email,
+          externalId: isAmicaleFlow ? undefined : (user?.authProvider === 'facebook'
+            ? String(user?.providerUserId || user?.id || '')
+            : String(user?.id || '')),
+        },
+      });
       saveReservationToCache(data);
       clearPendingReservationDraft();
       if (isVisitRequest || !isInstantReservation) {

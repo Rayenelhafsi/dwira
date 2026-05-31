@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
 import { getSessionUser } from "../services/auth";
+import { trackMetaEvent } from "../utils/metaConversions";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -117,6 +118,22 @@ export default function ReservationPaymentPage() {
         if (!response.ok) throw new Error(await getApiErrorMessage(response, "Confirmation Flouci impossible"));
         const updated = await response.json();
         setDemand(updated);
+        await trackMetaEvent({
+          eventName: "Purchase",
+          customData: {
+            content_name: demand.bien_titre || "Reservation",
+            content_ids: [String(demand.bien_id || demand.id)],
+            value: Number(demand.amount_due_now || demand.total_amount || 0),
+            currency: "TND",
+            payment_method: "flouci",
+          },
+          userData: {
+            email: user?.email,
+            externalId: user?.authProvider === 'facebook'
+              ? String(user?.providerUserId || user?.id || '')
+              : String(user?.id || ''),
+          },
+        });
         toast.success("Paiement Flouci confirme.");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Flouci impossible");
@@ -176,6 +193,22 @@ export default function ReservationPaymentPage() {
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Paiement impossible"));
       const updated = await response.json();
       setDemand(updated);
+      await trackMetaEvent({
+        eventName: "Purchase",
+        customData: {
+          content_name: demand.bien_titre || "Reservation",
+          content_ids: [String(demand.bien_id || demand.id)],
+          value: Number(demand.amount_due_now || demand.total_amount || 0),
+          currency: "TND",
+          payment_method: paymentMethod,
+        },
+        userData: {
+          email: user?.email,
+          externalId: user?.authProvider === 'facebook'
+            ? String(user?.providerUserId || user?.id || '')
+            : String(user?.id || ''),
+        },
+      });
       toast.success(
         scope === "combined"
           ? "Paiement reservation + services enregistre."

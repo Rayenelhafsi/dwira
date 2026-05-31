@@ -265,6 +265,11 @@ export default function HotelReservationsPage() {
                   <p className="mt-1 text-sm text-slate-700">
                     {row.adults} adulte(s){Array.isArray(row.child_ages) && row.child_ages.length > 0 ? `, ${row.child_ages.length} enfant(s)` : ""} • {selectedRooms.length} chambre(s)
                   </p>
+                  {Array.isArray(row.child_ages) && row.child_ages.length > 0 ? (
+                    <p className="mt-1 text-sm text-slate-700">
+                      Ages enfants: <span className="font-medium">{row.child_ages.map((age) => `${Number(age)} ans`).join(", ")}</span>
+                    </p>
+                  ) : null}
                   <div className="mt-3 grid gap-2">
                     {selectedRooms.map((item, idx) => (
                       <div key={`${row.id}-selected-room-${idx}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
@@ -285,6 +290,11 @@ export default function HotelReservationsPage() {
                   <p className="inline-flex items-center gap-2 text-sm text-slate-700"><User size={14} /> {row.client_name || "-"}</p>
                   <p className="text-sm text-slate-700">{row.client_email || "-"}</p>
                   <p className="inline-flex items-center gap-2 text-sm text-slate-700"><Phone size={14} /> {row.client_phone || "-"}</p>
+                  {Array.isArray(row.child_ages) && row.child_ages.length > 0 ? (
+                    <p className="text-sm text-slate-700">
+                      Ages enfants: <span className="font-medium">{row.child_ages.map((age) => `${Number(age)} ans`).join(", ")}</span>
+                    </p>
+                  ) : null}
                   <p className="text-xs text-slate-500">Recue le {formatDateTime(row.created_at)}</p>
                   {row.client_note ? (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
