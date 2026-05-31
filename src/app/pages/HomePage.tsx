@@ -544,6 +544,20 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [localRoomCountByHotel, setLocalRoomCountByHotel] = useState<Record<number, number>>({});
   const [localRoomSelectionsByHotel, setLocalRoomSelectionsByHotel] = useState<Record<number, Array<{ boardingKey: string; roomKey: string }>>>({});
   const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
+  const [hotelCalendarOpen, setHotelCalendarOpen] = useState(false);
+  const [hotelCalendarMonth, setHotelCalendarMonth] = useState<Date>(() => {
+    const parsed = parseISO(searchParams.get("checkIn") || hotelDefaults.checkIn);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  });
+  const [hotelCalendarCheckInDraft, setHotelCalendarCheckInDraft] = useState<Date | null>(() => {
+    const parsed = parseISO(searchParams.get("checkIn") || hotelDefaults.checkIn);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  });
+  const [hotelCalendarCheckOutDraft, setHotelCalendarCheckOutDraft] = useState<Date | null>(() => {
+    const parsed = parseISO(searchParams.get("checkOut") || hotelDefaults.checkOut);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  });
+  const [hotelSearchLoadingModal, setHotelSearchLoadingModal] = useState(false);
   const [hotelReserveModal, setHotelReserveModal] = useState<null | {
     hotel: HotelSummary;
     adults: number;
@@ -582,13 +596,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     cin: "",
   });
   useEffect(() => {
-    if (!hotelDestinationOpen && !hotelTravellersOpen && !showLoginPrompt && !hotelReserveModal) return;
+    if (!hotelDestinationOpen && !hotelTravellersOpen && !hotelCalendarOpen && !showLoginPrompt && !hotelReserveModal && !hotelSearchLoadingModal) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [hotelDestinationOpen, hotelTravellersOpen, showLoginPrompt, hotelReserveModal]);
+  }, [hotelDestinationOpen, hotelTravellersOpen, hotelCalendarOpen, showLoginPrompt, hotelReserveModal, hotelSearchLoadingModal]);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
   const applyAmicaleParam = (params: URLSearchParams) => {
     if (activeAmicaleId) {
@@ -1412,11 +1426,63 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return className;
   };
 
+  const hotelCalendarMonthStart = startOfMonth(hotelCalendarMonth);
+  const hotelCalendarMonthEnd = endOfMonth(hotelCalendarMonth);
+  const hotelCalendarGridStart = startOfWeek(hotelCalendarMonthStart, { weekStartsOn: 1 });
+  const hotelCalendarGridEnd = endOfWeek(hotelCalendarMonthEnd, { weekStartsOn: 1 });
+  const hotelCalendarDays = eachDayOfInterval({ start: hotelCalendarGridStart, end: hotelCalendarGridEnd });
+
+  const handleHotelCalendarDayClick = (date: Date) => {
+    if (isBefore(date, today)) return;
+    if (!hotelCalendarCheckInDraft || (hotelCalendarCheckInDraft && hotelCalendarCheckOutDraft)) {
+      setHotelCalendarCheckInDraft(date);
+      setHotelCalendarCheckOutDraft(null);
+      return;
+    }
+    if (date < hotelCalendarCheckInDraft) {
+      setHotelCalendarCheckInDraft(date);
+      setHotelCalendarCheckOutDraft(hotelCalendarCheckInDraft);
+      return;
+    }
+    setHotelCalendarCheckOutDraft(date);
+  };
+
+  const isHotelCalendarDateInRange = (date: Date) => {
+    if (!hotelCalendarCheckInDraft || !hotelCalendarCheckOutDraft) return false;
+    const start = hotelCalendarCheckInDraft < hotelCalendarCheckOutDraft ? hotelCalendarCheckInDraft : hotelCalendarCheckOutDraft;
+    const end = hotelCalendarCheckInDraft < hotelCalendarCheckOutDraft ? hotelCalendarCheckOutDraft : hotelCalendarCheckInDraft;
+    return isWithinInterval(date, { start, end });
+  };
+
+  const getHotelCalendarDayClassName = (date: Date) => {
+    const isCurrentMonth = isSameMonth(date, hotelCalendarMonth);
+    const isPast = isBefore(date, today);
+    const isStart = hotelCalendarCheckInDraft && isSameDay(date, hotelCalendarCheckInDraft);
+    const isEnd = hotelCalendarCheckOutDraft && isSameDay(date, hotelCalendarCheckOutDraft);
+    const isInRange = isHotelCalendarDateInRange(date);
+    let className = "h-10 w-10 rounded-full text-sm transition-all ";
+    if (!isCurrentMonth) className += "text-slate-300 ";
+    else if (isPast) className += "cursor-not-allowed text-slate-300 ";
+    else if (isStart || isEnd || isInRange) className += "bg-sky-600 font-bold text-white shadow-[0_8px_18px_rgba(2,132,199,0.45)] ";
+    else className += "text-slate-700 hover:bg-sky-50 ";
+    return className;
+  };
+
+  const confirmHotelCalendarSelection = () => {
+    if (!hotelCalendarCheckInDraft || !hotelCalendarCheckOutDraft) return;
+    const start = hotelCalendarCheckInDraft < hotelCalendarCheckOutDraft ? hotelCalendarCheckInDraft : hotelCalendarCheckOutDraft;
+    const end = hotelCalendarCheckInDraft < hotelCalendarCheckOutDraft ? hotelCalendarCheckOutDraft : hotelCalendarCheckInDraft;
+    setHotelCheckIn(format(start, "yyyy-MM-dd"));
+    setHotelCheckOut(format(end, "yyyy-MM-dd"));
+    setHotelCalendarOpen(false);
+  };
+
   const runHotelSearch = async (options?: { replace?: boolean; scroll?: boolean }) => {
     const nextChildAges = [...hotelChildAges];
       const keywords = selectedHotelId > 0 ? "" : hotelDestinationQuery.trim();
     setHasSearched(true);
     setLoadingHotelResults(true);
+    setHotelSearchLoadingModal(true);
     setHotelProviderError("");
 
     try {
@@ -1462,6 +1528,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       setHotelProviderError(error instanceof Error ? error.message : "Recherche hoteliere impossible.");
     } finally {
       setLoadingHotelResults(false);
+      setTimeout(() => setHotelSearchLoadingModal(false), 250);
     }
   };
 
@@ -2038,34 +2105,53 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             </div>
           </div>
 
-          <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/70 bg-white/95 shadow-[0_25px_70px_rgba(15,23,42,0.23)] backdrop-blur-md">
+          <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/60 bg-[linear-gradient(140deg,rgba(255,255,255,0.98),rgba(240,247,255,0.96))] shadow-[0_30px_90px_rgba(2,32,71,0.35),0_0_0_1px_rgba(99,102,241,0.22),0_0_42px_rgba(56,189,248,0.18)] backdrop-blur-xl max-md:shadow-[0_0_0_1px_rgba(56,189,248,0.5),0_0_28px_rgba(56,189,248,0.45),0_0_60px_rgba(99,102,241,0.26)]">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
               {isHotelMode ? (
                 <>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                  <div className="rounded-[26px] border border-sky-100/70 bg-white/85 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] md:p-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
                     <div className="relative md:col-span-4">
-                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <span className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-600 drop-shadow-[0_0_14px_rgba(56,189,248,0.6)]">
                         <MapPin size={16} className="text-sky-600" />
                         Destination
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setHotelDestinationOpen((prev) => !prev)}
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:bg-white"
-                      >
-                        {hotelDestinationQuery.trim() || selectedHotelCity?.Name || "Ville ou nom hotel"}
-                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setHotelDestinationOpen((prev) => !prev)}
+                          className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
+                        >
+                          {hotelDestinationQuery.trim() || selectedHotelCity?.Name || "Ville ou nom hotel"}
+                        </button>
+                        {(hotelDestinationQuery.trim() || selectedHotelCity || selectedHotelId > 0 || hotelCityId > 0) && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setHotelDestinationQuery("");
+                              setSelectedHotelId(0);
+                              setHotelCityId(0);
+                            }}
+                            className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                            aria-label="Supprimer la destination"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
                       {hotelDestinationOpen && (
-                        <div className="absolute left-0 right-0 top-[84px] z-30 hidden max-h-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl md:block">
-                          <div className="border-b border-slate-200 p-3">
-                            <div className="flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2">
+                        <div className="absolute left-0 right-0 top-[84px] z-30 hidden max-h-80 overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.22)] md:block">
+                          <div className="border-b border-slate-100 p-3">
+                            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                               <Search size={16} className="text-slate-500" />
                               <input
                                 value={hotelDestinationQuery}
                                 onChange={(event) => {
                                   const nextValue = event.target.value;
                                   setHotelDestinationQuery(nextValue);
+                                  setSelectedHotelId(0);
                                   if (!nextValue.trim()) {
                                     setHotelCityId(0);
                                     setSelectedHotelId(0);
@@ -2085,7 +2171,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 setHotelDestinationQuery(city.Name);
                                 setSelectedHotelId(0);
                               }}
-                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left hover:bg-slate-50"
+                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left transition hover:bg-sky-50/60"
                             >
                               <MapPin size={14} className="text-slate-500" />
                               <span className="text-sm font-medium text-slate-800">{city.Name}</span>
@@ -2106,7 +2192,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 setHotelDestinationQuery(hotel.Name);
                                 setHotelDestinationOpen(false);
                               }}
-                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left hover:bg-slate-50"
+                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left transition hover:bg-sky-50/60"
                             >
                               <BedDouble size={14} className="text-slate-500" />
                               <span className="text-sm font-medium text-slate-800">{hotel.Name}</span>
@@ -2117,40 +2203,56 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     </div>
 
                     <label className="md:col-span-2">
-                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <span className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-600 drop-shadow-[0_0_14px_rgba(56,189,248,0.6)]">
                         <Calendar size={16} className="text-sky-600" />
                         Arrivée
                       </span>
-                      <input
-                        type="date"
-                        value={hotelCheckIn}
-                        onChange={(event) => setHotelCheckIn(event.target.value)}
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const inDate = parseISO(hotelCheckIn);
+                          const outDate = parseISO(hotelCheckOut);
+                          setHotelCalendarCheckInDraft(Number.isNaN(inDate.getTime()) ? null : inDate);
+                          setHotelCalendarCheckOutDraft(Number.isNaN(outDate.getTime()) ? null : outDate);
+                          setHotelCalendarMonth(Number.isNaN(inDate.getTime()) ? new Date() : inDate);
+                          setHotelCalendarOpen(true);
+                        }}
+                        className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
+                      >
+                        {hotelCheckIn || "Sélectionner"}
+                      </button>
                     </label>
 
                     <label className="md:col-span-2">
-                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <span className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-600 drop-shadow-[0_0_14px_rgba(56,189,248,0.6)]">
                         <Calendar size={16} className="text-sky-600" />
                         Départ
                       </span>
-                      <input
-                        type="date"
-                        value={hotelCheckOut}
-                        onChange={(event) => setHotelCheckOut(event.target.value)}
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const inDate = parseISO(hotelCheckIn);
+                          const outDate = parseISO(hotelCheckOut);
+                          setHotelCalendarCheckInDraft(Number.isNaN(inDate.getTime()) ? null : inDate);
+                          setHotelCalendarCheckOutDraft(Number.isNaN(outDate.getTime()) ? null : outDate);
+                          setHotelCalendarMonth(Number.isNaN(inDate.getTime()) ? new Date() : inDate);
+                          setHotelCalendarOpen(true);
+                        }}
+                        className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
+                      >
+                        {hotelCheckOut || "Sélectionner"}
+                      </button>
                     </label>
 
                     <div className="md:col-span-2">
-                      <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <span className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-600 drop-shadow-[0_0_14px_rgba(56,189,248,0.6)]">
                         <Users size={16} className="text-sky-600" />
                         Voyageurs
                       </span>
                       <button
                         type="button"
                         onClick={() => setHotelTravellersOpen((prev) => !prev)}
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:bg-white"
+                        className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
                       >
                         {hotelAdults} adultes - {hotelChildAges.length} enfants
                       </button>
@@ -2162,16 +2264,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         type="button"
                         onClick={handleSearch}
                         disabled={!hotelCityId || loadingHotelResults}
-                        className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-sky-600 px-6 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#0284c7,#2563eb)] px-6 text-sm font-bold text-white shadow-[0_14px_34px_rgba(3,105,161,0.42),0_0_24px_rgba(56,189,248,0.32)] transition hover:translate-y-[-1px] hover:shadow-[0_20px_40px_rgba(3,105,161,0.5),0_0_30px_rgba(99,102,241,0.3)] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                       >
                         {loadingHotelResults ? <LoaderCircle size={18} className="animate-spin" /> : <Search size={18} />}
                         {hasSearched ? "Vérifier disponibilité" : "Rechercher les hôtels"}
                       </button>
                     </div>
                   </div>
-
+                  </div>
                   {hotelTravellersOpen && (
-                    <div className="mt-4 hidden rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-900 md:block">
+                    <div className="mt-4 hidden rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,#f8fbff,#f1f5f9)] p-4 text-slate-900 shadow-[0_12px_30px_rgba(15,23,42,0.08)] md:block">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-slate-900">Adultes</p>
                         <div className="flex items-center gap-2 text-slate-900">
@@ -2214,7 +2316,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   )}
 
                   <div className="mt-3">
-                    <div className="text-sm text-slate-500">
+                    <div className="rounded-xl border border-slate-200/70 bg-white/75 px-3 py-2 text-sm text-slate-600">
                       {selectedHotelCity ? `Destination sélectionnée : ${selectedHotelCity.Name}.` : "Sélectionnez une destination pour lancer votre recherche."}
                     </div>
                   </div>
@@ -3769,7 +3871,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       {createPortal(
         <>
           {hotelDestinationOpen && (
-            <div className="fixed inset-0 z-[9999] bg-white md:hidden">
+            <div className="fixed inset-0 z-[9999] bg-[linear-gradient(160deg,#ffffff,#f6faff)] md:hidden">
               <div className="relative border-b border-slate-200 px-4 py-4">
                 <h3 className="text-center text-[18px] font-semibold leading-tight text-slate-900">Indiquez la destination</h3>
                 <button type="button" onClick={() => setHotelDestinationOpen(false)} className="absolute right-3 top-3 rounded-full p-2 text-slate-700">
@@ -3777,13 +3879,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </button>
               </div>
               <div className="border-b border-slate-200 p-4">
-                <div className="flex items-center gap-3 rounded-xl border border-slate-300 px-3 py-3">
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                   <Search size={18} className="text-slate-500" />
                   <input
                     value={hotelDestinationQuery}
                     onChange={(event) => {
                       const nextValue = event.target.value;
                       setHotelDestinationQuery(nextValue);
+                      setSelectedHotelId(0);
                       if (!nextValue.trim()) {
                         setHotelCityId(0);
                         setSelectedHotelId(0);
@@ -3811,7 +3914,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       setHotelDestinationQuery(city.Name);
                       setSelectedHotelId(0);
                     }}
-                    className="flex w-full items-center gap-3 border-b border-slate-200 px-4 py-3 text-left"
+                    className="flex w-full items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 text-left transition active:bg-sky-50"
                   >
                     <MapPin size={20} className="text-slate-700" />
                     <div>
@@ -3837,7 +3940,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       setHotelDestinationQuery(hotel.Name);
                       setHotelDestinationOpen(false);
                     }}
-                    className="flex w-full items-center gap-3 border-b border-slate-200 px-4 py-3 text-left"
+                    className="flex w-full items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 text-left transition active:bg-sky-50"
                   >
                     <BedDouble size={20} className="text-slate-700" />
                     <div>
@@ -3846,6 +3949,70 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     </div>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {hotelCalendarOpen && (
+            <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[1px]">
+              <div className="w-full max-w-md rounded-3xl border border-sky-100 bg-white p-4 shadow-[0_32px_80px_rgba(15,23,42,0.28)]">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">Dates de séjour</p>
+                  <button type="button" onClick={() => setHotelCalendarOpen(false)} className="rounded-full p-2 text-slate-600 hover:bg-slate-100">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="mb-3 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <button type="button" onClick={() => setHotelCalendarMonth((prev) => subMonths(prev, 1))} className="rounded-lg p-2 text-slate-700 hover:bg-white">
+                    <ChevronLeft size={18} />
+                  </button>
+                  <p className="text-sm font-semibold text-slate-900">{format(hotelCalendarMonth, "MMMM yyyy", { locale: fr })}</p>
+                  <button type="button" onClick={() => setHotelCalendarMonth((prev) => addMonths(prev, 1))} className="rounded-lg p-2 text-slate-700 hover:bg-white">
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+                <div className="mb-2 grid grid-cols-7 text-center text-xs font-semibold uppercase text-slate-500">
+                  {["lu", "ma", "me", "je", "ve", "sa", "di"].map((day) => (
+                    <div key={`hotel-cal-day-${day}`}>{day}</div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {hotelCalendarDays.map((day, idx) => (
+                    <button key={`hotel-cal-date-${idx}`} type="button" onClick={() => handleHotelCalendarDayClick(day)} className={getHotelCalendarDayClassName(day)}>
+                      {format(day, "d")}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                  {hotelCalendarCheckInDraft && hotelCalendarCheckOutDraft ? (
+                    <>
+                      Du <span className="font-semibold text-slate-900">{format(hotelCalendarCheckInDraft, "dd/MM/yyyy")}</span> au{" "}
+                      <span className="font-semibold text-slate-900">{format(hotelCalendarCheckOutDraft, "dd/MM/yyyy")}</span>
+                    </>
+                  ) : (
+                    "Sélectionnez d'abord l'arrivée puis le départ."
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={confirmHotelCalendarSelection}
+                  disabled={!hotelCalendarCheckInDraft || !hotelCalendarCheckOutDraft}
+                  className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0284c7,#2563eb)] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Valider les dates
+                </button>
+              </div>
+            </div>
+          )}
+
+          {hotelSearchLoadingModal && (
+            <div className="fixed inset-0 z-[10008] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-sm rounded-3xl border border-sky-100 bg-white p-6 text-center shadow-[0_30px_80px_rgba(15,23,42,0.28)]">
+                <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-sky-50">
+                  <LoaderCircle size={30} className="animate-spin text-sky-600" />
+                </div>
+                <p className="text-lg font-semibold text-slate-900">Nous cherchons la disponibilité de votre demande</p>
+                <p className="mt-2 text-sm text-slate-500">Merci de patienter quelques secondes...</p>
               </div>
             </div>
           )}
@@ -4070,7 +4237,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           )}
 
           {hotelTravellersOpen && (
-            <div className="fixed inset-0 z-[9999] bg-white md:hidden">
+            <div className="fixed inset-0 z-[9999] bg-[linear-gradient(160deg,#ffffff,#f6faff)] md:hidden">
               <div className="relative border-b border-slate-200 px-5 py-4">
                 <h3 className="text-[18px] font-semibold text-slate-900">Voyageurs</h3>
                 <button type="button" onClick={() => setHotelTravellersOpen(false)} className="absolute right-3 top-3 rounded-full p-2 text-slate-700">
@@ -4078,10 +4245,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </button>
               </div>
               <div className="max-h-[calc(100vh-130px)] overflow-y-auto px-5 py-5">
-                <div className="space-y-7">
+                <div className="space-y-7 rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_16px_42px_rgba(15,23,42,0.12)]">
                   <div className="flex items-center justify-between gap-4">
                     <p className="text-[16px] font-medium text-slate-900">Adultes</p>
-                    <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-400 px-5 py-3 text-slate-900">
+                    <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-5 py-3 text-slate-900">
                       <button type="button" className="text-sky-600" onClick={() => setHotelAdults((prev) => Math.max(1, prev - 1))}><Minus size={18} /></button>
                       <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{hotelAdults}</span>
                       <button type="button" className="text-sky-600" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))}><Plus size={18} /></button>
@@ -4089,7 +4256,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <p className="text-[16px] font-medium text-slate-900">Enfants</p>
-                    <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-400 px-5 py-3 text-slate-900">
+                    <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-5 py-3 text-slate-900">
                       <button type="button" className="text-sky-600" onClick={() => setHotelChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))}><Minus size={18} /></button>
                       <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{hotelChildAges.length}</span>
                       <button type="button" className="text-sky-600" onClick={() => setHotelChildAges((prev) => [...prev, 0])}><Plus size={18} /></button>
@@ -4129,6 +4296,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     </div>
   );
 }
+
+
+
+
 
 
 
