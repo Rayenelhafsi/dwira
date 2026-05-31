@@ -57,6 +57,7 @@ export default function HotelReservationPaymentPage() {
     title: "",
     message: "",
   });
+  const [statusPopupShown, setStatusPopupShown] = useState(false);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -207,6 +208,18 @@ export default function HotelReservationPaymentPage() {
     })();
   }, [confirmingClickToPay, demand?.id, searchParams, setSearchParams]);
 
+  useEffect(() => {
+    if (!demand || statusPopupShown) return;
+    if (String(demand.status || "") === "voucher_en_cours" || String(demand.status || "") === "voucher_envoye") {
+      setCenterSuccess({
+        open: true,
+        title: "Paiement termine",
+        message: "Votre paiement est confirme. Votre voucher est en traitement.",
+      });
+      setStatusPopupShown(true);
+    }
+  }, [demand, statusPopupShown]);
+
   const canPayOnline = useMemo(
     () => Boolean(demand && !demand.reservation_payment_id && !["voucher_en_cours", "voucher_envoye"].includes(String(demand.status || ""))),
     [demand]
@@ -216,6 +229,21 @@ export default function HotelReservationPaymentPage() {
     if (!demand) return;
     setStartingFlouci(true);
     try {
+      await trackMetaEvent({
+        eventName: "InitiateCheckout",
+        customData: {
+          content_name: demand.hotel_name || "Reservation hotel",
+          content_ids: [String(demand.hotel_id || demand.id)],
+          value: Number(demand.amount_due_now || demand.total_amount || 0),
+          currency: String(demand.currency || "TND"),
+          payment_method: "flouci",
+        },
+        userData: {
+          email: user?.email,
+          phone: user?.telephone || undefined,
+          externalId: String(user?.providerUserId || user?.id || ""),
+        },
+      });
       const response = await fetch(`${API_URL}/hotel-reservation-demands/${encodeURIComponent(demand.id)}/flouci/create-checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -237,6 +265,21 @@ export default function HotelReservationPaymentPage() {
     if (!demand) return;
     setStartingClickToPay(true);
     try {
+      await trackMetaEvent({
+        eventName: "InitiateCheckout",
+        customData: {
+          content_name: demand.hotel_name || "Reservation hotel",
+          content_ids: [String(demand.hotel_id || demand.id)],
+          value: Number(demand.amount_due_now || demand.total_amount || 0),
+          currency: String(demand.currency || "TND"),
+          payment_method: "clicktopay",
+        },
+        userData: {
+          email: user?.email,
+          phone: user?.telephone || undefined,
+          externalId: String(user?.providerUserId || user?.id || ""),
+        },
+      });
       const response = await fetch(`${API_URL}/hotel-reservation-demands/${encodeURIComponent(demand.id)}/clicktopay/create-checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -61,6 +61,7 @@ export default function ReservationPaymentPage() {
     title: "",
     message: "",
   });
+  const [statusPopupShown, setStatusPopupShown] = useState(false);
   const showFlouciBlock = true;
   const showReceiptBlock = true;
 
@@ -159,6 +160,18 @@ export default function ReservationPaymentPage() {
     })();
   }, [confirmingFlouci, demand?.flouci_scope, demand?.id, searchParams, setSearchParams]);
 
+  useEffect(() => {
+    if (!demand || statusPopupShown) return;
+    if (String(demand.status || "") === "succes_paiement") {
+      setCenterSuccess({
+        open: true,
+        title: "Paiement termine",
+        message: "Votre reservation est finalisee avec succes.",
+      });
+      setStatusPopupShown(true);
+    }
+  }, [demand, statusPopupShown]);
+
   const paymentSummary = useMemo(() => {
     if (!demand) return null;
     const reservationAmount = Number(demand.amount_due_now || demand.total_amount || 0);
@@ -190,6 +203,21 @@ export default function ReservationPaymentPage() {
     if (!demand) return;
     setSubmittingScope(scope);
     try {
+      await trackMetaEvent({
+        eventName: "InitiateCheckout",
+        customData: {
+          content_name: demand.bien_titre || "Reservation",
+          content_ids: [String(demand.bien_id || demand.id)],
+          value: Number(demand.amount_due_now || demand.total_amount || 0),
+          currency: "TND",
+          checkout_scope: scope,
+        },
+        userData: {
+          email: user?.email,
+          phone: user?.telephone || undefined,
+          externalId: String(user?.providerUserId || user?.id || ""),
+        },
+      });
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -240,6 +268,22 @@ export default function ReservationPaymentPage() {
     if (!demand) return;
     setStartingFlouciScope(scope);
     try {
+      await trackMetaEvent({
+        eventName: "InitiateCheckout",
+        customData: {
+          content_name: demand.bien_titre || "Reservation",
+          content_ids: [String(demand.bien_id || demand.id)],
+          value: Number(demand.amount_due_now || demand.total_amount || 0),
+          currency: "TND",
+          payment_method: "flouci",
+          checkout_scope: scope,
+        },
+        userData: {
+          email: user?.email,
+          phone: user?.telephone || undefined,
+          externalId: String(user?.providerUserId || user?.id || ""),
+        },
+      });
       const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/flouci/create-checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
