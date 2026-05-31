@@ -6,6 +6,7 @@ import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from '../../utils/deepLinks';
 import { resolveMediaUrl } from '../../utils/media';
+import { trackMetaEvent } from '../../utils/metaConversions';
 
 
 const typeLabel: Record<string, string> = {
@@ -115,6 +116,15 @@ export default function VentesListPage() {
                 ? new URL(`/ventes/${bien.type}/${bien.id}`, window.location.origin).toString()
                 : `/ventes/${bien.type}/${bien.id}`;
               const handleMessengerClick = () => {
+                void trackMetaEvent({
+                  eventName: "Contact",
+                  customData: {
+                    contact_channel: "messenger",
+                    content_name: bien.titre,
+                    content_ids: [String(bien.id)],
+                    property_reference: String(bien.reference || ""),
+                  },
+                });
                 void openMessengerPropertyConversation({
                   page: contactConfig.messengerPage,
                   pageId: contactConfig.messengerPageId,
@@ -123,6 +133,32 @@ export default function VentesListPage() {
                   imageUrl,
                   reference: bien.reference || null,
                 });
+              };
+              const handlePhoneClick = () => {
+                void trackMetaEvent({
+                  eventName: "Contact",
+                  customData: {
+                    contact_channel: "phone",
+                    content_name: bien.titre,
+                    content_ids: [String(bien.id)],
+                    property_reference: String(bien.reference || ""),
+                  },
+                });
+              };
+              const handleWhatsAppClick = () => {
+                void trackMetaEvent({
+                  eventName: "Contact",
+                  customData: {
+                    contact_channel: "whatsapp",
+                    content_name: bien.titre,
+                    content_ids: [String(bien.id)],
+                    property_reference: String(bien.reference || ""),
+                  },
+                });
+                openWhatsAppApp(
+                  contactPhone,
+                  buildWhatsAppPropertyMessage(bien.titre, propertyUrl, bien.reference || null)
+                );
               };
 
               return (
@@ -237,16 +273,13 @@ export default function VentesListPage() {
 
                   <div className="px-6 pb-6 -mt-2">
                     <div className="grid grid-cols-3 gap-2">
-                      <a href={buildTelLink(contactPhone)} className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-600 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
+                      <a href={buildTelLink(contactPhone)} onClick={handlePhoneClick} className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-600 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
                         <Phone className="w-4 h-4" />
                         Tel
                       </a>
                       <button
                         type="button"
-                        onClick={() => openWhatsAppApp(
-                          contactPhone,
-                          buildWhatsAppPropertyMessage(bien.titre, propertyUrl, bien.reference || null)
-                        )}
+                        onClick={handleWhatsAppClick}
                         className="inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
                       >
                         <MessageCircle className="w-4 h-4" />

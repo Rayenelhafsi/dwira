@@ -7,6 +7,7 @@ import { SmartImage } from "./SmartImage";
 import { resolveCurrentPricing } from "../utils/seasonalPricing";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { trackMetaEvent } from "../utils/metaConversions";
 
 interface PropertyCardProps {
   property: Property;
@@ -150,6 +151,15 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   }, [displayTitle]);
 
   const handleMessengerClick = () => {
+    void trackMetaEvent({
+      eventName: "Contact",
+      customData: {
+        contact_channel: "messenger",
+        content_name: property.title,
+        content_ids: [String(property.id)],
+        property_reference: String(property.reference || ""),
+      },
+    });
     void openMessengerPropertyConversation({
       page: contactConfig.messengerPage,
       pageId: contactConfig.messengerPageId,
@@ -158,6 +168,32 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
       imageUrl: property.images?.[0] || null,
       reference: property.reference || null,
     });
+  };
+  const handlePhoneClick = () => {
+    void trackMetaEvent({
+      eventName: "Contact",
+      customData: {
+        contact_channel: "phone",
+        content_name: property.title,
+        content_ids: [String(property.id)],
+        property_reference: String(property.reference || ""),
+      },
+    });
+  };
+  const handleWhatsAppClick = () => {
+    void trackMetaEvent({
+      eventName: "Contact",
+      customData: {
+        contact_channel: "whatsapp",
+        content_name: property.title,
+        content_ids: [String(property.id)],
+        property_reference: String(property.reference || ""),
+      },
+    });
+    openWhatsAppApp(
+      contactConfig.phone,
+      buildWhatsAppPropertyMessage(property.title, propertyUrl, property.reference || null)
+    );
   };
     
   return (
@@ -277,16 +313,13 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
 
       <div className="px-5 pb-5">
         <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
-          <a href={buildTelLink(contactConfig.phone)} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
+          <a href={buildTelLink(contactConfig.phone)} onClick={handlePhoneClick} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap">
             <Phone size={14} />
             <span>Telephone</span>
           </a>
           <button
             type="button"
-            onClick={() => openWhatsAppApp(
-              contactConfig.phone,
-              buildWhatsAppPropertyMessage(property.title, propertyUrl, property.reference || null)
-            )}
+            onClick={handleWhatsAppClick}
             className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-2 py-2 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap"
           >
             <MessageCircle size={14} />
