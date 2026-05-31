@@ -2619,12 +2619,18 @@ function verifySignedSessionToken(token) {
 }
 
 function buildAuthUser(user) {
+  const fullName = String(user?.name || user?.nom || '').trim().replace(/\s+/g, ' ');
+  const explicitFirstName = user?.firstName ? String(user.firstName).trim() : '';
+  const explicitLastName = user?.lastName ? String(user.lastName).trim() : '';
+  const nameParts = fullName ? fullName.split(' ') : [];
+  const derivedFirstName = explicitFirstName || (nameParts[0] || '');
+  const derivedLastName = explicitLastName || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
   return {
     id: String(user?.id || ''),
     email: String(user?.email || '').toLowerCase(),
-    name: String(user?.name || '').trim(),
-    firstName: user?.firstName ? String(user.firstName).trim() : null,
-    lastName: user?.lastName ? String(user.lastName).trim() : null,
+    name: fullName,
+    firstName: derivedFirstName || null,
+    lastName: derivedLastName || null,
     role: String(user?.role || '') === 'admin' ? 'admin' : 'user',
     avatar: user?.avatar || null,
     clientType: user?.clientType || null,
