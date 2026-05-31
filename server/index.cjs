@@ -20709,6 +20709,26 @@ app.post('/api/meta/conversions', metaCapiRateLimit, async (req, res) => {
     const allowed = new Set(['PageView', 'ViewContent', 'Lead', 'InitiateCheckout', 'Purchase', 'Contact']);
     if (!allowed.has(eventName)) return res.status(400).json({ error: 'event_name non supporte' });
 
+    const sessionUser = getSessionUserFromRequest(req);
+    let resolvedFbLoginId = String(userDataInput?.fb_login_id || userDataInput?.fbLoginId || '').trim();
+    if (!resolvedFbLoginId) {
+      resolvedFbLoginId = String(sessionUser?.providerUserId || '').trim();
+    }
+    if (!resolvedFbLoginId) {
+      const isLikelyFacebookAuth = String(sessionUser?.authProvider || '').trim().toLowerCase() === 'facebook';
+      if (isLikelyFacebookAuth && (sessionUser?.email || sessionUser?.id)) {
+        const [rows] = await pool.query(
+          `SELECT provider_user_id
+           FROM utilisateurs
+           WHERE (email = ? OR id = ?)
+             AND auth_provider = 'facebook'
+           LIMIT 1`,
+          [String(sessionUser?.email || '').trim().toLowerCase(), String(sessionUser?.id || '').trim()]
+        );
+        resolvedFbLoginId = String(rows?.[0]?.provider_user_id || '').trim();
+      }
+    }
+
     const result = await sendMetaConversionEvent({
       req,
       eventName,
@@ -20721,7 +20741,7 @@ app.post('/api/meta/conversions', metaCapiRateLimit, async (req, res) => {
         externalId: userDataInput?.external_id || userDataInput?.externalId || null,
         firstName: userDataInput?.first_name || userDataInput?.firstName || null,
         lastName: userDataInput?.last_name || userDataInput?.lastName || null,
-        fbLoginId: userDataInput?.fb_login_id || userDataInput?.fbLoginId || null,
+        fbLoginId: resolvedFbLoginId || null,
         fbp: userDataInput?.fbp || null,
         fbc: userDataInput?.fbc || null,
       },
