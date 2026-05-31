@@ -795,17 +795,34 @@ function buildMyGoHotelBookingPayloadFromDemand(demandRow) {
   }
 
   const parsedName = splitDemandClientName(demandRow?.client_name);
-  const adults = Array.from({ length: adultsCount }).map((_, index) => ({
-    Civility: 'Mr',
-    Name: index === 0 ? parsedName.firstName : `Adult${index + 1}`,
-    Surname: index === 0 ? parsedName.lastName : parsedName.lastName,
-    Holder: index === 0,
-  }));
-  const children = childAges.map((age, index) => ({
-    Name: `Child${index + 1}`,
-    Surname: parsedName.lastName,
-    Age: age,
-  }));
+  const contextTravellers = context && typeof context === 'object' && context.travellers && typeof context.travellers === 'object'
+    ? context.travellers
+    : null;
+  const travellerAdults = Array.isArray(contextTravellers?.adults) ? contextTravellers.adults : [];
+  const travellerChildren = Array.isArray(contextTravellers?.children) ? contextTravellers.children : [];
+
+  const adults = Array.from({ length: adultsCount }).map((_, index) => {
+    const traveller = travellerAdults[index] && typeof travellerAdults[index] === 'object' ? travellerAdults[index] : null;
+    const firstName = String(traveller?.firstName || '').trim();
+    const lastName = String(traveller?.lastName || '').trim();
+    return {
+      Civility: 'Mr',
+      Name: firstName || (index === 0 ? parsedName.firstName : `Adult${index + 1}`),
+      Surname: lastName || parsedName.lastName,
+      Holder: index === 0,
+    };
+  });
+  const children = childAges.map((age, index) => {
+    const traveller = travellerChildren[index] && typeof travellerChildren[index] === 'object' ? travellerChildren[index] : null;
+    const firstName = String(traveller?.firstName || '').trim();
+    const lastName = String(traveller?.lastName || '').trim();
+    const travellerAge = Number(traveller?.age);
+    return {
+      Name: firstName || `Child${index + 1}`,
+      Surname: lastName || parsedName.lastName,
+      Age: Number.isInteger(travellerAge) && travellerAge >= 0 && travellerAge <= 17 ? travellerAge : age,
+    };
+  });
 
   return buildMyGoHotelBookingPayload({
     token,

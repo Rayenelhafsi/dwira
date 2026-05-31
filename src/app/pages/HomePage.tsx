@@ -123,6 +123,11 @@ type PendingHomeHotelReserve = {
   totalPrice: number | null;
 };
 
+type HotelTravellerIdentity = {
+  firstName: string;
+  lastName: string;
+};
+
 function savePendingHomeHotelReserve(payload: PendingHomeHotelReserve) {
   try {
     sessionStorage.setItem(HOTEL_PENDING_HOME_RESERVE_KEY, JSON.stringify(payload));
@@ -551,6 +556,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       price: number | null;
     }>;
     totalPrice: number | null;
+    travellers: {
+      adults: HotelTravellerIdentity[];
+      children: HotelTravellerIdentity[];
+    };
     phone: string;
     note: string;
   }>(null);
@@ -1480,8 +1489,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       openProfileSetupStep(user);
       return;
     }
+    const userFirstName = String(user.firstName || "").trim();
+    const userLastName = String(user.lastName || "").trim();
+    const adults = Array.from({ length: Math.max(1, payload.adults) }).map((_, index) => ({
+      firstName: index === 0 ? userFirstName : "",
+      lastName: index === 0 ? userLastName : "",
+    }));
+    const children = Array.from({ length: payload.childAges.length }).map(() => ({
+      firstName: "",
+      lastName: "",
+    }));
     setHotelReserveModal({
       ...payload,
+      travellers: { adults, children },
       phone: String(user.telephone || "").trim(),
       note: "",
     });
@@ -1635,6 +1655,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       toast.error("Numero de telephone obligatoire.");
       return;
     }
+    const invalidAdultIndex = hotelReserveModal.travellers.adults.findIndex((adult) => !String(adult.firstName || "").trim() || !String(adult.lastName || "").trim());
+    if (invalidAdultIndex >= 0) {
+      toast.error(`Nom et prenom obligatoires pour adulte ${invalidAdultIndex + 1}.`);
+      return;
+    }
+    const invalidChildIndex = hotelReserveModal.travellers.children.findIndex((child) => !String(child.firstName || "").trim() || !String(child.lastName || "").trim());
+    if (invalidChildIndex >= 0) {
+      toast.error(`Nom et prenom obligatoires pour enfant ${invalidChildIndex + 1}.`);
+      return;
+    }
 
     setSubmittingHotelReserve(true);
     try {
@@ -1660,6 +1690,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           source: "homepage_card",
           rooms: hotelReserveModal.rooms,
           roomCount: hotelReserveModal.rooms.length,
+          travellers: {
+            adults: hotelReserveModal.travellers.adults.map((adult) => ({
+              firstName: String(adult.firstName || "").trim(),
+              lastName: String(adult.lastName || "").trim(),
+            })),
+            children: hotelReserveModal.travellers.children.map((child, index) => ({
+              firstName: String(child.firstName || "").trim(),
+              lastName: String(child.lastName || "").trim(),
+              age: Number(hotelReserveModal.childAges[index] ?? 0),
+            })),
+          },
         },
       });
       setHotelReserveModal(null);
@@ -1693,6 +1734,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     if (!pending) return;
     setHotelReserveModal({
       ...pending,
+      travellers: {
+        adults: Array.from({ length: Math.max(1, pending.adults) }).map((_, index) => ({
+          firstName: index === 0 ? String(user.firstName || "").trim() : "",
+          lastName: index === 0 ? String(user.lastName || "").trim() : "",
+        })),
+        children: Array.from({ length: pending.childAges.length }).map(() => ({ firstName: "", lastName: "" })),
+      },
       phone: String(user.telephone || "").trim(),
       note: "",
     });
@@ -3904,6 +3952,81 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   <p>Prix client: <span className="font-semibold text-slate-900">{hotelReserveModal.totalPrice !== null ? `${formatHotelPrice(hotelReserveModal.totalPrice)} TND` : "Sur demande"}</span></p>
                 </div>
                 <div className="mt-4 space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Identite voyageurs (obligatoire)</p>
+                    <div className="mt-3 space-y-3">
+                      {hotelReserveModal.travellers.adults.map((adult, index) => (
+                        <div key={`modal-adult-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                          <p className="mb-2 text-xs font-semibold text-slate-700">Adulte {index + 1}</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              type="text"
+                              value={adult.firstName}
+                              onChange={(event) =>
+                                setHotelReserveModal((prev) => {
+                                  if (!prev) return prev;
+                                  const nextAdults = [...prev.travellers.adults];
+                                  nextAdults[index] = { ...nextAdults[index], firstName: event.target.value };
+                                  return { ...prev, travellers: { ...prev.travellers, adults: nextAdults } };
+                                })
+                              }
+                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                              placeholder="Prenom *"
+                            />
+                            <input
+                              type="text"
+                              value={adult.lastName}
+                              onChange={(event) =>
+                                setHotelReserveModal((prev) => {
+                                  if (!prev) return prev;
+                                  const nextAdults = [...prev.travellers.adults];
+                                  nextAdults[index] = { ...nextAdults[index], lastName: event.target.value };
+                                  return { ...prev, travellers: { ...prev.travellers, adults: nextAdults } };
+                                })
+                              }
+                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                              placeholder="Nom *"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      {hotelReserveModal.travellers.children.map((child, index) => (
+                        <div key={`modal-child-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                          <p className="mb-2 text-xs font-semibold text-slate-700">Enfant {index + 1} ({Number(hotelReserveModal.childAges[index] ?? 0)} ans)</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              type="text"
+                              value={child.firstName}
+                              onChange={(event) =>
+                                setHotelReserveModal((prev) => {
+                                  if (!prev) return prev;
+                                  const nextChildren = [...prev.travellers.children];
+                                  nextChildren[index] = { ...nextChildren[index], firstName: event.target.value };
+                                  return { ...prev, travellers: { ...prev.travellers, children: nextChildren } };
+                                })
+                              }
+                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                              placeholder="Prenom *"
+                            />
+                            <input
+                              type="text"
+                              value={child.lastName}
+                              onChange={(event) =>
+                                setHotelReserveModal((prev) => {
+                                  if (!prev) return prev;
+                                  const nextChildren = [...prev.travellers.children];
+                                  nextChildren[index] = { ...nextChildren[index], lastName: event.target.value };
+                                  return { ...prev, travellers: { ...prev.travellers, children: nextChildren } };
+                                })
+                              }
+                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                              placeholder="Nom *"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                   <label className="block">
                     <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Telephone</span>
                     <input

@@ -59,6 +59,12 @@ type HotelSelectedRoom = {
   price?: number | null;
 };
 
+type HotelTravellerIdentity = {
+  firstName?: string | null;
+  lastName?: string | null;
+  age?: number | null;
+};
+
 function parseSelectedRooms(row: HotelReservationDemand): HotelSelectedRoom[] {
   const rawContext = row.hotel_context && typeof row.hotel_context === "object" ? row.hotel_context : null;
   const rawRooms = Array.isArray((rawContext as any)?.rooms) ? (rawContext as any).rooms : [];
@@ -78,6 +84,28 @@ function parseSelectedRooms(row: HotelReservationDemand): HotelSelectedRoom[] {
     }];
   }
   return [];
+}
+
+function parseSelectedTravellers(row: HotelReservationDemand): { adults: HotelTravellerIdentity[]; children: HotelTravellerIdentity[] } {
+  const rawContext = row.hotel_context && typeof row.hotel_context === "object" ? row.hotel_context : null;
+  const rawTravellers = rawContext && typeof (rawContext as any).travellers === "object" ? (rawContext as any).travellers : null;
+  const adults = Array.isArray(rawTravellers?.adults) ? rawTravellers.adults : [];
+  const children = Array.isArray(rawTravellers?.children) ? rawTravellers.children : [];
+  return {
+    adults: adults
+      .map((item: any) => ({
+        firstName: String(item?.firstName || "").trim() || null,
+        lastName: String(item?.lastName || "").trim() || null,
+      }))
+      .filter((item) => item.firstName || item.lastName),
+    children: children
+      .map((item: any) => ({
+        firstName: String(item?.firstName || "").trim() || null,
+        lastName: String(item?.lastName || "").trim() || null,
+        age: Number.isFinite(Number(item?.age)) ? Number(item.age) : null,
+      }))
+      .filter((item) => item.firstName || item.lastName || item.age !== null),
+  };
 }
 
 function formatTnd(value?: number | null) {
@@ -215,6 +243,7 @@ export default function HotelReservationsPage() {
             <article key={row.id} className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
               {(() => {
                 const selectedRooms = parseSelectedRooms(row);
+                const selectedTravellers = parseSelectedTravellers(row);
                 const selectedRoomsTotal = selectedRooms.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
                 const resolvedTotal = Number(row.amount_due_now || row.total_price || selectedRoomsTotal || 0);
                 return (
@@ -296,6 +325,36 @@ export default function HotelReservationsPage() {
                     </p>
                   ) : null}
                   <p className="text-xs text-slate-500">Recue le {formatDateTime(row.created_at)}</p>
+                  {selectedTravellers.adults.length > 0 || selectedTravellers.children.length > 0 ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                      <p className="font-semibold text-slate-900">Voyageurs saisis par le client</p>
+                      {selectedTravellers.adults.length > 0 ? (
+                        <div className="mt-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Adultes</p>
+                          <div className="mt-1 space-y-1">
+                            {selectedTravellers.adults.map((adult, index) => (
+                              <p key={`${row.id}-adult-name-${index}`}>
+                                {index + 1}. {String(adult.firstName || "").trim()} {String(adult.lastName || "").trim()}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {selectedTravellers.children.length > 0 ? (
+                        <div className="mt-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Enfants</p>
+                          <div className="mt-1 space-y-1">
+                            {selectedTravellers.children.map((child, index) => (
+                              <p key={`${row.id}-child-name-${index}`}>
+                                {index + 1}. {String(child.firstName || "").trim()} {String(child.lastName || "").trim()}
+                                {Number.isFinite(Number(child.age)) ? ` (${Number(child.age)} ans)` : ""}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {row.client_note ? (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                       <p className="font-semibold">Note client</p>
