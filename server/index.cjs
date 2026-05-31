@@ -16188,7 +16188,7 @@ app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSes
     }
 
     const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
-    const current = demandRows[0];
+    let current = demandRows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
     if (!canAccessReservationDemand(req.authUser, current)) {
       void logSecurityEvent({
@@ -16552,6 +16552,13 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
     const nextStatus = 'recu_paiement_envoye';
     const receiptUrl = `/uploads/reservation-payment-receipts/${req.file.filename}`;
     const receiptNote = String(req.body?.payment_receipt_note || req.body?.note || '').trim() || null;
+    const providedPaymentRef = String(
+      req.body?.payment_id
+      || req.body?.payment_reference
+      || req.body?.reference
+      || ''
+    ).trim();
+    const resolvedPaymentId = providedPaymentRef || String(current.payment_id || '').trim() || null;
     const actorId = String(req.authUser?.id || req.authUser?.email || current.client_user_id || current.client_email || 'client').trim();
 
     await pool.query(

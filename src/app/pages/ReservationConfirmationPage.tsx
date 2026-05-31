@@ -354,7 +354,7 @@ export default function ReservationConfirmationPage() {
         },
       }).catch(() => {});
       await trackMetaEvent({
-        eventName: isVisitRequest ? "Lead" : "InitiateCheckout",
+        eventName: "Lead",
         customData: {
           content_name: property.title,
           content_ids: [String(property.id)],
