@@ -367,9 +367,7 @@ export default function ReservationConfirmationPage() {
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
       const externalIdValue = isAmicaleFlow
         ? undefined
-        : (user?.authProvider === "facebook"
-          ? String(user?.providerUserId || user?.id || "")
-          : String(user?.id || ""));
+        : String(user?.providerUserId || user?.id || "");
       await trackMetaEvent({
         eventName: "Lead",
         customData: {
@@ -391,8 +389,8 @@ export default function ReservationConfirmationPage() {
           externalId: externalIdValue || undefined,
           firstName,
           lastName,
-          fbLoginId: !isAmicaleFlow && user?.authProvider === "facebook"
-            ? String(user?.providerUserId || "")
+          fbLoginId: !isAmicaleFlow
+            ? (String(user?.providerUserId || "").trim() || undefined)
             : undefined,
         },
       });
