@@ -328,7 +328,7 @@ export default function ReservationPaymentPage() {
       setCenterSuccess({
         open: true,
         title: "Recu envoye",
-        message: "L'admin va verifier avant validation du paiement.",
+        message: "Admin traite votre demande.",
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Envoi du recu impossible");
