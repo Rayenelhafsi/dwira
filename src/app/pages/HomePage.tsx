@@ -105,6 +105,42 @@ const HERO_IMAGE_URL_MOBILE =
   "https://images.unsplash.com/photo-1690549392404-de10519e6adb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUdW5pc2lhJTIwS2VsaWJpYSUyMGJlYWNoJTIwdmlsbGElMjBtZWRpdGVycmFuZWFuJTIwY29hc3R8ZW58MXx8fHwxNzcxNDEyOTU5fDA&ixlib=rb-4.1.0&q=70&w=640&utm_source=figma&utm_medium=referral";
 const HOTEL_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
+const HOTEL_PENDING_HOME_RESERVE_KEY = "dwira_pending_home_hotel_reserve";
+
+type PendingHomeHotelReserve = {
+  hotel: HotelSummary;
+  adults: number;
+  childAges: number[];
+  boardingId: number | null;
+  boardingName: string | null;
+  roomId: number | null;
+  roomName: string | null;
+  totalPrice: number | null;
+};
+
+function savePendingHomeHotelReserve(payload: PendingHomeHotelReserve) {
+  try {
+    sessionStorage.setItem(HOTEL_PENDING_HOME_RESERVE_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
+function readPendingHomeHotelReserve(): PendingHomeHotelReserve | null {
+  try {
+    const raw = sessionStorage.getItem(HOTEL_PENDING_HOME_RESERVE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as PendingHomeHotelReserve;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingHomeHotelReserve() {
+  try {
+    sessionStorage.removeItem(HOTEL_PENDING_HOME_RESERVE_KEY);
+  } catch {}
+}
 
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
@@ -1406,6 +1442,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     totalPrice: number | null;
   }) => {
     if (!user || user.role !== "user" || !user.email) {
+      savePendingHomeHotelReserve(payload);
       const returnTo = `${routerLocation.pathname}${routerLocation.search}`;
       saveAuthReturnTo(returnTo);
       navigate(`/login?return_to=${encodeURIComponent(returnTo)}`);
@@ -1457,11 +1494,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         },
       });
       setHotelReserveModal(null);
+      clearPendingHomeHotelReserve();
       toast.success("Demande créée. Passez maintenant au paiement.");
       navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible de creer la demande hotel.";
       if (/401|auth|connect|session|acces refuse|forbidden/i.test(message)) {
+        savePendingHomeHotelReserve({
+          hotel: hotelReserveModal.hotel,
+          adults: hotelReserveModal.adults,
+          childAges: hotelReserveModal.childAges,
+          boardingId: hotelReserveModal.boardingId,
+          boardingName: hotelReserveModal.boardingName,
+          roomId: hotelReserveModal.roomId,
+          roomName: hotelReserveModal.roomName,
+          totalPrice: hotelReserveModal.totalPrice,
+        });
         const returnTo = `${routerLocation.pathname}${routerLocation.search}`;
         saveAuthReturnTo(returnTo);
         navigate(`/login?return_to=${encodeURIComponent(returnTo)}`);
@@ -1472,6 +1520,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       setSubmittingHotelReserve(false);
     }
   };
+
+  useEffect(() => {
+    if (!user || user.role !== "user" || !user.email) return;
+    if (hotelReserveModal) return;
+    const pending = readPendingHomeHotelReserve();
+    if (!pending) return;
+    setHotelReserveModal({
+      ...pending,
+      phone: String(user.telephone || "").trim(),
+      note: "",
+    });
+    clearPendingHomeHotelReserve();
+  }, [user, hotelReserveModal]);
 
   const handleSearch = () => {
     setHasSearched(true);
