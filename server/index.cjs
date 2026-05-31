@@ -68,6 +68,7 @@ const CLOUDINARY_UPLOAD_SOURCE_BASE_URL = String(process.env.CLOUDINARY_UPLOAD_S
 const META_CAPI_PIXEL_ID = String(process.env.META_CAPI_PIXEL_ID || '').trim();
 const META_CAPI_ACCESS_TOKEN = String(process.env.META_CAPI_ACCESS_TOKEN || '').trim();
 const META_CAPI_TEST_EVENT_CODE = String(process.env.META_CAPI_TEST_EVENT_CODE || '').trim();
+const META_CAPI_DEBUG = ['1', 'true', 'yes', 'on'].includes(String(process.env.META_CAPI_DEBUG || '').trim().toLowerCase());
 const MEDIA_UPLOAD_PROVIDER = String(process.env.MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
 const MEDIA_REQUIRED_UPLOAD = String(
   process.env.MEDIA_REQUIRED_UPLOAD || process.env.CLOUDINARY_REQUIRED_UPLOAD || ''
@@ -725,6 +726,24 @@ async function sendMetaConversionEvent({
     ],
     test_event_code: META_CAPI_TEST_EVENT_CODE || undefined,
   };
+
+  if (META_CAPI_DEBUG) {
+    const presence = {
+      em: Boolean(payload?.data?.[0]?.user_data?.em?.length),
+      ph: Boolean(payload?.data?.[0]?.user_data?.ph?.length),
+      external_id: Boolean(payload?.data?.[0]?.user_data?.external_id?.length),
+      fn: Boolean(payload?.data?.[0]?.user_data?.fn?.length),
+      ln: Boolean(payload?.data?.[0]?.user_data?.ln?.length),
+      fb_login_id: Boolean(payload?.data?.[0]?.user_data?.fb_login_id),
+      fbp: Boolean(payload?.data?.[0]?.user_data?.fbp),
+      fbc: Boolean(payload?.data?.[0]?.user_data?.fbc),
+      event_name: String(eventNameValue || ''),
+      has_custom_data: Boolean(payload?.data?.[0]?.custom_data && Object.keys(payload.data[0].custom_data).length > 0),
+      event_id: String(payload?.data?.[0]?.event_id || ''),
+      source: String(payload?.data?.[0]?.action_source || ''),
+    };
+    console.log('[meta-capi-debug] user_data presence', presence);
+  }
 
   const endpoint = new URL(`https://graph.facebook.com/v21.0/${encodeURIComponent(META_CAPI_PIXEL_ID)}/events`);
   endpoint.searchParams.set('access_token', META_CAPI_ACCESS_TOKEN);
