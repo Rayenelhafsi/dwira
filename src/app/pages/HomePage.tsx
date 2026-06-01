@@ -35,6 +35,7 @@ import {
 import { fr } from "date-fns/locale";
 import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
 import { resolveMediaUrl } from "../utils/media";
+import WebsiteChatbotWidget from "../components/WebsiteChatbotWidget";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -558,6 +559,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   });
   const [hotelSearchLoadingModal, setHotelSearchLoadingModal] = useState(false);
+  const [hotelTravellerAccordionOpen, setHotelTravellerAccordionOpen] = useState("adult-0");
   const [hotelReserveModal, setHotelReserveModal] = useState<null | {
     hotel: HotelSummary;
     adults: number;
@@ -1572,6 +1574,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       phone: String(user.telephone || "").trim(),
       note: "",
     });
+    setHotelTravellerAccordionOpen("adult-0");
   };
 
   const splitHumanName = (value?: string | null) => {
@@ -1811,6 +1814,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       phone: String(user.telephone || "").trim(),
       note: "",
     });
+    setHotelTravellerAccordionOpen("adult-0");
     clearPendingHomeHotelReserve();
   }, [user, hotelReserveModal]);
 
@@ -4088,12 +4092,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           )}
 
           {hotelReserveModal && (
-            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[1px]">
-              <div className="mx-auto w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/40 p-2 sm:p-4 backdrop-blur-[1px]">
+              <div className="mx-auto w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-3 sm:p-5 shadow-2xl">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Reservation hotel</p>
-                    <h3 className="mt-1 text-xl font-semibold text-slate-900">{hotelReserveModal.hotel.Name}</h3>
+                    <h3 className="mt-1 text-lg sm:text-xl font-semibold text-slate-900">{hotelReserveModal.hotel.Name}</h3>
                     <p className="mt-1 text-sm text-slate-500">{hotelReserveModal.hotel.City?.Name || "Destination"}</p>
                   </div>
                   <button
@@ -4104,7 +4108,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <X size={18} />
                   </button>
                 </div>
-                <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
+                <div className="mt-3 sm:mt-4 grid gap-2 sm:gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-2.5 sm:p-3 text-sm text-slate-700">
                   <p>Periode: <span className="font-semibold text-slate-900">{hotelCheckIn}</span> au <span className="font-semibold text-slate-900">{hotelCheckOut}</span></p>
                   <p>Voyageurs: <span className="font-semibold text-slate-900">{hotelReserveModal.adults} adulte{hotelReserveModal.adults > 1 ? "s" : ""}{hotelReserveModal.childAges.length > 0 ? ` - ${hotelReserveModal.childAges.length} enfant${hotelReserveModal.childAges.length > 1 ? "s" : ""}` : ""}</span></p>
                   <p>Chambres: <span className="font-semibold text-slate-900">{hotelReserveModal.rooms.length}</span></p>
@@ -4118,78 +4122,102 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   </div>
                   <p>Prix client: <span className="font-semibold text-slate-900">{hotelReserveModal.totalPrice !== null ? `${formatHotelPrice(hotelReserveModal.totalPrice)} TND` : "Sur demande"}</span></p>
                 </div>
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="mt-3 sm:mt-4 space-y-2.5 sm:space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-2.5 sm:p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Identite voyageurs (obligatoire)</p>
-                    <div className="mt-3 space-y-3">
+                    <div className="mt-2.5 sm:mt-3 space-y-2.5 sm:space-y-3">
                       {hotelReserveModal.travellers.adults.map((adult, index) => (
                         <div key={`modal-adult-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-                          <p className="mb-2 text-xs font-semibold text-slate-700">Adulte {index + 1}</p>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <input
-                              type="text"
-                              value={adult.firstName}
-                              onChange={(event) =>
-                                setHotelReserveModal((prev) => {
-                                  if (!prev) return prev;
-                                  const nextAdults = [...prev.travellers.adults];
-                                  nextAdults[index] = { ...nextAdults[index], firstName: event.target.value };
-                                  return { ...prev, travellers: { ...prev.travellers, adults: nextAdults } };
-                                })
-                              }
-                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
-                              placeholder="Prenom *"
+                          <button
+                            type="button"
+                            onClick={() => setHotelTravellerAccordionOpen((prev) => (prev === `adult-${index}` ? "" : `adult-${index}`))}
+                            className="flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-left"
+                          >
+                            <p className="text-xs font-semibold text-slate-700">Adulte {index + 1}</p>
+                            <ChevronDown
+                              size={16}
+                              className={`text-slate-500 transition-transform ${hotelTravellerAccordionOpen === `adult-${index}` ? "rotate-180" : ""}`}
                             />
-                            <input
-                              type="text"
-                              value={adult.lastName}
-                              onChange={(event) =>
-                                setHotelReserveModal((prev) => {
-                                  if (!prev) return prev;
-                                  const nextAdults = [...prev.travellers.adults];
-                                  nextAdults[index] = { ...nextAdults[index], lastName: event.target.value };
-                                  return { ...prev, travellers: { ...prev.travellers, adults: nextAdults } };
-                                })
-                              }
-                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
-                              placeholder="Nom *"
-                            />
-                          </div>
+                          </button>
+                          {hotelTravellerAccordionOpen === `adult-${index}` ? (
+                            <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <input
+                                type="text"
+                                value={adult.firstName}
+                                onChange={(event) =>
+                                  setHotelReserveModal((prev) => {
+                                    if (!prev) return prev;
+                                    const nextAdults = [...prev.travellers.adults];
+                                    nextAdults[index] = { ...nextAdults[index], firstName: event.target.value };
+                                    return { ...prev, travellers: { ...prev.travellers, adults: nextAdults } };
+                                  })
+                                }
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-[15px] sm:text-sm text-slate-900 outline-none focus:border-sky-500"
+                                placeholder="Prenom *"
+                              />
+                              <input
+                                type="text"
+                                value={adult.lastName}
+                                onChange={(event) =>
+                                  setHotelReserveModal((prev) => {
+                                    if (!prev) return prev;
+                                    const nextAdults = [...prev.travellers.adults];
+                                    nextAdults[index] = { ...nextAdults[index], lastName: event.target.value };
+                                    return { ...prev, travellers: { ...prev.travellers, adults: nextAdults } };
+                                  })
+                                }
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-[15px] sm:text-sm text-slate-900 outline-none focus:border-sky-500"
+                                placeholder="Nom *"
+                              />
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                       {hotelReserveModal.travellers.children.map((child, index) => (
                         <div key={`modal-child-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-                          <p className="mb-2 text-xs font-semibold text-slate-700">Enfant {index + 1} ({Number(hotelReserveModal.childAges[index] ?? 0)} ans)</p>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <input
-                              type="text"
-                              value={child.firstName}
-                              onChange={(event) =>
-                                setHotelReserveModal((prev) => {
-                                  if (!prev) return prev;
-                                  const nextChildren = [...prev.travellers.children];
-                                  nextChildren[index] = { ...nextChildren[index], firstName: event.target.value };
-                                  return { ...prev, travellers: { ...prev.travellers, children: nextChildren } };
-                                })
-                              }
-                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
-                              placeholder="Prenom *"
+                          <button
+                            type="button"
+                            onClick={() => setHotelTravellerAccordionOpen((prev) => (prev === `child-${index}` ? "" : `child-${index}`))}
+                            className="flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-left"
+                          >
+                            <p className="text-xs font-semibold text-slate-700">Enfant {index + 1} ({Number(hotelReserveModal.childAges[index] ?? 0)} ans)</p>
+                            <ChevronDown
+                              size={16}
+                              className={`text-slate-500 transition-transform ${hotelTravellerAccordionOpen === `child-${index}` ? "rotate-180" : ""}`}
                             />
-                            <input
-                              type="text"
-                              value={child.lastName}
-                              onChange={(event) =>
-                                setHotelReserveModal((prev) => {
-                                  if (!prev) return prev;
-                                  const nextChildren = [...prev.travellers.children];
-                                  nextChildren[index] = { ...nextChildren[index], lastName: event.target.value };
-                                  return { ...prev, travellers: { ...prev.travellers, children: nextChildren } };
-                                })
-                              }
-                              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
-                              placeholder="Nom *"
-                            />
-                          </div>
+                          </button>
+                          {hotelTravellerAccordionOpen === `child-${index}` ? (
+                            <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <input
+                                type="text"
+                                value={child.firstName}
+                                onChange={(event) =>
+                                  setHotelReserveModal((prev) => {
+                                    if (!prev) return prev;
+                                    const nextChildren = [...prev.travellers.children];
+                                    nextChildren[index] = { ...nextChildren[index], firstName: event.target.value };
+                                    return { ...prev, travellers: { ...prev.travellers, children: nextChildren } };
+                                  })
+                                }
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-[15px] sm:text-sm text-slate-900 outline-none focus:border-sky-500"
+                                placeholder="Prenom *"
+                              />
+                              <input
+                                type="text"
+                                value={child.lastName}
+                                onChange={(event) =>
+                                  setHotelReserveModal((prev) => {
+                                    if (!prev) return prev;
+                                    const nextChildren = [...prev.travellers.children];
+                                    nextChildren[index] = { ...nextChildren[index], lastName: event.target.value };
+                                    return { ...prev, travellers: { ...prev.travellers, children: nextChildren } };
+                                  })
+                                }
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-[15px] sm:text-sm text-slate-900 outline-none focus:border-sky-500"
+                                placeholder="Nom *"
+                              />
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                     </div>
@@ -4200,7 +4228,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       type="tel"
                       value={hotelReserveModal.phone}
                       onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, phone: event.target.value } : prev))}
-                      className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                      className="h-11 w-full rounded-xl border border-slate-300 px-3 text-[15px] sm:text-sm text-slate-900 outline-none focus:border-sky-500"
                       placeholder="Ex: 98 123 456"
                     />
                   </label>
@@ -4209,12 +4237,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <textarea
                       value={hotelReserveModal.note}
                       onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, note: event.target.value } : prev))}
-                      className="min-h-24 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500"
+                      className="min-h-20 sm:min-h-24 w-full rounded-xl border border-slate-300 px-3 py-2 text-[15px] sm:text-sm text-slate-900 outline-none focus:border-sky-500"
                       placeholder="Informations supplementaires"
                     />
                   </label>
                 </div>
-                <div className="mt-5 flex items-center justify-end gap-2">
+                <div className="mt-4 sm:mt-5 flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setHotelReserveModal(null)}
@@ -4293,6 +4321,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         </>,
         document.body
       )}
+      <WebsiteChatbotWidget />
     </div>
   );
 }
