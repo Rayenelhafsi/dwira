@@ -64,3 +64,7 @@ tmp/*.tar.gz
 tmp/remote_*.sh
 scripts/backup-local.ps1
 FILTER_TEST_TODO.md
+# Temporary: keep chatbot scaffold out of Git until finalization
+Chatbot/
+tmp/chatbot_api_err.log
+tmp/chatbot_api_out.log
