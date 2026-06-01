@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum ReservationStatus {
+  pending
+  confirmed
+  cancelled
+}
+
+enum SenderType {
+  client
+  bot
+  admin
+}
+
+model Client {
+  id             Int            @id @default(autoincrement())
+  platform       String
+  platformUserId String         @map("platform_user_id")
+  fullName       String?        @map("full_name")
+  phone          String?
+  language       String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  conversations  Conversation[]
+  reservations   Reservation[]
+
+  @@unique([platform, platformUserId])
+  @@map("clients")
+}
+
+model Conversation {
+  id              Int          @id @default(autoincrement())
+  clientId        Int          @map("client_id")
+  state           String
+  isHumanTakeover Boolean      @default(false) @map("is_human_takeover")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  client          Client       @relation(fields: [clientId], references: [id])
+  messages        Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int          @map("conversation_id")
+  senderType     SenderType   @map("sender_type")
+  content        String       @db.Text
+  createdAt      DateTime     @default(now()) @map("created_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  @@map("messages")
+}
+
+model Property {
+  id             Int             @id @default(autoincrement())
+  title          String
+  type           String
+  location       String
+  capacity       Int
+  bedrooms       Int
+  bathrooms      Int
+  nearBeach      Boolean         @default(false) @map("near_beach")
+  pool           Boolean         @default(false)
+  parking        Boolean         @default(false)
+  description    String          @db.Text
+  pricePerNight  Decimal         @db.Decimal(10, 2) @map("price_per_night")
+  status         String
+  media          PropertyMedia[]
+  reservations   Reservation[]
+  availability   Availability[]
+
+  @@map("properties")
+}
+
+model PropertyMedia {
+  id         Int      @id @default(autoincrement())
+  propertyId Int      @map("property_id")
+  imageUrl   String   @map("image_url")
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  @@map("property_media")
+}
+
+model Reservation {
+  id         Int               @id @default(autoincrement())
+  propertyId Int               @map("property_id")
+  clientId   Int               @map("client_id")
+  startDate  DateTime          @map("start_date")
+  endDate    DateTime          @map("end_date")
+  guests     Int
+  totalPrice Decimal           @db.Decimal(10, 2) @map("total_price")
+  status     ReservationStatus
+  property   Property          @relation(fields: [propertyId], references: [id])
+  client     Client            @relation(fields: [clientId], references: [id])
+
+  @@map("reservations")
+}
+
+model Availability {
+  id               Int      @id @default(autoincrement())
+  propertyId       Int      @map("property_id")
+  unavailableStart DateTime @map("unavailable_start")
+  unavailableEnd   DateTime @map("unavailable_end")
+  property         Property @relation(fields: [propertyId], references: [id])
+
+  @@map("availability")
+}
+
+model FeedbackLearning {
+  id              Int      @id @default(autoincrement())
+  question        String   @db.Text
+  botAnswer       String   @map("bot_answer") @db.Text
+  correctedAnswer String?  @map("corrected_answer") @db.Text
+  reason          String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("feedback_learning")
+}
+
+model IntentDictionary {
+  id           Int    @id @default(autoincrement())
+  phrase       String
+  meaning      String
+  searchFilter String @map("search_filter")
+
+  @@map("intent_dictionary")
+}
