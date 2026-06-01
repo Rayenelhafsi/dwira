@@ -821,7 +821,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     resetCurrentLocationPath();
   };
   const confirmLocationSelection = () => {
-    setSelectedLocations(dedupeHierarchicalLocations(draftSelectedLocations));
+    const nextLocations = currentDraftLocationValue
+      ? dedupeHierarchicalLocations(
+          draftSelectedLocations.includes(currentDraftLocationValue)
+            ? draftSelectedLocations
+            : [...draftSelectedLocations, currentDraftLocationValue]
+        )
+      : dedupeHierarchicalLocations(draftSelectedLocations);
+    setSelectedLocations(nextLocations);
     setShowCalendar(true);
     setShowCategoryDropdown(false);
     setShowLocationDropdown(false);
