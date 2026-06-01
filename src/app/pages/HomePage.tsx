@@ -1064,27 +1064,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const draftSecondaryTypeOptions = useMemo(() => {
     if (!draftMainType) return availableTypeOptions;
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
-    if (!selectedGroup) return [];
-
-    const selectedInCurrentMainType = draftCategories.filter(
-      (category) => getMainTypeFromCategory(category) === draftMainType
-    );
-    if (selectedInCurrentMainType.length > 1) {
-      const selectedKeys = new Set(
-        selectedInCurrentMainType.map((category) => getCanonicalSubTypeKey(category)).filter(Boolean)
-      );
-      const allSelectedAreSPlus = selectedInCurrentMainType.every((category) =>
-        /^s\+\d+$/.test(getCanonicalSubTypeKey(category))
-      );
-      if (allSelectedAreSPlus) {
-        return selectedGroup.subTypes.filter((item) =>
-          selectedKeys.has(getCanonicalSubTypeKey(item.label))
-        );
-      }
-    }
-
-    return selectedGroup.subTypes;
-  }, [availableTypeOptions, groupedTypeOptions, draftCategories, draftMainType]);
+    return selectedGroup?.subTypes || [];
+  }, [availableTypeOptions, groupedTypeOptions, draftMainType]);
   const selectedMainTypeLabels = selectedMainTypes.map((item) => MAIN_TYPE_LABELS[item]).filter(Boolean);
   const selectedTypeSummaryText = selectedMainTypeLabels.length > 0
     ? (selectedCategories.length > 0 ? `${selectedMainTypeLabels.join(", ")} â€¢ ${selectedCategories.join(", ")}` : selectedMainTypeLabels.join(", "))
