@@ -52,6 +52,7 @@ export default function HotelReservationPaymentPage() {
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
   const [startingClickToPay, setStartingClickToPay] = useState(false);
   const [confirmingClickToPay, setConfirmingClickToPay] = useState(false);
+  const onlinePaymentComingSoon = true;
   const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: "",
@@ -420,12 +421,15 @@ export default function HotelReservationPaymentPage() {
                 <p className="mt-1 text-sm text-emerald-700">Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement.</p>
                 <button
                   type="button"
-                  disabled={!canPayOnline || startingFlouci || confirmingFlouci}
-                  onClick={() => void handleStartFlouci()}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  disabled={onlinePaymentComingSoon || !canPayOnline || startingFlouci || confirmingFlouci}
+                  onClick={() => {
+                    if (onlinePaymentComingSoon) return;
+                    void handleStartFlouci();
+                  }}
+                  className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-white disabled:opacity-70"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  {startingFlouci ? "Ouverture..." : "Payer avec Flouci"}
+                  {onlinePaymentComingSoon ? "Bientot disponible" : startingFlouci ? "Ouverture..." : "Payer avec Flouci"}
                 </button>
               </div>
 
@@ -434,12 +438,15 @@ export default function HotelReservationPaymentPage() {
                 <p className="mt-1 text-sm text-sky-700">Ouvrez la passerelle bancaire puis revenez automatiquement ici apres paiement.</p>
                 <button
                   type="button"
-                  disabled={!canPayOnline || startingClickToPay || confirmingClickToPay}
-                  onClick={() => void handleStartClickToPay()}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  disabled={onlinePaymentComingSoon || !canPayOnline || startingClickToPay || confirmingClickToPay}
+                  onClick={() => {
+                    if (onlinePaymentComingSoon) return;
+                    void handleStartClickToPay();
+                  }}
+                  className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-sky-400 px-3 py-2 text-sm font-semibold text-white disabled:opacity-70"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  {startingClickToPay ? "Ouverture..." : "Payer avec Click to Pay"}
+                  {onlinePaymentComingSoon ? "Bientot disponible" : startingClickToPay ? "Ouverture..." : "Payer avec Click to Pay"}
                 </button>
               </div>
 

@@ -63,6 +63,7 @@ export default function ReservationPaymentPage() {
   });
   const [statusPopupShown, setStatusPopupShown] = useState(false);
   const showFlouciBlock = true;
+  const onlinePaymentComingSoon = true;
   const showReceiptBlock = true;
 
   const fetchDemand = useCallback(async () => {
@@ -443,12 +444,15 @@ export default function ReservationPaymentPage() {
                 <div className="mt-4">
                   <button
                     type="button"
-                    disabled={!flouciPayScope || !!startingFlouciScope || confirmingFlouci}
-                    onClick={() => flouciPayScope ? void handleStartFlouci(flouciPayScope) : undefined}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    disabled={onlinePaymentComingSoon || !flouciPayScope || !!startingFlouciScope || confirmingFlouci}
+                    onClick={() => {
+                      if (onlinePaymentComingSoon) return;
+                      if (flouciPayScope) void handleStartFlouci(flouciPayScope);
+                    }}
+                    className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-white disabled:opacity-70"
                   >
                     <ExternalLink className="h-4 w-4" />
-                    {!!startingFlouciScope ? "Ouverture..." : "Payer"}
+                    {onlinePaymentComingSoon ? "Bientot disponible" : !!startingFlouciScope ? "Ouverture..." : "Payer"}
                   </button>
                 </div>
               </div>

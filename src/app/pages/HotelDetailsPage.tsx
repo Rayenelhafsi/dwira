@@ -5,6 +5,7 @@ import {
   BedDouble,
   CircleDollarSign,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   Clock3,
   ExternalLink,
@@ -114,6 +115,14 @@ export default function HotelDetailsPage() {
   const [requestOfferIndex, setRequestOfferIndex] = useState<number | null>(null);
   const [reservationPhone, setReservationPhone] = useState("");
   const [reservationNote, setReservationNote] = useState("");
+  const [reservationTravellers, setReservationTravellers] = useState<{
+    adults: Array<{ firstName: string; lastName: string }>;
+    children: Array<{ firstName: string; lastName: string }>;
+  }>({
+    adults: [],
+    children: [],
+  });
+  const [reservationTravellerAccordionOpen, setReservationTravellerAccordionOpen] = useState("");
   const [submittingReservation, setSubmittingReservation] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true });
@@ -343,6 +352,22 @@ export default function HotelDetailsPage() {
       toast.error("Numero de telephone obligatoire.");
       return;
     }
+    const invalidAdultIndex = reservationTravellers.adults.findIndex(
+      (adult) => !String(adult.firstName || "").trim() || !String(adult.lastName || "").trim()
+    );
+    if (invalidAdultIndex >= 0) {
+      toast.error(`Identite incomplete pour Adulte ${invalidAdultIndex + 1}.`);
+      setReservationTravellerAccordionOpen(`adult-${invalidAdultIndex}`);
+      return;
+    }
+    const invalidChildIndex = reservationTravellers.children.findIndex(
+      (child) => !String(child.firstName || "").trim() || !String(child.lastName || "").trim()
+    );
+    if (invalidChildIndex >= 0) {
+      toast.error(`Identite incomplete pour Enfant ${invalidChildIndex + 1}.`);
+      setReservationTravellerAccordionOpen(`child-${invalidChildIndex}`);
+      return;
+    }
 
     const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room);
     setSubmittingReservation(true);
@@ -369,11 +394,23 @@ export default function HotelDetailsPage() {
           token: searchHotel?.Token || null,
           hotel,
           offer: activeRequestOffer,
+          travellers: {
+            adults: reservationTravellers.adults.map((adult) => ({
+              firstName: String(adult.firstName || "").trim(),
+              lastName: String(adult.lastName || "").trim(),
+            })),
+            children: reservationTravellers.children.map((child, index) => ({
+              firstName: String(child.firstName || "").trim(),
+              lastName: String(child.lastName || "").trim(),
+              age: Number(childAges[index] ?? 0),
+            })),
+          },
         },
       });
       toast.success("Votre demande hotellerie a ete envoyee. Vous pouvez maintenant finaliser le paiement.");
       setRequestOfferIndex(null);
       setReservationNote("");
+      setReservationTravellerAccordionOpen("");
       clearPendingHotelDraft();
       navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
     } catch (nextError) {
@@ -523,6 +560,18 @@ export default function HotelDetailsPage() {
   useEffect(() => {
     setReservationPhone(String(user?.telephone || ""));
   }, [user?.telephone]);
+
+  useEffect(() => {
+    if (requestOfferIndex === null) return;
+    const userName = splitHumanName(user?.name || "");
+    const nextAdults = Array.from({ length: adults }).map((_, index) => ({
+      firstName: index === 0 ? String(user?.firstName || userName.firstName || "").trim() : "",
+      lastName: index === 0 ? String(user?.lastName || userName.lastName || "").trim() : "",
+    }));
+    const nextChildren = Array.from({ length: childAges.length }).map(() => ({ firstName: "", lastName: "" }));
+    setReservationTravellers({ adults: nextAdults, children: nextChildren });
+    setReservationTravellerAccordionOpen(nextAdults.length > 0 ? "adult-0" : nextChildren.length > 0 ? "child-0" : "");
+  }, [requestOfferIndex, user?.firstName, user?.lastName, user?.name, adults, childAges.length]);
 
   useEffect(() => {
     if (!isAwaitingLogin && !isAuthPendingLogin()) return;
@@ -949,14 +998,93 @@ export default function HotelDetailsPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Nom</label>
-                <input value={user?.name || ""} readOnly className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
-                <input value={user?.email || ""} readOnly className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Identite voyageurs (obligatoire)</p>
+              <div className="mt-3 space-y-3">
+                {reservationTravellers.adults.map((adult, index) => (
+                  <div key={`detail-adult-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                    <button
+                      type="button"
+                      onClick={() => setReservationTravellerAccordionOpen((prev) => (prev === `adult-${index}` ? "" : `adult-${index}`))}
+                      className="flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-left"
+                    >
+                      <p className="text-xs font-semibold text-slate-700">Adulte {index + 1}</p>
+                      <ChevronDown size={16} className={`text-slate-500 transition-transform ${reservationTravellerAccordionOpen === `adult-${index}` ? "rotate-180" : ""}`} />
+                    </button>
+                    {reservationTravellerAccordionOpen === `adult-${index}` ? (
+                      <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <input
+                          type="text"
+                          value={adult.firstName}
+                          onChange={(event) =>
+                            setReservationTravellers((prev) => {
+                              const nextAdults = [...prev.adults];
+                              nextAdults[index] = { ...nextAdults[index], firstName: event.target.value };
+                              return { ...prev, adults: nextAdults };
+                            })
+                          }
+                          className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                          placeholder="Prenom *"
+                        />
+                        <input
+                          type="text"
+                          value={adult.lastName}
+                          onChange={(event) =>
+                            setReservationTravellers((prev) => {
+                              const nextAdults = [...prev.adults];
+                              nextAdults[index] = { ...nextAdults[index], lastName: event.target.value };
+                              return { ...prev, adults: nextAdults };
+                            })
+                          }
+                          className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                          placeholder="Nom *"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+                {reservationTravellers.children.map((child, index) => (
+                  <div key={`detail-child-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                    <button
+                      type="button"
+                      onClick={() => setReservationTravellerAccordionOpen((prev) => (prev === `child-${index}` ? "" : `child-${index}`))}
+                      className="flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-left"
+                    >
+                      <p className="text-xs font-semibold text-slate-700">Enfant {index + 1} ({Number(childAges[index] ?? 0)} ans)</p>
+                      <ChevronDown size={16} className={`text-slate-500 transition-transform ${reservationTravellerAccordionOpen === `child-${index}` ? "rotate-180" : ""}`} />
+                    </button>
+                    {reservationTravellerAccordionOpen === `child-${index}` ? (
+                      <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <input
+                          type="text"
+                          value={child.firstName}
+                          onChange={(event) =>
+                            setReservationTravellers((prev) => {
+                              const nextChildren = [...prev.children];
+                              nextChildren[index] = { ...nextChildren[index], firstName: event.target.value };
+                              return { ...prev, children: nextChildren };
+                            })
+                          }
+                          className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                          placeholder="Prenom *"
+                        />
+                        <input
+                          type="text"
+                          value={child.lastName}
+                          onChange={(event) =>
+                            setReservationTravellers((prev) => {
+                              const nextChildren = [...prev.children];
+                              nextChildren[index] = { ...nextChildren[index], lastName: event.target.value };
+                              return { ...prev, children: nextChildren };
+                            })
+                          }
+                          className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500"
+                          placeholder="Nom *"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             </div>
 
