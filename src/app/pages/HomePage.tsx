@@ -4092,8 +4092,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           )}
 
           {hotelReserveModal && (
-            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/40 p-2 sm:p-4 backdrop-blur-[1px]">
-              <div className="mx-auto w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-3 sm:p-5 shadow-2xl">
+            <div className="fixed inset-0 z-[10000] flex items-start sm:items-center justify-center overflow-y-auto bg-slate-950/40 p-2 pt-3 sm:p-4 backdrop-blur-[1px]">
+              <div className="mx-auto my-0 sm:my-2 w-full max-w-lg max-h-[calc(100dvh-0.75rem)] overflow-y-auto overscroll-contain touch-pan-y rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-3 sm:p-5 shadow-2xl">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Reservation hotel</p>
