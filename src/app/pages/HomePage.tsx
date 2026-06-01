@@ -701,6 +701,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/\s+/g, " ")
       .trim();
+  const isSameLocationToken = (left?: string | null, right?: string | null) =>
+    normalizeLocationToken(left) !== "" && normalizeLocationToken(left) === normalizeLocationToken(right);
   const dedupeLocationValues = (values: string[]) => {
     const byToken = new Map<string, string>();
     for (const rawValue of values) {
@@ -720,7 +722,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     () =>
       dedupeLocationValues(
         normalizedZones
-          .filter((zone) => !locationPays || String(zone.pays || "").trim() === locationPays)
+          .filter((zone) => !locationPays || isSameLocationToken(zone.pays, locationPays))
           .map((zone) => String(zone.gouvernerat || "").trim())
           .filter(Boolean)
       ),
@@ -732,8 +734,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         normalizedZones
           .filter(
             (zone) =>
-              (!locationPays || String(zone.pays || "").trim() === locationPays)
-              && (!locationGouvernerat || String(zone.gouvernerat || "").trim() === locationGouvernerat)
+              (!locationPays || isSameLocationToken(zone.pays, locationPays))
+              && (!locationGouvernerat || isSameLocationToken(zone.gouvernerat, locationGouvernerat))
           )
           .map((zone) => String(zone.region || "").trim())
           .filter(Boolean)
@@ -746,9 +748,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         normalizedZones
           .filter(
             (zone) =>
-              (!locationPays || String(zone.pays || "").trim() === locationPays)
-              && (!locationGouvernerat || String(zone.gouvernerat || "").trim() === locationGouvernerat)
-              && (!locationRegion || String(zone.region || "").trim() === locationRegion)
+              (!locationPays || isSameLocationToken(zone.pays, locationPays))
+              && (!locationGouvernerat || isSameLocationToken(zone.gouvernerat, locationGouvernerat))
+              && (!locationRegion || isSameLocationToken(zone.region, locationRegion))
           )
           .map((zone) => String(zone.quartier || zone.nom || "").trim())
           .filter(Boolean)
@@ -876,14 +878,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       items.find((item) => String(item[field] || '').trim())?.[field] || null;
 
     const paysImage = locationPays
-      ? pickImage(normalizedZones.filter((zone) => String(zone.pays || '').trim() === locationPays), 'pays_image_url')
+      ? pickImage(normalizedZones.filter((zone) => isSameLocationToken(zone.pays, locationPays)), 'pays_image_url')
       : null;
     const gouverneratImage = locationGouvernerat
       ? pickImage(
           normalizedZones.filter(
             (zone) =>
-              (!locationPays || String(zone.pays || '').trim() === locationPays)
-              && String(zone.gouvernerat || '').trim() === locationGouvernerat
+              (!locationPays || isSameLocationToken(zone.pays, locationPays))
+              && isSameLocationToken(zone.gouvernerat, locationGouvernerat)
           ),
           'gouvernerat_image_url'
         )
@@ -892,9 +894,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       ? pickImage(
           normalizedZones.filter(
             (zone) =>
-              (!locationPays || String(zone.pays || '').trim() === locationPays)
-              && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
-              && String(zone.region || '').trim() === locationRegion
+              (!locationPays || isSameLocationToken(zone.pays, locationPays))
+              && (!locationGouvernerat || isSameLocationToken(zone.gouvernerat, locationGouvernerat))
+              && isSameLocationToken(zone.region, locationRegion)
           ),
           'region_image_url'
         )
@@ -903,10 +905,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       ? pickImage(
           normalizedZones.filter(
             (zone) =>
-              (!locationPays || String(zone.pays || '').trim() === locationPays)
-              && (!locationGouvernerat || String(zone.gouvernerat || '').trim() === locationGouvernerat)
-              && (!locationRegion || String(zone.region || '').trim() === locationRegion)
-              && String(zone.quartier || zone.nom || '').trim() === locationZone
+              (!locationPays || isSameLocationToken(zone.pays, locationPays))
+              && (!locationGouvernerat || isSameLocationToken(zone.gouvernerat, locationGouvernerat))
+              && (!locationRegion || isSameLocationToken(zone.region, locationRegion))
+              && isSameLocationToken(zone.quartier || zone.nom, locationZone)
           ),
           'quartier_image_url'
         )
@@ -928,17 +930,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       const gouv = String(zone.gouvernerat || "").trim();
       const region = String(zone.region || "").trim();
       const zoneName = String(zone.quartier || zone.nom || "").trim();
-      if (level === "pays") return pays === value;
-      if (level === "gouvernerat") return (!locationPays || pays === locationPays) && gouv === value;
+      if (level === "pays") return isSameLocationToken(pays, value);
+      if (level === "gouvernerat") return (!locationPays || isSameLocationToken(pays, locationPays)) && isSameLocationToken(gouv, value);
       if (level === "region") {
-        return (!locationPays || pays === locationPays)
-          && (!locationGouvernerat || gouv === locationGouvernerat)
-          && region === value;
+        return (!locationPays || isSameLocationToken(pays, locationPays))
+          && (!locationGouvernerat || isSameLocationToken(gouv, locationGouvernerat))
+          && isSameLocationToken(region, value);
       }
-      return (!locationPays || pays === locationPays)
-        && (!locationGouvernerat || gouv === locationGouvernerat)
-        && (!locationRegion || region === locationRegion)
-        && zoneName === value;
+      return (!locationPays || isSameLocationToken(pays, locationPays))
+        && (!locationGouvernerat || isSameLocationToken(gouv, locationGouvernerat))
+        && (!locationRegion || isSameLocationToken(region, locationRegion))
+        && isSameLocationToken(zoneName, value);
     });
     if (!rows.length) return 'about:blank';
     const pickFirstNonEmpty = (field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
@@ -1062,8 +1064,27 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const draftSecondaryTypeOptions = useMemo(() => {
     if (!draftMainType) return availableTypeOptions;
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
-    return selectedGroup?.subTypes || [];
-  }, [availableTypeOptions, groupedTypeOptions, draftMainType]);
+    if (!selectedGroup) return [];
+
+    const selectedInCurrentMainType = draftCategories.filter(
+      (category) => getMainTypeFromCategory(category) === draftMainType
+    );
+    if (selectedInCurrentMainType.length > 1) {
+      const selectedKeys = new Set(
+        selectedInCurrentMainType.map((category) => getCanonicalSubTypeKey(category)).filter(Boolean)
+      );
+      const allSelectedAreSPlus = selectedInCurrentMainType.every((category) =>
+        /^s\+\d+$/.test(getCanonicalSubTypeKey(category))
+      );
+      if (allSelectedAreSPlus) {
+        return selectedGroup.subTypes.filter((item) =>
+          selectedKeys.has(getCanonicalSubTypeKey(item.label))
+        );
+      }
+    }
+
+    return selectedGroup.subTypes;
+  }, [availableTypeOptions, groupedTypeOptions, draftCategories, draftMainType]);
   const selectedMainTypeLabels = selectedMainTypes.map((item) => MAIN_TYPE_LABELS[item]).filter(Boolean);
   const selectedTypeSummaryText = selectedMainTypeLabels.length > 0
     ? (selectedCategories.length > 0 ? `${selectedMainTypeLabels.join(", ")} â€¢ ${selectedCategories.join(", ")}` : selectedMainTypeLabels.join(", "))

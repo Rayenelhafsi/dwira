@@ -598,7 +598,7 @@ export default function PropertiesPage() {
   const [selectedStanding, setSelectedStanding] = useState(searchParams.get("standing") || "");
   const [minGuests, setMinGuests] = useState(parseInt(searchParams.get("guestsMin") || "1", 10));
   const [isFeaturedOnly, setIsFeaturedOnly] = useState(searchParams.get("featured") === "true");
-  const [priceMax, setPriceMax] = useState(parseInt(searchParams.get("maxPrice") || "1000", 10));
+  const [priceMax, setPriceMax] = useState(parseInt(searchParams.get("maxPrice") || "1650", 10));
   const [smartTolerance, setSmartTolerance] = useState(parseInt(searchParams.get("tolerance") || "75", 10));
   const [sortMode, setSortMode] = useState<"matching" | "price" | "featured">(
     (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured")
@@ -1118,7 +1118,7 @@ export default function PropertiesPage() {
       const remapped = prev
         .map((cat) => {
           const key = getCanonicalSubTypeKey(cat);
-          return canonicalToLabel.get(key) || "";
+          return canonicalToLabel.get(key) || cat;
         })
         .filter(Boolean);
       return Array.from(new Set(remapped));
@@ -1128,12 +1128,7 @@ export default function PropertiesPage() {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
     setSelectedFeatureNames((prev) => prev.filter((item) => allowedFeatures.has(item)));
   }, [tabFeatureOptionsMap]);
-  useEffect(() => {
-    const allowedSeaside = new Set(availableSeasideOptions);
-    const allowedComfort = new Set(availableComfortOptions);
-    setSelectedSeasideOptions((prev) => prev.filter((item) => allowedSeaside.has(item)));
-    setSelectedComfortOptions((prev) => prev.filter((item) => allowedComfort.has(item)));
-  }, [availableSeasideOptions, availableComfortOptions]);
+  // Keep Home -> Advanced transfer lossless: do not auto-drop selected comfort/seaside filters.
   useEffect(() => {
     const allowedStanding = new Set(availableStandingOptions.map((item) => item.value).filter(Boolean));
     if (selectedStanding && !allowedStanding.has(selectedStanding)) {
@@ -1790,6 +1785,7 @@ export default function PropertiesPage() {
           && !selectedMainTypes.includes(propertyMainType);
         const hasTypeAlternative32 = selectedMainTypes.length > 0
           && selectedSubTypeKeys.length > 0
+          && selectedSubTypeKeys.length === 1
           && selectedMainTypes.includes(propertyMainType)
           && !selectedSubTypeKeys.includes(propertySubTypeKey)
           && requestedSPlusValues.some((requested) => propertySPlusValue !== null && Math.abs(propertySPlusValue - requested) === 1);

@@ -92,6 +92,7 @@ export default function ReservationConfirmationPage() {
       defaultNightlyPrice: property.pricePerNight,
       defaultWeeklyPrice: property.pricePerWeek,
       pricingPeriods: property.pricingPeriods,
+      amicaleId: pricingAmicaleId,
     });
     const nights = accommodationPricing.nights;
     const accommodationTotal = accommodationPricing.accommodationTotal;
