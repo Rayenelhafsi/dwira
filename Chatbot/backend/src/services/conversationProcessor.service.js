@@ -217,11 +217,13 @@ function formatPropertyLabel(property) {
 
 function buildProgressiveSearchReply(lang, constraints, options) {
   const summary = [];
+  const guestCount = Number(constraints.guests);
+  const budgetAmount = Number(constraints.budget);
   if (constraints.type && constraints.type !== "autre") summary.push(constraints.type);
   if (constraints.subType && constraints.subType !== "autre" && constraints.subType !== constraints.type) summary.push(constraints.subType);
   if (constraints.location) summary.push(`a ${constraints.location}`);
-  if (Number.isFinite(Number(constraints.guests))) summary.push(`${constraints.guests} voyageurs`);
-  if (Number.isFinite(Number(constraints.budget))) summary.push(`budget ${constraints.budget} TND`);
+  if (Number.isFinite(guestCount) && guestCount > 0) summary.push(`${guestCount} voyageurs`);
+  if (Number.isFinite(budgetAmount) && budgetAmount > 0) summary.push(`budget ${budgetAmount} TND`);
 
   const missing = [];
   if (!constraints.location) missing.push(lang === "en" ? "location" : "zone");
