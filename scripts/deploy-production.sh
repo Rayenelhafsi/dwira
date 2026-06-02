@@ -102,6 +102,11 @@ export npm_config_progress="false"
 export npm_config_include="dev"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=768}"
 
+if [ -d "${APP_DIR}/dist" ]; then
+  echo "[deploy] Ensure deploy user can replace dist"
+  sudo chown -R deploy:deploy "${APP_DIR}/dist"
+fi
+
 mkdir -p "${STATE_DIR}"
 CURRENT_LOCK_HASH="$(sha256sum package-lock.json | awk '{print $1}')"
 PREVIOUS_LOCK_HASH="$(cat "${LOCK_HASH_FILE}" 2>/dev/null || true)"
