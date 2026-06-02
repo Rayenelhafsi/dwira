@@ -22,8 +22,14 @@ function getVisitorId() {
 }
 
 function getChatbotApiBase() {
-  const raw = String(import.meta.env.VITE_CHATBOT_API_URL || "http://localhost:8090").trim();
-  return raw.replace(/\/+$/, "");
+  const configured = String(import.meta.env.VITE_CHATBOT_API_URL || "").trim();
+  if (configured) return configured.replace(/\/+$/, "");
+
+  const host = window.location.hostname;
+  const isLocalHost = host === "localhost" || host === "127.0.0.1";
+  if (isLocalHost) return "http://localhost:8090";
+
+  return `${window.location.origin.replace(/\/+$/, "")}/chatbot-api`;
 }
 
 export default function WebsiteChatbotWidget() {
