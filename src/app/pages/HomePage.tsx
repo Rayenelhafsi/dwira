@@ -183,6 +183,59 @@ const getCanonicalSubTypeKey = (value?: string | null) => {
   if (/\bsix\s+chambre/.test(raw)) return "s+6";
   return raw.replace(/\s+/g, " ");
 };
+const hasExplicitMainTypeInLabel = (value?: string | null) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+  return (
+    normalized.includes("appartement")
+    || normalized.includes("villa")
+    || normalized.includes("maison")
+    || normalized.includes("bungalow")
+    || normalized.includes("studio")
+    || normalized.includes("immeuble")
+  );
+};
+const getNormalizedMainTypeForMatchKey = (value?: string | null): PropertyMainType | "" => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "appartement" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+    return raw;
+  }
+  return getMainTypeFromCategory(raw);
+};
+const buildMainTypeSubTypeMatchKey = (mainType: PropertyMainType | string | null | undefined, value?: string | null) => {
+  const raw = String(value || "").trim();
+  const subTypeKey = getCanonicalSubTypeKey(raw);
+  if (!subTypeKey) return "";
+  const normalizedMainType = getNormalizedMainTypeForMatchKey(mainType);
+  if (!normalizedMainType) return "";
+  return `${normalizedMainType}::${subTypeKey}`;
+};
+const getMainTypeSubTypeMatchKey = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const mainType = getMainTypeFromCategory(raw);
+  return buildMainTypeSubTypeMatchKey(mainType, raw);
+};
+const getSelectedSubTypeMatchKeys = (value: string, selectedMainTypes: PropertyMainType[]) => {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  if (hasExplicitMainTypeInLabel(raw) || selectedMainTypes.length === 0) {
+    const key = getMainTypeSubTypeMatchKey(raw);
+    return key ? [key] : [];
+  }
+  return Array.from(new Set(
+    selectedMainTypes
+      .map((mainType) => buildMainTypeSubTypeMatchKey(mainType, raw))
+      .filter(Boolean)
+  ));
+};
+const areStringArraysEqual = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((item, index) => item === right[index]);
 const isGenericPropertySubtype = (label?: string | null) => {
   const normalized = String(label || "")
     .trim()
@@ -1062,7 +1115,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       .filter((group) => selectedMainTypes.includes(group.mainType))
       .forEach((group) => {
         group.subTypes.forEach((subType) => {
-          const key = getCanonicalSubTypeKey(subType.label) || subType.label;
+          const key = buildMainTypeSubTypeMatchKey(group.mainType, subType.label) || subType.label;
           if (!merged.has(key)) merged.set(key, subType);
         });
       });
@@ -1174,21 +1227,34 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [isHotelMode, selectedMode]);
 
   useEffect(() => {
-    const canonicalToLabel = new Map(
-      availableTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
-    );
+    const canonicalToLabel = new Map<string, string>();
+    groupedTypeOptions.forEach((group) => {
+      group.subTypes.forEach((item) => {
+        const key = buildMainTypeSubTypeMatchKey(group.mainType, item.label);
+        if (key && !canonicalToLabel.has(key)) canonicalToLabel.set(key, item.label);
+      });
+    });
     setSelectedCategories((prev) => {
       const remapped = prev
-        .map((cat) => canonicalToLabel.get(getCanonicalSubTypeKey(cat)) || "")
+        .map((cat) => {
+          const resolvedLabel = getSelectedSubTypeMatchKeys(cat, selectedMainTypes)
+            .map((key) => canonicalToLabel.get(key) || "")
+            .find(Boolean);
+          return resolvedLabel || "";
+        })
         .filter(Boolean);
-      return Array.from(new Set(remapped));
+      const next = Array.from(new Set(remapped));
+      return areStringArraysEqual(prev, next) ? prev : next;
     });
     const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
     setSelectedMainType((prev) => {
       return prev && mainTypeAllowed.has(prev) ? prev : "";
     });
-    setSelectedMainTypes((prev) => prev.filter((item) => mainTypeAllowed.has(item)));
-  }, [availableTypeOptions, groupedTypeOptions]);
+    setSelectedMainTypes((prev) => {
+      const next = prev.filter((item) => mainTypeAllowed.has(item));
+      return areStringArraysEqual(prev, next) ? prev : next;
+    });
+  }, [groupedTypeOptions, selectedMainTypes]);
   useEffect(() => {
     const allowedSeaside = new Set(availableSeasideOptions);
     const allowedComfort = new Set(availableComfortOptions);
@@ -1198,16 +1264,28 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
   useEffect(() => {
     if (selectedMainTypes.length === 0) return;
-    const canonicalToLabel = new Map(
-      secondaryTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
-    );
+    const canonicalToLabel = new Map<string, string>();
+    groupedTypeOptions
+      .filter((group) => selectedMainTypes.includes(group.mainType))
+      .forEach((group) => {
+        group.subTypes.forEach((item) => {
+          const key = buildMainTypeSubTypeMatchKey(group.mainType, item.label);
+          if (key && !canonicalToLabel.has(key)) canonicalToLabel.set(key, item.label);
+        });
+      });
     setSelectedCategories((prev) => {
       const remapped = prev
-        .map((cat) => canonicalToLabel.get(getCanonicalSubTypeKey(cat)) || cat)
+        .map((cat) => {
+          const resolvedLabel = getSelectedSubTypeMatchKeys(cat, selectedMainTypes)
+            .map((key) => canonicalToLabel.get(key) || "")
+            .find(Boolean);
+          return resolvedLabel || cat;
+        })
         .filter(Boolean);
-      return Array.from(new Set(remapped));
+      const next = Array.from(new Set(remapped));
+      return areStringArraysEqual(prev, next) ? prev : next;
     });
-  }, [selectedMainTypes, secondaryTypeOptions]);
+  }, [groupedTypeOptions, selectedMainTypes]);
   useEffect(() => {
     const firstRange = selectedStayRanges[0];
     if (!firstRange) return;
@@ -1900,8 +1978,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   };
 
   const filteredProperties = useMemo(() => {
-    const selectedSubTypeKeys = selectedCategories
-      .map((item) => getCanonicalSubTypeKey(item))
+    const selectedSubTypeMatchKeys = selectedCategories
+      .flatMap((item) => getSelectedSubTypeMatchKeys(item, selectedMainTypes))
       .filter(Boolean);
     const validStayRanges = selectedStayRanges.filter((range) => isValidStayRange(range.start, range.end));
     const shouldFilterByStay = hasSearched && validStayRanges.length > 0;
@@ -1918,8 +1996,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           const resolvedCategory = getResolvedPropertyCategoryLabel(property);
           const propertyMainType = getMainTypeFromCategory(String(resolvedCategory || property.category || ""));
           const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategory || property.category || "");
+          const propertySubTypeMatchKey = propertySubTypeKey ? `${propertyMainType}::${propertySubTypeKey}` : "";
           const matchMainType = selectedMainTypes.length === 0 || selectedMainTypes.includes(propertyMainType);
-          const matchSubType = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
+          const matchSubType = selectedSubTypeMatchKeys.length === 0 || selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey);
           const matchSeaside = selectedSeasideOptions.length === 0 || selectedSeasideOptions.some((option) => propertyMatchesSeasideOption(property, option));
           const matchComfort = selectedComfortOptions.length === 0 || selectedComfortOptions.some((option) => propertyMatchesComfortOption(property, option));
           const matchStay =

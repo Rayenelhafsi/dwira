@@ -314,6 +314,57 @@ const getCanonicalSubTypeKey = (value?: string | null) => {
   if (/\bsix\s+chambre/.test(raw)) return "s+6";
   return raw.replace(/\s+/g, " ");
 };
+const hasExplicitMainTypeInLabel = (value?: string | null) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+  return (
+    normalized.includes("appartement")
+    || normalized.includes("villa")
+    || normalized.includes("maison")
+    || normalized.includes("bungalow")
+    || normalized.includes("studio")
+    || normalized.includes("immeuble")
+  );
+};
+const getNormalizedMainTypeForMatchKey = (value?: string | null): PropertyMainType | "" => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "appartement" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+    return raw;
+  }
+  return getMainTypeFromCategory(raw);
+};
+const buildMainTypeSubTypeMatchKey = (mainType: PropertyMainType | string | null | undefined, value?: string | null) => {
+  const raw = String(value || "").trim();
+  const subTypeKey = getCanonicalSubTypeKey(raw);
+  if (!subTypeKey) return "";
+  const normalizedMainType = getNormalizedMainTypeForMatchKey(mainType);
+  if (!normalizedMainType) return "";
+  return `${normalizedMainType}::${subTypeKey}`;
+};
+const getMainTypeSubTypeMatchKey = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const mainType = getMainTypeFromCategory(raw);
+  return buildMainTypeSubTypeMatchKey(mainType, raw);
+};
+const getSelectedSubTypeMatchKeys = (value: string, selectedMainTypes: PropertyMainType[]) => {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  if (hasExplicitMainTypeInLabel(raw) || selectedMainTypes.length === 0) {
+    const key = getMainTypeSubTypeMatchKey(raw);
+    return key ? [key] : [];
+  }
+  return Array.from(new Set(
+    selectedMainTypes
+      .map((mainType) => buildMainTypeSubTypeMatchKey(mainType, raw))
+      .filter(Boolean)
+  ));
+};
 const isGenericPropertySubtype = (label?: string | null) => {
   const normalized = String(label || "")
     .trim()
@@ -877,7 +928,7 @@ export default function PropertiesPage() {
       .filter((group) => selectedMainTypes.includes(group.mainType))
       .forEach((group) => {
         group.subTypes.forEach((subType) => {
-          const key = getCanonicalSubTypeKey(subType.label) || subType.label;
+          const key = buildMainTypeSubTypeMatchKey(group.mainType, subType.label) || subType.label;
           if (!merged.has(key)) merged.set(key, subType);
         });
       });
@@ -1111,19 +1162,27 @@ export default function PropertiesPage() {
   }, [groupedTypeOptions]);
   useEffect(() => {
     if (selectedMainTypes.length === 0) return;
-    const canonicalToLabel = new Map(
-      secondaryTypeOptions.map((item) => [getCanonicalSubTypeKey(item.label), item.label] as const)
-    );
+    const canonicalToLabel = new Map<string, string>();
+    groupedTypeOptions
+      .filter((group) => selectedMainTypes.includes(group.mainType))
+      .forEach((group) => {
+        group.subTypes.forEach((item) => {
+          const key = buildMainTypeSubTypeMatchKey(group.mainType, item.label);
+          if (key && !canonicalToLabel.has(key)) canonicalToLabel.set(key, item.label);
+        });
+      });
     setSelectedCategories((prev) => {
       const remapped = prev
         .map((cat) => {
-          const key = getCanonicalSubTypeKey(cat);
-          return canonicalToLabel.get(key) || cat;
+          const resolvedLabel = getSelectedSubTypeMatchKeys(cat, selectedMainTypes)
+            .map((key) => canonicalToLabel.get(key) || "")
+            .find(Boolean);
+          return resolvedLabel || cat;
         })
         .filter(Boolean);
       return Array.from(new Set(remapped));
     });
-  }, [selectedMainTypes, secondaryTypeOptions]);
+  }, [groupedTypeOptions, selectedMainTypes]);
   useEffect(() => {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
     setSelectedFeatureNames((prev) => prev.filter((item) => allowedFeatures.has(item)));
@@ -1353,6 +1412,9 @@ export default function PropertiesPage() {
       .filter(Boolean)
       .map((value) => getCanonicalSubTypeKey(value))
       .filter(Boolean);
+    const selectedSubTypeMatchKeys = selectedCategories
+      .flatMap((value) => getSelectedSubTypeMatchKeys(value, selectedMainTypes))
+      .filter(Boolean);
     const selectedGovernorates = new Set(
       selectedLocations
         .map((value) => extractSelectedGovernorate(value))
@@ -1579,14 +1641,15 @@ export default function PropertiesPage() {
         const resolvedCategoryLabel = getResolvedPropertyCategoryLabel(property);
         const propertyMainType = getMainTypeFromCategory(resolvedCategoryLabel || property.category || "");
         const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategoryLabel || property.category || "");
+        const propertySubTypeMatchKey = propertySubTypeKey ? `${propertyMainType}::${propertySubTypeKey}` : "";
         if (selectedMainTypes.length > 0) {
           maxScore += 16;
           if (selectedMainTypes.includes(propertyMainType)) score += 16;
           else missing.push("Type principal different");
         }
-        if (selectedSubTypeKeys.length > 0) {
+        if (selectedSubTypeMatchKeys.length > 0) {
           maxScore += 16;
-          if (selectedSubTypeKeys.includes(propertySubTypeKey)) score += 16;
+          if (selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey)) score += 16;
           else missing.push("Sous-type different");
         }
 
@@ -1750,7 +1813,7 @@ export default function PropertiesPage() {
         const matchedTabsCount = Array.from(selectedTabsFromFeatures).filter((tab) => propertyFeatureTabs.includes(tab)).length;
         const normalizedScore = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 100;
         const strictMainTypeMatch = selectedMainTypes.length === 0 || selectedMainTypes.includes(propertyMainType);
-        const strictSubTypeMatch = selectedSubTypeKeys.length === 0 || selectedSubTypeKeys.includes(propertySubTypeKey);
+        const strictSubTypeMatch = selectedSubTypeMatchKeys.length === 0 || selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey);
         const altNights = stayDateAlternative
           ? Math.max(0, Math.round((new Date(`${stayDateAlternative.end}T00:00:00`).getTime() - new Date(`${stayDateAlternative.start}T00:00:00`).getTime()) / 86400000))
           : 0;
@@ -1779,15 +1842,15 @@ export default function PropertiesPage() {
         );
         const requestedSPlusValues = selectedSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
         const propertySPlusValue = getSPlusValue(propertySubTypeKey);
-        const hasTypeAlternative31 = selectedSubTypeKeys.length > 0
+        const hasTypeAlternative31 = selectedSubTypeMatchKeys.length > 0
           && selectedMainTypes.length > 0
           && selectedSubTypeKeys.includes(propertySubTypeKey)
-          && !selectedMainTypes.includes(propertyMainType);
+          && !selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey);
         const hasTypeAlternative32 = selectedMainTypes.length > 0
           && selectedSubTypeKeys.length > 0
           && selectedSubTypeKeys.length === 1
           && selectedMainTypes.includes(propertyMainType)
-          && !selectedSubTypeKeys.includes(propertySubTypeKey)
+          && !selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey)
           && requestedSPlusValues.some((requested) => propertySPlusValue !== null && Math.abs(propertySPlusValue - requested) === 1);
         const propertyRegionZone = getPropertyRegionZone(property);
         const propertyGovernorate = getPropertyGovernorate(property);
@@ -1893,7 +1956,7 @@ export default function PropertiesPage() {
     if (primary.length === 0) {
       primary = rows.filter((row) => row.strictTypeMatch && (!hasDateFilter || row.exactDateAvailable));
     }
-    if (primary.length === 0 && !hasDateFilter) {
+    if (primary.length === 0 && !hasDateFilter && !hasExplicitTypeFilter) {
       primary = [...rows].sort((a, b) => b.score - a.score).slice(0, 12);
     } else {
       primary = primary.sort((a, b) => {
