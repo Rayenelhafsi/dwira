@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus } from "lucide-react";
+import { Search, MapPin, Calendar, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -642,6 +642,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [passkeyPromptEmail, setPasskeyPromptEmail] = useState("");
   const [passkeyPromptName, setPasskeyPromptName] = useState("");
   const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
+  const [isProfileCinUploading, setIsProfileCinUploading] = useState(false);
   const [profilePromptForm, setProfilePromptForm] = useState({
     firstName: "",
     lastName: "",
@@ -649,6 +650,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     telephone: "",
     address: "",
     cin: "",
+    cinImageUrl: "",
   });
   useEffect(() => {
     if (!hotelDestinationOpen && !hotelTravellersOpen && !hotelCalendarOpen && !showLoginPrompt && !hotelReserveModal && !hotelSearchLoadingModal) return;
@@ -1681,9 +1683,36 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       telephone: String(currentUser?.telephone || "").trim(),
       address: String(currentUser?.address || "").trim(),
       cin: String(currentUser?.cin || "").trim(),
+      cinImageUrl: String(currentUser?.cinImageUrl || "").trim(),
     });
     setLoginPromptStep("profile_setup");
     setShowLoginPrompt(true);
+  };
+
+  const handleProfileCinUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsProfileCinUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const response = await fetch(buildApiUrl("/upload"), {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(data?.error || "Upload de la photo CIN echoue"));
+      const imageUrl = String(data?.url || data?.imageUrl || "").trim();
+      if (!imageUrl) throw new Error("URL photo CIN manquante");
+      setProfilePromptForm((prev) => ({ ...prev, cinImageUrl: imageUrl }));
+      toast.success("Photo CIN enregistree");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload de la photo CIN echoue");
+    } finally {
+      setIsProfileCinUploading(false);
+      event.target.value = "";
+    }
   };
 
   const applyLoggedUser = (loggedUser: any) => {
@@ -1773,8 +1802,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
   const handlePromptProfileComplete = async () => {
     if (!user?.id) return toast.error("Session invalide.");
-    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim() || !profilePromptForm.address.trim()) {
-      return toast.error("Nom, prenom, telephone et adresse sont obligatoires.");
+    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim() || !profilePromptForm.address.trim() || !profilePromptForm.cin.trim()) {
+      return toast.error("Nom, prenom, telephone, adresse et CIN sont obligatoires.");
+    }
+    if (!profilePromptForm.cinImageUrl.trim()) {
+      return toast.error("La photo CIN est obligatoire.");
     }
     setIsProfilePromptSaving(true);
     try {
@@ -1788,6 +1820,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         telephone: profilePromptForm.telephone.trim(),
         address: profilePromptForm.address.trim(),
         cin: profilePromptForm.cin.trim(),
+        cinImageUrl: profilePromptForm.cinImageUrl.trim(),
       });
       applyLoggedUser(savedUser);
       setShowLoginPrompt(false);
@@ -1904,6 +1937,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setHotelTravellerAccordionOpen("adult-0");
     clearPendingHomeHotelReserve();
   }, [user, hotelReserveModal]);
+
+  useEffect(() => {
+    if (!user || user.role !== "user" || !user.email) return;
+    if (user.profileCompleted) return;
+    if (showLoginPrompt && loginPromptStep === "profile_setup") return;
+    openProfileSetupStep(user);
+  }, [loginPromptStep, openProfileSetupStep, showLoginPrompt, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4160,16 +4200,26 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
                 {loginPromptStep === "profile_setup" && (
                   <div className="mt-4 space-y-3">
-                    <p className="text-sm text-gray-600">Completez votre identite pour continuer la reservation hotel.</p>
+                    <p className="text-sm text-gray-600">Completez votre identite. Le popup reste bloque tant que la CIN et sa photo ne sont pas enregistrees.</p>
                     <div className="grid grid-cols-2 gap-3">
                       <input type="text" value={profilePromptForm.firstName} onChange={(e) => setProfilePromptForm((p) => ({ ...p, firstName: e.target.value }))} placeholder="Prenom *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
                       <input type="text" value={profilePromptForm.lastName} onChange={(e) => setProfilePromptForm((p) => ({ ...p, lastName: e.target.value }))} placeholder="Nom *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
                     </div>
                     <input type="tel" value={profilePromptForm.telephone} onChange={(e) => setProfilePromptForm((p) => ({ ...p, telephone: e.target.value }))} placeholder="Telephone *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
                     <input type="text" value={profilePromptForm.address} onChange={(e) => setProfilePromptForm((p) => ({ ...p, address: e.target.value }))} placeholder="Adresse *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
-                    <input type="text" value={profilePromptForm.cin} onChange={(e) => setProfilePromptForm((p) => ({ ...p, cin: e.target.value }))} placeholder="CIN (optionnel)" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
+                    <input type="text" value={profilePromptForm.cin} onChange={(e) => setProfilePromptForm((p) => ({ ...p, cin: e.target.value }))} placeholder="CIN *" className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800" />
+                    <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
+                      <Upload className="h-4 w-4" />
+                      {isProfileCinUploading ? "Upload photo CIN..." : "Uploader photo CIN *"}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleProfileCinUpload} />
+                    </label>
+                    {profilePromptForm.cinImageUrl ? (
+                      <img src={profilePromptForm.cinImageUrl} alt="Photo CIN" className="h-32 w-full rounded-xl border border-emerald-200 object-cover" />
+                    ) : (
+                      <p className="text-xs text-red-600">La photo CIN est obligatoire pour continuer.</p>
+                    )}
                     <div className="flex items-center justify-end">
-                      <button type="button" disabled={isProfilePromptSaving} onClick={() => void handlePromptProfileComplete()} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50">
+                      <button type="button" disabled={isProfilePromptSaving || isProfileCinUploading} onClick={() => void handlePromptProfileComplete()} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50">
                         {isProfilePromptSaving ? "Sauvegarde..." : "Enregistrer et continuer"}
                       </button>
                     </div>

@@ -7086,10 +7086,12 @@ function isLegalIdentityProfileCompleted(user) {
   const fullName = String(user?.nom || user?.name || '').trim();
   const phone = String(user?.telephone || '').trim();
   const address = String(user?.address || '').trim();
+  const cin = String(user?.cin || '').trim();
+  const cinImageUrl = String(user?.cin_image_url || user?.cinImageUrl || '').trim();
   const clientType = String(user?.client_type || user?.clientType || '').trim().toLowerCase();
   const profileCompletedAt = String(user?.profile_completed_at || '').trim();
   const hasValidClientType = ['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType);
-  return Boolean(fullName && phone && address && hasValidClientType && profileCompletedAt);
+  return Boolean(fullName && phone && address && cin && cinImageUrl && hasValidClientType && profileCompletedAt);
 }
 
 function buildPhonePlaceholderEmail(phone) {
@@ -20998,6 +21000,8 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     if (!firstName || !lastName) return res.status(400).json({ error: 'Nom et prenom obligatoires' });
     if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
     if (!address) return res.status(400).json({ error: 'Adresse obligatoire' });
+    if (!cin) return res.status(400).json({ error: 'Numero CIN obligatoire' });
+    if (!cinImageUrl) return res.status(400).json({ error: 'Photo CIN obligatoire' });
     if (!['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType)) {
       return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire, acheteur ou agent_amicale)' });
     }

@@ -22,6 +22,7 @@ import {
   Star,
   Tags,
   TicketPercent,
+  Upload,
   UtensilsCrossed,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -132,6 +133,7 @@ export default function HotelDetailsPage() {
   const [passkeyPromptEmail, setPasskeyPromptEmail] = useState("");
   const [passkeyPromptName, setPasskeyPromptName] = useState("");
   const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
+  const [isProfileCinUploading, setIsProfileCinUploading] = useState(false);
   const [hasAutoOpenedReserve, setHasAutoOpenedReserve] = useState(false);
   const [profilePromptForm, setProfilePromptForm] = useState({
     firstName: "",
@@ -140,8 +142,13 @@ export default function HotelDetailsPage() {
     telephone: "",
     address: "",
     cin: "",
+    cinImageUrl: "",
   });
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
+  const checkIn = String(searchParams.get("checkIn") || "").trim();
+  const checkOut = String(searchParams.get("checkOut") || "").trim();
+  const childAges = parseChildAgesParam(searchParams.get("children"));
+  const adults = Math.max(1, Number(searchParams.get("adults") || 2) || 2);
 
   useEffect(() => {
     let cancelled = false;
@@ -306,9 +313,36 @@ export default function HotelDetailsPage() {
       telephone: String(currentUser?.telephone || "").trim(),
       address: String(currentUser?.address || "").trim(),
       cin: String(currentUser?.cin || "").trim(),
+      cinImageUrl: String(currentUser?.cinImageUrl || "").trim(),
     });
     setLoginPromptStep("profile_setup");
     setShowLoginPrompt(true);
+  };
+
+  const handleProfileCinUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsProfileCinUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const response = await fetch(buildApiUrl("/upload"), {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(data?.error || "Upload de la photo CIN echoue"));
+      const imageUrl = String(data?.url || data?.imageUrl || "").trim();
+      if (!imageUrl) throw new Error("URL photo CIN manquante");
+      setProfilePromptForm((prev) => ({ ...prev, cinImageUrl: imageUrl }));
+      toast.success("Photo CIN enregistree");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload de la photo CIN echoue");
+    } finally {
+      setIsProfileCinUploading(false);
+      event.target.value = "";
+    }
   };
 
   const openReservationRequest = (offerIndex: number) => {
@@ -529,8 +563,12 @@ export default function HotelDetailsPage() {
       toast.error("Session utilisateur invalide. Reconnectez-vous.");
       return;
     }
-    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim() || !profilePromptForm.address.trim()) {
-      toast.error("Nom, prenom, telephone et adresse sont obligatoires.");
+    if (!profilePromptForm.firstName.trim() || !profilePromptForm.lastName.trim() || !profilePromptForm.telephone.trim() || !profilePromptForm.address.trim() || !profilePromptForm.cin.trim()) {
+      toast.error("Nom, prenom, telephone, adresse et CIN sont obligatoires.");
+      return;
+    }
+    if (!profilePromptForm.cinImageUrl.trim()) {
+      toast.error("La photo CIN est obligatoire.");
       return;
     }
     setIsProfilePromptSaving(true);
@@ -545,6 +583,7 @@ export default function HotelDetailsPage() {
         telephone: profilePromptForm.telephone.trim(),
         address: profilePromptForm.address.trim(),
         cin: profilePromptForm.cin.trim(),
+        cinImageUrl: profilePromptForm.cinImageUrl.trim(),
       });
       applyLoggedUser(savedUser);
       setShowLoginPrompt(false);
@@ -585,6 +624,13 @@ export default function HotelDetailsPage() {
   }, [isAwaitingLogin, user]);
 
   useEffect(() => {
+    if (!user || user.role !== "user" || !user.email) return;
+    if (user.profileCompleted) return;
+    if (showLoginPrompt && loginPromptStep === "profile_setup") return;
+    openProfileSetupStep(user);
+  }, [loginPromptStep, openProfileSetupStep, showLoginPrompt, user]);
+
+  useEffect(() => {
     if (!user || user.role !== "user" || !user.email || !user.profileCompleted) return;
     const draft = readPendingHotelDraft();
     if (!draft) return;
@@ -609,11 +655,6 @@ export default function HotelDetailsPage() {
     window.addEventListener("message", onAuthMessage);
     return () => window.removeEventListener("message", onAuthMessage);
   }, []);
-
-  const checkIn = String(searchParams.get("checkIn") || "").trim();
-  const checkOut = String(searchParams.get("checkOut") || "").trim();
-  const childAges = parseChildAgesParam(searchParams.get("children"));
-  const adults = Math.max(1, Number(searchParams.get("adults") || 2) || 2);
 
   if (loading) {
     return (
@@ -1207,7 +1248,7 @@ export default function HotelDetailsPage() {
 
             {loginPromptStep === "profile_setup" && (
               <div className="space-y-3">
-                <p className="text-sm text-gray-600">Completez votre identite pour continuer la reservation hotel.</p>
+                <p className="text-sm text-gray-600">Completez votre identite. Le popup reste bloque tant que la CIN et sa photo ne sont pas enregistrees.</p>
                 <input
                   type="text"
                   value={profilePromptForm.firstName}
@@ -1240,12 +1281,22 @@ export default function HotelDetailsPage() {
                   type="text"
                   value={profilePromptForm.cin}
                   onChange={(event) => setProfilePromptForm((prev) => ({ ...prev, cin: event.target.value }))}
-                  placeholder="CIN (optionnel)"
+                  placeholder="CIN *"
                   className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
                 />
+                <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
+                  <Upload className="h-4 w-4" />
+                  {isProfileCinUploading ? "Upload photo CIN..." : "Uploader photo CIN *"}
+                  <input type="file" accept="image/*" className="hidden" onChange={handleProfileCinUpload} />
+                </label>
+                {profilePromptForm.cinImageUrl ? (
+                  <img src={profilePromptForm.cinImageUrl} alt="Photo CIN" className="h-32 w-full rounded-xl border border-emerald-200 object-cover" />
+                ) : (
+                  <p className="text-xs text-red-600">La photo CIN est obligatoire pour continuer.</p>
+                )}
                 <button
                   type="button"
-                  disabled={isProfilePromptSaving}
+                  disabled={isProfilePromptSaving || isProfileCinUploading}
                   onClick={() => void handlePromptProfileComplete()}
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >

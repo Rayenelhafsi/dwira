@@ -362,6 +362,10 @@ export default function LoginPage() {
       toast.error('Nom, prenom, numero de telephone, adresse et CIN sont obligatoires');
       return;
     }
+    if (!profileForm.cinImageUrl.trim()) {
+      toast.error("La photo de la CIN est obligatoire");
+      return;
+    }
     setIsCompletingProfile(true);
     try {
       const savedUser = await completeSocialProfile({
@@ -511,15 +515,17 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Image carte d'identite</label>
+                <label className="block text-sm font-medium text-gray-700">Image carte d'identite *</label>
                 <label className="mt-1 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                   <Upload className="h-4 w-4" />
-                  {isUploadingCin ? 'Upload en cours...' : "Uploader l'image (optionnel)"}
+                  {isUploadingCin ? 'Upload en cours...' : "Uploader l'image obligatoire"}
                   <input type="file" accept="image/*" className="hidden" onChange={handleCinImageUpload} />
                 </label>
                 {profileForm.cinImageUrl ? (
                   <img src={profileForm.cinImageUrl} alt="Carte d'identite" className="mt-3 h-32 w-full rounded-md border border-gray-200 object-cover" />
-                ) : null}
+                ) : (
+                  <p className="mt-2 text-xs text-red-600">La validation reste bloquee tant que la photo CIN n'est pas envoyee.</p>
+                )}
               </div>
 
               <div className="md:col-span-2">
