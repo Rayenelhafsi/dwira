@@ -5,6 +5,14 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  options?: ChatOption[];
+};
+
+type ChatOption = {
+  id: string | number;
+  title: string;
+  location?: string | null;
+  pricePerNightTnd?: number | null;
 };
 
 const VISITOR_KEY = "dwira_chatbot_visitor_id";
@@ -72,7 +80,18 @@ export default function WebsiteChatbotWidget() {
 
       const data = await response.json();
       const reply = String(data?.reply || "").trim() || "Merci. Un conseiller vous repondra sous peu.";
-      setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", text: reply }]);
+      const options = Array.isArray(data?.options)
+        ? data.options
+            .slice(0, 3)
+            .map((option: any) => ({
+              id: option?.id ?? "",
+              title: String(option?.title || "").trim(),
+              location: String(option?.location || "").trim() || null,
+              pricePerNightTnd: Number.isFinite(Number(option?.pricePerNightTnd)) ? Number(option.pricePerNightTnd) : null,
+            }))
+            .filter((option: ChatOption) => option.title)
+        : [];
+      setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", text: reply, options }]);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -113,7 +132,18 @@ export default function WebsiteChatbotWidget() {
                     msg.role === "user" ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-800"
                   }`}
                 >
-                  {msg.text}
+                  <div className="whitespace-pre-line">{msg.text}</div>
+                  {msg.role === "assistant" && Array.isArray(msg.options) && msg.options.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {msg.options.map((option) => (
+                        <div key={String(option.id)} className="rounded-xl border border-emerald-200 bg-white/80 px-3 py-2 text-xs text-slate-700">
+                          <div className="font-semibold text-slate-900">{option.title}</div>
+                          {option.location ? <div>{option.location}</div> : null}
+                          {option.pricePerNightTnd ? <div>{option.pricePerNightTnd} TND / nuit</div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}

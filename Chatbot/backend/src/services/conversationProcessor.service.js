@@ -194,6 +194,59 @@ function parseQuickIntent(message) {
   return { wantsStatus, wantsReserve, asksReceipt, mentionsAlternative, hasReceiptLink, paymentMethod };
 }
 
+function hasSearchSignal(constraints, message) {
+  const text = normText(message);
+  return Boolean(
+    constraints.location ||
+    constraints.type ||
+    constraints.subType ||
+    Number.isFinite(Number(constraints.bedrooms)) ||
+    constraints.preferences.length > 0 ||
+    /(montre|cherche|cherche moi|voir|dispo|disponible|appartement|villa|studio|s\+\d+|options?)/.test(text)
+  );
+}
+
+function formatPropertyLabel(property) {
+  const parts = [property.title];
+  if (property.location) parts.push(property.location);
+  if (Number.isFinite(Number(property.pricePerNightTnd)) && Number(property.pricePerNightTnd) > 0) {
+    parts.push(`${Number(property.pricePerNightTnd)} TND/nuit`);
+  }
+  return parts.join(" - ");
+}
+
+function buildProgressiveSearchReply(lang, constraints, options) {
+  const summary = [];
+  if (constraints.type && constraints.type !== "autre") summary.push(constraints.type);
+  if (constraints.subType && constraints.subType !== "autre" && constraints.subType !== constraints.type) summary.push(constraints.subType);
+  if (constraints.location) summary.push(`a ${constraints.location}`);
+  if (Number.isFinite(Number(constraints.guests))) summary.push(`${constraints.guests} voyageurs`);
+  if (Number.isFinite(Number(constraints.budget))) summary.push(`budget ${constraints.budget} TND`);
+
+  const missing = [];
+  if (!constraints.location) missing.push(lang === "en" ? "location" : "zone");
+  if (!constraints.startDate || !constraints.endDate) missing.push(lang === "en" ? "dates" : "dates");
+  if (!constraints.guests) missing.push(lang === "en" ? "guests" : "voyageurs");
+
+  const top = Array.isArray(options) ? options.slice(0, 3).map((p, index) => `${index + 1}. ${formatPropertyLabel(p)}`).join("\n") : "";
+
+  if (lang === "en") {
+    const intro = summary.length ? `I understood your request: ${summary.join(", ")}.` : "I understood your request.";
+    const ask = missing.length ? `Tell me ${missing.join(", ")} and I will narrow the results.` : "Tell me your dates and guest count to narrow the results.";
+    return top ? `${intro}\nHere are some matching options:\n${top}\n${ask}` : `${intro} ${ask}`;
+  }
+
+  if (lang === "ar" || lang === "tn") {
+    const intro = summary.length ? `فهمت طلبك: ${summary.join("، ")}.` : "فهمت طلبك.";
+    const ask = missing.length ? `ابعثلي ${missing.join("، ")} باش نضيق الاختيار.` : "ابعثلي التواريخ وعدد المسافرين باش نضيق الاختيار.";
+    return top ? `${intro}\nهاذم بعض الخيارات المناسبة:\n${top}\n${ask}` : `${intro} ${ask}`;
+  }
+
+  const intro = summary.length ? `J'ai compris votre demande: ${summary.join(", ")}.` : "J'ai compris votre demande.";
+  const ask = missing.length ? `Indiquez-moi ${missing.join(", ")} pour affiner.` : "Indiquez-moi les dates et le nombre de voyageurs pour affiner.";
+  return top ? `${intro}\nVoici quelques options possibles:\n${top}\n${ask}` : `${intro} ${ask}`;
+}
+
 function extractSelectionId(message) {
   const match = String(message || "").match(/\b(?:id|ref|property)\s*[:#-]?\s*(\d+)\b/i);
   if (!match) return null;
@@ -497,8 +550,13 @@ export async function processIncomingMessage(payload) {
       }
       newState = STATES.PENDING_CONFIRMATION;
     } else if (!constraints.startDate || !constraints.endDate || !constraints.guests || !constraints.location) {
-      reply = L.askMissing;
-      newState = STATES.ASKING_PREFERENCES;
+      if (hasSearchSignal(constraints, payload.message) && propertyCards.length > 0) {
+        reply = buildProgressiveSearchReply(lang, constraints, propertyCards);
+        newState = STATES.SHOWING_OPTIONS;
+      } else {
+        reply = L.askMissing;
+        newState = STATES.ASKING_PREFERENCES;
+      }
     } else if (propertyCards.length === 0) {
       const alternatives = toPropertyCards(await findAlternatives(constraints));
       options = alternatives;
