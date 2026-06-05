@@ -610,6 +610,12 @@ export interface ReservationDemand {
   flouci_status?: string | null;
   flouci_checkout_url?: string | null;
   flouci_verified_at?: string | null;
+  clicktopay_scope?: 'reservation' | 'services' | 'combined' | null;
+  clicktopay_payment_id?: string | null;
+  clicktopay_order_number?: string | null;
+  clicktopay_status?: string | null;
+  clicktopay_checkout_url?: string | null;
+  clicktopay_paid_at?: string | null;
   payment_receipt_image_url?: string | null;
   payment_receipt_uploaded_at?: string | null;
   payment_receipt_note?: string | null;

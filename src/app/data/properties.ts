@@ -21,6 +21,9 @@ export interface PropertyFilterProfile {
   mode: 'vente' | 'location_annuelle' | 'location_saisonniere';
   propertyType: string;
   category: string;
+  mainType?: string;
+  subType?: string;
+  displayCategory?: string;
   locationLabel: string;
   locationTokens: string[];
   locationHierarchy: {

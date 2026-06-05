@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload } from "lucide-react";
+import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -120,6 +120,9 @@ type PendingHomeHotelReserve = {
     roomId: number | null;
     roomName: string | null;
     price: number | null;
+    adults: number;
+    children: number;
+    childAges: number[];
   }>;
   totalPrice: number | null;
 };
@@ -128,6 +131,139 @@ type HotelTravellerIdentity = {
   firstName: string;
   lastName: string;
 };
+
+type HotelRoomTravellerSelection = {
+  adults: number;
+  children: number;
+  childAges: number[];
+};
+
+function normalizeHotelRoomChildAges(current: number[] | undefined, childrenCount: number) {
+  const safeChildrenCount = Math.max(0, Math.floor(Number(childrenCount) || 0));
+  const next = Array.isArray(current)
+    ? current
+        .slice(0, safeChildrenCount)
+        .map((age) => Math.max(0, Math.min(17, Math.floor(Number(age) || 0))))
+    : [];
+
+  while (next.length < safeChildrenCount) next.push(0);
+  return next;
+}
+
+function buildDefaultHotelRoomTravellers(roomCount: number) {
+  return Array.from({ length: Math.max(1, Math.floor(Number(roomCount) || 1)) }).map(() => ({
+    adults: 1,
+    children: 0,
+    childAges: [],
+  }));
+}
+
+function normalizeHotelRoomTravellers(
+  current: HotelRoomTravellerSelection[] | undefined,
+  roomCount: number
+) {
+  const safeRoomCount = Math.max(1, Math.floor(Number(roomCount) || 1));
+  const next = Array.isArray(current)
+    ? current.slice(0, safeRoomCount).map((room) => ({
+        adults: Math.max(1, Math.floor(Number(room?.adults) || 1)),
+        children: Math.max(0, Math.floor(Number(room?.children) || 0)),
+        childAges: normalizeHotelRoomChildAges(room?.childAges, Math.max(0, Math.floor(Number(room?.children) || 0))),
+      }))
+    : [];
+
+  while (next.length < safeRoomCount) {
+    next.push({ adults: 1, children: 0, childAges: [] });
+  }
+
+  return next;
+}
+
+function flattenHotelRoomChildAges(roomTravellers: HotelRoomTravellerSelection[]) {
+  return Array.isArray(roomTravellers)
+    ? roomTravellers.flatMap((room) => normalizeHotelRoomChildAges(room?.childAges, room?.children))
+    : [];
+}
+
+function buildHotelRoomTravellersFromFilters(
+  roomCount: number,
+  adults: number,
+  childAges: number[]
+) {
+  const safeRoomCount = Math.max(1, Math.floor(Number(roomCount) || 1));
+  const safeAdults = Math.max(1, Math.floor(Number(adults) || 1));
+  const normalizedChildAges = Array.isArray(childAges)
+    ? childAges
+        .map((age) => Math.max(0, Math.min(17, Math.floor(Number(age) || 0))))
+    : [];
+
+  if (safeRoomCount === 1) {
+    return [{
+      adults: safeAdults,
+      children: normalizedChildAges.length,
+      childAges: normalizedChildAges,
+    }];
+  }
+
+  const next = buildDefaultHotelRoomTravellers(safeRoomCount);
+  let remainingAdults = safeAdults;
+
+  for (let index = 0; index < safeRoomCount; index += 1) {
+    const roomsLeft = safeRoomCount - index;
+    const adultsForRoom = Math.max(1, remainingAdults - (roomsLeft - 1));
+    next[index].adults = adultsForRoom;
+    remainingAdults = Math.max(0, remainingAdults - adultsForRoom);
+  }
+
+  if (normalizedChildAges.length > 0) {
+    next[0].children = normalizedChildAges.length;
+    next[0].childAges = normalizedChildAges;
+  }
+
+  return next;
+}
+
+function buildHotelAvailabilitySignature(input: {
+  hotelId: number;
+  hotelCityId: number;
+  hotelDestinationQuery: string;
+  selectedHotelId: number;
+  checkIn: string;
+  checkOut: string;
+  roomCount: number;
+  roomTravellers: HotelRoomTravellerSelection[];
+  roomSelections: Array<{ boardingKey: string; roomKey: string }>;
+}) {
+  const totalAdults = Array.isArray(input.roomTravellers)
+    ? input.roomTravellers.reduce((sum, room) => sum + Math.max(0, Math.floor(Number(room?.adults) || 0)), 0)
+    : 0;
+  const totalChildren = Array.isArray(input.roomTravellers)
+    ? input.roomTravellers.reduce((sum, room) => sum + Math.max(0, Math.floor(Number(room?.children) || 0)), 0)
+    : 0;
+  return JSON.stringify({
+    hotelId: Number(input.hotelId || 0),
+    hotelCityId: Number(input.hotelCityId || 0),
+    hotelDestinationQuery: String(input.hotelDestinationQuery || "").trim(),
+    selectedHotelId: Number(input.selectedHotelId || 0),
+    checkIn: String(input.checkIn || "").trim(),
+    checkOut: String(input.checkOut || "").trim(),
+    adults: totalAdults,
+    children: totalChildren,
+    roomCount: Math.max(1, Math.floor(Number(input.roomCount) || 1)),
+    roomTravellers: Array.isArray(input.roomTravellers)
+      ? input.roomTravellers.map((room) => ({
+          adults: Math.max(1, Math.floor(Number(room?.adults) || 1)),
+        children: Math.max(0, Math.floor(Number(room?.children) || 0)),
+        childAges: normalizeHotelRoomChildAges(room?.childAges, Math.max(0, Math.floor(Number(room?.children) || 0))),
+      }))
+      : [],
+    roomSelections: Array.isArray(input.roomSelections)
+      ? input.roomSelections.map((selection) => ({
+          boardingKey: String(selection?.boardingKey || ""),
+          roomKey: String(selection?.roomKey || ""),
+        }))
+      : [],
+  });
+}
 
 function savePendingHomeHotelReserve(payload: PendingHomeHotelReserve) {
   try {
@@ -247,10 +383,43 @@ const isGenericPropertySubtype = (label?: string | null) => {
     .trim();
   return ["appartement", "villa", "maison", "villa maison", "bungalow"].includes(normalized);
 };
+const isInvalidPropertySubtype = (label?: string | null) => {
+  const raw = String(label || "").trim();
+  if (!raw) return true;
+  const normalized = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized.includes("s+?") || /\bs\s*\+\s*\?/i.test(raw) || normalized.includes("?")) return true;
+  const canonical = getCanonicalSubTypeKey(raw);
+  if (!canonical) return true;
+  return false;
+};
 const getResolvedPropertyCategoryLabel = (property: any): string => {
-  const rawCategory = String(property?.category || "").trim();
+  const rawMainType = String(property?.filterProfile?.mainType || "").trim();
+  const rawSubType = String(property?.filterProfile?.subType || "").trim();
+  const rawDisplayCategory = String(property?.filterProfile?.displayCategory || "").trim();
+  if (rawMainType) {
+    const resolvedMainType = getNormalizedMainTypeForMatchKey(rawMainType) || getMainTypeFromCategory(rawMainType);
+    const mainLabelByType: Record<PropertyMainType, string> = {
+      appartement: "Appartement",
+      villa_maison: "Villa / Maison",
+      studio: "Studio",
+      immeuble: "Immeuble",
+      autre: "Autre",
+    };
+    const mainLabel = mainLabelByType[resolvedMainType];
+    if (rawSubType) {
+      return hasExplicitMainTypeInLabel(rawSubType) ? rawSubType : `${mainLabel} ${rawSubType}`.trim();
+    }
+    if (rawDisplayCategory) return rawDisplayCategory;
+    return mainLabel;
+  }
+  const rawCategory = String(rawDisplayCategory || property?.category || "").trim();
   const title = String(property?.title || "").trim();
-  const rawSPlus = rawCategory.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
+  const rawSPlus = rawSubType.match(/s\+\d+/i)?.[0]?.toUpperCase() || rawCategory.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
   const titleSPlus = title.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
   const resolvedSPlus = rawSPlus || titleSPlus;
   const bedrooms = Number(property?.bedrooms || 0);
@@ -475,6 +644,14 @@ function formatHotelPrice(value: number | null) {
   return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Number(value));
 }
 
+function formatHotelDateDisplay(value: string) {
+  const normalized = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return "Sélectionner";
+  const parsed = parseISO(normalized);
+  if (Number.isNaN(parsed.getTime())) return "Sélectionner";
+  return format(parsed, "dd/MM/yyyy", { locale: fr });
+}
+
 function getClientFacingHotelError(message: string) {
   const normalized = String(message || "").toLowerCase();
   if (
@@ -491,6 +668,33 @@ function getClientFacingHotelError(message: string) {
     return "Notre selection d'hotels est temporairement indisponible. Merci de reessayer un peu plus tard.";
   }
   return "Impossible de charger les offres pour le moment. Merci de reessayer dans quelques instants.";
+}
+
+function hasValidHotelSearchDates(checkIn: string, checkOut: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(checkIn || "").trim()) && /^\d{4}-\d{2}-\d{2}$/.test(String(checkOut || "").trim());
+}
+
+function hasRequiredHotelSearchApiInputs(input: {
+  cityId?: number | null;
+  checkIn?: string;
+  checkOut?: string;
+  adults?: number | null;
+}) {
+  return Number(input.cityId || 0) > 0
+    && hasValidHotelSearchDates(String(input.checkIn || ""), String(input.checkOut || ""))
+    && Math.max(0, Math.floor(Number(input.adults) || 0)) > 0;
+}
+
+function matchesHotelKeywordForFallback(hotel: HotelSummary, keyword: string) {
+  const needle = String(keyword || "").trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    hotel.Name,
+    hotel.City?.Name,
+    hotel.ShortDescription,
+    hotel.HotelDescription,
+    hotel.Adress,
+  ].some((value) => String(value || "").toLowerCase().includes(needle));
 }
 
 function hasHotelPromotion(hotel: HotelSummary) {
@@ -586,38 +790,51 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [hotelSearchFallbackNotice, setHotelSearchFallbackNotice] = useState("");
   const [loadingHotelCities, setLoadingHotelCities] = useState(false);
   const [loadingHotelResults, setLoadingHotelResults] = useState(false);
+  const [checkingAvailabilityHotelId, setCheckingAvailabilityHotelId] = useState<number | null>(null);
   const [loadingHotelsByCity, setLoadingHotelsByCity] = useState(false);
   const [hotelCityId, setHotelCityId] = useState<number>(() => Number(searchParams.get("cityId") || 0) || 0);
   const [hotelDestinationQuery, setHotelDestinationQuery] = useState(() => searchParams.get("q") || "");
   const [selectedHotelId, setSelectedHotelId] = useState<number>(0);
   const [hotelDestinationOpen, setHotelDestinationOpen] = useState(false);
-  const [hotelCheckIn, setHotelCheckIn] = useState(() => searchParams.get("checkIn") || hotelDefaults.checkIn);
-  const [hotelCheckOut, setHotelCheckOut] = useState(() => searchParams.get("checkOut") || hotelDefaults.checkOut);
-  const [hotelAdults, setHotelAdults] = useState(() => Math.max(1, Number(searchParams.get("adults") || hotelDefaults.adults)));
+  const [hotelCheckIn, setHotelCheckIn] = useState(() => searchParams.get("checkIn") || "");
+  const [hotelCheckOut, setHotelCheckOut] = useState(() => searchParams.get("checkOut") || "");
+  const [hotelAdults, setHotelAdults] = useState(() => {
+    const rawAdults = String(searchParams.get("adults") || "").trim();
+    if (!rawAdults) return 0;
+    return Math.max(1, Number(rawAdults) || 1);
+  });
   const [hotelChildAges, setHotelChildAges] = useState<number[]>(() => {
     const parsed = String(searchParams.get("children") || "")
       .split(",")
-      .map((item) => Number(item.trim()))
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => Number(item))
       .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
     return parsed.length > 0 ? parsed : hotelDefaults.childAges;
   });
   const [hotelsByCity, setHotelsByCity] = useState<HotelSummary[]>([]);
-  const [localAdultsByHotel, setLocalAdultsByHotel] = useState<Record<number, number>>({});
-  const [localChildAgesByHotel, setLocalChildAgesByHotel] = useState<Record<number, number[]>>({});
-  const [localRoomCountByHotel, setLocalRoomCountByHotel] = useState<Record<number, number>>({});
+  const [sharedHotelRoomCount, setSharedHotelRoomCount] = useState(1);
   const [localRoomSelectionsByHotel, setLocalRoomSelectionsByHotel] = useState<Record<number, Array<{ boardingKey: string; roomKey: string }>>>({});
+  const [sharedHotelRoomTravellers, setSharedHotelRoomTravellers] = useState<HotelRoomTravellerSelection[]>(() => buildDefaultHotelRoomTravellers(1));
+  const [hotelAvailabilitySignatureByHotel, setHotelAvailabilitySignatureByHotel] = useState<Record<number, string>>({});
+  const [hotelCriteriaGlowTarget, setHotelCriteriaGlowTarget] = useState<null | "dates" | "chambres" | "voyageurs">(null);
   const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
   const [hotelCalendarOpen, setHotelCalendarOpen] = useState(false);
   const [hotelCalendarMonth, setHotelCalendarMonth] = useState<Date>(() => {
-    const parsed = parseISO(searchParams.get("checkIn") || hotelDefaults.checkIn);
+    const rawCheckIn = String(searchParams.get("checkIn") || "").trim();
+    const parsed = rawCheckIn ? parseISO(rawCheckIn) : new Date();
     return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   });
   const [hotelCalendarCheckInDraft, setHotelCalendarCheckInDraft] = useState<Date | null>(() => {
-    const parsed = parseISO(searchParams.get("checkIn") || hotelDefaults.checkIn);
+    const rawCheckIn = String(searchParams.get("checkIn") || "").trim();
+    if (!rawCheckIn) return null;
+    const parsed = parseISO(rawCheckIn);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   });
   const [hotelCalendarCheckOutDraft, setHotelCalendarCheckOutDraft] = useState<Date | null>(() => {
-    const parsed = parseISO(searchParams.get("checkOut") || hotelDefaults.checkOut);
+    const rawCheckOut = String(searchParams.get("checkOut") || "").trim();
+    if (!rawCheckOut) return null;
+    const parsed = parseISO(rawCheckOut);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   });
   const [hotelSearchLoadingModal, setHotelSearchLoadingModal] = useState(false);
@@ -632,6 +849,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       roomId: number | null;
       roomName: string | null;
       price: number | null;
+      adults: number;
+      children: number;
+      childAges: number[];
     }>;
     totalPrice: number | null;
     travellers: {
@@ -760,9 +980,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       return `${hotelCheckIn} - ${hotelCheckOut}`;
     }
   }, [hotelCheckIn, hotelCheckOut]);
-  const hotelSearchInfoMessage = selectedHotelId > 0
-    ? selectedHotelUnavailableMessage
-    : hotelUnavailableMessage;
+  const hasHotelTravellerSelection = hotelAdults > 0 || hotelChildAges.length > 0;
+  const hasCompleteHotelCriteria = hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) && hasHotelTravellerSelection;
+  const hotelTravellersLabel = hasHotelTravellerSelection
+    ? `${hotelAdults} adulte${hotelAdults > 1 ? "s" : ""} - ${hotelChildAges.length} enfant${hotelChildAges.length > 1 ? "s" : ""}`
+    : "Voyageurs";
+  const hotelSearchInfoMessage = hasCompleteHotelCriteria
+    ? (selectedHotelId > 0 ? selectedHotelUnavailableMessage : hotelUnavailableMessage)
+    : "";
   const isSelectedModeComingSoon =
     (selectedMode === "vente" && PUBLIC_COMING_SOON.ventes)
     || (selectedMode === "location_annuelle" && PUBLIC_COMING_SOON.locationAnnuelle);
@@ -1095,7 +1320,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     // 2) Add sub-types from admin rows first (authoritative source for filter images).
     for (const row of modeRows) {
       const subType = String(row.sub_type || "").trim();
-      if (!subType) continue;
+      if (!subType || isInvalidPropertySubtype(subType)) continue;
       const mainType = getMainTypeFromCategory(String(row.main_type || ""));
       const group = groups.get(mainType);
       if (!group) continue;
@@ -1110,6 +1335,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
     // 3) Complete with sub-types inferred from published properties (fallback when admin row missing).
     for (const option of availableTypeOptions) {
+      if (isInvalidPropertySubtype(option.label)) continue;
       const mainType = getMainTypeFromCategory(option.label);
       const group = groups.get(mainType);
       if (!group) continue;
@@ -1583,18 +1809,84 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return className;
   };
 
+  const openHotelCalendar = () => {
+    const referenceValue = hotelCheckIn || hotelCheckOut;
+    const referenceDate = referenceValue ? parseISO(referenceValue) : new Date();
+    const nextMonth = Number.isNaN(referenceDate.getTime()) ? new Date() : referenceDate;
+    const nextCheckIn = hotelCheckIn ? parseISO(hotelCheckIn) : null;
+    const nextCheckOut = hotelCheckOut ? parseISO(hotelCheckOut) : null;
+    setHotelCalendarMonth(startOfMonth(nextMonth));
+    setHotelCalendarCheckInDraft(nextCheckIn && !Number.isNaN(nextCheckIn.getTime()) ? nextCheckIn : null);
+    setHotelCalendarCheckOutDraft(nextCheckOut && !Number.isNaN(nextCheckOut.getTime()) ? nextCheckOut : null);
+    setHotelCalendarOpen(true);
+  };
+
   const confirmHotelCalendarSelection = () => {
     if (!hotelCalendarCheckInDraft || !hotelCalendarCheckOutDraft) return;
     const start = hotelCalendarCheckInDraft < hotelCalendarCheckOutDraft ? hotelCalendarCheckInDraft : hotelCalendarCheckOutDraft;
     const end = hotelCalendarCheckInDraft < hotelCalendarCheckOutDraft ? hotelCalendarCheckOutDraft : hotelCalendarCheckInDraft;
-    setHotelCheckIn(format(start, "yyyy-MM-dd"));
-    setHotelCheckOut(format(end, "yyyy-MM-dd"));
+    const nextCheckIn = format(start, "yyyy-MM-dd");
+    const nextCheckOut = format(end, "yyyy-MM-dd");
+    setHotelCheckIn(nextCheckIn);
+    setHotelCheckOut(nextCheckOut);
     setHotelCalendarOpen(false);
+    if (hotelCityId > 0 && hasHotelTravellerSelection) {
+      setHotelCriteriaGlowTarget(null);
+      setTimeout(() => {
+        void runHotelSearch({ replace: true, scroll: false });
+      }, 0);
+    } else {
+      setHotelCriteriaGlowTarget(hasHotelTravellerSelection ? "chambres" : "voyageurs");
+    }
   };
 
+  const resolveHotelCardRoomTravellers = (roomCount: number) => {
+    if (Array.isArray(sharedHotelRoomTravellers) && sharedHotelRoomTravellers.length > 0) {
+      return normalizeHotelRoomTravellers(sharedHotelRoomTravellers, roomCount);
+    }
+    return buildHotelRoomTravellersFromFilters(roomCount, hotelAdults, hotelChildAges);
+  };
+
+  const resolveHotelSearchTravellerContext = () => {
+    const roomCount = Math.max(1, Math.min(4, Number(sharedHotelRoomCount ?? 1) || 1));
+    const roomTravellers = resolveHotelCardRoomTravellers(roomCount);
+    return {
+      roomCount,
+      roomTravellers,
+      adults: roomTravellers.reduce((sum, room) => sum + Math.max(1, Number(room.adults) || 1), 0),
+      childAges: flattenHotelRoomChildAges(roomTravellers),
+    };
+  };
+
+  const setHotelRoomCount = (nextRoomCount: number) => {
+    const safeRoomCount = Math.max(1, Math.min(4, Math.floor(Number(nextRoomCount) || 1)));
+    setSharedHotelRoomCount(safeRoomCount);
+    setSharedHotelRoomTravellers((prev) => {
+      const seededCurrent = Array.isArray(prev) && prev.length > 0
+        ? prev
+        : buildHotelRoomTravellersFromFilters(sharedHotelRoomCount, hotelAdults, hotelChildAges);
+      return normalizeHotelRoomTravellers(seededCurrent, safeRoomCount);
+    });
+    setHotelAvailabilitySignatureByHotel({});
+    setHotelCriteriaGlowTarget("chambres");
+  };
+
+  useEffect(() => {
+    setSharedHotelRoomTravellers(buildHotelRoomTravellersFromFilters(sharedHotelRoomCount, hotelAdults, hotelChildAges));
+    setHotelAvailabilitySignatureByHotel({});
+  }, [sharedHotelRoomCount, hotelAdults, hotelChildAges]);
+
+  useEffect(() => {
+    setHotelAvailabilitySignatureByHotel({});
+  }, [hotelCheckIn, hotelCheckOut]);
+
   const runHotelSearch = async (options?: { replace?: boolean; scroll?: boolean }) => {
-    const nextChildAges = [...hotelChildAges];
+    const travellerContext = resolveHotelSearchTravellerContext();
+    const nextChildAges = [...travellerContext.childAges];
     const keywords = selectedHotelId > 0 ? "" : hotelDestinationQuery.trim();
+    const resolvedAdults = Math.max(1, Number(travellerContext.adults || hotelAdults || hotelDefaults.adults || 1));
+    const hasValidDates = hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut);
+    const hasValidTravellers = travellerContext.adults > 0 || nextChildAges.length > 0 || hasHotelTravellerSelection;
     setHasSearched(true);
     setLoadingHotelResults(true);
     setHotelSearchLoadingModal(true);
@@ -1602,33 +1894,72 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setHotelSearchFallbackNotice("");
 
     try {
-      const hotels = await searchHotels({
-        cityId: hotelCityId || undefined,
-        checkIn: hotelCheckIn,
-        checkOut: hotelCheckOut,
-        adults: hotelAdults,
-        childAges: nextChildAges,
-        keywords: keywords || undefined,
-        onlyAvailable: true,
-      });
-      if (hotels.length === 0 && nextChildAges.length > 0 && hotelCityId > 0) {
-        const fallbackHotels = await listHotels(hotelCityId);
-        const normalizedKeywords = keywords.toLowerCase();
+      if (!hotelCityId || !hasValidDates || !hasValidTravellers) {
+        const fallbackHotels = await listHotels(hotelCityId || undefined);
         const filteredFallback = Array.isArray(fallbackHotels)
           ? fallbackHotels.filter((hotel) => {
-              const matchesKeyword = !normalizedKeywords || String(hotel.Name || "").toLowerCase().includes(normalizedKeywords);
+              const matchesKeyword = matchesHotelKeywordForFallback(hotel, keywords);
               const matchesSelected = selectedHotelId <= 0 || Number(hotel.Id || 0) === Number(selectedHotelId);
               return matchesKeyword && matchesSelected;
             })
           : [];
-        setHotelResults(filteredFallback);
-        setHotelSearchFallbackNotice(
-          selectedHotelId > 0
-            ? selectedHotelUnavailableMessage
-            : hotelUnavailableMessage
-        );
+          setHotelResults(filteredFallback);
+        if (!hotelCityId) {
+          setHotelSearchFallbackNotice("Aucune destination selectionnee. Voici les hotels disponibles.");
+        } else if (hasValidDates && hasValidTravellers) {
+          setHotelSearchFallbackNotice("Voici les hotels de la destination selectionnee.");
+        }
+        return filteredFallback;
       } else {
-        setHotelResults(hotels);
+        const hotels = await searchHotels({
+          cityId: hotelCityId || undefined,
+          checkIn: hotelCheckIn,
+          checkOut: hotelCheckOut,
+          adults: resolvedAdults,
+          childAges: nextChildAges,
+          keywords: keywords || undefined,
+          onlyAvailable: true,
+        });
+        if (hotels.length === 0 && nextChildAges.length > 0 && hotelCityId > 0) {
+          const fallbackHotels = await listHotels(hotelCityId);
+          const filteredFallback = Array.isArray(fallbackHotels)
+            ? fallbackHotels.filter((hotel) => {
+                const matchesKeyword = matchesHotelKeywordForFallback(hotel, keywords);
+                const matchesSelected = selectedHotelId <= 0 || Number(hotel.Id || 0) === Number(selectedHotelId);
+                return matchesKeyword && matchesSelected;
+              })
+            : [];
+          setHotelResults(filteredFallback);
+          setHotelSearchFallbackNotice(
+            selectedHotelId > 0
+              ? selectedHotelUnavailableMessage
+              : hotelUnavailableMessage
+          );
+          return filteredFallback;
+        } else {
+          setHotelResults(hotels);
+          setHotelAvailabilitySignatureByHotel((prev) => {
+            const next = { ...prev };
+            hotels.forEach((hotel) => {
+              const hotelId = Number(hotel?.Id || 0);
+              if (hotelId <= 0) return;
+              const roomSelections = Array.isArray(localRoomSelectionsByHotel[hotelId]) ? localRoomSelectionsByHotel[hotelId] : [];
+              next[hotelId] = buildHotelAvailabilitySignature({
+                hotelId,
+                hotelCityId,
+                hotelDestinationQuery,
+                selectedHotelId,
+                checkIn: hotelCheckIn,
+                checkOut: hotelCheckOut,
+                roomTravellers: travellerContext.roomTravellers,
+                roomCount: travellerContext.roomCount,
+                roomSelections,
+              });
+            });
+            return next;
+          });
+          return hotels;
+        }
       }
 
       const nextParams = applyAmicaleParam(new URLSearchParams(searchParams));
@@ -1643,9 +1974,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       nextParams.delete("stayRanges");
       if (hotelCityId > 0) nextParams.set("cityId", String(hotelCityId));
       else nextParams.delete("cityId");
-      nextParams.set("checkIn", hotelCheckIn);
-      nextParams.set("checkOut", hotelCheckOut);
-      nextParams.set("adults", String(hotelAdults));
+      if (hotelCheckIn) nextParams.set("checkIn", hotelCheckIn);
+      else nextParams.delete("checkIn");
+      if (hotelCheckOut) nextParams.set("checkOut", hotelCheckOut);
+      else nextParams.delete("checkOut");
+      if (resolvedAdults > 0) nextParams.set("adults", String(resolvedAdults));
+      else nextParams.delete("adults");
       if (nextChildAges.length > 0) nextParams.set("children", nextChildAges.join(","));
       else nextParams.delete("children");
       if (keywords) nextParams.set("q", keywords);
@@ -1660,9 +1994,69 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     } catch (error) {
       setHotelResults([]);
       setHotelProviderError(error instanceof Error ? error.message : "Recherche hoteliere impossible.");
+      return [];
     } finally {
       setLoadingHotelResults(false);
       setTimeout(() => setHotelSearchLoadingModal(false), 250);
+    }
+  };
+
+  const verifyHotelAvailability = async (hotel: HotelSummary, hotelId: number) => {
+    if (checkingAvailabilityHotelId !== null) return;
+    const resolvedCityId = Number(hotelCityId || hotel.City?.Id || 0);
+    if (!resolvedCityId) {
+      return;
+    }
+    if (!hotelCheckIn || !hotelCheckOut) {
+      setHotelCriteriaGlowTarget("dates");
+      return;
+    }
+    const travellerContext = resolveHotelSearchTravellerContext();
+    const roomSelections = Array.isArray(localRoomSelectionsByHotel[hotelId]) ? localRoomSelectionsByHotel[hotelId] : [];
+    const totalSelectedAdults = travellerContext.adults;
+    if (!hasRequiredHotelSearchApiInputs({
+      cityId: resolvedCityId,
+      checkIn: hotelCheckIn,
+      checkOut: hotelCheckOut,
+      adults: totalSelectedAdults,
+    })) {
+      setHotelCriteriaGlowTarget("voyageurs");
+      return;
+    }
+    setCheckingAvailabilityHotelId(hotelId);
+    try {
+      const refreshedHotels = await runHotelSearch({ replace: true, scroll: false });
+      if (!Array.isArray(refreshedHotels) || refreshedHotels.length === 0) {
+        setHotelCriteriaGlowTarget("chambres");
+        toast.error("Aucune disponibilité pour ce choix. Modifiez vos critères puis revérifiez.");
+        return;
+      }
+      setHotelAvailabilitySignatureByHotel((prev) => {
+        const next = { ...prev };
+        refreshedHotels.forEach((visibleHotel) => {
+          const visibleHotelId = Number(visibleHotel?.Id || 0);
+          if (visibleHotelId <= 0) return;
+          const visibleRoomSelections = Array.isArray(localRoomSelectionsByHotel[visibleHotelId]) ? localRoomSelectionsByHotel[visibleHotelId] : [];
+          next[visibleHotelId] = buildHotelAvailabilitySignature({
+            hotelId: visibleHotelId,
+            hotelCityId,
+            hotelDestinationQuery,
+            selectedHotelId,
+            checkIn: hotelCheckIn,
+            checkOut: hotelCheckOut,
+            roomCount: travellerContext.roomCount,
+            roomTravellers: travellerContext.roomTravellers,
+            roomSelections: visibleRoomSelections,
+          });
+        });
+        return next;
+      });
+      setHotelCriteriaGlowTarget(null);
+      toast.success("Disponibilité vérifiée pour les hôtels affichés.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Vérification de disponibilité impossible.");
+    } finally {
+      setCheckingAvailabilityHotelId(null);
     }
   };
 
@@ -1676,6 +2070,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       roomId: number | null;
       roomName: string | null;
       price: number | null;
+      adults: number;
+      children: number;
+      childAges: number[];
     }>;
     totalPrice: number | null;
   }) => {
@@ -1921,7 +2318,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         clientNote: String(hotelReserveModal.note || "").trim() || null,
         hotelContext: {
           source: "homepage_card",
-          rooms: hotelReserveModal.rooms,
+          rooms: hotelReserveModal.rooms.map((room, index) => ({
+            ...room,
+            index,
+          })),
           roomCount: hotelReserveModal.rooms.length,
           travellers: {
             adults: hotelReserveModal.travellers.adults.map((adult) => ({
@@ -2029,6 +2429,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setHasSearched(true);
     if (isHotelMode) {
       if (!hotelCityId || loadingHotelResults) return;
+      if (!hotelCheckIn || !hotelCheckOut) {
+        setHotelCriteriaGlowTarget("dates");
+      } else if (!hasHotelTravellerSelection) {
+        setHotelCriteriaGlowTarget("voyageurs");
+      } else {
+        setHotelCriteriaGlowTarget(null);
+      }
       void runHotelSearch();
       return;
     }
@@ -2382,20 +2789,36 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         <Calendar size={16} className="text-sky-600" />
                         Arrivée
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const inDate = parseISO(hotelCheckIn);
-                          const outDate = parseISO(hotelCheckOut);
-                          setHotelCalendarCheckInDraft(Number.isNaN(inDate.getTime()) ? null : inDate);
-                          setHotelCalendarCheckOutDraft(Number.isNaN(outDate.getTime()) ? null : outDate);
-                          setHotelCalendarMonth(Number.isNaN(inDate.getTime()) ? new Date() : inDate);
-                          setHotelCalendarOpen(true);
-                        }}
-                        className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
-                      >
-                        {hotelCheckIn || "Sélectionner"}
-                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const inDate = parseISO(hotelCheckIn);
+                            const outDate = parseISO(hotelCheckOut);
+                            setHotelCalendarCheckInDraft(Number.isNaN(inDate.getTime()) ? null : inDate);
+                            setHotelCalendarCheckOutDraft(Number.isNaN(outDate.getTime()) ? null : outDate);
+                            setHotelCalendarMonth(Number.isNaN(inDate.getTime()) ? new Date() : inDate);
+                            setHotelCalendarOpen(true);
+                          }}
+                          className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
+                        >
+                          {hotelCheckIn || "Sélectionner"}
+                        </button>
+                        {hotelCheckIn && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setHotelCheckIn("");
+                              setHotelCalendarCheckInDraft(null);
+                            }}
+                            className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                            aria-label="Supprimer la date d'arrivée"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
                     </label>
 
                     <label className="md:col-span-2">
@@ -2403,20 +2826,36 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         <Calendar size={16} className="text-sky-600" />
                         Départ
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const inDate = parseISO(hotelCheckIn);
-                          const outDate = parseISO(hotelCheckOut);
-                          setHotelCalendarCheckInDraft(Number.isNaN(inDate.getTime()) ? null : inDate);
-                          setHotelCalendarCheckOutDraft(Number.isNaN(outDate.getTime()) ? null : outDate);
-                          setHotelCalendarMonth(Number.isNaN(inDate.getTime()) ? new Date() : inDate);
-                          setHotelCalendarOpen(true);
-                        }}
-                        className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
-                      >
-                        {hotelCheckOut || "Sélectionner"}
-                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const inDate = parseISO(hotelCheckIn);
+                            const outDate = parseISO(hotelCheckOut);
+                            setHotelCalendarCheckInDraft(Number.isNaN(inDate.getTime()) ? null : inDate);
+                            setHotelCalendarCheckOutDraft(Number.isNaN(outDate.getTime()) ? null : outDate);
+                            setHotelCalendarMonth(Number.isNaN(inDate.getTime()) ? new Date() : inDate);
+                            setHotelCalendarOpen(true);
+                          }}
+                          className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
+                        >
+                          {hotelCheckOut || "Sélectionner"}
+                        </button>
+                        {hotelCheckOut && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setHotelCheckOut("");
+                              setHotelCalendarCheckOutDraft(null);
+                            }}
+                            className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                            aria-label="Supprimer la date de départ"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
                     </label>
 
                     <div className="md:col-span-2">
@@ -2424,13 +2863,29 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         <Users size={16} className="text-sky-600" />
                         Voyageurs
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setHotelTravellersOpen((prev) => !prev)}
-                        className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
-                      >
-                        {hotelAdults} adultes - {hotelChildAges.length} enfants
-                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setHotelTravellersOpen((prev) => !prev)}
+                          className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
+                        >
+                          {hotelTravellersLabel}
+                        </button>
+                        {hasHotelTravellerSelection && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setHotelAdults(0);
+                              setHotelChildAges([]);
+                            }}
+                            className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                            aria-label="Supprimer les voyageurs"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="md:col-span-2">
@@ -2452,7 +2907,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-slate-900">Adultes</p>
                         <div className="flex items-center gap-2 text-slate-900">
-                          <button type="button" onClick={() => setHotelAdults((prev) => Math.max(1, prev - 1))} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Minus size={14} /></button>
+                          <button type="button" onClick={() => setHotelAdults((prev) => Math.max(0, prev - 1))} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Minus size={14} /></button>
                           <span className="w-6 text-center font-semibold text-slate-900">{hotelAdults}</span>
                           <button type="button" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Plus size={14} /></button>
                         </div>
@@ -3463,9 +3918,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             <div className="mb-8 rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#eef2ff)] p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">Résultats de la recherche</p>
               <p className="mt-2 text-sm font-medium text-slate-700">
-                Période <span className="font-semibold text-slate-900">{hotelSearchPeriodLabel || "non définie"}</span> •{" "}
-                <span className="font-semibold text-slate-900">{hotelAdults}</span> adulte{hotelAdults > 1 ? "s" : ""} •{" "}
-                <span className="font-semibold text-slate-900">{hotelChildAges.length}</span> enfant{hotelChildAges.length > 1 ? "s" : ""}
+                {hasCompleteHotelCriteria ? (
+                  <>
+                    Dates de séjour <span className="font-semibold text-slate-900">{hotelSearchPeriodLabel}</span> •{" "}
+                    Voyageurs <span className="font-semibold text-slate-900">{hotelTravellersLabel}</span>
+                  </>
+                ) : (
+                  <>
+                    Destination <span className="font-semibold text-slate-900">{selectedHotelCity?.Name || "non définie"}</span>
+                  </>
+                )}
               </p>
               {selectedHotelLabel && (
                 <p className="mt-2 text-sm text-slate-700">
@@ -3572,9 +4034,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       const bPrice = b.price ?? Number.POSITIVE_INFINITY;
                       return aPrice - bPrice;
                     });
-                    const localAdults = Math.max(1, Number(localAdultsByHotel[hotelId] ?? hotelAdults) || hotelAdults);
-                    const localChildAges = Array.isArray(localChildAgesByHotel[hotelId]) ? localChildAgesByHotel[hotelId] : hotelChildAges;
-                    const roomCount = Math.max(1, Math.min(4, Number(localRoomCountByHotel[hotelId] ?? 1) || 1));
+                    const roomCount = Math.max(1, Math.min(4, Number(sharedHotelRoomCount ?? 1) || 1));
                     const roomSelections = Array.isArray(localRoomSelectionsByHotel[hotelId]) ? localRoomSelectionsByHotel[hotelId] : [];
                     const resolvedRoomChoices = Array.from({ length: roomCount }).map((_, roomIndex) => {
                       const selection = roomSelections[roomIndex] || null;
@@ -3596,6 +4056,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             roomId: roomId > 0 ? roomId : null,
                             roomName: String(room?.Name || "").trim() || `Chambre ${index + 1}`,
                             price: roomPrice,
+                            description: String(room?.Description || "").trim(),
+                            quantity: Math.max(0, Number(room?.Quantity || 0)),
+                            onRequest: Boolean(room?.OnRequest || room?.StopReservation),
+                            notRefundable: Boolean(room?.NotRefundable),
                           };
                         });
                       const selectedRoomKey = selection?.roomKey || roomOptions[0]?.key || "";
@@ -3612,12 +4076,28 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     });
                     const displayedClientPrice = resolvedRoomChoices[0]?.price ?? leadOfferPrice ?? minPrice;
                     const totalClientPrice = resolvedRoomChoices.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+                    const roomTravellers = resolveHotelCardRoomTravellers(roomCount);
+                    const totalRoomAdults = roomTravellers.reduce((sum, room) => sum + Math.max(1, Number(room.adults) || 1), 0);
+                    const totalRoomChildren = roomTravellers.reduce((sum, room) => sum + Math.max(0, Number(room.children) || 0), 0);
+                    const availabilitySignature = buildHotelAvailabilitySignature({
+                      hotelId,
+                      hotelCityId,
+                      hotelDestinationQuery,
+                      selectedHotelId,
+                      checkIn: hotelCheckIn,
+                      checkOut: hotelCheckOut,
+                      roomCount,
+                      roomTravellers,
+                      roomSelections,
+                    });
+                    const isAvailabilityVerified = hotelAvailabilitySignatureByHotel[hotelId] === availabilitySignature;
+                    const availabilityActionLabel = isAvailabilityVerified ? "Réserver" : "Vérifier disponibilité";
                     const detailParams = new URLSearchParams();
                     if (hotelCityId > 0) detailParams.set("cityId", String(hotelCityId));
                     detailParams.set("checkIn", hotelCheckIn);
                     detailParams.set("checkOut", hotelCheckOut);
-                    detailParams.set("adults", String(localAdults));
-                    if (localChildAges.length > 0) detailParams.set("children", localChildAges.join(","));
+                    detailParams.set("adults", String(totalRoomAdults));
+                    if (totalRoomChildren > 0) detailParams.set("children", flattenHotelRoomChildAges(roomTravellers).join(","));
                     if (resolvedRoomChoices[0]?.selectedBoardingOption?.boardingId) detailParams.set("boardingId", String(resolvedRoomChoices[0].selectedBoardingOption.boardingId));
                     if (resolvedRoomChoices[0]?.selectedRoomOption?.roomId) detailParams.set("roomId", String(resolvedRoomChoices[0].selectedRoomOption.roomId));
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
@@ -3668,7 +4148,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             </p>
                           </div>
 
-                          {hotelSearchFallbackNotice && (
+                          {hasCompleteHotelCriteria && hotelSearchFallbackNotice && (
                             <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
                               {selectedHotelLabel && Number(hotel.Id || 0) === Number(selectedHotelId)
                                 ? selectedHotelUnavailableMessage
@@ -3676,8 +4156,50 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             </div>
                           )}
 
-                          <div className="grid gap-3 lg:grid-cols-2">
-                            <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-3">
+                          <div className="space-y-3">
+                            <div className={`rounded-[20px] border bg-slate-50/80 px-4 py-3 transition-all ${
+                              hotelCriteriaGlowTarget === "dates"
+                                ? "border-sky-400 shadow-[0_0_0_3px_rgba(56,189,248,0.18),0_18px_40px_rgba(56,189,248,0.18)]"
+                                : "border-slate-200"
+                            }`}>
+                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                <CalendarDays size={14} className="text-amber-600" />
+                                Dates de séjour
+                              </div>
+                              <div className="mt-3 grid gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setHotelCriteriaGlowTarget("dates");
+                                    openHotelCalendar();
+                                  }}
+                                  className="flex h-12 items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-left transition hover:border-sky-500 hover:shadow-[0_8px_24px_rgba(14,116,214,0.12)]"
+                                >
+                                  <span className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Arrivée</span>
+                                  <span className={`text-sm font-semibold ${hotelCheckIn ? "text-slate-900" : "text-slate-400"}`}>
+                                    {formatHotelDateDisplay(hotelCheckIn)}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setHotelCriteriaGlowTarget("dates");
+                                    openHotelCalendar();
+                                  }}
+                                  className="flex h-12 items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-left transition hover:border-sky-500 hover:shadow-[0_8px_24px_rgba(14,116,214,0.12)]"
+                                >
+                                  <span className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Départ</span>
+                                  <span className={`text-sm font-semibold ${hotelCheckOut ? "text-slate-900" : "text-slate-400"}`}>
+                                    {formatHotelDateDisplay(hotelCheckOut)}
+                                  </span>
+                                </button>
+                              </div>
+                              <p className="mt-2 text-xs text-slate-500">
+                                Cliquez sur une date pour ouvrir le calendrier de séjour.
+                              </p>
+                            </div>
+
+                            <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-3">
                               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                                 <TicketPercent size={14} className="text-sky-600" />
                                 Tarif client
@@ -3693,22 +4215,36 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               </p>
                             </div>
 
-                            <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-3">
-                              <div className="flex items-center justify-between">
+                            <div className={`rounded-[20px] border bg-slate-50/80 px-4 py-3 transition-all ${
+                              hotelCriteriaGlowTarget === "chambres"
+                                ? "border-sky-400 shadow-[0_0_0_3px_rgba(56,189,248,0.18),0_18px_40px_rgba(56,189,248,0.18)]"
+                                : "border-slate-200"
+                            }`}>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                                   <BedDouble size={14} className="text-emerald-600" />
                                   Chambres
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  <button type="button" onClick={() => setLocalRoomCountByHotel((prev) => ({ ...prev, [hotelId]: Math.max(1, roomCount - 1) }))} className="rounded-lg border border-slate-300 p-1 text-slate-800"><Minus size={12} /></button>
-                                  <span className="text-sm font-semibold text-slate-900">{roomCount}</span>
-                                  <button type="button" onClick={() => setLocalRoomCountByHotel((prev) => ({ ...prev, [hotelId]: Math.min(4, roomCount + 1) }))} className="rounded-lg border border-slate-300 p-1 text-slate-800"><Plus size={12} /></button>
+                                <div className="flex items-center gap-2 self-start sm:self-auto">
+                                  <button type="button" onClick={() => setHotelRoomCount(roomCount - 1)} className="shrink-0 rounded-lg border border-slate-300 p-1 text-slate-800"><Minus size={12} /></button>
+                                  <span className="min-w-[1.25rem] text-center text-sm font-semibold text-slate-900">{roomCount}</span>
+                                  <button type="button" onClick={() => setHotelRoomCount(roomCount + 1)} className="shrink-0 rounded-lg border border-slate-300 p-1 text-slate-800"><Plus size={12} /></button>
                                 </div>
                               </div>
-                              <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
+                              <div className="mt-3 space-y-2">
                                 {resolvedRoomChoices.map((choice) => (
-                                  <div key={`${hotelId}-room-choice-${choice.roomIndex}`} className="rounded-lg border border-slate-200 bg-white p-2">
-                                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">Chambre {choice.roomIndex + 1}</p>
+                                  <div key={`${hotelId}-room-choice-${choice.roomIndex}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                                    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                      <div className="min-w-0">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">Chambre {choice.roomIndex + 1}</p>
+                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-500 sm:hidden">
+                                          {choice.price !== null ? `${formatHotelPrice(choice.price)} TND` : "Sur demande"}
+                                        </p>
+                                      </div>
+                                      <p className="hidden text-[10px] font-semibold text-slate-500 sm:block">
+                                        {choice.price !== null ? `${formatHotelPrice(choice.price)} TND` : "Sur demande"}
+                                      </p>
+                                    </div>
                                     <select
                                       value={choice.selectedBoardingKey}
                                       onChange={(event) => {
@@ -3718,14 +4254,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                           current[choice.roomIndex] = { boardingKey: nextKey, roomKey: "" };
                                           return { ...prev, [hotelId]: current };
                                         });
+                                        setHotelAvailabilitySignatureByHotel({});
                                       }}
-                                      className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
+                                      className="mt-1.5 h-9 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-[11px] text-slate-900"
                                     >
                                       {boardingOptions.length > 0 ? boardingOptions.map((option) => (
                                         <option key={`${hotel.Id}-${option.key}-${choice.roomIndex}`} value={option.key}>
                                           {option.boardingName}{option.price !== null ? ` - ${formatHotelPrice(option.price)} TND` : ""}
                                         </option>
-                                      )) : <option value="">Selon les offres disponibles</option>}
+                                      )) : <option value="">{hasCompleteHotelCriteria ? "Selon les offres disponibles" : "Complétez les critères pour voir les offres"}</option>}
                                     </select>
                                     <select
                                       value={choice.selectedRoomKey}
@@ -3737,16 +4274,160 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                           current[choice.roomIndex] = { boardingKey: currentBoardingKey, roomKey: nextKey };
                                           return { ...prev, [hotelId]: current };
                                         });
+                                        setHotelAvailabilitySignatureByHotel({});
                                       }}
-                                      className="mt-1.5 h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
+                                      className="mt-1.5 h-9 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-[11px] text-slate-900"
                                     >
                                       {choice.roomOptions.length > 0 ? choice.roomOptions.map((option) => (
                                         <option key={`${hotel.Id}-room-${option.key}-${choice.roomIndex}`} value={option.key}>
                                           {option.roomName}{option.price !== null ? ` - ${formatHotelPrice(option.price)} TND` : ""}
                                         </option>
-                                      )) : <option value="">Types de chambre indisponibles</option>}
+                                      )) : <option value="">{hasCompleteHotelCriteria ? "Types de chambre indisponibles" : "Complétez les critères pour voir les chambres"}</option>}
                                     </select>
-                                    <p className="mt-1 text-[10px] font-semibold text-slate-700">Tarif chambre: {choice.price !== null ? `${formatHotelPrice(choice.price)} TND` : "Sur demande"}</p>
+                                    <p className="mt-1.5 text-[11px] font-medium text-slate-700">
+                                      Tarif chambre: {choice.price !== null ? `${formatHotelPrice(choice.price)} TND` : "Sur demande"}
+                                    </p>
+                                    {!hasCompleteHotelCriteria && boardingOptions.length === 0 && (
+                                      <div className="mt-2 rounded-lg border border-dashed border-sky-200 bg-sky-50/70 px-3 py-3 text-[11px] text-sky-700">
+                                        Renseignez les dates, les voyageurs et la répartition des chambres pour charger les offres disponibles.
+                                      </div>
+                                    )}
+                                    <div className={`mt-2 rounded-lg border bg-slate-50 px-2 py-2 transition-all ${
+                                      hotelCriteriaGlowTarget === "voyageurs"
+                                        ? "border-sky-400 shadow-[0_0_0_3px_rgba(56,189,248,0.18),0_18px_40px_rgba(56,189,248,0.18)]"
+                                        : "border-slate-200"
+                                    }`}>
+                                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Voyageurs chambre</span>
+                                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                                          <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1">
+                                            <span className="text-[10px] text-slate-500">A</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                                const current = normalizeHotelRoomTravellers(prev, roomCount);
+                                                current[choice.roomIndex] = {
+                                                  ...current[choice.roomIndex],
+                                                  adults: Math.max(1, current[choice.roomIndex]?.adults - 1 || 1),
+                                                };
+                                                setHotelAvailabilitySignatureByHotel({});
+                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                return current;
+                                              })}
+                                              className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
+                                            >
+                                              <Minus size={11} />
+                                            </button>
+                                            <span className="min-w-[1.5rem] text-center text-sm font-semibold text-slate-900">
+                                              {roomTravellers[choice.roomIndex]?.adults ?? 1}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                                const current = normalizeHotelRoomTravellers(prev, roomCount);
+                                                current[choice.roomIndex] = {
+                                                  ...current[choice.roomIndex],
+                                                  adults: Math.min(8, (current[choice.roomIndex]?.adults || 1) + 1),
+                                                };
+                                                setHotelAvailabilitySignatureByHotel({});
+                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                return current;
+                                              })}
+                                              className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
+                                            >
+                                              <Plus size={11} />
+                                            </button>
+                                          </div>
+                                          <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1">
+                                            <span className="text-[10px] text-slate-500">E</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                                const current = normalizeHotelRoomTravellers(prev, roomCount);
+                                                current[choice.roomIndex] = {
+                                                  ...current[choice.roomIndex],
+                                                  children: Math.max(0, (current[choice.roomIndex]?.children || 0) - 1),
+                                                };
+                                                current[choice.roomIndex].childAges = normalizeHotelRoomChildAges(
+                                                  current[choice.roomIndex]?.childAges,
+                                                  current[choice.roomIndex]?.children || 0
+                                                );
+                                                setHotelAvailabilitySignatureByHotel({});
+                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                return current;
+                                              })}
+                                              className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
+                                            >
+                                              <Minus size={11} />
+                                            </button>
+                                            <span className="min-w-[1.5rem] text-center text-sm font-semibold text-slate-900">
+                                              {roomTravellers[choice.roomIndex]?.children ?? 0}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                                const current = normalizeHotelRoomTravellers(prev, roomCount);
+                                                current[choice.roomIndex] = {
+                                                  ...current[choice.roomIndex],
+                                                  children: Math.min(8, (current[choice.roomIndex]?.children || 0) + 1),
+                                                };
+                                                current[choice.roomIndex].childAges = normalizeHotelRoomChildAges(
+                                                  current[choice.roomIndex]?.childAges,
+                                                  current[choice.roomIndex]?.children || 0
+                                                );
+                                                setHotelAvailabilitySignatureByHotel({});
+                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                return current;
+                                              })}
+                                              className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
+                                            >
+                                              <Plus size={11} />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      {(roomTravellers[choice.roomIndex]?.children ?? 0) > 0 && (
+                                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                          {normalizeHotelRoomChildAges(
+                                            roomTravellers[choice.roomIndex]?.childAges,
+                                            roomTravellers[choice.roomIndex]?.children ?? 0
+                                          ).map((age, childIndex) => (
+                                            <label
+                                              key={`${hotelId}-room-${choice.roomIndex}-child-age-${childIndex}`}
+                                              className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-2 py-2"
+                                            >
+                                              <span className="text-[11px] font-medium text-slate-600">Enfant {childIndex + 1}</span>
+                                              <select
+                                                value={age}
+                                                onChange={(event) => {
+                                                  const nextAge = Math.max(0, Math.min(17, Math.floor(Number(event.target.value) || 0)));
+                                                  setSharedHotelRoomTravellers((prev) => {
+                                                    const current = normalizeHotelRoomTravellers(prev, roomCount);
+                                                    const currentRoom = current[choice.roomIndex] || { adults: 1, children: 0, childAges: [] };
+                                                    const nextChildAges = normalizeHotelRoomChildAges(currentRoom.childAges, currentRoom.children);
+                                                    nextChildAges[childIndex] = nextAge;
+                                                    current[choice.roomIndex] = {
+                                                      ...currentRoom,
+                                                      childAges: nextChildAges,
+                                                    };
+                                                    setHotelAvailabilitySignatureByHotel({});
+                                                    setHotelCriteriaGlowTarget("voyageurs");
+                                                    return current;
+                                                  });
+                                                }}
+                                                className="h-8 min-w-[7rem] rounded-lg border border-slate-300 bg-white px-2 text-[11px] text-slate-900"
+                                              >
+                                                {Array.from({ length: 18 }).map((_, ageOption) => (
+                                                  <option key={`${hotelId}-room-${choice.roomIndex}-child-${childIndex}-age-${ageOption}`} value={ageOption}>
+                                                    {ageOption} ans
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            </label>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -3766,90 +4447,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               </span>
                             )}
                           </div>
-                          <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Voyageurs (local)</p>
-                            <div className="mt-2 grid grid-cols-2 gap-3">
-                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Adultes</p>
-                                <div className="mt-2 flex items-center justify-between">
-                                  <button
-                                    type="button"
-                                    onClick={() => setLocalAdultsByHotel((prev) => ({ ...prev, [hotelId]: Math.max(1, localAdults - 1) }))}
-                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
-                                  >
-                                    <Minus size={13} />
-                                  </button>
-                                  <span className="text-sm font-semibold text-slate-900">{localAdults}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setLocalAdultsByHotel((prev) => ({ ...prev, [hotelId]: Math.min(8, localAdults + 1) }))}
-                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
-                                  >
-                                    <Plus size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Enfants</p>
-                                <div className="mt-2 flex items-center justify-between">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setLocalChildAgesByHotel((prev) => {
-                                        const current = Array.isArray(prev[hotelId]) ? prev[hotelId] : localChildAges;
-                                        return { ...prev, [hotelId]: current.slice(0, Math.max(0, current.length - 1)) };
-                                      })
-                                    }
-                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
-                                  >
-                                    <Minus size={13} />
-                                  </button>
-                                  <span className="text-sm font-semibold text-slate-900">{localChildAges.length}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setLocalChildAgesByHotel((prev) => {
-                                        const current = Array.isArray(prev[hotelId]) ? prev[hotelId] : localChildAges;
-                                        return { ...prev, [hotelId]: [...current, 0] };
-                                      })
-                                    }
-                                    className="rounded-lg border border-slate-300 p-1 text-slate-800"
-                                  >
-                                    <Plus size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                            {localChildAges.length > 0 && (
-                              <div className="mt-3 grid grid-cols-2 gap-2">
-                                {localChildAges.map((age, index) => (
-                                  <select
-                                    key={`${hotelId}-child-age-${index}`}
-                                    value={age}
-                                    onChange={(event) => {
-                                      const nextAge = Number(event.target.value) || 0;
-                                      setLocalChildAgesByHotel((prev) => {
-                                        const current = Array.isArray(prev[hotelId]) ? [...prev[hotelId]] : [...localChildAges];
-                                        current[index] = nextAge;
-                                        return { ...prev, [hotelId]: current };
-                                      });
-                                    }}
-                                    className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900"
-                                  >
-                                    {Array.from({ length: 18 }).map((_, ageOption) => (
-                                      <option key={`${hotelId}-${index}-age-${ageOption}`} value={ageOption}>
-                                        Age enfant {index + 1}: {ageOption} ans
-                                      </option>
-                                    ))}
-                                  </select>
-                                ))}
-                              </div>
-                            )}
-                          </div>
 
                           <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
                             <div className="text-xs text-slate-500">
-                              {selectedHotelCity?.Name || hotel.City?.Name || "Destination"} • {localAdults} adulte{localAdults > 1 ? "s" : ""}{localChildAges.length > 0 ? ` - ${localChildAges.length} enfant${localChildAges.length > 1 ? "s" : ""}` : ""}
+                              {selectedHotelCity?.Name || hotel.City?.Name || "Destination"} • {totalRoomAdults} adulte{totalRoomAdults > 1 ? "s" : ""}{totalRoomChildren > 0 ? ` - ${totalRoomChildren} enfant${totalRoomChildren > 1 ? "s" : ""}` : ""}
                             </div>
                             <div className="flex items-center gap-2">
                               <Link
@@ -3860,24 +4461,39 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               </Link>
                               <button
                                 type="button"
-                                onClick={() =>
+                                disabled={checkingAvailabilityHotelId === hotelId}
+                                onClick={() => {
+                                  if (!isAvailabilityVerified) {
+                                    void verifyHotelAvailability(hotel, hotelId);
+                                    return;
+                                  }
                                   openHotelReserveModal({
                                     hotel,
-                                    adults: localAdults,
-                                    childAges: localChildAges,
-                                    rooms: resolvedRoomChoices.map((item) => ({
+                                    adults: totalRoomAdults,
+                                    childAges: flattenHotelRoomChildAges(roomTravellers),
+                                    rooms: resolvedRoomChoices.map((item, index) => ({
                                       boardingId: item.selectedBoardingOption?.boardingId || null,
                                       boardingName: item.selectedBoardingOption?.boardingName || null,
                                       roomId: item.selectedRoomOption?.roomId || null,
                                       roomName: item.selectedRoomOption?.roomName || null,
                                       price: item.price ?? null,
+                                      adults: roomTravellers[index]?.adults ?? 1,
+                                      children: roomTravellers[index]?.children ?? 0,
+                                      childAges: normalizeHotelRoomChildAges(
+                                        roomTravellers[index]?.childAges,
+                                        roomTravellers[index]?.children ?? 0
+                                      ),
                                     })),
                                     totalPrice: Number.isFinite(totalClientPrice) && totalClientPrice > 0 ? totalClientPrice : null,
-                                  })
-                                }
-                                className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 sm:px-4 sm:text-sm"
+                                  });
+                                }}
+                                className={`inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold text-white transition sm:px-4 sm:text-sm ${
+                                  isAvailabilityVerified
+                                    ? "bg-sky-600 hover:bg-sky-700"
+                                    : "bg-amber-500 hover:bg-amber-600"
+                                } disabled:cursor-not-allowed disabled:opacity-70`}
                               >
-                                Réserver
+                                {checkingAvailabilityHotelId === hotelId ? "Vérification..." : availabilityActionLabel}
                               </button>
                             </div>
                           </div>
@@ -4332,6 +4948,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       <p key={`modal-room-${roomIndex}`} className="text-xs text-slate-700">
                         Chambre {roomIndex + 1}: <span className="font-semibold text-slate-900">{room.boardingName || "Offre"} / {room.roomName || "Type chambre"}</span>
                         {room.price !== null ? ` - ${formatHotelPrice(room.price)} TND` : ""}
+                        <br />
+                        <span className="font-semibold text-slate-900">
+                          {Number(room.adults || 0)} adulte{Number(room.adults || 0) > 1 ? "s" : ""}{Number(room.children || 0) > 0 ? `, ${Number(room.children || 0)} enfant${Number(room.children || 0) > 1 ? "s" : ""}` : ""}
+                        </span>
                       </p>
                     ))}
                   </div>
@@ -4492,7 +5112,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   <div className="flex items-center justify-between gap-4">
                     <p className="text-[16px] font-medium text-slate-900">Adultes</p>
                     <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-5 py-3 text-slate-900">
-                      <button type="button" className="text-sky-600" onClick={() => setHotelAdults((prev) => Math.max(1, prev - 1))}><Minus size={18} /></button>
+                      <button type="button" className="text-sky-600" onClick={() => setHotelAdults((prev) => Math.max(0, prev - 1))}><Minus size={18} /></button>
                       <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{hotelAdults}</span>
                       <button type="button" className="text-sky-600" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))}><Plus size={18} /></button>
                     </div>

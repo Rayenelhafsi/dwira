@@ -96,6 +96,22 @@ function hasHotelPromotion(hotel: HotelSummary) {
   );
 }
 
+function isValidHotelDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+}
+
+function matchesHotelSearchKeyword(hotel: HotelSummary, keyword: string) {
+  const needle = String(keyword || "").trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    hotel.Name,
+    hotel.City?.Name,
+    hotel.ShortDescription,
+    hotel.HotelDescription,
+    hotel.Adress,
+  ].some((value) => String(value || "").toLowerCase().includes(needle));
+}
+
 export default function HotelsPage() {
   const defaults = useMemo(() => buildDefaultSearch(), []);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -175,41 +191,54 @@ export default function HotelsPage() {
   const runSearch = async (options?: { replace?: boolean }) => {
     const nextChildAges = [...childAges];
     const keywords = destinationQuery.trim();
+    const hasCitySelection = cityId > 0;
+    const hasValidDates = isValidHotelDate(checkIn) && isValidHotelDate(checkOut);
     setHasSearched(true);
     setLoadingResults(true);
     setProviderError("");
     setSearchFallbackNotice("");
 
     try {
-      const hotels = await searchHotels({
-        cityId: cityId || undefined,
-        checkIn,
-        checkOut,
-        adults,
-        childAges: nextChildAges,
-        keywords: keywords || undefined,
-        onlyAvailable: true,
-      });
-      if (hotels.length === 0 && nextChildAges.length > 0 && cityId > 0) {
-        const fallbackHotels = await listHotels(cityId);
-        const normalizedKeywords = keywords.toLowerCase();
+      if (!hasCitySelection || !hasValidDates) {
+        const fallbackHotels = await listHotels(hasCitySelection ? cityId : undefined);
         const filteredFallback = Array.isArray(fallbackHotels)
-          ? fallbackHotels.filter((hotel) => {
-              const byKeyword = !normalizedKeywords || String(hotel.Name || "").toLowerCase().includes(normalizedKeywords);
-              return byKeyword;
-            })
+          ? fallbackHotels.filter((hotel) => matchesHotelSearchKeyword(hotel, keywords))
           : [];
         setResults(filteredFallback);
-        setSearchFallbackNotice(hotelUnavailableMessage);
+        if (!hasCitySelection) {
+          setSearchFallbackNotice("Aucune destination selectionnee. Voici tous les hotels disponibles.");
+        } else if (!hasValidDates) {
+          setSearchFallbackNotice("Dates non precisees. Voici les hotels de la destination selectionnee.");
+        }
       } else {
-        setResults(hotels);
+        const hotels = await searchHotels({
+          cityId: cityId || undefined,
+          checkIn,
+          checkOut,
+          adults,
+          childAges: nextChildAges,
+          keywords: keywords || undefined,
+          onlyAvailable: true,
+        });
+        if (hotels.length === 0 && nextChildAges.length > 0 && cityId > 0) {
+          const fallbackHotels = await listHotels(cityId);
+          const filteredFallback = Array.isArray(fallbackHotels)
+            ? fallbackHotels.filter((hotel) => matchesHotelSearchKeyword(hotel, keywords))
+            : [];
+          setResults(filteredFallback);
+          setSearchFallbackNotice(hotelUnavailableMessage);
+        } else {
+          setResults(hotels);
+        }
       }
 
       const nextParams = new URLSearchParams();
       if (cityId > 0) nextParams.set("cityId", String(cityId));
-      nextParams.set("checkIn", checkIn);
-      nextParams.set("checkOut", checkOut);
-      nextParams.set("adults", String(adults));
+      if (hasValidDates) {
+        nextParams.set("checkIn", checkIn);
+        nextParams.set("checkOut", checkOut);
+      }
+      if (adults > 0) nextParams.set("adults", String(adults));
       if (nextChildAges.length > 0) nextParams.set("children", nextChildAges.join(","));
       if (keywords) nextParams.set("q", keywords);
       setSearchParams(nextParams, { replace: Boolean(options?.replace) });
@@ -264,7 +293,7 @@ export default function HotelsPage() {
   const hotelUnavailableMessage =
     "Cet hotel n'a aucune offre disponible pour votre choix veuillez changer vos filtres ou consultez les alternatives disponibles.";
   const childrenAvailabilityHint = childrenCount > 0
-    ? "La disponibilite depend aussi de l'age des enfants renseignes. Si la recherche exacte ne retourne rien, on affiche les hotels de la ville pour que vous puissiez ajuster."
+    ? "La disponibilite depend aussi de l'age des enfants renseignes."
     : "";
   const destinationNeedle = destinationQuery.trim().toLowerCase();
   const matchingCities = useMemo(
@@ -324,72 +353,125 @@ export default function HotelsPage() {
       <section className="container mx-auto -mt-12 px-4 pb-12 md:px-6">
         <div className="rounded-[32px] border border-white/70 bg-white/95 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur md:p-6">
           <div className="grid gap-4 md:grid-cols-12">
-            <button
-              type="button"
-              onClick={() => setDestinationOpen(true)}
-              className="md:col-span-4 h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:bg-white hover:border-sky-300"
-            >
-              <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <MapPin size={16} className="text-sky-600" />
-                {destinationQuery.trim() || selectedCity?.Name || "Ville ou nom hotel"}
-              </span>
-            </button>
+            <div className="relative md:col-span-4">
+              <button
+                type="button"
+                onClick={() => setDestinationOpen(true)}
+                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-11 text-left text-slate-900 outline-none transition hover:bg-white hover:border-sky-300"
+              >
+                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <MapPin size={16} className="text-sky-600" />
+                  {destinationQuery.trim() || selectedCity?.Name || "Ville ou nom hotel"}
+                </span>
+              </button>
+              {(destinationQuery.trim() || selectedCity) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCityId(0);
+                    setDestinationQuery("");
+                    setCityHotels([]);
+                  }}
+                  className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-sky-300 hover:text-slate-800"
+                  aria-label="Effacer la destination"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
 
-            <label className="md:col-span-2">
-              <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <Users size={16} className="text-sky-600" />
-                Voyageurs
-              </span>
+            <div className="md:col-span-2">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <Users size={16} className="text-sky-600" />
+                  Voyageurs
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setTravellersOpen((prev) => !prev)}
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-left text-slate-900 outline-none transition hover:bg-white hover:border-sky-300"
+                className="relative h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-11 text-left text-slate-900 outline-none transition hover:bg-white hover:border-sky-300"
               >
-                {adults} adultes - {childrenCount} enfants
+                <span className="block truncate">{adults} adultes - {childrenCount} enfants</span>
+                {(adults > 2 || childrenCount > 0) && (
+                  <span className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500">
+                    <X size={14} />
+                  </span>
+                )}
               </button>
               {childrenAvailabilityHint && (
                 <p className="mt-2 text-xs leading-5 text-slate-500">
                   {childrenAvailabilityHint}
                 </p>
               )}
-            </label>
+            </div>
 
-            <label className="md:col-span-3">
-              <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <CalendarDays size={16} className="text-sky-600" />
-                Arrivee
-              </span>
-              <input
-                type="date"
-                value={checkIn}
-                onChange={(event) => setCheckIn(event.target.value)}
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-              />
-            </label>
+            <div className="md:col-span-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <CalendarDays size={16} className="text-sky-600" />
+                  Arrivee
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={checkIn}
+                  onChange={(event) => setCheckIn(event.target.value)}
+                  className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-11 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
+                />
+                {checkIn && (
+                  <button
+                    type="button"
+                    onClick={() => setCheckIn("")}
+                    className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-sky-300 hover:text-slate-800"
+                    aria-label="Effacer la date d'arrivée"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
 
-            <label className="md:col-span-3">
-              <span className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <CalendarDays size={16} className="text-sky-600" />
-                Depart
-              </span>
-              <input
-                type="date"
-                value={checkOut}
-                onChange={(event) => setCheckOut(event.target.value)}
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
-              />
-            </label>
+            <div className="md:col-span-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <CalendarDays size={16} className="text-sky-600" />
+                  Depart
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={checkOut}
+                  onChange={(event) => setCheckOut(event.target.value)}
+                  className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-11 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white"
+                />
+                {checkOut && (
+                  <button
+                    type="button"
+                    onClick={() => setCheckOut("")}
+                    className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-sky-300 hover:text-slate-800"
+                    aria-label="Effacer la date de départ"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
 
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-slate-500">
-              {selectedCity ? `Destination selectionnee : ${selectedCity.Name}.` : "Selectionnez une destination pour lancer votre recherche."}
+              {selectedCity
+                ? `Destination selectionnee : ${selectedCity.Name}.`
+                : "Vous pouvez lancer la recherche sans destination pour afficher tout le catalogue."}
             </div>
             <button
               type="button"
               onClick={() => void runSearch()}
-              disabled={!cityId || loadingResults}
+              disabled={loadingResults}
               className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {loadingResults ? <LoaderCircle size={18} className="animate-spin" /> : <Search size={18} />}

@@ -454,16 +454,22 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     'S2': 'S+2',
     'S3': 'S+3',
     'S4': 'S+4',
-    'appartement': 'S+1',
+    'appartement': 'Appartement',
     'villa_maison': 'Villa',
     'studio': 'Studio',
-    'local': 'S+1',
-    'local_commercial': 'S+1',
-    'immeuble': 'S+4',
-    'terrain': 'S+1',
-    'lotissement': 'S+1',
-    'bungalow': 'Villa',
+    'local': 'Local',
+    'local_commercial': 'Local commercial',
+    'immeuble': 'Immeuble',
+    'terrain': 'Terrain',
+    'lotissement': 'Lotissement',
+    'bungalow': 'Bungalow',
     'villa': 'Villa',
+  };
+  const typeToLegacySubType: Partial<Record<Bien['type'], string>> = {
+    S1: 'S+1',
+    S2: 'S+2',
+    S3: 'S+3',
+    S4: 'S+4',
   };
   const typeToMainLabel: Record<string, string> = {
     appartement: 'Appartement',
@@ -504,6 +510,12 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     ? bien.media.filter((m: any) => m.type === 'video' && m.url).map((m: any) => resolvePublicMediaUrl(m.url)).filter(Boolean)
     : [];
   const fallbackImage = toYouTubeThumbnailUrl(videoUrls[0]) || PROPERTY_FALLBACK_IMAGE_DATA_URI;
+  const resolvedCapacity = resolveBienCapacity({
+    nbChambres: bien.nb_chambres,
+    nbSalleBain: bien.nb_salle_bain,
+    configuration: bien.configuration || null,
+    caracteristiques: bien.caracteristiques,
+  });
   const seasonalRawConfig = bien.location_saisonniere_config || {};
   const seasonalMaxGuests = Number(
     (seasonalRawConfig as any)?.limite_personnes_nuit
@@ -538,7 +550,8 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     ?? Number(bien.location_saisonniere_config?.frais_service ?? 0) > 0;
   const seasonalCleaningFee = Number(bien.location_saisonniere_config?.frais_menage ?? 0);
   const seasonalServiceFee = Number(bien.location_saisonniere_config?.frais_service ?? 0);
-  const normalizedConfiguration = String(bien.configuration || '').trim();
+  const normalizedConfiguration = String(resolvedCapacity.configuration || bien.configuration || '').trim();
+  const resolvedBedrooms = Math.max(0, Number(resolvedCapacity.bedrooms || bien.nb_chambres || 0));
   const resolvedZone = zonesById[bien.zone_id || ''] || null;
   const normalizedLocationLabel = String(
     resolvedZone?.quartier
@@ -548,21 +561,32 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     || resolvedZone?.pays
     || 'KÃ©libia'
   );
-  const categoryFromType = typeToCategory[bien.type] || 'S+1';
+  const categoryFromType = typeToCategory[bien.type] || 'Autre';
   const mainTypeLabel = typeToMainLabel[bien.type] || categoryFromType;
   const normalizeLabelToken = (value: string) => String(value || '').toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
   const normalizedMainTypeLabel = normalizeLabelToken(mainTypeLabel);
   const normalizedConfigurationLabel = normalizeLabelToken(normalizedConfiguration);
-  let resolvedCategory = categoryFromType;
-  if (normalizedConfiguration) {
-    const configurationAlreadyContainsType =
-      normalizedConfigurationLabel.startsWith(normalizedMainTypeLabel)
-      || normalizedConfigurationLabel.includes(normalizedMainTypeLabel);
+  const supportsStructuredSubType =
+    ['appartement', 'villa_maison', 'villa', 'bungalow', 'local', 'local_commercial'].includes(String(bien.type || '').trim().toLowerCase())
+    || Boolean(typeToLegacySubType[bien.type]);
+  const inferredSubTypeFromBedrooms = supportsStructuredSubType && resolvedBedrooms > 0 ? `S+${resolvedBedrooms}` : '';
+  const inferredSubType = typeToLegacySubType[bien.type] || inferredSubTypeFromBedrooms;
+  const configurationAlreadyContainsType =
+    normalizedConfigurationLabel.startsWith(normalizedMainTypeLabel)
+    || normalizedConfigurationLabel.includes(normalizedMainTypeLabel);
+  const configurationIsGenericMainType = normalizedConfigurationLabel === normalizedMainTypeLabel;
+  const resolvedSubType = normalizedConfiguration && !configurationIsGenericMainType
+    ? normalizedConfiguration
+    : inferredSubType;
+  let resolvedCategory = mainTypeLabel;
+  if (resolvedSubType) {
+    resolvedCategory = configurationAlreadyContainsType && normalizedConfiguration && !configurationIsGenericMainType
+      ? normalizedConfiguration
+      : `${mainTypeLabel} ${resolvedSubType}`.trim();
+  } else if (normalizedConfiguration && !configurationIsGenericMainType) {
     resolvedCategory = configurationAlreadyContainsType
       ? normalizedConfiguration
-      : `${mainTypeLabel} ${normalizedConfiguration}`;
-  } else if (bien.type === 'appartement' || bien.type === 'S1' || bien.type === 'S2' || bien.type === 'S3' || bien.type === 'S4') {
-    resolvedCategory = categoryFromType;
+      : `${mainTypeLabel} ${normalizedConfiguration}`.trim();
   }
 
   const rawLocationValues = [
@@ -588,6 +612,9 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     mode: bien.mode,
     propertyType: String(bien.type || '').trim().toLowerCase(),
     category: resolvedCategory,
+    mainType: String(bien.type || '').trim().toLowerCase(),
+    subType: resolvedSubType || '',
+    displayCategory: resolvedCategory,
     locationLabel: normalizedLocationLabel,
     locationTokens,
     locationHierarchy: {
@@ -621,8 +648,8 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     rating: 4.5 + Math.random() * 0.5,
     reviews: Math.floor(Math.random() * 30) + 5,
     guests: resolvedGuests,
-    bedrooms: bien.nb_chambres,
-    bathrooms: bien.nb_salle_bain,
+    bedrooms: resolvedCapacity.bedrooms,
+    bathrooms: resolvedCapacity.bathrooms,
     images: imageUrls.length > 0 ? imageUrls : [fallbackImage],
     videos: videoUrls,
     description: bien.description || `Superbe ${bien.type}`,

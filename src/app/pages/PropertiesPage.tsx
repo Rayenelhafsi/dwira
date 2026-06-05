@@ -376,11 +376,44 @@ const isGenericPropertySubtype = (label?: string | null) => {
     .trim();
   return ["appartement", "villa", "maison", "villa maison", "bungalow"].includes(normalized);
 };
+const isInvalidPropertySubtype = (label?: string | null) => {
+  const raw = String(label || "").trim();
+  if (!raw) return true;
+  const normalized = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized.includes("s+?") || /\bs\s*\+\s*\?/i.test(raw) || normalized.includes("?")) return true;
+  const canonical = getCanonicalSubTypeKey(raw);
+  if (!canonical) return true;
+  return false;
+};
 const getResolvedPropertyCategoryLabel = (property: any): string => {
-  const rawCategory = String(property?.category || "").trim();
+  const rawMainType = String(property?.filterProfile?.mainType || "").trim();
+  const rawSubType = String(property?.filterProfile?.subType || "").trim();
+  const rawDisplayCategory = String(property?.filterProfile?.displayCategory || "").trim();
+  if (rawMainType) {
+    const resolvedMainType = getNormalizedMainTypeForMatchKey(rawMainType) || getMainTypeFromCategory(rawMainType);
+    const mainLabelByType: Record<PropertyMainType, string> = {
+      appartement: "Appartement",
+      villa_maison: "Villa / Maison",
+      studio: "Studio",
+      immeuble: "Immeuble",
+      autre: "Autre",
+    };
+    const mainLabel = mainLabelByType[resolvedMainType];
+    if (rawSubType) {
+      return hasExplicitMainTypeInLabel(rawSubType) ? rawSubType : `${mainLabel} ${rawSubType}`.trim();
+    }
+    if (rawDisplayCategory) return rawDisplayCategory;
+    return mainLabel;
+  }
+  const rawCategory = String(rawDisplayCategory || property?.category || "").trim();
   const title = String(property?.title || "").trim();
   const titleSPlus = title.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
-  const rawSPlus = rawCategory.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
+  const rawSPlus = rawSubType.match(/s\+\d+/i)?.[0]?.toUpperCase() || rawCategory.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
   const resolvedSPlus = rawSPlus || titleSPlus;
   const bedrooms = Number(property?.bedrooms || 0);
   const normalizedCategory = rawCategory.toLowerCase().replace(/\s+/g, " ");
@@ -895,7 +928,7 @@ export default function PropertiesPage() {
 
     for (const row of modeRows) {
       const subType = String(row.sub_type || "").trim();
-      if (!subType) continue;
+      if (!subType || isInvalidPropertySubtype(subType)) continue;
       const mainType = getMainTypeFromCategory(String(row.main_type || ""));
       const group = groups.get(mainType);
       if (!group) continue;
@@ -909,6 +942,7 @@ export default function PropertiesPage() {
     }
 
     for (const option of availableTypeOptions) {
+      if (isInvalidPropertySubtype(option.label)) continue;
       const mainType = getMainTypeFromCategory(option.label);
       const group = groups.get(mainType);
       if (!group) continue;

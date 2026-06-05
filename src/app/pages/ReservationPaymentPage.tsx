@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, BadgeCheck, ExternalLink, ReceiptText, TimerReset, Upload } from "lucide-react";
+import { ArrowLeft, BadgeCheck, CreditCard, ReceiptText, TimerReset, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
@@ -56,14 +56,15 @@ export default function ReservationPaymentPage() {
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [startingFlouciScope, setStartingFlouciScope] = useState<PaymentScope | null>(null);
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
+  const [startingClickToPayScope, setStartingClickToPayScope] = useState<PaymentScope | null>(null);
+  const [confirmingClickToPay, setConfirmingClickToPay] = useState(false);
   const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: "",
     message: "",
   });
   const [statusPopupShown, setStatusPopupShown] = useState(false);
-  const showFlouciBlock = true;
-  const onlinePaymentComingSoon = true;
+  const showClickToPayBlock = true;
   const showReceiptBlock = true;
 
   const fetchDemand = useCallback(async () => {
@@ -160,6 +161,70 @@ export default function ReservationPaymentPage() {
       }
     })();
   }, [confirmingFlouci, demand?.flouci_scope, demand?.id, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!demand?.id || confirmingClickToPay) return;
+    const payment = String(searchParams.get("payment") || "").trim().toLowerCase();
+    const reservationDemandId = String(searchParams.get("reservation_demand_id") || "").trim();
+    if (!payment || !reservationDemandId || reservationDemandId !== demand.id) return;
+    if (payment === "failed") {
+      const reason = String(searchParams.get("reason") || "").trim();
+      toast.error(reason || "Paiement Click to Pay annule ou echoue.");
+      const next = new URLSearchParams(searchParams);
+      next.delete("payment");
+      next.delete("reason");
+      next.delete("reference");
+      next.delete("reservation_demand_id");
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    if (payment !== "success") return;
+    setConfirmingClickToPay(true);
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/clicktopay/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({}),
+        });
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, "Confirmation Click to Pay impossible"));
+        const updated = await response.json();
+        setDemand(updated);
+        await trackMetaEvent({
+          eventName: "Purchase",
+          customData: {
+            content_name: demand.bien_titre || "Reservation",
+            content_ids: [String(demand.bien_id || demand.id)],
+            value: Number(demand.amount_due_now || demand.total_amount || 0),
+            currency: "TND",
+            payment_method: "clicktopay",
+          },
+          userData: {
+            email: user?.email,
+            externalId: user?.authProvider === 'facebook'
+              ? String(user?.providerUserId || user?.id || '')
+              : String(user?.id || ''),
+          },
+        });
+        setCenterSuccess({
+          open: true,
+          title: "Paiement confirme",
+          message: "Votre paiement Click to Pay a ete confirme avec succes.",
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Confirmation Click to Pay impossible");
+      } finally {
+        const next = new URLSearchParams(searchParams);
+        next.delete("payment");
+        next.delete("reason");
+        next.delete("reference");
+        next.delete("reservation_demand_id");
+        setSearchParams(next, { replace: true });
+        setConfirmingClickToPay(false);
+      }
+    })();
+  }, [confirmingClickToPay, demand?.id, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!demand || statusPopupShown) return;
@@ -303,6 +368,44 @@ export default function ReservationPaymentPage() {
     }
   };
 
+  const handleStartClickToPay = async (scope: PaymentScope) => {
+    if (!demand) return;
+    setStartingClickToPayScope(scope);
+    try {
+      await trackMetaEvent({
+        eventName: "InitiateCheckout",
+        customData: {
+          content_name: demand.bien_titre || "Reservation",
+          content_ids: [String(demand.bien_id || demand.id)],
+          value: Number(demand.amount_due_now || demand.total_amount || 0),
+          currency: "TND",
+          payment_method: "clicktopay",
+          checkout_scope: scope,
+        },
+        userData: {
+          email: user?.email,
+          phone: user?.telephone || undefined,
+          externalId: String(user?.providerUserId || user?.id || ""),
+        },
+      });
+      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/clicktopay/create-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ scope }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Creation session Click to Pay impossible"));
+      const payload = await response.json();
+      const checkoutUrl = String(payload?.checkout_url || "").trim();
+      if (!checkoutUrl) throw new Error("Lien checkout Click to Pay manquant");
+      window.location.assign(checkoutUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Creation session Click to Pay impossible");
+    } finally {
+      setStartingClickToPayScope(null);
+    }
+  };
+
   const handleUploadReceipt = async () => {
     if (!demand) return;
     if (!receiptFile) {
@@ -435,24 +538,23 @@ export default function ReservationPaymentPage() {
               <InfoCard label="Paiement services" value={summary?.servicesPayable ? (summary?.servicesPaid ? `Regle le ${formatDateTime(demand.services_payment_paid_at)}` : formatMoney(summary?.servicesAmount)) : "Aucun devis a regler"} />
             </div>
 
-            {showFlouciBlock ? (
+            {showClickToPayBlock ? (
               <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
-                <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Flouci (Sandbox)</p>
+                <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Click to Pay (Sandbox)</p>
                 <p className="mt-1 text-sm text-emerald-700">
-                  Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement.
+                  Lancez le checkout Click to Pay. Au retour, la confirmation se fait automatiquement apres verification du statut.
                 </p>
                 <div className="mt-4">
                   <button
                     type="button"
-                    disabled={onlinePaymentComingSoon || !flouciPayScope || !!startingFlouciScope || confirmingFlouci}
+                    disabled={!flouciPayScope || !!startingClickToPayScope || confirmingClickToPay}
                     onClick={() => {
-                      if (onlinePaymentComingSoon) return;
-                      if (flouciPayScope) void handleStartFlouci(flouciPayScope);
+                      if (flouciPayScope) void handleStartClickToPay(flouciPayScope);
                     }}
-                    className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-white disabled:opacity-70"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    <ExternalLink className="h-4 w-4" />
-                    {onlinePaymentComingSoon ? "Bientot disponible" : !!startingFlouciScope ? "Ouverture..." : "Payer"}
+                    <CreditCard className="h-4 w-4" />
+                    {startingClickToPayScope ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
                   </button>
                 </div>
               </div>

@@ -52,7 +52,6 @@ export default function HotelReservationPaymentPage() {
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
   const [startingClickToPay, setStartingClickToPay] = useState(false);
   const [confirmingClickToPay, setConfirmingClickToPay] = useState(false);
-  const onlinePaymentComingSoon = true;
   const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: "",
@@ -225,6 +224,8 @@ export default function HotelReservationPaymentPage() {
     () => Boolean(demand && !demand.reservation_payment_id && !["voucher_en_cours", "voucher_envoye"].includes(String(demand.status || ""))),
     [demand]
   );
+  const isFlouciActionable = canPayOnline && !startingFlouci && !confirmingFlouci;
+  const isClickToPayActionable = canPayOnline && !startingClickToPay && !confirmingClickToPay;
 
   const handleStartFlouci = async () => {
     if (!demand) return;
@@ -418,35 +419,33 @@ export default function HotelReservationPaymentPage() {
             <div className="mt-6 space-y-4">
               <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
                 <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Flouci</p>
-                <p className="mt-1 text-sm text-emerald-700">Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement.</p>
+                <p className="mt-1 text-sm text-emerald-700">Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement apres verification du statut.</p>
                 <button
                   type="button"
-                  disabled={onlinePaymentComingSoon || !canPayOnline || startingFlouci || confirmingFlouci}
+                  disabled={!isFlouciActionable}
                   onClick={() => {
-                    if (onlinePaymentComingSoon) return;
                     void handleStartFlouci();
                   }}
-                  className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-white disabled:opacity-70"
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400 disabled:opacity-70"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  {onlinePaymentComingSoon ? "Bientot disponible" : startingFlouci ? "Ouverture..." : "Payer avec Flouci"}
+                  {startingFlouci ? "Ouverture..." : confirmingFlouci ? "Verification..." : "Payer avec Flouci"}
                 </button>
               </div>
 
               <div className="rounded-[24px] border border-sky-200 bg-sky-50 px-5 py-5">
                 <p className="text-sm font-semibold text-sky-800">Paiement en ligne Click to Pay</p>
-                <p className="mt-1 text-sm text-sky-700">Ouvrez la passerelle bancaire puis revenez automatiquement ici apres paiement.</p>
+                <p className="mt-1 text-sm text-sky-700">Ouvrez la passerelle bancaire puis revenez automatiquement ici apres paiement. Le statut est revérifié avant validation finale.</p>
                 <button
                   type="button"
-                  disabled={onlinePaymentComingSoon || !canPayOnline || startingClickToPay || confirmingClickToPay}
+                  disabled={!isClickToPayActionable}
                   onClick={() => {
-                    if (onlinePaymentComingSoon) return;
                     void handleStartClickToPay();
                   }}
-                  className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-sky-400 px-3 py-2 text-sm font-semibold text-white disabled:opacity-70"
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-400 disabled:opacity-70"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  {onlinePaymentComingSoon ? "Bientot disponible" : startingClickToPay ? "Ouverture..." : "Payer avec Click to Pay"}
+                  {startingClickToPay ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
                 </button>
               </div>
 
