@@ -355,6 +355,14 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
     ].join(" ")
   );
   const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeToken(token)));
+  const structuredValues = [
+    ...(Array.isArray(property?.caracteristiques) ? property.caracteristiques : []),
+    ...Object.values(property?.caracteristique_valeurs || {}).flatMap((value) =>
+      Array.isArray(value) ? value : [value]
+    ),
+  ].map((value) => normalizeToken(String(value || "")));
+  const hasStructuredAny = (...tokens: string[]) =>
+    tokens.some((token) => structuredValues.some((value) => value.includes(normalizeToken(token))));
   const sc = property?.seasonalConfig || {};
   const exterieur = Array.isArray(sc?.exterieurJardin) ? sc.exterieurJardin.map((item: string) => normalizeToken(item)) : [];
   const interieur = Array.isArray(sc?.confortEquipementsInterieurs) ? sc.confortEquipementsInterieurs.map((item: string) => normalizeToken(item)) : [];
@@ -370,11 +378,11 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
       "climatisation dans toutes les pieces"
     );
   }
-  if (option === "piscine_privee") return hasExteriorAny("piscine privee") || hasAny("piscine privee");
-  if (option === "piscine_partagee") return hasExteriorAny("piscine partagee", "piscine commune", "piscine collective") || hasAny("piscine partagee", "piscine commune", "piscine collective");
+  if (option === "piscine_privee") return hasStructuredAny("piscine privee", "piscine privée");
+  if (option === "piscine_partagee") return hasStructuredAny("piscine partagee", "piscine partagée");
   if (option === "rdc") {
     const floor = getFloorRaw();
-    return floor === "rdc" || floor === "0" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+    return floor === "rdc" || floor === "0";
   }
   if (option === "premier_etage") {
     const floor = getFloorRaw();
@@ -575,6 +583,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [hotelProviderError, setHotelProviderError] = useState("");
   const [hotelCities, setHotelCities] = useState<HotelCity[]>([]);
   const [hotelResults, setHotelResults] = useState<HotelSummary[]>([]);
+  const [hotelSearchFallbackNotice, setHotelSearchFallbackNotice] = useState("");
   const [loadingHotelCities, setLoadingHotelCities] = useState(false);
   const [loadingHotelResults, setLoadingHotelResults] = useState(false);
   const [loadingHotelsByCity, setLoadingHotelsByCity] = useState(false);
@@ -712,6 +721,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         .slice(0, 12),
     [hotelsByCity, hotelCityId, hotelDestinationNeedle, selectedHotelId]
   );
+  const selectedHotelLabel = useMemo(() => {
+    if (selectedHotelId <= 0) return "";
+    const allHotels = [...hotelsByCity, ...hotelResults];
+    const match = allHotels.find((hotel) => Number(hotel?.Id || 0) === Number(selectedHotelId));
+    if (match?.Name) return String(match.Name).trim();
+    return String(hotelDestinationQuery || "").trim();
+  }, [selectedHotelId, hotelsByCity, hotelResults, hotelDestinationQuery]);
+  const selectedHotelUnavailableMessage = selectedHotelLabel
+    ? `L'hotel ${selectedHotelLabel} n'a aucune offre disponible pour votre choix veuillez changer vos filtres ou consultez les alternatives disponibles.`
+    : "Cet hotel n'a aucune offre disponible pour votre choix veuillez changer vos filtres ou consultez les alternatives disponibles.";
+  const hotelUnavailableMessage =
+    "Cet hotel n'a aucune offre disponible pour votre choix veuillez changer vos filtres ou consultez les alternatives disponibles.";
   const hotelPublicErrorMessage = hotelProviderError ? getClientFacingHotelError(hotelProviderError) : "";
   const sortedHotelResults = useMemo(
     () => [...hotelResults].sort((left, right) => {
@@ -739,6 +760,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       return `${hotelCheckIn} - ${hotelCheckOut}`;
     }
   }, [hotelCheckIn, hotelCheckOut]);
+  const hotelSearchInfoMessage = selectedHotelId > 0
+    ? selectedHotelUnavailableMessage
+    : hotelUnavailableMessage;
   const isSelectedModeComingSoon =
     (selectedMode === "vente" && PUBLIC_COMING_SOON.ventes)
     || (selectedMode === "location_annuelle" && PUBLIC_COMING_SOON.locationAnnuelle);
@@ -1570,11 +1594,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
   const runHotelSearch = async (options?: { replace?: boolean; scroll?: boolean }) => {
     const nextChildAges = [...hotelChildAges];
-      const keywords = selectedHotelId > 0 ? "" : hotelDestinationQuery.trim();
+    const keywords = selectedHotelId > 0 ? "" : hotelDestinationQuery.trim();
     setHasSearched(true);
     setLoadingHotelResults(true);
     setHotelSearchLoadingModal(true);
     setHotelProviderError("");
+    setHotelSearchFallbackNotice("");
 
     try {
       const hotels = await searchHotels({
@@ -1586,7 +1611,25 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         keywords: keywords || undefined,
         onlyAvailable: true,
       });
-      setHotelResults(hotels);
+      if (hotels.length === 0 && nextChildAges.length > 0 && hotelCityId > 0) {
+        const fallbackHotels = await listHotels(hotelCityId);
+        const normalizedKeywords = keywords.toLowerCase();
+        const filteredFallback = Array.isArray(fallbackHotels)
+          ? fallbackHotels.filter((hotel) => {
+              const matchesKeyword = !normalizedKeywords || String(hotel.Name || "").toLowerCase().includes(normalizedKeywords);
+              const matchesSelected = selectedHotelId <= 0 || Number(hotel.Id || 0) === Number(selectedHotelId);
+              return matchesKeyword && matchesSelected;
+            })
+          : [];
+        setHotelResults(filteredFallback);
+        setHotelSearchFallbackNotice(
+          selectedHotelId > 0
+            ? selectedHotelUnavailableMessage
+            : hotelUnavailableMessage
+        );
+      } else {
+        setHotelResults(hotels);
+      }
 
       const nextParams = applyAmicaleParam(new URLSearchParams(searchParams));
       nextParams.set("mode", "hotellerie");
@@ -3424,6 +3467,16 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 <span className="font-semibold text-slate-900">{hotelAdults}</span> adulte{hotelAdults > 1 ? "s" : ""} •{" "}
                 <span className="font-semibold text-slate-900">{hotelChildAges.length}</span> enfant{hotelChildAges.length > 1 ? "s" : ""}
               </p>
+              {selectedHotelLabel && (
+                <p className="mt-2 text-sm text-slate-700">
+                  Hotel selectionne: <span className="font-semibold text-slate-900">{selectedHotelLabel}</span>
+                </p>
+              )}
+              {hotelSearchInfoMessage && (
+                <p className="mt-2 text-sm text-slate-600">
+                  {hotelSearchInfoMessage}
+                </p>
+              )}
             </div>
           )}
 
@@ -3466,6 +3519,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   <p className="mt-2 text-sm text-slate-500">
                     Essayez une autre destination ou modifiez vos dates pour découvrir davantage d'offres.
                   </p>
+                  {selectedHotelLabel && (
+                    <p className="mt-3 text-sm text-slate-700">
+                      <span className="font-semibold text-slate-900">{selectedHotelUnavailableMessage}</span>
+                    </p>
+                  )}
+                  {hotelSearchInfoMessage && !hotelSearchFallbackNotice && (
+                    <p className="mt-3 text-sm text-slate-600">
+                      {hotelSearchInfoMessage}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!loadingHotelResults && hotelSearchFallbackNotice && sortedHotelResults.length > 0 && (
+                <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  {hotelSearchFallbackNotice}
                 </div>
               )}
 
@@ -3598,6 +3667,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               {getHotelCardDescription(hotel)}
                             </p>
                           </div>
+
+                          {hotelSearchFallbackNotice && (
+                            <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                              {selectedHotelLabel && Number(hotel.Id || 0) === Number(selectedHotelId)
+                                ? selectedHotelUnavailableMessage
+                                : hotelUnavailableMessage}
+                            </div>
+                          )}
 
                           <div className="grid gap-3 lg:grid-cols-2">
                             <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-3">

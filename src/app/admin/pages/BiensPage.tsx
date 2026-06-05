@@ -566,7 +566,6 @@ const deriveSeasonFilterSignalsFromFeatures = (entries: SelectedFeatureEntry[]) 
     vueMer: hasVueMer,
     prochePlage: hasProchePlage,
     distancePlageM: derivedDistance,
-    rdc: hasToken('rdc', 'rez de chaussee', 'rez-de-chaussee', 'ground floor'),
   };
 };
 const stringifyFeatureChoices = (value?: string | null) => {
@@ -4640,7 +4639,6 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       location_saisonniere_config: selectedMode === 'location_saisonniere'
         ? {
             ...saisonConfig,
-            etage: saisonConfig.etage || (derivedSeasonSignals.rdc ? 'rdc' : saisonConfig.etage),
             vue: saisonConfig.vue === 'sans_vue' && derivedSeasonSignals.vueMer ? 'mer' : saisonConfig.vue,
             exterieur_jardin: derivedSeasonSignals.exterieurJardin.length > 0
               ? derivedSeasonSignals.exterieurJardin
@@ -4842,7 +4840,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       'politique annulation',
       'type caution',
     ],
-    accessibilite: ['rampes', 'rdc'],
+    accessibilite: ['rampes'],
     capacite_configuration: [
       'capacite bebes angel',
       'capacite enfants personne',
@@ -5170,10 +5168,14 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const getFeatureChoicesWithDefaults = (feature: Caracteristique) => {
     const baseChoices = parseFeatureChoices(stringifyFeatureChoices(feature.choix_json));
     const normalizedFeatureName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
-    if (!normalizedFeatureName.includes('exterieur') && !normalizedFeatureName.includes('jardin')) {
+    const isExteriorFeature = normalizedFeatureName.includes('exterieur') || normalizedFeatureName.includes('jardin');
+    const isBonusFeature = normalizedFeatureName.includes('bonus');
+    if (!isExteriorFeature && !isBonusFeature) {
       return baseChoices;
     }
-    const requiredChoices = ['Piscine', 'Gazon', 'Jardin partage'];
+    const requiredChoices = isBonusFeature
+      ? ['Piscine privée', 'Piscine partagée']
+      : ['Piscine', 'Gazon', 'Jardin partage'];
     const existingTokens = new Set(baseChoices.map((choice) => normalizeFeatureName(choice)));
     const missing = requiredChoices.filter((choice) => !existingTokens.has(normalizeFeatureName(choice)));
     return [...baseChoices, ...missing];

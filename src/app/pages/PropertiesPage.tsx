@@ -477,6 +477,14 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
       .join(" ")
   );
   const hasAny = (...tokens: string[]) => tokens.some((token) => textBlob.includes(normalizeFeatureName(token)));
+  const structuredValues = [
+    ...(Array.isArray(property?.caracteristiques) ? property.caracteristiques : []),
+    ...Object.values(property?.caracteristique_valeurs || {}).flatMap((value) =>
+      Array.isArray(value) ? value : [value]
+    ),
+  ].map((value) => normalizeFeatureName(String(value || "")));
+  const hasStructuredAny = (...tokens: string[]) =>
+    tokens.some((token) => structuredValues.some((value) => value.includes(normalizeFeatureName(token))));
   const sc = property?.seasonalConfig || {};
   const exterieur = Array.isArray(sc?.exterieurJardin) ? sc.exterieurJardin.map((item: string) => normalizeFeatureName(item)) : [];
   const interieur = Array.isArray(sc?.confortEquipementsInterieurs) ? sc.confortEquipementsInterieurs.map((item: string) => normalizeFeatureName(item)) : [];
@@ -492,11 +500,15 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
       "climatisation dans toutes les pieces"
     );
   }
-  if (option === "piscine_privee") return hasExteriorAny("piscine privee") || hasAny("piscine privee");
-  if (option === "piscine_partagee") return hasExteriorAny("piscine partagee", "piscine commune", "piscine collective") || hasAny("piscine partagee", "piscine commune", "piscine collective");
+  if (option === "piscine_privee") {
+    return hasStructuredAny("piscine privee", "piscine privée");
+  }
+  if (option === "piscine_partagee") {
+    return hasStructuredAny("piscine partagee", "piscine partagée");
+  }
   if (option === "rdc") {
     const etageRaw = getPropertyFloorRaw(property);
-    return etageRaw === "rdc" || etageRaw === "0" || hasAny("rdc", "rez de chaussee", "rez-de-chaussee", "ground floor");
+    return etageRaw === "rdc" || etageRaw === "0";
   }
   if (option === "premier_etage") {
     const etageRaw = getPropertyFloorRaw(property);
@@ -1389,6 +1401,7 @@ export default function PropertiesPage() {
       ? stayRanges.filter((range) => isValidStayRange(range.start, range.end))
       : [];
     const hasDateFilter = validStayRanges.length > 0;
+    const requiresRdcComfortFallback = selectedComfortOptions.includes("rdc");
     const hasCoreFilters =
       Boolean(query.trim()) ||
       selectedLocations.length > 0 ||
@@ -1502,11 +1515,14 @@ export default function PropertiesPage() {
             );
           }
           if (token.includes("piscine privee")) {
-            return normalizedAmenities.some((item) => item.includes("piscine") && item.includes("prive"));
+            return normalizedAmenities.some((item) =>
+              item.includes("piscine")
+              && (item.includes("prive") || !item.includes("partag") && !item.includes("commune") && !item.includes("collectiv"))
+            );
           }
           if (token.includes("piscine partagee")) {
             return normalizedAmenities.some((item) =>
-              item.includes("piscine") && (item.includes("partag") || item.includes("commune") || item.includes("collectiv"))
+              item.includes("piscine") && (item.includes("partag") || item.includes("commune") || item.includes("collectiv") || !item.includes("prive"))
             );
           }
           if (token.includes("rdc") || token.includes("rez de chaussee") || token.includes("ground floor")) {
@@ -1877,8 +1893,8 @@ export default function PropertiesPage() {
           && !propertyMatchesComfortOption(property, "rdc")
           && propertyMatchesComfortOption(property, "premier_etage");
         const genericComfortAlternative = selectedComfortOptions.length > 0 && !matchComfort;
-        const hasComfortAlternative = selectedComfortOptions.includes("rdc")
-          ? hasComfortFallbackFromRdc || hasComfortFallbackFromBeach
+        const hasComfortAlternative = requiresRdcComfortFallback
+          ? hasComfortFallbackFromRdc
           : genericComfortAlternative || hasComfortFallbackFromBeach;
         const hasDateRuleAlternative = Boolean(
           hasDateFilter
@@ -1926,10 +1942,14 @@ export default function PropertiesPage() {
       (row) =>
         row.strictTypeMatch
         && row.score >= threshold
+        && (!requiresRdcComfortFallback || propertyMatchesComfortOption(row.property, "rdc"))
         && (!hasDateFilter || row.exactDateAvailable)
     );
     const hasExplicitTypeFilter = selectedMainTypes.length > 0 || selectedSubTypeKeys.length > 0;
     const alternatives = rows.filter((row) => {
+      if (requiresRdcComfortFallback && !row.hasComfortFallbackFromRdc) {
+        return false;
+      }
       const hasNonDateAlternative = Boolean(
         row.hasLocationAlternative
         || row.hasTypeAlternative31
@@ -2906,9 +2926,6 @@ export default function PropertiesPage() {
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
                       {row.hints.length > 0 && (
                         <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
-                      )}
-                      {row.missing.length > 0 && (
-                        <p className="mt-1 text-xs text-gray-600">Points a noter: {row.missing.join(" | ")}</p>
                       )}
                     </div>
                   </div>

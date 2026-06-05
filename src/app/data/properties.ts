@@ -64,6 +64,7 @@ export interface Property {
   cleaningFee?: number;
   serviceFee?: number;
   filterProfile?: PropertyFilterProfile;
+  caracteristique_valeurs?: Record<string, string | string[]>;
   seasonalConfig?: {
     categorieStanding?: 'economique' | 'confort' | 'premium' | 'luxe' | null;
     etage?: 'rdc' | '1' | '2' | '3' | '4' | '5_plus' | null;

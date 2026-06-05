@@ -107,6 +107,7 @@ export default function HotelsPage() {
   const [providerError, setProviderError] = useState("");
   const [cities, setCities] = useState<HotelCity[]>([]);
   const [results, setResults] = useState<HotelSummary[]>([]);
+  const [searchFallbackNotice, setSearchFallbackNotice] = useState("");
   const [loadingCities, setLoadingCities] = useState(true);
   const [loadingResults, setLoadingResults] = useState(false);
   const [hasSearched, setHasSearched] = useState(initialHasSearchParams);
@@ -177,6 +178,7 @@ export default function HotelsPage() {
     setHasSearched(true);
     setLoadingResults(true);
     setProviderError("");
+    setSearchFallbackNotice("");
 
     try {
       const hotels = await searchHotels({
@@ -188,7 +190,20 @@ export default function HotelsPage() {
         keywords: keywords || undefined,
         onlyAvailable: true,
       });
-      setResults(hotels);
+      if (hotels.length === 0 && nextChildAges.length > 0 && cityId > 0) {
+        const fallbackHotels = await listHotels(cityId);
+        const normalizedKeywords = keywords.toLowerCase();
+        const filteredFallback = Array.isArray(fallbackHotels)
+          ? fallbackHotels.filter((hotel) => {
+              const byKeyword = !normalizedKeywords || String(hotel.Name || "").toLowerCase().includes(normalizedKeywords);
+              return byKeyword;
+            })
+          : [];
+        setResults(filteredFallback);
+        setSearchFallbackNotice(hotelUnavailableMessage);
+      } else {
+        setResults(hotels);
+      }
 
       const nextParams = new URLSearchParams();
       if (cityId > 0) nextParams.set("cityId", String(cityId));
@@ -246,13 +261,18 @@ export default function HotelsPage() {
 
   const selectedCity = cities.find((item) => Number(item.Id) === Number(cityId)) || null;
   const childrenCount = childAges.length;
+  const hotelUnavailableMessage =
+    "Cet hotel n'a aucune offre disponible pour votre choix veuillez changer vos filtres ou consultez les alternatives disponibles.";
+  const childrenAvailabilityHint = childrenCount > 0
+    ? "La disponibilite depend aussi de l'age des enfants renseignes. Si la recherche exacte ne retourne rien, on affiche les hotels de la ville pour que vous puissiez ajuster."
+    : "";
   const destinationNeedle = destinationQuery.trim().toLowerCase();
   const matchingCities = useMemo(
     () => cities.filter((city) => !destinationNeedle || String(city.Name || "").toLowerCase().includes(destinationNeedle)).slice(0, 12),
     [cities, destinationNeedle]
   );
   const matchingHotelsInCity = useMemo(
-    () => cityHotels.filter((hotel) => !destinationNeedle || String(hotel.Name || "").toLowerCase().includes(destinationNeedle)).slice(0, 12),
+    () => cityHotels.filter((hotel) => !destinationNeedle || String(hotel.Name || "").toLowerCase().includes(destinationNeedle)),
     [cityHotels, destinationNeedle]
   );
   const publicErrorMessage = providerError ? getClientFacingHotelError(providerError) : "";
@@ -327,6 +347,11 @@ export default function HotelsPage() {
               >
                 {adults} adultes - {childrenCount} enfants
               </button>
+              {childrenAvailabilityHint && (
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  {childrenAvailabilityHint}
+                </p>
+              )}
             </label>
 
             <label className="md:col-span-3">
@@ -550,6 +575,17 @@ export default function HotelsPage() {
               <p className="mt-2 text-sm text-slate-500">
                 Essayez une autre destination ou modifiez vos dates pour decouvrir davantage d'offres.
               </p>
+              {childrenCount > 0 && !searchFallbackNotice && (
+                <p className="mt-3 text-sm text-slate-600">
+                  La disponibilite peut aussi varier selon l'age des enfants renseignes.
+                </p>
+              )}
+            </div>
+          )}
+
+          {!loadingResults && searchFallbackNotice && results.length > 0 && (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {searchFallbackNotice}
             </div>
           )}
 
@@ -619,6 +655,12 @@ export default function HotelsPage() {
                           {getHotelCardDescription(hotel)}
                         </p>
                       </div>
+
+                      {searchFallbackNotice && (
+                        <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                          {hotelUnavailableMessage}
+                        </div>
+                      )}
 
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
