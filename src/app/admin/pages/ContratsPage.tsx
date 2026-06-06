@@ -327,6 +327,40 @@ function parseContractCreationHistory(raw: string | null | undefined): Record<st
   }
 }
 
+function parseTemplateVars(raw: string | null | undefined): Record<string, string> {
+  const text = String(raw || '').trim();
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, value]) => [String(key), String(value ?? '').trim()])
+    );
+  } catch {
+    return {};
+  }
+}
+
+function getContractCardDetails(contrat: ContratApi, bien?: BienApi | null) {
+  const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
+  const templateVars = parseTemplateVars(contrat.template_vars_json);
+  const manualTitle = String(templateVars.typeLogement || '').trim();
+  const manualLocataire = String(templateVars.fullName || '').trim();
+  const manualAcompte = String(templateVars.acompteReservation || '').trim();
+
+  return {
+    title: origin === 'manuel'
+      ? (manualTitle || contrat.bien_titre || bien?.titre || 'Bien Inconnu')
+      : (contrat.bien_titre || bien?.titre || 'Bien Inconnu'),
+    locataire: origin === 'manuel'
+      ? (manualLocataire || contrat.locataire_nom || 'Inconnu')
+      : (contrat.locataire_nom || 'Inconnu'),
+    montantRecu: origin === 'manuel'
+      ? (manualAcompte || `${Number(contrat.montant_recu || 0)} DT`)
+      : `${Number(contrat.montant_recu || 0)} DT`,
+  };
+}
+
 function extractManualPropertyEquipements(bien: BienApi | null, seasonalConfig: Record<string, any>): string {
   if (!bien) return '';
   const scalarFlags: Array<[unknown, string]> = [
@@ -1944,6 +1978,7 @@ export default function ContratsPage() {
         {filteredAndSorted.map((contrat) => {
           const bien = bienById.get(contrat.bien_id);
           const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
+          const cardDetails = getContractCardDetails(contrat, bien);
           return (
             <div key={contrat.id} className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-3 sm:mb-4">
@@ -1960,8 +1995,8 @@ export default function ContratsPage() {
                 </div>
               </div>
 
-              <h3 className="font-bold text-base sm:text-lg text-gray-900 mb-1 truncate">{contrat.bien_titre || bien?.titre || 'Bien Inconnu'}</h3>
-              <p className="text-xs sm:text-sm text-gray-500 mb-1 truncate">Locataire: {contrat.locataire_nom || 'Inconnu'}</p>
+              <h3 className="font-bold text-base sm:text-lg text-gray-900 mb-1 truncate">{cardDetails.title}</h3>
+              <p className="text-xs sm:text-sm text-gray-500 mb-1 truncate">Locataire: {cardDetails.locataire}</p>
               <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4 truncate">Proprietaire: {bien?.proprietaire_nom || 'Inconnu'} - Ref: {bien?.reference || '-'}</p>
 
               <div className="space-y-2 text-xs sm:text-sm text-gray-600 border-t pt-3 sm:pt-4">
@@ -1971,7 +2006,7 @@ export default function ContratsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <AlertCircle size={14} className="text-gray-400 flex-shrink-0 sm:w-4 sm:h-4" />
-                  <span>Montant recu: {Number(contrat.montant_recu || 0)} DT</span>
+                  <span>Montant recu: {cardDetails.montantRecu}</span>
                 </div>
               </div>
 
