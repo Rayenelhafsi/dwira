@@ -265,6 +265,14 @@ export default function ReservationPaymentPage() {
     return null;
   }, [paymentSummary]);
 
+  const clickToPayScope: PaymentScope | null = useMemo(() => {
+    if (!paymentSummary) return null;
+    if (paymentSummary.canPayCombined) return "combined";
+    if (paymentSummary.canPayReservation) return "reservation";
+    if (paymentSummary.canPayServices) return "services";
+    return null;
+  }, [paymentSummary]);
+
   const handlePay = async (scope: PaymentScope) => {
     if (!demand) return;
     setSubmittingScope(scope);
@@ -547,9 +555,9 @@ export default function ReservationPaymentPage() {
                 <div className="mt-4">
                   <button
                     type="button"
-                    disabled={!flouciPayScope || !!startingClickToPayScope || confirmingClickToPay}
+                    disabled={!clickToPayScope || !!startingClickToPayScope || confirmingClickToPay}
                     onClick={() => {
-                      if (flouciPayScope) void handleStartClickToPay(flouciPayScope);
+                      if (clickToPayScope) void handleStartClickToPay(clickToPayScope);
                     }}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
                   >

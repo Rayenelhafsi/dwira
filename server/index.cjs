@@ -17806,6 +17806,22 @@ app.post('/api/reservation-demands/:id/clicktopay/create-checkout', requireAuthe
     const amountInMillimes = normalizeClickToPayAmount(amountTnd);
     if (amountInMillimes <= 0) return res.status(400).json({ error: 'Montant ClickToPay invalide' });
 
+    console.log('[ClickToPay][reservation] checkout breakdown:', {
+      demandId,
+      scope,
+      reservationAmount,
+      servicesAmount,
+      reservationAlreadyPaid,
+      servicesAlreadyPaid,
+      servicesQuoteIsPayable,
+      amountTnd,
+      amountInMillimes,
+      dbAmountDueNow: current.amount_due_now ?? null,
+      dbTotalAmount: current.total_amount ?? null,
+      dbVariableServicesQuoteTotal: current.variable_services_quote_total ?? null,
+      dbVariableServicesQuoteStatus: current.variable_services_quote_status ?? null,
+    });
+
     const frontendBase = CANONICAL_FRONTEND_URL.replace(/\/+$/, '');
     const backendBase = resolvePublicApiBase(req) || `${req.protocol}://${req.get('host')}`;
     const callbackBase = `${backendBase.replace(/\/+$/, '')}/api/payments/clicktopay/return`;
