@@ -6,14 +6,36 @@ const mysql = require("mysql2/promise");
 require("dotenv").config();
 
 function getDbConfig() {
-  const host = String(process.env.DB_HOST || "127.0.0.1").trim();
-  const port = Number(process.env.DB_PORT || 3306);
-  const user = String(process.env.DB_USER || "").trim();
-  const password = String(process.env.DB_PASSWORD || "").trim();
-  const database = String(process.env.DB_NAME || "").trim();
+  const dbSource = String(process.env.DB_SOURCE || process.env.DB_TARGET || "local").trim().toLowerCase();
+  const isSiteDbSource = dbSource === "site" || dbSource === "production";
+  const host = String(
+    isSiteDbSource
+      ? (process.env.SITE_DB_HOST || process.env.VPS_DB_HOST || "127.0.0.1")
+      : (process.env.DB_HOST || "127.0.0.1")
+  ).trim();
+  const port = Number(
+    isSiteDbSource
+      ? (process.env.SITE_DB_PORT || process.env.VPS_DB_PORT || 3306)
+      : (process.env.DB_PORT || 3306)
+  );
+  const user = String(
+    isSiteDbSource
+      ? (process.env.SITE_DB_USER || process.env.VPS_DB_USER || "")
+      : (process.env.DB_USER || "")
+  ).trim();
+  const password = String(
+    isSiteDbSource
+      ? (process.env.SITE_DB_PASSWORD || process.env.VPS_DB_PASSWORD || "")
+      : (process.env.DB_PASSWORD || "")
+  ).trim();
+  const database = String(
+    isSiteDbSource
+      ? (process.env.SITE_DB_NAME || process.env.VPS_DB_NAME || "")
+      : (process.env.DB_NAME || "")
+  ).trim();
 
   if (!user || !database) {
-    throw new Error("Missing DB config. Expected DB_USER and DB_NAME in .env");
+    throw new Error(`Missing DB config for DB_SOURCE=${dbSource}. Expected DB credentials in .env`);
   }
 
   return { host, port, user, password, database, multipleStatements: true };

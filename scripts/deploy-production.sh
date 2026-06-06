@@ -25,14 +25,23 @@ set -a
 source "${ENV_FILE}"
 set +a
 
-DB_HOST="${DB_HOST:-127.0.0.1}"
-DB_PORT="${DB_PORT:-3306}"
-DB_USER="${DB_USER:-}"
-DB_PASSWORD="${DB_PASSWORD:-}"
-DB_NAME="${DB_NAME:-}"
+DB_SOURCE="$(printf '%s' "${DB_SOURCE:-${DB_TARGET:-local}}" | tr '[:upper:]' '[:lower:]')"
+if [ "${DB_SOURCE}" = "site" ] || [ "${DB_SOURCE}" = "production" ]; then
+  DB_HOST="${SITE_DB_HOST:-${VPS_DB_HOST:-127.0.0.1}}"
+  DB_PORT="${SITE_DB_PORT:-${VPS_DB_PORT:-3306}}"
+  DB_USER="${SITE_DB_USER:-${VPS_DB_USER:-}}"
+  DB_PASSWORD="${SITE_DB_PASSWORD:-${VPS_DB_PASSWORD:-}}"
+  DB_NAME="${SITE_DB_NAME:-${VPS_DB_NAME:-}}"
+else
+  DB_HOST="${DB_HOST:-127.0.0.1}"
+  DB_PORT="${DB_PORT:-3306}"
+  DB_USER="${DB_USER:-}"
+  DB_PASSWORD="${DB_PASSWORD:-}"
+  DB_NAME="${DB_NAME:-}"
+fi
 
 if [ -z "${DB_USER}" ] || [ -z "${DB_NAME}" ]; then
-  echo "[deploy] ERROR: DB_USER / DB_NAME missing in ${ENV_FILE}"
+  echo "[deploy] ERROR: database credentials missing in ${ENV_FILE} for DB_SOURCE=${DB_SOURCE}"
   exit 1
 fi
 
