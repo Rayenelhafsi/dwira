@@ -7682,6 +7682,70 @@ async function fetchClienteleProfileBySource(sourceTable, sourceId) {
   return normalizeClienteleProfileRow(rows?.[0] || null);
 }
 
+async function ensureLocataireClienteleProfile({ locataireId, email, cin, guests, contractSigned = false }) {
+  const normalizedLocataireId = String(locataireId || '').trim();
+  if (!normalizedLocataireId) return;
+  await ensureClientelesSchema();
+  const normalizedEmail = normalizeEmailForCompare(email);
+  const normalizedCin = normalizeIdentityNumber(cin || '');
+  let linkedUserId = null;
+
+  if (normalizedEmail) {
+    const [userRowsByEmail] = await pool.query(
+      `SELECT id
+       FROM utilisateurs
+       WHERE LOWER(TRIM(email)) = ?
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 1`,
+      [normalizedEmail]
+    );
+    linkedUserId = String(userRowsByEmail?.[0]?.id || '').trim() || null;
+  }
+
+  if (!linkedUserId && normalizedCin) {
+    const [userRowsByCin] = await pool.query(
+      `SELECT id
+       FROM utilisateurs
+       WHERE cin = ?
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 1`,
+      [normalizedCin]
+    );
+    linkedUserId = String(userRowsByCin?.[0]?.id || '').trim() || null;
+  }
+
+  const now = getAgencySqlDateTime();
+  const profileId = `cp_locataires_${normalizedLocataireId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+  await pool.query(
+    `INSERT INTO clienteles_profiles (
+      id, source_table, source_id, linked_user_id, email, global_status, active_roles_json,
+      locataire_status, loc_cin_validee, loc_contrat_signe, loc_nb_personnes, created_at, updated_at
+    ) VALUES (?, 'locataires', ?, ?, ?, 'prospect', ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      linked_user_id = COALESCE(VALUES(linked_user_id), linked_user_id),
+      email = COALESCE(VALUES(email), email),
+      active_roles_json = VALUES(active_roles_json),
+      locataire_status = COALESCE(locataire_status, VALUES(locataire_status)),
+      loc_cin_validee = GREATEST(loc_cin_validee, VALUES(loc_cin_validee)),
+      loc_contrat_signe = GREATEST(loc_contrat_signe, VALUES(loc_contrat_signe)),
+      loc_nb_personnes = COALESCE(VALUES(loc_nb_personnes), loc_nb_personnes),
+      updated_at = VALUES(updated_at)`,
+    [
+      profileId,
+      normalizedLocataireId,
+      linkedUserId,
+      normalizedEmail || null,
+      JSON.stringify(['locataire']),
+      contractSigned ? 'verification' : 'prospect',
+      normalizedCin ? 1 : 0,
+      contractSigned ? 1 : 0,
+      Number.isFinite(Number(guests)) ? Math.max(1, Number(guests)) : null,
+      now,
+      now,
+    ]
+  );
+}
+
 async function resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, proprietaireId, mode) {
   if (resolvedVisibleSurSite !== 1) return 0;
   const normalizedProprietaireId = String(proprietaireId || '').trim();
@@ -7845,7 +7909,7 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
   const normalizedName = String(name || '').trim();
   const rawCin = String(cin || '').trim();
   const normalizedCin = ['', 'n/a', 'na', 'null', '-', '--'].includes(rawCin.toLowerCase()) ? '' : rawCin;
-  if (!normalizedUserId && !normalizedEmail && !normalizedPhone) return null;
+  if (!normalizedUserId && !normalizedEmail && !normalizedPhone && !normalizedCin) return null;
 
   let existingRows = [];
   if (normalizedUserId) {
@@ -7881,18 +7945,33 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
 
   if (existingRows[0]) {
     const row = existingRows[0];
-    await pool.query(
-      `UPDATE locataires
-       SET nom = ?, telephone = ?, email = ?, cin = ?
-       WHERE id = ?`,
-      [
-        normalizedName || row.nom || 'Client',
-        normalizedPhone || row.telephone || null,
-        normalizedEmail || row.email || null,
-        normalizedCin || row.cin || null,
-        row.id,
-      ]
-    );
+    try {
+      await pool.query(
+        `UPDATE locataires
+         SET nom = ?, telephone = ?, email = ?, cin = ?
+         WHERE id = ?`,
+        [
+          normalizedName || row.nom || 'Client',
+          normalizedPhone || row.telephone || null,
+          normalizedEmail || row.email || null,
+          normalizedCin || row.cin || null,
+          row.id,
+        ]
+      );
+    } catch (error) {
+      const [fallbackRows] = await pool.query(
+        `SELECT id
+         FROM locataires
+         WHERE (? <> '' AND cin = ?)
+            OR (? <> '' AND email = ?)
+            OR (? <> '' AND telephone = ?)
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [normalizedCin, normalizedCin, normalizedEmail, normalizedEmail, normalizedPhone, normalizedPhone]
+      );
+      if (fallbackRows?.[0]?.id) return fallbackRows[0].id;
+      throw error;
+    }
     return row.id;
   }
 
@@ -7913,12 +7992,18 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
     );
   } catch (error) {
     const message = String(error?.message || '').toLowerCase();
-    if (message.includes('duplicate entry') && message.includes('locataires.cin') && normalizedCin) {
-      const [rowsByCin] = await pool.query(
-        `SELECT id FROM locataires WHERE cin = ? LIMIT 1`,
-        [normalizedCin]
+    if (message.includes('duplicate entry')) {
+      const [fallbackRows] = await pool.query(
+        `SELECT id
+         FROM locataires
+         WHERE (? <> '' AND cin = ?)
+            OR (? <> '' AND email = ?)
+            OR (? <> '' AND telephone = ?)
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [normalizedCin, normalizedCin, normalizedEmail, normalizedEmail, normalizedPhone, normalizedPhone]
       );
-      if (rowsByCin?.[0]?.id) return rowsByCin[0].id;
+      if (fallbackRows?.[0]?.id) return fallbackRows[0].id;
     }
     throw error;
   }
@@ -8785,6 +8870,9 @@ function formatReservationDemandRow(row) {
     payment_receipt_image_url: row.payment_receipt_image_url || null,
     payment_receipt_uploaded_at: row.payment_receipt_uploaded_at || null,
     payment_receipt_note: row.payment_receipt_note || null,
+    identity_document_type: row.identity_document_type || null,
+    identity_document_number: row.identity_document_number || null,
+    identity_document_image_url: row.resolved_identity_document_image_url || row.identity_document_image_url || null,
     owner_notified_at: row.owner_notified_at || null,
     owner_response_at: row.owner_response_at || null,
     client_confirmation_clicked_at: row.client_confirmation_clicked_at || null,
@@ -8813,6 +8901,20 @@ async function fetchReservationDemandDetailsById(demandId) {
        p.nom AS proprietaire_nom,
        a.name AS amicale_name,
        a.logo_url AS amicale_logo_url,
+       COALESCE(
+         NULLIF(TRIM(d.identity_document_image_url), ''),
+         (
+           SELECT u.cin_image_url
+           FROM utilisateurs u
+           WHERE (d.client_user_id IS NOT NULL AND d.client_user_id <> '' AND u.id = d.client_user_id)
+              OR (
+                d.client_email IS NOT NULL AND d.client_email <> ''
+                AND LOWER(TRIM(u.email)) = LOWER(TRIM(d.client_email))
+              )
+           ORDER BY (u.id = d.client_user_id) DESC, u.updated_at DESC, u.created_at DESC
+           LIMIT 1
+         )
+       ) AS resolved_identity_document_image_url,
        DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
        DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
        DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
@@ -13575,6 +13677,17 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     if (!locataireId) {
       return res.status(500).json({ error: 'Impossible de creer le profil locataire' });
     }
+    try {
+      await ensureLocataireClienteleProfile({
+        locataireId,
+        email,
+        cin: identityNumber,
+        guests: normalizedGuests,
+        contractSigned: true,
+      });
+    } catch (profileError) {
+      console.warn('Failed to sync locataire clientele profile for manual contract:', profileError?.message || profileError);
+    }
 
     const demandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const contractId = `c${Date.now()}`;
@@ -15415,6 +15528,20 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
         p.nom AS proprietaire_nom,
         c.url_pdf AS contract_url,
         c.owner_url_pdf AS owner_contract_url,
+        COALESCE(
+          NULLIF(TRIM(d.identity_document_image_url), ''),
+          (
+            SELECT u.cin_image_url
+            FROM utilisateurs u
+            WHERE (d.client_user_id IS NOT NULL AND d.client_user_id <> '' AND u.id = d.client_user_id)
+               OR (
+                 d.client_email IS NOT NULL AND d.client_email <> ''
+                 AND LOWER(TRIM(u.email)) = LOWER(TRIM(d.client_email))
+               )
+            ORDER BY (u.id = d.client_user_id) DESC, u.updated_at DESC, u.created_at DESC
+            LIMIT 1
+          )
+        ) AS resolved_identity_document_image_url,
         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
