@@ -13699,63 +13699,6 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
     );
     const owner = ownerRows[0] || null;
 
-    await pool.query(
-      `INSERT INTO reservation_demands (
-        id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, adult_guests, child_guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json,
-        variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at,
-        client_confirmation_clicked_at, identity_document_type, identity_document_number, identity_first_name, identity_last_name, identity_submitted_at,
-        contract_generated_at, admin_note, client_note, finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
-      [
-        demandId,
-        bienId,
-        'reservation',
-        unavailableDateId,
-        null,
-        email || null,
-        fullName,
-        bien.proprietaire_id || null,
-        null,
-        startDate,
-        endDate,
-        normalizedGuests,
-        balancedAdultGuests,
-        balancedChildGuests,
-        normalizedPaymentMode,
-        normalizedTotalAmount,
-        normalizedAmountDueNow,
-        JSON.stringify([]),
-        JSON.stringify([]),
-        JSON.stringify([]),
-        0,
-        'aucun',
-        'contrat_realise',
-        now,
-        now,
-        now,
-        identityDocType,
-        identityNumber || null,
-        firstName || null,
-        lastName || null,
-        now,
-        now,
-        'Reservation/contrat cree manuellement par administrateur',
-        client_note || null,
-        paymentDeadlineAt,
-        contractId,
-        normalizedPaymentId || null,
-        now,
-        now,
-      ]
-    );
-
-    await pool.query(
-      `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
-       VALUES (?, ?, ?, ?, 'booked', ?, NULL)`,
-      [unavailableDateId, bienId, startDate, endDate, demandId]
-    );
-
     const demandSnapshot = {
       id: demandId,
       bien_id: bienId,
@@ -13790,6 +13733,9 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
             .map(([key, value]) => [String(key || '').trim(), String(value ?? '').trim()])
             .filter(([key, value]) => key && value)
         )
+      : null;
+    const sanitizedCreationSteps = creation_steps && typeof creation_steps === 'object'
+      ? JSON.stringify(creation_steps)
       : null;
 
     const [contractUrl, ownerContractUrl] = await Promise.all([
@@ -13838,20 +13784,92 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       ...(sanitizedTemplateVars || {}),
     };
 
-    await pool.query(
-      `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, template_vars_json, creation_steps_json, origine, statut, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuel', 'actif', ?)`,
-      [contractId, bienId, locataireId, startDate, endDate, normalizedAmountDueNow, contractUrl, ownerContractUrl, JSON.stringify(templateVars), sanitizedCreationSteps, now]
-    );
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query(
+        `INSERT INTO reservation_demands (
+          id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
+          start_date, end_date, guests, adult_guests, child_guests, payment_mode, total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json,
+          variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status, owner_notified_at, owner_response_at,
+          client_confirmation_clicked_at, identity_document_type, identity_document_number, identity_first_name, identity_last_name, identity_submitted_at,
+          contract_generated_at, admin_note, client_note, finalization_due_at, contract_id, payment_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+        [
+          demandId,
+          bienId,
+          'reservation',
+          unavailableDateId,
+          null,
+          email || null,
+          fullName,
+          bien.proprietaire_id || null,
+          null,
+          startDate,
+          endDate,
+          normalizedGuests,
+          balancedAdultGuests,
+          balancedChildGuests,
+          normalizedPaymentMode,
+          normalizedTotalAmount,
+          normalizedAmountDueNow,
+          JSON.stringify([]),
+          JSON.stringify([]),
+          JSON.stringify([]),
+          0,
+          'aucun',
+          'contrat_realise',
+          now,
+          now,
+          now,
+          identityDocType,
+          identityNumber || null,
+          firstName || null,
+          lastName || null,
+          now,
+          now,
+          'Reservation/contrat cree manuellement par administrateur',
+          client_note || null,
+          paymentDeadlineAt,
+          contractId,
+          normalizedPaymentId || null,
+          now,
+          now,
+        ]
+      );
 
-    await appendReservationDemandHistory(
-      demandId,
-      'contrat_realise',
-      'admin',
-      String(req.authUser?.id || 'admin'),
-      `Contrat ${contractId} genere manuellement par administrateur`,
-      now
-    );
+      await connection.query(
+        `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+         VALUES (?, ?, ?, ?, 'booked', ?, NULL)`,
+        [unavailableDateId, bienId, startDate, endDate, demandId]
+      );
+
+      await connection.query(
+        `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, template_vars_json, creation_steps_json, origine, statut, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuel', 'actif', ?)`,
+        [contractId, bienId, locataireId, startDate, endDate, normalizedAmountDueNow, contractUrl, ownerContractUrl, JSON.stringify(templateVars), sanitizedCreationSteps, now]
+      );
+
+      await connection.commit();
+    } catch (transactionError) {
+      await connection.rollback();
+      throw transactionError;
+    } finally {
+      connection.release();
+    }
+
+    try {
+      await appendReservationDemandHistory(
+        demandId,
+        'contrat_realise',
+        'admin',
+        String(req.authUser?.id || 'admin'),
+        `Contrat ${contractId} genere manuellement par administrateur`,
+        now
+      );
+    } catch (historyError) {
+      console.warn('Failed to append manual contract history:', historyError?.message || historyError);
+    }
 
     res.status(201).json({
       reservation_demand_id: demandId,

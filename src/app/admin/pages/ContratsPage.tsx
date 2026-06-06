@@ -1764,14 +1764,14 @@ export default function ContratsPage() {
                 <p className="mt-1 text-sm text-gray-600">Generez d abord l apercu du contrat, verifiez le PDF, puis confirmez la creation definitive.</p>
               </div>
               <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-700">
-                <p><strong>Client:</strong> {manualFullName || '-'}</p>
+                <p><strong>Client:</strong> {manualLivePreview.fullName || '-'}</p>
                 <p><strong>Email:</strong> {manualEmail || '-'}</p>
-                <p><strong>Identite:</strong> {manualIdentityRef || '-'}</p>
-                <p><strong>Bien:</strong> {selectedBien ? `${selectedBien.reference || selectedBien.id} - ${selectedBien.titre || 'Bien'}` : '-'}</p>
-                <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
-                <p><strong>Total contrat:</strong> {resolvedManualTotal} DT</p>
-                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT</p>
-                <p><strong>Reste a payer:</strong> {resolvedManualBalance} DT</p>
+                <p><strong>Identite:</strong> {manualLivePreview.identityRef || '-'}</p>
+                <p><strong>Bien:</strong> {manualLivePreview.typeLogement || '-'}</p>
+                <p><strong>Periode:</strong> {manualLivePreview.arrivalDate || '-'} au {manualLivePreview.departureDate || '-'}</p>
+                <p><strong>Total contrat:</strong> {manualLivePreview.loyerTotal || `${resolvedManualTotal} DT`}</p>
+                <p><strong>A payer maintenant:</strong> {manualLivePreview.acompteReservation || `${resolvedManualDueNow} DT`}</p>
+                <p><strong>Reste a payer:</strong> {manualLivePreview.soldeArrivee || `${resolvedManualBalance} DT`}</p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <button
