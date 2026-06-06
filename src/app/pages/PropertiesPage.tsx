@@ -2037,9 +2037,20 @@ export default function PropertiesPage() {
       return Number(b.property.rating || 0) - Number(a.property.rating || 0);
     });
     if (primary.length === 0) {
-      primary = rows.filter((row) => row.strictTypeMatch && (!hasDateFilter || row.exactDateAvailable));
+      primary = rows.filter(
+        (row) =>
+          row.strictTypeMatch
+          && row.exactComfortMatch
+          && (!hasDateFilter || row.exactDateAvailable)
+      );
     }
-    if (primary.length === 0 && !hasDateFilter && !hasExplicitTypeFilter) {
+    if (
+      primary.length === 0
+      && !hasDateFilter
+      && !hasExplicitTypeFilter
+      && selectedComfortOptions.length === 0
+      && selectedSeasideOptions.length === 0
+    ) {
       primary = [...rows].sort((a, b) => b.score - a.score).slice(0, 12);
     } else {
       primary = primary.sort((a, b) => {

@@ -2509,7 +2509,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           const matchMainType = selectedMainTypes.length === 0 || selectedMainTypes.includes(propertyMainType);
           const matchSubType = selectedSubTypeMatchKeys.length === 0 || selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey);
           const matchSeaside = selectedSeasideOptions.length === 0 || selectedSeasideOptions.some((option) => propertyMatchesSeasideOption(property, option));
-          const matchComfort = selectedComfortOptions.length === 0 || selectedComfortOptions.some((option) => propertyMatchesComfortOption(property, option));
+          const matchComfort = selectedComfortOptions.length === 0 || selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
           const matchStay =
             !shouldFilterByStay
             || validStayRanges.some((range) => !hasBlockingUnavailableDates(property.unavailableDates || [], range.start, range.end));
