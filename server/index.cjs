@@ -17330,6 +17330,7 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
   let reservationPaidAt = current.reservation_payment_paid_at || null;
   let servicesPaidAt = current.services_payment_paid_at || null;
   let variableServicesQuoteStatus = current.variable_services_quote_status || null;
+  let paidAmount = 0;
 
   if ((scope === 'reservation' || scope === 'combined') && !reservationAlreadyPaid && reservationAmount > 0) {
     reservationPaymentId = `${explicitPaymentIdPrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
@@ -17338,6 +17339,7 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
       [reservationPaymentId, current.contract_id, reservationAmount, now, 'paye', safeMethod]
     );
     reservationPaidAt = now;
+    paidAmount += reservationAmount;
   }
 
   if ((scope === 'services' || scope === 'combined') && servicesQuoteIsPayable && !servicesAlreadyPaid) {
@@ -17348,6 +17350,7 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
     );
     servicesPaidAt = now;
     variableServicesQuoteStatus = 'paye';
+    paidAmount += servicesAmount;
   }
 
   const reservationIsPaidAfterUpdate = !!reservationPaymentId;
@@ -17378,6 +17381,16 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
       demandId,
     ]
   );
+
+  if (current.contract_id && paidAmount > 0) {
+    await pool.query(
+      `UPDATE contrats
+       SET montant_recu = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [paidAmount, now, current.contract_id]
+    );
+  }
 
   const paidParts = [];
   if (scope === 'combined') {

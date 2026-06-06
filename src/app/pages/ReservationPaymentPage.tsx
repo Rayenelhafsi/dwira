@@ -58,6 +58,7 @@ export default function ReservationPaymentPage() {
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
   const [startingClickToPayScope, setStartingClickToPayScope] = useState<PaymentScope | null>(null);
   const [confirmingClickToPay, setConfirmingClickToPay] = useState(false);
+  const [redirectHomeAfterSuccess, setRedirectHomeAfterSuccess] = useState(false);
   const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: "",
@@ -209,9 +210,10 @@ export default function ReservationPaymentPage() {
         });
         setCenterSuccess({
           open: true,
-          title: "Paiement confirme",
-          message: "Votre paiement Click to Pay a ete confirme avec succes.",
+          title: "Réservation confirmée",
+          message: "Votre paiement Click to Pay a ete confirme avec succes. Merci pour votre confiance.",
         });
+        setRedirectHomeAfterSuccess(true);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Click to Pay impossible");
       } finally {
@@ -227,7 +229,15 @@ export default function ReservationPaymentPage() {
   }, [confirmingClickToPay, demand?.id, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (!demand || statusPopupShown) return;
+    if (!redirectHomeAfterSuccess || !centerSuccess.open) return;
+    const timeoutId = window.setTimeout(() => {
+      navigate("/", { replace: true });
+    }, 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [centerSuccess.open, navigate, redirectHomeAfterSuccess]);
+
+  useEffect(() => {
+    if (!demand || statusPopupShown || redirectHomeAfterSuccess) return;
     if (String(demand.status || "") === "succes_paiement") {
       setCenterSuccess({
         open: true,
@@ -236,7 +246,7 @@ export default function ReservationPaymentPage() {
       });
       setStatusPopupShown(true);
     }
-  }, [demand, statusPopupShown]);
+  }, [demand, redirectHomeAfterSuccess, statusPopupShown]);
 
   const paymentSummary = useMemo(() => {
     if (!demand) return null;
@@ -504,7 +514,10 @@ export default function ReservationPaymentPage() {
         open={centerSuccess.open}
         title={centerSuccess.title}
         message={centerSuccess.message}
-        onClose={() => setCenterSuccess({ open: false, title: "", message: "" })}
+        onClose={() => {
+          setCenterSuccess({ open: false, title: "", message: "" });
+          setRedirectHomeAfterSuccess(false);
+        }}
       />
       <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
       <div className="container mx-auto max-w-5xl px-4 md:px-6">

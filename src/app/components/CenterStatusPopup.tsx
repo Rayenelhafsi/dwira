@@ -30,15 +30,22 @@ export default function CenterStatusPopup({
       >
         <div className="flex items-start gap-3">
           <div
-            className={`mt-0.5 rounded-full p-2 ${
+            className={`relative mt-0.5 flex h-12 w-12 items-center justify-center rounded-full ${
               success ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
             }`}
           >
-            {success ? <CheckCircle2 className="h-6 w-6" /> : <XCircle className="h-6 w-6" />}
+            {success ? (
+              <>
+                <span className="absolute inset-0 rounded-full bg-emerald-200/60 animate-[successPulse_1.4s_ease-out_infinite]" />
+                <CheckCircle2 className="relative h-7 w-7 animate-[successCheck_.36s_ease-out]" />
+              </>
+            ) : (
+              <XCircle className="h-6 w-6" />
+            )}
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-bold text-gray-900">{title}</h3>
-            <p className="mt-1 text-sm text-gray-600">{message}</p>
+            <p className={`mt-1 text-sm ${success ? "text-emerald-700" : "text-gray-600"}`}>{message}</p>
           </div>
         </div>
         <div className="mt-5 flex justify-end">
@@ -58,8 +65,16 @@ export default function CenterStatusPopup({
           0% { transform: scale(0.92); opacity: 0; }
           100% { transform: scale(1); opacity: 1; }
         }
+        @keyframes successPulse {
+          0% { transform: scale(0.85); opacity: 0.9; }
+          70% { transform: scale(1.15); opacity: 0.15; }
+          100% { transform: scale(1.25); opacity: 0; }
+        }
+        @keyframes successCheck {
+          0% { transform: scale(0.55) rotate(-10deg); opacity: 0; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
       `}</style>
     </div>
   );
 }
-
