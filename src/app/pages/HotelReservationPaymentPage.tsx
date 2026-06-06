@@ -53,7 +53,7 @@ export default function HotelReservationPaymentPage() {
   const [startingClickToPay, setStartingClickToPay] = useState(false);
   const [confirmingClickToPay, setConfirmingClickToPay] = useState(false);
   const [redirectHomeAfterSuccess, setRedirectHomeAfterSuccess] = useState(false);
-  const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
+  const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string; tone?: "success" | "error" }>({
     open: false,
     title: "",
     message: "",
@@ -92,7 +92,15 @@ export default function HotelReservationPaymentPage() {
     const flow = String(searchParams.get("flouci_flow") || "").trim().toLowerCase();
     if (!paymentId && !flow) return;
     if (flow === "fail") {
-      toast.error("Paiement Flouci annule ou echoue.");
+      const reason = String(searchParams.get("reason") || "").trim();
+      setCenterSuccess({
+        open: true,
+        title: "Paiement échoué",
+        message: reason
+          ? `Votre paiement Flouci a échoué. Motif : ${reason}. Merci de réessayer une autre fois.`
+          : "Votre paiement Flouci a échoué. Merci de réessayer une autre fois.",
+        tone: "error",
+      });
       const next = new URLSearchParams(searchParams);
       next.delete("flouci_payment_id");
       next.delete("flouci_flow");
@@ -131,7 +139,7 @@ export default function HotelReservationPaymentPage() {
         setCenterSuccess({
           open: true,
           title: "Paiement confirme",
-          message: "Votre paiement Flouci a ete confirme avec succes.",
+          message: "Votre paiement Flouci a été confirmé avec succès.",
         });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Flouci impossible");
@@ -152,7 +160,14 @@ export default function HotelReservationPaymentPage() {
     if (!payment || !hotelDemandId || hotelDemandId !== demand.id) return;
     if (payment === "failed") {
       const reason = String(searchParams.get("reason") || "").trim();
-      toast.error(reason || "Paiement Click to Pay annule ou echoue.");
+      setCenterSuccess({
+        open: true,
+        title: "Paiement échoué",
+        message: reason
+          ? `Votre paiement Click to Pay a échoué. Motif : ${reason}. Merci de réessayer une autre fois.`
+          : "Votre paiement Click to Pay a échoué. Merci de réessayer une autre fois.",
+        tone: "error",
+      });
       const next = new URLSearchParams(searchParams);
       next.delete("payment");
       next.delete("reason");
@@ -193,7 +208,7 @@ export default function HotelReservationPaymentPage() {
         setCenterSuccess({
           open: true,
           title: "Réservation confirmée",
-          message: "Votre paiement Click to Pay a ete confirme avec succes. Merci pour votre confiance.",
+          message: "Votre paiement Click to Pay a été confirmé avec succès. Merci pour votre confiance.",
         });
         setRedirectHomeAfterSuccess(true);
       } catch (error) {
@@ -211,7 +226,7 @@ export default function HotelReservationPaymentPage() {
   }, [confirmingClickToPay, demand?.id, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (!redirectHomeAfterSuccess || !centerSuccess.open) return;
+    if (!redirectHomeAfterSuccess || !centerSuccess.open || centerSuccess.tone === "error") return;
     const timeoutId = window.setTimeout(() => {
       navigate("/", { replace: true });
     }, 2200);
@@ -223,8 +238,8 @@ export default function HotelReservationPaymentPage() {
     if (String(demand.status || "") === "voucher_en_cours" || String(demand.status || "") === "voucher_envoye") {
       setCenterSuccess({
         open: true,
-        title: "Paiement termine",
-        message: "Votre paiement est confirme. Votre voucher est en traitement.",
+        title: "Paiement terminé",
+        message: "Votre paiement est confirmé. Votre voucher est en traitement.",
       });
       setStatusPopupShown(true);
     }
@@ -394,6 +409,7 @@ export default function HotelReservationPaymentPage() {
         open={centerSuccess.open}
         title={centerSuccess.title}
         message={centerSuccess.message}
+        tone={centerSuccess.tone || "success"}
         onClose={() => {
           setCenterSuccess({ open: false, title: "", message: "" });
           setRedirectHomeAfterSuccess(false);
@@ -417,7 +433,7 @@ export default function HotelReservationPaymentPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Paiement hotel</p>
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Finaliser votre reservation hotel</h1>
             <p className="mt-2 text-sm text-gray-500">
-              Votre demande est bien enregistree. Finalisez maintenant le paiement pour lancer le traitement du voucher.
+              Votre demande est bien enregistrée. Finalisez maintenant le paiement pour lancer le traitement du voucher.
             </p>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -448,7 +464,7 @@ export default function HotelReservationPaymentPage() {
 
               <div className="rounded-[24px] border border-sky-200 bg-sky-50 px-5 py-5">
                 <p className="text-sm font-semibold text-sky-800">Paiement en ligne Click to Pay</p>
-                <p className="mt-1 text-sm text-sky-700">Ouvrez la passerelle bancaire puis revenez automatiquement ici apres paiement. Le statut est revérifié avant validation finale.</p>
+                <p className="mt-1 text-sm text-sky-700">Ouvrez la passerelle bancaire puis revenez automatiquement ici après paiement. Le statut est revérifié avant validation finale.</p>
                 <button
                   type="button"
                   disabled={!isClickToPayActionable}

@@ -59,10 +59,11 @@ export default function ReservationPaymentPage() {
   const [startingClickToPayScope, setStartingClickToPayScope] = useState<PaymentScope | null>(null);
   const [confirmingClickToPay, setConfirmingClickToPay] = useState(false);
   const [redirectHomeAfterSuccess, setRedirectHomeAfterSuccess] = useState(false);
-  const [centerSuccess, setCenterSuccess] = useState<{ open: boolean; title: string; message: string }>({
+  const [centerFeedback, setCenterFeedback] = useState<{ open: boolean; title: string; message: string; tone?: "success" | "error" }>({
     open: false,
     title: "",
     message: "",
+    tone: "success",
   });
   const [statusPopupShown, setStatusPopupShown] = useState(false);
   const showClickToPayBlock = true;
@@ -103,7 +104,15 @@ export default function ReservationPaymentPage() {
     const flow = String(searchParams.get("flouci_flow") || "").trim().toLowerCase();
     if (!paymentId && !flow) return;
     if (flow === "fail") {
-      toast.error("Paiement Flouci annule ou echoue.");
+      const reason = String(searchParams.get("reason") || "").trim();
+      setCenterFeedback({
+        open: true,
+        title: "Paiement échoué",
+        message: reason
+          ? `Votre paiement Flouci a échoué. Motif : ${reason}. Merci de réessayer une autre fois.`
+          : "Votre paiement Flouci a échoué. Merci de réessayer une autre fois.",
+        tone: "error",
+      });
       const next = new URLSearchParams(searchParams);
       next.delete("flouci_payment_id");
       next.delete("flouci_flow");
@@ -144,10 +153,11 @@ export default function ReservationPaymentPage() {
               : String(user?.id || ''),
           },
         });
-        setCenterSuccess({
+        setCenterFeedback({
           open: true,
           title: "Paiement confirme",
-          message: "Votre paiement Flouci a ete confirme avec succes.",
+          message: "Votre paiement Flouci a été confirmé avec succès.",
+          tone: "success",
         });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Confirmation Flouci impossible");
@@ -170,7 +180,14 @@ export default function ReservationPaymentPage() {
     if (!payment || !reservationDemandId || reservationDemandId !== demand.id) return;
     if (payment === "failed") {
       const reason = String(searchParams.get("reason") || "").trim();
-      toast.error(reason || "Paiement Click to Pay annule ou echoue.");
+      setCenterFeedback({
+        open: true,
+        title: "Paiement échoué",
+        message: reason
+          ? `Votre paiement Click to Pay a échoué. Motif : ${reason}. Merci de réessayer une autre fois.`
+          : "Votre paiement Click to Pay a échoué. Merci de réessayer une autre fois.",
+        tone: "error",
+      });
       const next = new URLSearchParams(searchParams);
       next.delete("payment");
       next.delete("reason");
@@ -208,10 +225,10 @@ export default function ReservationPaymentPage() {
               : String(user?.id || ''),
           },
         });
-        setCenterSuccess({
+        setCenterFeedback({
           open: true,
           title: "Réservation confirmée",
-          message: "Votre paiement Click to Pay a ete confirme avec succes. Merci pour votre confiance.",
+          message: "Votre paiement Click to Pay a été confirmé avec succès. Merci pour votre confiance.",
         });
         setRedirectHomeAfterSuccess(true);
       } catch (error) {
@@ -229,20 +246,20 @@ export default function ReservationPaymentPage() {
   }, [confirmingClickToPay, demand?.id, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (!redirectHomeAfterSuccess || !centerSuccess.open) return;
+    if (!redirectHomeAfterSuccess || !centerFeedback.open || centerFeedback.tone === "error") return;
     const timeoutId = window.setTimeout(() => {
       navigate("/", { replace: true });
     }, 2200);
     return () => window.clearTimeout(timeoutId);
-  }, [centerSuccess.open, navigate, redirectHomeAfterSuccess]);
+  }, [centerFeedback.open, centerFeedback.tone, navigate, redirectHomeAfterSuccess]);
 
   useEffect(() => {
     if (!demand || statusPopupShown || redirectHomeAfterSuccess) return;
     if (String(demand.status || "") === "succes_paiement") {
-      setCenterSuccess({
+      setCenterFeedback({
         open: true,
-        title: "Paiement termine",
-        message: "Votre reservation est finalisee avec succes.",
+        title: "Paiement terminé",
+        message: "Votre réservation est finalisée avec succès.",
       });
       setStatusPopupShown(true);
     }
@@ -331,15 +348,15 @@ export default function ReservationPaymentPage() {
             : String(user?.id || ''),
         },
       });
-      setCenterSuccess({
+      setCenterFeedback({
         open: true,
-        title: "Paiement enregistre",
+        title: "Paiement enregistré",
         message:
           scope === "combined"
-            ? "Paiement reservation + services enregistre."
+            ? "Paiement réservation + services enregistré."
             : scope === "services"
-              ? "Paiement des services enregistre."
-              : "Paiement de la reservation enregistre.",
+              ? "Paiement des services enregistré."
+              : "Paiement de la réservation enregistré.",
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Paiement impossible");
@@ -463,7 +480,7 @@ export default function ReservationPaymentPage() {
       setReceiptFile(null);
       setReceiptNote("");
       setPaymentReference("");
-      setCenterSuccess({
+      setCenterFeedback({
         open: true,
         title: "Recu envoye",
         message: "Admin traite votre demande.",
@@ -511,11 +528,12 @@ export default function ReservationPaymentPage() {
   return (
     <>
       <CenterStatusPopup
-        open={centerSuccess.open}
-        title={centerSuccess.title}
-        message={centerSuccess.message}
+        open={centerFeedback.open}
+        title={centerFeedback.title}
+        message={centerFeedback.message}
+        tone={centerFeedback.tone || "success"}
         onClose={() => {
-          setCenterSuccess({ open: false, title: "", message: "" });
+          setCenterFeedback({ open: false, title: "", message: "", tone: "success" });
           setRedirectHomeAfterSuccess(false);
         }}
       />
