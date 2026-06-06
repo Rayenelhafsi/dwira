@@ -105,6 +105,8 @@ export interface Property {
     vueMer?: boolean;
     prochePlage?: boolean;
     distancePlageM?: number | null;
+    piscinePrivee?: boolean;
+    piscinePartagee?: boolean;
     exterieurJardin?: string[];
     confortEquipementsInterieurs?: string[];
   };

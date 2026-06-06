@@ -523,8 +523,17 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   const interieur = Array.isArray(sc?.confortEquipementsInterieurs) ? sc.confortEquipementsInterieurs.map((item: string) => normalizeFeatureName(item)) : [];
   const hasExteriorAny = (...tokens: string[]) => tokens.some((token) => exterieur.some((value: string) => value.includes(normalizeFeatureName(token))));
   const hasInteriorAny = (...tokens: string[]) => tokens.some((token) => interieur.some((value: string) => value.includes(normalizeFeatureName(token))));
-  const hasPoolToken = (...tokens: string[]) =>
-    hasExteriorAny(...tokens) || hasStructuredAny(...tokens) || hasAny(...tokens);
+  const hasPrivatePool = Boolean(sc?.piscinePrivee) || hasExteriorAny("piscine privee", "piscine privée");
+  const hasSharedPool = Boolean(sc?.piscinePartagee) || hasExteriorAny(
+    "piscine partagee",
+    "piscine partagée",
+    "piscine commune",
+    "piscine collective",
+    "piscine residence",
+    "piscine résidence",
+    "en residence",
+    "en résidence"
+  );
   if (option === "climatise") return Boolean(sc?.climatisation) || hasInteriorAny("climatise", "climatisation") || hasAny("climatise", "climatisation");
   if (option === "toutes_pieces_climatisees") {
     return hasInteriorAny("toutes les pieces climatisees", "toutes pieces climatisees")
@@ -536,23 +545,10 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
     );
   }
   if (option === "piscine_privee") {
-    return hasPoolToken("piscine privee", "piscine privée")
-      || (
-        hasPoolToken("piscine")
-        && !hasPoolToken("piscine partagee", "piscine partagée", "piscine commune", "piscine collective", "piscine residence", "piscine résidence", "en residence", "en résidence")
-      );
+    return hasPrivatePool;
   }
   if (option === "piscine_partagee") {
-    return hasPoolToken(
-      "piscine partagee",
-      "piscine partagée",
-      "piscine commune",
-      "piscine collective",
-      "piscine residence",
-      "piscine résidence",
-      "en residence",
-      "en résidence"
-    );
+    return hasSharedPool;
   }
   if (option === "rdc") {
     const etageRaw = getPropertyFloorRaw(property);

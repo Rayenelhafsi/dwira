@@ -517,6 +517,26 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     caracteristiques: bien.caracteristiques,
   });
   const seasonalRawConfig = bien.location_saisonniere_config || {};
+  const poolSignalValues = [
+    ...(Array.isArray((seasonalRawConfig as any)?.exterieur_jardin) ? (seasonalRawConfig as any).exterieur_jardin : []),
+    ...(Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []),
+    ...Object.values(bien.caracteristique_valeurs || {}).flatMap((value) => Array.isArray(value) ? value : [value]),
+  ]
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter(Boolean);
+  const hasPoolSignal = (...tokens: string[]) =>
+    poolSignalValues.some((value) => tokens.some((token) => value.includes(String(token || '').trim().toLowerCase())));
+  const hasPrivatePool = hasPoolSignal('piscine privee', 'piscine privée');
+  const hasSharedPool = hasPoolSignal(
+    'piscine partagee',
+    'piscine partagée',
+    'piscine commune',
+    'piscine collective',
+    'piscine residence',
+    'piscine résidence',
+    'en residence',
+    'en résidence'
+  );
   const seasonalMaxGuests = Number(
     (seasonalRawConfig as any)?.limite_personnes_nuit
     ?? (seasonalRawConfig as any)?.limitePersonnesNuit
@@ -713,6 +733,8 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
       distancePlageM:
         bien.distance_plage_m
         ?? ((bien.location_saisonniere_config as any)?.distance_plage_m ?? null),
+      piscinePrivee: hasPrivatePool,
+      piscinePartagee: hasSharedPool,
       exterieurJardin: Array.isArray((bien.location_saisonniere_config as any)?.exterieur_jardin)
         ? (bien.location_saisonniere_config as any).exterieur_jardin.map((item: any) => String(item || '').trim()).filter(Boolean)
         : [],
