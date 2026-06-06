@@ -8,6 +8,7 @@
     "build": "vite build",
     "dev": "vite",
     "server": "node server/index.cjs",
+    "ctp:test": "node scripts/clicktopay-manual-test.cjs",
     "db:migrate": "node scripts/apply-migrations.cjs",
     "sync:caracteristiques": "node scripts/sync-caracteristiques-from-vps.cjs",
     "predeploy": "npm run build",

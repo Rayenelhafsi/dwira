@@ -10,6 +10,19 @@ import CenterStatusPopup from "../components/CenterStatusPopup";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
+function openExternalCheckout(url: string) {
+  const target = String(url || "").trim();
+  if (!target) return;
+  const anchor = document.createElement("a");
+  anchor.href = target;
+  anchor.rel = "noopener noreferrer";
+  anchor.target = "_self";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.location.replace(target);
+}
+
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -280,7 +293,7 @@ export default function HotelReservationPaymentPage() {
       const payload = await response.json();
       const checkoutUrl = String(payload?.checkout_url || "").trim();
       if (!checkoutUrl) throw new Error("Lien checkout Flouci manquant");
-      window.location.assign(checkoutUrl);
+      openExternalCheckout(checkoutUrl);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Creation session Flouci impossible");
     } finally {
@@ -316,7 +329,7 @@ export default function HotelReservationPaymentPage() {
       const payload = await response.json();
       const checkoutUrl = String(payload?.checkout_url || "").trim();
       if (!checkoutUrl) throw new Error("Lien checkout Click to Pay manquant");
-      window.location.assign(checkoutUrl);
+      openExternalCheckout(checkoutUrl);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Creation session Click to Pay impossible");
     } finally {

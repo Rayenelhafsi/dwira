@@ -48,6 +48,7 @@ const CLICKTOPAY_PASSWORD = String(process.env.CLICKTOPAY_PASSWORD || '').trim()
 const CLICKTOPAY_CURRENCY = String(process.env.CLICKTOPAY_CURRENCY || '788').trim() || '788';
 const CLICKTOPAY_LANGUAGE = String(process.env.CLICKTOPAY_LANGUAGE || 'fr').trim().toLowerCase() || 'fr';
 const CLICKTOPAY_PAGE_VIEW_DEFAULT = String(process.env.CLICKTOPAY_PAGE_VIEW || 'DESKTOP').trim().toUpperCase() || 'DESKTOP';
+const CLICKTOPAY_ALLOW_MOBILE_PAGE = String(process.env.CLICKTOPAY_ALLOW_MOBILE_PAGE || '').trim().toLowerCase() === 'true';
 const CLICKTOPAY_CA_CERT_PATH = String(process.env.CLICKTOPAY_CA_CERT_PATH || '').trim();
 const CLICKTOPAY_CA_CERT_PEM = String(process.env.CLICKTOPAY_CA_CERT_PEM || '').trim();
 const MOBILE_FLOW_DEBUG = String(process.env.MOBILE_FLOW_DEBUG || '').trim().toLowerCase() === 'true';
@@ -173,9 +174,24 @@ function normalizeClickToPayAmount(amountTnd) {
 
 function buildClickToPayPageView(req) {
   const configured = ['DESKTOP', 'MOBILE'].includes(CLICKTOPAY_PAGE_VIEW_DEFAULT) ? CLICKTOPAY_PAGE_VIEW_DEFAULT : 'DESKTOP';
-  const ua = String(req?.get?.('user-agent') || '').toLowerCase();
-  if (/iphone|ipad|android|mobile/.test(ua)) return 'MOBILE';
+  if (configured === 'MOBILE' && CLICKTOPAY_ALLOW_MOBILE_PAGE) return 'MOBILE';
   return configured;
+}
+
+function normalizeClickToPayCheckoutUrl(rawUrl) {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '';
+  try {
+    const target = new URL(value);
+    target.pathname = target.pathname
+      .replace(/^\/epg\/merchants\//i, '/payment/merchants/')
+      .replace(/\/mobile_payment\.html$/i, '/payment.html');
+    return target.toString();
+  } catch {
+    return value
+      .replace('/epg/merchants/', '/payment/merchants/')
+      .replace('/mobile_payment.html', '/payment.html');
+  }
 }
 
 function buildClickToPayOrderNumber(demandId) {
@@ -4724,7 +4740,7 @@ app.post('/api/hotel-reservation-demands/:id/clicktopay/create-checkout', requir
       pageView: buildClickToPayPageView(req),
     });
     const orderId = String(registration?.orderId || '').trim();
-    const formUrl = String(registration?.formUrl || '').trim();
+    const formUrl = normalizeClickToPayCheckoutUrl(registration?.formUrl);
     if (!orderId || !formUrl) {
       return res.status(502).json({ error: 'Reponse Click to Pay incomplete (orderId/formUrl manquant)' });
     }
@@ -17898,7 +17914,7 @@ app.post('/api/reservation-demands/:id/clicktopay/create-checkout', requireAuthe
       pageView: buildClickToPayPageView(req),
     };
     const generated = await clickToPayRegisterOrder(payload);
-    const formUrl = String(generated?.formUrl || '').trim();
+    const formUrl = normalizeClickToPayCheckoutUrl(generated?.formUrl);
     const orderId = String(generated?.orderId || generated?.mdOrder || '').trim();
     if (!formUrl || !orderId) {
       return res.status(502).json({ error: 'Reponse ClickToPay incomplete (formUrl/orderId manquant)' });
