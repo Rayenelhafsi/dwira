@@ -13542,6 +13542,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       service_3,
       prix_service_3,
       template_vars,
+      creation_steps,
     } = req.body || {};
 
     const bienId = String(bien_id || '').trim();
@@ -13691,6 +13692,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
 
     const demandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const contractId = `c${Date.now()}`;
+    const unavailableDateId = `ud_manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const [ownerRows] = await pool.query(
       'SELECT id, nom, email FROM proprietaires WHERE id = ? LIMIT 1',
       [bien.proprietaire_id || '']
