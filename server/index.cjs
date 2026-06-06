@@ -19005,6 +19005,12 @@ async function ensureReservationDemandSchema() {
       flouci_status VARCHAR(40) NULL,
       flouci_checkout_url VARCHAR(700) NULL,
       flouci_verified_at DATETIME NULL,
+      clicktopay_scope VARCHAR(20) NULL,
+      clicktopay_payment_id VARCHAR(120) NULL,
+      clicktopay_order_number VARCHAR(120) NULL,
+      clicktopay_status VARCHAR(40) NULL,
+      clicktopay_checkout_url VARCHAR(700) NULL,
+      clicktopay_paid_at DATETIME NULL,
       payment_receipt_image_url VARCHAR(500) NULL,
       payment_receipt_uploaded_at DATETIME NULL,
       payment_receipt_note TEXT NULL,
@@ -19167,8 +19173,26 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'flouci_verified_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN flouci_verified_at DATETIME NULL AFTER flouci_checkout_url');
   }
+  if (!(await columnExists('reservation_demands', 'clicktopay_scope'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN clicktopay_scope VARCHAR(20) NULL AFTER flouci_verified_at');
+  }
+  if (!(await columnExists('reservation_demands', 'clicktopay_payment_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN clicktopay_payment_id VARCHAR(120) NULL AFTER clicktopay_scope');
+  }
+  if (!(await columnExists('reservation_demands', 'clicktopay_order_number'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN clicktopay_order_number VARCHAR(120) NULL AFTER clicktopay_payment_id');
+  }
+  if (!(await columnExists('reservation_demands', 'clicktopay_status'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN clicktopay_status VARCHAR(40) NULL AFTER clicktopay_order_number');
+  }
+  if (!(await columnExists('reservation_demands', 'clicktopay_checkout_url'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN clicktopay_checkout_url VARCHAR(700) NULL AFTER clicktopay_status');
+  }
+  if (!(await columnExists('reservation_demands', 'clicktopay_paid_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN clicktopay_paid_at DATETIME NULL AFTER clicktopay_checkout_url');
+  }
   if (!(await columnExists('reservation_demands', 'payment_receipt_image_url'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_image_url VARCHAR(500) NULL AFTER services_payment_paid_at');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_image_url VARCHAR(500) NULL AFTER clicktopay_paid_at');
   }
   if (!(await columnExists('reservation_demands', 'payment_receipt_uploaded_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_uploaded_at DATETIME NULL AFTER payment_receipt_image_url');
