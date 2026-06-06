@@ -10019,7 +10019,7 @@ async function generateReservationClientContractHtmlLegacy({
   return `/contracts/${fileName}`;
 }
 
-async function generateReservationClientContractPdf({
+async function buildReservationClientContractTemplateVars({
   demand,
   bien,
   contractId,
@@ -10032,20 +10032,7 @@ async function generateReservationClientContractPdf({
   identityFirstName,
   identityLastName,
   cautionAmount,
-  templateVars = null,
 }) {
-  const contractsDir = path.join(__dirname, 'contracts');
-  if (!fs.existsSync(contractsDir)) {
-    fs.mkdirSync(contractsDir, { recursive: true });
-  }
-  const fileName = `contract-client-${contractId}.pdf`;
-  const filePath = path.join(contractsDir, fileName);
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595, 842]); // A4
-  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const color = rgb(0, 0, 0);
-
   const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
   const childGuests = Math.max(0, Number(demand.child_guests || 0));
   const totalGuests = Math.max(1, Number(demand.guests || (adultGuests + childGuests) || 1));
@@ -10164,10 +10151,6 @@ async function generateReservationClientContractPdf({
       .map((row) => String(row || '').trim())
       .filter(Boolean))
   ).join(', ') || 'Equipements non renseignes';
-  const repartitionVoyageurs = childGuests > 0
-    ? `Adultes ${adultGuests} / Enfants ${childGuests}`
-    : `Adultes ${adultGuests}`;
-  const nights = computeNights(demand.start_date, demand.end_date);
   const loyerTotal = formatAmountTndRaw(reservationTotal);
   const acompteReservation = formatAmountTndRaw(amountNow);
   const soldeArrivee = formatAmountTndRaw(balance);
@@ -10194,7 +10177,110 @@ async function generateReservationClientContractPdf({
   const caution = Number.isFinite(Number(cautionAmount))
     ? Number(cautionAmount)
     : (Number.isFinite(Number(bien?.caution)) ? Number(bien.caution) : 0);
-  const phoneCandidate = String(demand?.client_phone || demand?.client_telephone || demand?.phone || '').trim();
+
+  let userPhone = String(demand?.client_phone || demand?.client_telephone || demand?.phone || '').trim();
+  let userAddress = String(demand?.client_address || demand?.address || '').trim();
+  const normalizedClientEmail = normalizeEmailForCompare(demand?.client_email || '');
+  if (!userPhone || !userAddress) {
+    const [userRows] = await pool.query(
+      `SELECT telephone, address
+       FROM utilisateurs
+       WHERE id = ? OR (email = ? AND ? <> '')
+       LIMIT 1`,
+      [String(demand?.client_user_id || '').trim(), normalizedClientEmail, normalizedClientEmail]
+    );
+    const userRow = userRows?.[0] || null;
+    if (!userPhone && userRow?.telephone) userPhone = String(userRow.telephone || '').trim();
+    if (!userAddress && userRow?.address) userAddress = String(userRow.address || '').trim();
+    if (!userAddress) {
+      try {
+        const [locRows] = await pool.query(
+          `SELECT adresse
+           FROM locataires
+           WHERE email = ? AND ? <> ''
+           LIMIT 1`,
+          [normalizedClientEmail, normalizedClientEmail]
+        );
+        if (locRows?.[0]?.adresse) userAddress = String(locRows[0].adresse || '').trim();
+      } catch (_) {
+        // Some deployments may not have locataires.adresse yet.
+      }
+    }
+  }
+
+  return {
+    fullName,
+    identityRef,
+    userAddress: userAddress || '-',
+    userPhone: userPhone || '-',
+    typeLogement: contractTypeLogementValue,
+    adresseBien: adresseBien || '-',
+    capacite: String(totalGuests),
+    adultes: `${String(adultGuests)} adulte(s)`,
+    enfants: `${String(Math.max(0, Number(childGuests || 0)))} enfant(s)`,
+    equipementsBien: equipementsBienValue,
+    jj1: startDay,
+    mm1: startMonth,
+    jj2: endDay,
+    mm2: endMonth,
+    heureArrivee: heureArrivee || '-',
+    heureDepart: heureDepart || '-',
+    loyerTotal: `${loyerTotal} TND`,
+    acompteReservation: `${acompteReservation} TND`,
+    jjp: finalDay,
+    mmp: finalMonth,
+    hhp: finalHour,
+    minp: finalMinute,
+    idPaiement: idPaiement || '-',
+    soldeArrivee: `${soldeArrivee} TND`,
+    modePaiement,
+    caution: `${formatAmountTndRaw(caution)}`,
+    VS: villeSignature,
+    JJs: jourSignature,
+    MMS: moisSignature,
+  };
+}
+
+async function generateReservationClientContractPdf({
+  demand,
+  bien,
+  contractId,
+  contractCreatedAt,
+  totalAmount,
+  amountDueNow,
+  paymentMode,
+  identityNumber,
+  identityDocumentType,
+  identityFirstName,
+  identityLastName,
+  cautionAmount,
+  templateVars = null,
+}) {
+  const contractsDir = path.join(__dirname, 'contracts');
+  if (!fs.existsSync(contractsDir)) {
+    fs.mkdirSync(contractsDir, { recursive: true });
+  }
+  const fileName = `contract-client-${contractId}.pdf`;
+  const filePath = path.join(contractsDir, fileName);
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([595, 842]); // A4
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const color = rgb(0, 0, 0);
+  const defaultTemplateVars = await buildReservationClientContractTemplateVars({
+    demand,
+    bien,
+    contractId,
+    contractCreatedAt,
+    totalAmount,
+    amountDueNow,
+    paymentMode,
+    identityNumber,
+    identityDocumentType,
+    identityFirstName,
+    identityLastName,
+    cautionAmount,
+  });
   const representativeValue = String(demand?.contract_representative || process.env.CONTRACT_REPRESENTATIVE || 'ghaith').trim().toLowerCase();
   const representativeLabel = representativeValue === 'chayma'
     ? 'Lengliz Chayma, Gerante'
@@ -10209,38 +10295,7 @@ async function generateReservationClientContractPdf({
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const color = rgb(0, 0, 0);
     const pages = pdfDoc.getPages();
-    const page1 = pages[0];
     const page3 = pages[Math.max(0, pages.length - 1)];
-
-    let userPhone = String(demand?.client_phone || demand?.client_telephone || demand?.phone || '').trim();
-    let userAddress = String(demand?.client_address || demand?.address || '').trim();
-    const normalizedClientEmail = normalizeEmailForCompare(demand?.client_email || '');
-    if (!userPhone || !userAddress) {
-      const [userRows] = await pool.query(
-        `SELECT telephone, address
-         FROM utilisateurs
-         WHERE id = ? OR (email = ? AND ? <> '')
-         LIMIT 1`,
-        [String(demand?.client_user_id || '').trim(), normalizedClientEmail, normalizedClientEmail]
-      );
-      const userRow = userRows?.[0] || null;
-      if (!userPhone && userRow?.telephone) userPhone = String(userRow.telephone || '').trim();
-      if (!userAddress && userRow?.address) userAddress = String(userRow.address || '').trim();
-      if (!userAddress) {
-        try {
-          const [locRows] = await pool.query(
-            `SELECT adresse
-             FROM locataires
-             WHERE email = ? AND ? <> ''
-             LIMIT 1`,
-            [normalizedClientEmail, normalizedClientEmail]
-          );
-          if (locRows?.[0]?.adresse) userAddress = String(locRows[0].adresse || '').trim();
-        } catch (_) {
-          // Some deployments may not have locataires.adresse yet.
-        }
-      }
-    }
 
     const CONTRACT_TEMPLATE_TOP_NUDGE = -21;
     const writeTop = (page, text, left, top, opts = {}) => {
@@ -10256,40 +10311,37 @@ async function generateReservationClientContractPdf({
       page.drawText(line, { x: left, y: pageHeight - adjustedTop - size, size, font, color: textColor });
     };
 
-    const periodLabel = `Du ${startDay}/${startMonth}/${start.yyyy || ''} au ${endDay}/${endMonth}/${end.yyyy || ''} (${nights} nuit${nights > 1 ? 's' : ''})`;
-    const childGuestsLabel = String(Math.max(0, Number(childGuests || 0)));
-
     // Page 1: overlay values using mapper coordinates (user-defined + completed fields).
     const contractFieldMap = {
-      fullName: { page: 1, x: 313.9, top: 279.9, fontSize: 11, maxWidth: 360, value: fullName },
-      identityRef: { page: 1, x: 313.9, top: 302, fontSize: 11, maxWidth: 330, value: identityRef },
-      userAddress: { page: 1, x: 314.9, top: 321.9, fontSize: 11, maxWidth: 455, value: userAddress || '-' },
-      userPhone: { page: 1, x: 310.9, top: 340.9, fontSize: 11, maxWidth: 220, value: userPhone || '-' },
-      typeLogement: { page: 1, x: 148.9, top: 448.3, fontSize: 11, maxWidth: 180, value: contractTypeLogementValue },
-      adresseBien: { page: 1, x: 194.9, top: 461.9, fontSize: 11, maxWidth: 220, value: adresseBien || '-' },
-      capacite: { page: 1, x: 221.9, top: 472.9, fontSize: 11, maxWidth: 80, value: String(totalGuests) },
-      adultes: { page: 1, x: 329.9, top: 475.9, fontSize: 11, maxWidth: 80, value: `${String(adultGuests)} adulte(s)` },
-      enfants: { page: 1, x: 392.9, top: 476.9, fontSize: 11, maxWidth: 80, value: `${childGuestsLabel} enfant(s)` },
-      equipementsBien: { page: 1, x: 132.9, top: 506.9, fontSize: 11, maxWidth: 420, value: equipementsBienValue },
-      jj1: { page: 1, x: 76.9, top: 556.9, fontSize: 11, maxWidth: 28, value: startDay },
-      mm1: { page: 1, x: 105.9, top: 556.9, fontSize: 11, maxWidth: 28, value: startMonth },
-      jj2: { page: 1, x: 181.9, top: 555.9, fontSize: 11, maxWidth: 28, value: endDay },
-      mm2: { page: 1, x: 211.9, top: 555.9, fontSize: 11, maxWidth: 28, value: endMonth },
-      heureArrivee: { page: 1, x: 138.9, top: 571.9, fontSize: 11, maxWidth: 120, value: heureArrivee || '-' },
-      heureDepart: { page: 1, x: 139.9, top: 585.9, fontSize: 11, maxWidth: 120, value: heureDepart || '-' },
-      loyerTotal: { page: 2, x: 381.9, top: 78.9, fontSize: 11, maxWidth: 180, value: `${loyerTotal} TND` },
-      acompteReservation: { page: 2, x: 382.9, top: 100.9, fontSize: 11, maxWidth: 180, value: `${acompteReservation} TND` },
-      jjp: { page: 2, x: 326.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalDay },
-      mmp: { page: 2, x: 365.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalMonth },
-      hhp: { page: 2, x: 456.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalHour },
-      minp: { page: 2, x: 483.9, top: 120.9, fontSize: 11, maxWidth: 28, value: finalMinute },
-      idPaiement: { page: 2, x: 382.9, top: 141.9, fontSize: 11, maxWidth: 230, value: idPaiement || '-' },
-      soldeArrivee: { page: 2, x: 382.9, top: 164.9, fontSize: 11, maxWidth: 180, value: `${soldeArrivee} TND` },
-      modePaiement: { page: 2, x: 473.9, top: 195.9, fontSize: 11, maxWidth: 200, color: rgb(0.8, 0.1, 0.1), value: modePaiement },
-      caution: { page: 2, x: 171, top: 461, fontSize: 11, maxWidth: 220, value: `${formatAmountTndRaw(caution)}` },
-      VS: { page: 3, x: 147.9, top: 197.9, fontSize: 11, maxWidth: 110, value: villeSignature },
-      JJs: { page: 3, x: 298.9, top: 197.9, fontSize: 11, maxWidth: 28, value: jourSignature },
-      MMS: { page: 3, x: 341, top: 197, fontSize: 11, maxWidth: 28, value: moisSignature },
+      fullName: { page: 1, x: 313.9, top: 279.9, fontSize: 11, maxWidth: 360, value: defaultTemplateVars.fullName },
+      identityRef: { page: 1, x: 313.9, top: 302, fontSize: 11, maxWidth: 330, value: defaultTemplateVars.identityRef },
+      userAddress: { page: 1, x: 314.9, top: 321.9, fontSize: 11, maxWidth: 455, value: defaultTemplateVars.userAddress },
+      userPhone: { page: 1, x: 310.9, top: 340.9, fontSize: 11, maxWidth: 220, value: defaultTemplateVars.userPhone },
+      typeLogement: { page: 1, x: 148.9, top: 448.3, fontSize: 11, maxWidth: 180, value: defaultTemplateVars.typeLogement },
+      adresseBien: { page: 1, x: 194.9, top: 461.9, fontSize: 11, maxWidth: 220, value: defaultTemplateVars.adresseBien },
+      capacite: { page: 1, x: 221.9, top: 472.9, fontSize: 11, maxWidth: 80, value: defaultTemplateVars.capacite },
+      adultes: { page: 1, x: 329.9, top: 475.9, fontSize: 11, maxWidth: 80, value: defaultTemplateVars.adultes },
+      enfants: { page: 1, x: 392.9, top: 476.9, fontSize: 11, maxWidth: 80, value: defaultTemplateVars.enfants },
+      equipementsBien: { page: 1, x: 132.9, top: 506.9, fontSize: 11, maxWidth: 420, value: defaultTemplateVars.equipementsBien },
+      jj1: { page: 1, x: 76.9, top: 556.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.jj1 },
+      mm1: { page: 1, x: 105.9, top: 556.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.mm1 },
+      jj2: { page: 1, x: 181.9, top: 555.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.jj2 },
+      mm2: { page: 1, x: 211.9, top: 555.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.mm2 },
+      heureArrivee: { page: 1, x: 138.9, top: 571.9, fontSize: 11, maxWidth: 120, value: defaultTemplateVars.heureArrivee },
+      heureDepart: { page: 1, x: 139.9, top: 585.9, fontSize: 11, maxWidth: 120, value: defaultTemplateVars.heureDepart },
+      loyerTotal: { page: 2, x: 381.9, top: 78.9, fontSize: 11, maxWidth: 180, value: defaultTemplateVars.loyerTotal },
+      acompteReservation: { page: 2, x: 382.9, top: 100.9, fontSize: 11, maxWidth: 180, value: defaultTemplateVars.acompteReservation },
+      jjp: { page: 2, x: 326.9, top: 120.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.jjp },
+      mmp: { page: 2, x: 365.9, top: 120.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.mmp },
+      hhp: { page: 2, x: 456.9, top: 120.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.hhp },
+      minp: { page: 2, x: 483.9, top: 120.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.minp },
+      idPaiement: { page: 2, x: 382.9, top: 141.9, fontSize: 11, maxWidth: 230, value: defaultTemplateVars.idPaiement },
+      soldeArrivee: { page: 2, x: 382.9, top: 164.9, fontSize: 11, maxWidth: 180, value: defaultTemplateVars.soldeArrivee },
+      modePaiement: { page: 2, x: 473.9, top: 195.9, fontSize: 11, maxWidth: 200, color: rgb(0.8, 0.1, 0.1), value: defaultTemplateVars.modePaiement },
+      caution: { page: 2, x: 171, top: 461, fontSize: 11, maxWidth: 220, value: defaultTemplateVars.caution },
+      VS: { page: 3, x: 147.9, top: 197.9, fontSize: 11, maxWidth: 110, value: defaultTemplateVars.VS },
+      JJs: { page: 3, x: 298.9, top: 197.9, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.JJs },
+      MMS: { page: 3, x: 341, top: 197, fontSize: 11, maxWidth: 28, value: defaultTemplateVars.MMS },
     };
     if (templateVars && typeof templateVars === 'object') {
       for (const [key, raw] of Object.entries(templateVars)) {
@@ -13106,6 +13158,249 @@ app.put('/api/notifications/:id/lu', requireAdminSession, async (req, res) => {
   }
 });
 
+app.post('/api/contrats/manual-reservation-preview', requireAdminSession, async (req, res) => {
+  try {
+    const {
+      bien_id,
+      start_date,
+      end_date,
+      guests,
+      adult_guests,
+      child_guests,
+      caution_amount,
+      payment_mode,
+      total_amount,
+      amount_due_now,
+      client_first_name,
+      client_last_name,
+      client_email,
+      client_telephone,
+      client_address,
+      identity_document_type,
+      identity_document_number,
+      representative,
+      arrival_time,
+      departure_time,
+      payment_id,
+      payment_method,
+      payment_deadline_date,
+      payment_deadline_time,
+      signature_city,
+      service_1,
+      prix_service_1,
+      service_2,
+      prix_service_2,
+      service_3,
+      prix_service_3,
+      template_vars,
+      creation_steps,
+    } = req.body || {};
+
+    const bienId = String(bien_id || '').trim();
+    const startDate = toSqlDateOnly(start_date);
+    const endDate = toSqlDateOnly(end_date);
+    if (!bienId || !startDate || !endDate) {
+      return res.status(400).json({ error: 'bien_id, start_date et end_date requis' });
+    }
+    if (endDate < startDate) {
+      return res.status(400).json({ error: 'La date de fin doit etre apres la date de debut' });
+    }
+
+    const [bienRows] = await pool.query(
+      `SELECT b.id, b.titre, b.reference, b.mode, b.type, b.proprietaire_id, b.prix_nuitee, b.caution, b.location_saisonniere_config_json,
+              z.nom AS zone_nom, z.quartier AS zone_quartier, z.gouvernerat AS zone_gouvernerat, z.region AS zone_region, z.pays AS zone_pays
+       FROM biens b
+       LEFT JOIN zones z ON z.id = b.zone_id
+       WHERE b.id = ?
+       LIMIT 1`,
+      [bienId]
+    );
+    const bien = bienRows[0];
+    if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+    if (String(bien.mode || '') === 'vente') {
+      return res.status(400).json({ error: 'Reservation manuelle indisponible pour un bien en vente' });
+    }
+
+    const [overlapRows] = await pool.query(
+      `SELECT id
+       FROM unavailable_dates
+       WHERE bien_id = ?
+         AND start_date < ?
+         AND end_date > ?
+         AND status IN ('blocked', 'booked', 'pending')
+       LIMIT 1`,
+      [bienId, endDate, startDate]
+    );
+    if (overlapRows[0]) {
+      return res.status(400).json({ error: 'Periode deja indisponible pour ce bien' });
+    }
+
+    const firstName = normalizePersonName(client_first_name || '');
+    const lastName = normalizePersonName(client_last_name || '');
+    const email = normalizeEmailForCompare(client_email);
+    const telephone = normalizePhoneNumber(client_telephone || '');
+    const identityDocType = normalizeIdentityDocumentType(identity_document_type, 'cin_tn');
+    const identityNumber = normalizeIdentityNumber(identity_document_number || '');
+    const now = getAgencySqlDateTime();
+    const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
+    const normalizedArrivalTime = String(arrival_time || '').trim();
+    const normalizedDepartureTime = String(departure_time || '').trim();
+    const normalizedPaymentId = String(payment_id || '').trim();
+    const normalizedRepresentative = String(representative || 'ghaith').trim().toLowerCase() === 'chayma' ? 'chayma' : 'ghaith';
+    const normalizedSignatureCity = String(signature_city || '').trim();
+    const paymentDeadlineDate = toSqlDateOnly(payment_deadline_date);
+    const paymentDeadlineTimeRaw = String(payment_deadline_time || '').trim();
+    const paymentDeadlineTime = /^\d{2}:\d{2}$/.test(paymentDeadlineTimeRaw) ? paymentDeadlineTimeRaw : '';
+    const paymentDeadlineAt = paymentDeadlineDate
+      ? `${paymentDeadlineDate} ${paymentDeadlineTime || '00:00'}:00`
+      : now;
+    const nights = computeNights(startDate, endDate);
+    const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
+    const fallbackTotal = Math.max(0, Number(bien.prix_nuitee || 0) * Math.max(1, nights));
+    const hasTotalAmountInput = total_amount !== undefined && total_amount !== null && String(total_amount).trim() !== '';
+    const parsedTotalAmount = Number(total_amount);
+    if (hasTotalAmountInput && (!Number.isFinite(parsedTotalAmount) || parsedTotalAmount <= 0)) {
+      return res.status(400).json({ error: 'Le prix total manuel doit etre superieur a 0' });
+    }
+    const normalizedTotalAmount = hasTotalAmountInput
+      ? Math.round(parsedTotalAmount * 100) / 100
+      : fallbackTotal;
+    const advancePercent = Math.min(
+      100,
+      Math.max(1, Number(saisonCfg?.avance_pourcentage ?? saisonCfg?.avancePourcentage ?? 30))
+    );
+    const fallbackAdvanceAmount = normalizedPaymentMode === 'totalite'
+      ? normalizedTotalAmount
+      : Math.round(((normalizedTotalAmount * advancePercent) / 100) * 100) / 100;
+    const hasAmountDueNowInput = amount_due_now !== undefined && amount_due_now !== null && String(amount_due_now).trim() !== '';
+    const parsedAmountDueNow = Number(amount_due_now);
+    if (normalizedPaymentMode === 'avance' && hasAmountDueNowInput && (!Number.isFinite(parsedAmountDueNow) || parsedAmountDueNow < 0)) {
+      return res.status(400).json({ error: 'L avance manuelle doit etre un montant valide' });
+    }
+    const normalizedAmountDueNow = normalizedPaymentMode === 'totalite'
+      ? normalizedTotalAmount
+      : (hasAmountDueNowInput ? Math.round(parsedAmountDueNow * 100) / 100 : fallbackAdvanceAmount);
+    if (normalizedAmountDueNow > normalizedTotalAmount) {
+      return res.status(400).json({ error: 'L avance a verser ne peut pas depasser le total' });
+    }
+
+    const cfgMaxGuestsRaw = Number(
+      saisonCfg?.limite_personnes_nuit
+      ?? saisonCfg?.limitePersonnesNuit
+      ?? saisonCfg?.limite_personne_nuit
+    );
+    const cfgMaxAdultsRaw = Number(saisonCfg?.max_adultes);
+    const cfgMaxChildrenRaw = Number(saisonCfg?.max_enfants);
+    const hasCfgMaxGuests = Number.isFinite(cfgMaxGuestsRaw) && cfgMaxGuestsRaw > 0;
+    const hasCfgMaxAdults = Number.isFinite(cfgMaxAdultsRaw) && cfgMaxAdultsRaw > 0;
+    const hasCfgMaxChildren = Number.isFinite(cfgMaxChildrenRaw) && cfgMaxChildrenRaw >= 0;
+    const maxGuestsCap = hasCfgMaxGuests
+      ? Math.floor(cfgMaxGuestsRaw)
+      : (hasCfgMaxAdults && hasCfgMaxChildren ? Math.floor(cfgMaxAdultsRaw) + Math.floor(cfgMaxChildrenRaw) : null);
+    const maxAdultsCap = hasCfgMaxAdults ? Math.floor(cfgMaxAdultsRaw) : null;
+    const maxChildrenCap = hasCfgMaxChildren ? Math.floor(cfgMaxChildrenRaw) : null;
+
+    const normalizedGuests = Math.max(1, Number(guests || 1));
+    const normalizedAdultGuests = Math.max(1, Number((adult_guests ?? guests) || 1));
+    const normalizedChildGuests = Math.max(0, Number(child_guests ?? 0));
+    if (normalizedGuests !== normalizedAdultGuests + normalizedChildGuests) {
+      return res.status(400).json({ error: 'Le total voyageurs doit etre egal a adultes + enfants' });
+    }
+    if (maxGuestsCap !== null && normalizedGuests > maxGuestsCap) {
+      return res.status(400).json({ error: `Le nombre max de voyageurs est ${maxGuestsCap}` });
+    }
+    if (maxAdultsCap !== null && normalizedAdultGuests > maxAdultsCap) {
+      return res.status(400).json({ error: `Le nombre max d adultes est ${maxAdultsCap}` });
+    }
+    if (maxChildrenCap !== null && normalizedChildGuests > maxChildrenCap) {
+      return res.status(400).json({ error: `Le nombre max d enfants est ${maxChildrenCap}` });
+    }
+
+    const demandSnapshot = {
+      id: `preview_${Date.now()}`,
+      bien_id: bienId,
+      bien_titre: bien.titre || null,
+      start_date: startDate,
+      end_date: endDate,
+      guests: normalizedGuests,
+      adult_guests: normalizedAdultGuests,
+      child_guests: normalizedChildGuests,
+      client_email: email || null,
+      client_phone: telephone || null,
+      client_address: String(client_address || '').trim() || null,
+      arrival_time: normalizedArrivalTime || null,
+      departure_time: normalizedDepartureTime || null,
+      payment_id: normalizedPaymentId || null,
+      payment_method: String(payment_method || '').trim().toLowerCase() || null,
+      payment_deadline_at: paymentDeadlineAt,
+      signature_city: normalizedSignatureCity || null,
+      contract_representative: normalizedRepresentative,
+      service_1: String(service_1 || '').trim(),
+      prix_service_1: String(prix_service_1 || '').trim(),
+      service_2: String(service_2 || '').trim(),
+      prix_service_2: String(prix_service_2 || '').trim(),
+      service_3: String(service_3 || '').trim(),
+      prix_service_3: String(prix_service_3 || '').trim(),
+      variable_services_quote_total: 0,
+    };
+
+    const sanitizedTemplateVars = template_vars && typeof template_vars === 'object'
+      ? Object.fromEntries(
+          Object.entries(template_vars)
+            .map(([key, value]) => [String(key || '').trim(), String(value ?? '').trim()])
+            .filter(([key, value]) => key && value)
+        )
+      : null;
+    const sanitizedCreationSteps = creation_steps && typeof creation_steps === 'object'
+      ? JSON.stringify(creation_steps)
+      : null;
+    const previewContractId = `preview_${Date.now()}`;
+    const previewUrl = await generateReservationClientContractPdf({
+      demand: demandSnapshot,
+      bien,
+      contractId: previewContractId,
+      contractCreatedAt: now,
+      totalAmount: normalizedTotalAmount,
+      amountDueNow: normalizedAmountDueNow,
+      paymentMode: normalizedPaymentMode,
+      identityNumber: identityNumber || '-',
+      identityDocumentType: identityDocType,
+      identityFirstName: firstName || '-',
+      identityLastName: lastName || '-',
+      cautionAmount: caution_amount,
+      templateVars: sanitizedTemplateVars,
+    });
+
+    const mergedTemplateVars = {
+      ...(await buildReservationClientContractTemplateVars({
+        demand: demandSnapshot,
+        bien,
+        contractId: previewContractId,
+        contractCreatedAt: now,
+        totalAmount: normalizedTotalAmount,
+        amountDueNow: normalizedAmountDueNow,
+        paymentMode: normalizedPaymentMode,
+        identityNumber: identityNumber || '-',
+        identityDocumentType: identityDocType,
+        identityFirstName: firstName || '-',
+        identityLastName: lastName || '-',
+        cautionAmount: caution_amount,
+      })),
+      ...(sanitizedTemplateVars || {}),
+    };
+
+    res.json({
+      ok: true,
+      contract_url: previewUrl,
+      contract_id: previewContractId,
+      template_vars: mergedTemplateVars,
+    });
+  } catch (error) {
+    console.error('Error generating manual contract preview:', error);
+    res.status(500).json({ error: 'Impossible de generer l apercu du contrat manuel' });
+  }
+});
+
 app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
@@ -13144,6 +13439,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       prix_service_2,
       service_3,
       prix_service_3,
+      template_vars,
     } = req.body || {};
 
     const bienId = String(bien_id || '').trim();
@@ -13373,6 +13669,14 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       variable_services_quote_total: 0,
     };
 
+    const sanitizedTemplateVars = template_vars && typeof template_vars === 'object'
+      ? Object.fromEntries(
+          Object.entries(template_vars)
+            .map(([key, value]) => [String(key || '').trim(), String(value ?? '').trim()])
+            .filter(([key, value]) => key && value)
+        )
+      : null;
+
     const [contractUrl, ownerContractUrl] = await Promise.all([
       generateReservationClientContractPdf({
         demand: demandSnapshot,
@@ -13387,6 +13691,7 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
         identityFirstName: firstName || '-',
         identityLastName: lastName || '-',
         cautionAmount: caution_amount,
+        templateVars: sanitizedTemplateVars,
       }),
       generateReservationOwnerContractHtml({
         demand: demandSnapshot,
@@ -13400,10 +13705,28 @@ app.post('/api/contrats/manual-reservation', requireAdminSession, async (req, re
       }),
     ]);
 
+    const templateVars = {
+      ...(await buildReservationClientContractTemplateVars({
+        demand: demandSnapshot,
+        bien,
+        contractId,
+        contractCreatedAt: now,
+        totalAmount: normalizedTotalAmount,
+        amountDueNow: normalizedAmountDueNow,
+        paymentMode: normalizedPaymentMode,
+        identityNumber: identityNumber || '-',
+        identityDocumentType: identityDocType,
+        identityFirstName: firstName || '-',
+        identityLastName: lastName || '-',
+        cautionAmount: caution_amount,
+      })),
+      ...(sanitizedTemplateVars || {}),
+    };
+
     await pool.query(
-      `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manuel', 'actif', ?)`,
-      [contractId, bienId, locataireId, startDate, endDate, normalizedAmountDueNow, contractUrl, ownerContractUrl, now]
+      `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, template_vars_json, creation_steps_json, origine, statut, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuel', 'actif', ?)`,
+      [contractId, bienId, locataireId, startDate, endDate, normalizedAmountDueNow, contractUrl, ownerContractUrl, JSON.stringify(templateVars), sanitizedCreationSteps, now]
     );
 
     await appendReservationDemandHistory(
@@ -18786,8 +19109,11 @@ async function ensureContractsSchema() {
   if (!(await columnExists('contrats', 'template_vars_json'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN template_vars_json LONGTEXT NULL AFTER origine');
   }
+  if (!(await columnExists('contrats', 'creation_steps_json'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN creation_steps_json LONGTEXT NULL AFTER template_vars_json');
+  }
   if (!(await columnExists('contrats', 'client_sent_at'))) {
-    await pool.query('ALTER TABLE contrats ADD COLUMN client_sent_at DATETIME NULL AFTER template_vars_json');
+    await pool.query('ALTER TABLE contrats ADD COLUMN client_sent_at DATETIME NULL AFTER creation_steps_json');
   }
 }
 

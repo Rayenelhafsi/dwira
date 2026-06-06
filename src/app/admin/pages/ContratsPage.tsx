@@ -31,6 +31,7 @@ type ContratApi = {
   url_pdf?: string;
   owner_url_pdf?: string;
   template_vars_json?: string | null;
+  creation_steps_json?: string | null;
   client_sent_at?: string | null;
   origine?: 'manuel' | 'automatique' | string;
   statut: 'actif' | 'termine' | 'resilie';
@@ -166,6 +167,188 @@ const MANUAL_DEFAULT: ManualReservationDraft = {
 const BIEN_IMAGE_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M150 240l90-88 62 62 52-52 88 78H150z' fill='%23cbd5e1'/%3E%3Ccircle cx='232' cy='124' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
 
+const DEFAULT_TEMPLATE_VAR_KEYS = [
+  'fullName', 'identityRef', 'userAddress', 'userPhone',
+  'typeLogement', 'adresseBien', 'capacite', 'adultes', 'enfants', 'equipementsBien',
+  'jj1', 'mm1', 'jj2', 'mm2', 'heureArrivee', 'heureDepart',
+  'loyerTotal', 'acompteReservation', 'jjp', 'mmp', 'hhp', 'minp',
+  'idPaiement', 'soldeArrivee', 'modePaiement', 'caution',
+  'VS', 'JJs', 'MMS'
+] as const;
+
+type TemplateVarKey = typeof DEFAULT_TEMPLATE_VAR_KEYS[number];
+
+const MANUAL_TEMPLATE_VAR_LABELS: Record<TemplateVarKey, string> = {
+  fullName: 'Nom complet',
+  identityRef: 'CIN / passeport',
+  userAddress: 'Adresse client',
+  userPhone: 'Telephone client',
+  typeLogement: 'Type logement',
+  adresseBien: 'Adresse bien',
+  capacite: 'Capacite',
+  adultes: 'Adultes',
+  enfants: 'Enfants',
+  equipementsBien: 'Equipements',
+  jj1: 'Jour arrivee',
+  mm1: 'Mois arrivee',
+  jj2: 'Jour depart',
+  mm2: 'Mois depart',
+  heureArrivee: 'Heure arrivee',
+  heureDepart: 'Heure depart',
+  loyerTotal: 'Loyer total',
+  acompteReservation: 'Acompte',
+  jjp: 'Jour paiement',
+  mmp: 'Mois paiement',
+  hhp: 'Heure paiement',
+  minp: 'Minute paiement',
+  idPaiement: 'ID paiement',
+  soldeArrivee: 'Solde arrivee',
+  modePaiement: 'Mode paiement',
+  caution: 'Caution',
+  VS: 'Ville signature',
+  JJs: 'Jour signature',
+  MMS: 'Mois signature',
+};
+
+const MANUAL_TEMPLATE_VAR_PLACEHOLDERS: Record<TemplateVarKey, string> = {
+  fullName: 'Nom et prenom du locataire',
+  identityRef: 'Ex: CIN 12345678',
+  userAddress: 'Adresse du locataire',
+  userPhone: 'Telephone du locataire',
+  typeLogement: 'Ex: Appartement S+2',
+  adresseBien: 'Adresse ou zone du bien',
+  capacite: 'Ex: 5',
+  adultes: 'Ex: 2 adulte(s)',
+  enfants: 'Ex: 1 enfant(s)',
+  equipementsBien: 'Climatisation, terrasse...',
+  jj1: 'Jour',
+  mm1: 'Mois',
+  jj2: 'Jour',
+  mm2: 'Mois',
+  heureArrivee: 'Ex: 14:00',
+  heureDepart: 'Ex: 11:00',
+  loyerTotal: 'Ex: 1200 TND',
+  acompteReservation: 'Ex: 360 TND',
+  jjp: 'Jour',
+  mmp: 'Mois',
+  hhp: 'Heure',
+  minp: 'Minute',
+  idPaiement: 'Ex: VIR-2026-001',
+  soldeArrivee: 'Ex: 840 TND',
+  modePaiement: 'Virement bancaire',
+  caution: 'Ex: 500',
+  VS: 'Ex: Kelibia',
+  JJs: 'Jour',
+  MMS: 'Mois',
+};
+
+const MANUAL_TEMPLATE_FIELD_GROUPS: Array<{ title: string; keys: TemplateVarKey[] }> = [
+  { title: 'Identite locataire', keys: ['fullName', 'identityRef', 'userPhone', 'userAddress'] },
+  { title: 'Bien et sejour', keys: ['typeLogement', 'adresseBien', 'capacite', 'adultes', 'enfants', 'equipementsBien', 'heureArrivee', 'heureDepart'] },
+  { title: 'Dates sejour', keys: ['jj1', 'mm1', 'jj2', 'mm2'] },
+  { title: 'Paiement', keys: ['loyerTotal', 'acompteReservation', 'soldeArrivee', 'idPaiement', 'modePaiement', 'caution', 'jjp', 'mmp', 'hhp', 'minp'] },
+  { title: 'Signature', keys: ['VS', 'JJs', 'MMS'] },
+];
+
+const MANUAL_STEP1_GROUP_TITLES = new Set(['Identite locataire']);
+const MANUAL_STEP2_GROUP_TITLES = new Set(['Bien et sejour', 'Dates sejour', 'Paiement']);
+
+function createEmptyTemplateVars(): Record<string, string> {
+  return Object.fromEntries(DEFAULT_TEMPLATE_VAR_KEYS.map((key) => [key, '']));
+}
+
+function splitManualFullName(fullName: string) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: '', lastName: '' };
+  if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+function normalizeManualIdentityNumber(identityRef: string): string {
+  return String(identityRef || '')
+    .replace(/^cin\s*/i, '')
+    .replace(/^passeport\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getManualFieldClass(hasError: boolean) {
+  return `w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition ${
+    hasError
+      ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-100'
+      : 'border-gray-200 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100'
+  }`;
+}
+
+function formatManualAmount(value: number): string {
+  if (!Number.isFinite(value)) return '';
+  return `${Math.round(value * 100) / 100} TND`;
+}
+
+function getManualDateParts(sqlDate: string) {
+  const raw = String(sqlDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return { dd: '', mm: '' };
+  const [, mm, dd] = raw.split('-');
+  return {
+    dd: String(Number(dd)),
+    mm: String(Number(mm)),
+  };
+}
+
+function getManualTimeParts(value: string) {
+  const raw = String(value || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(raw)) return { hh: '', min: '' };
+  const [hh, min] = raw.split(':');
+  return {
+    hh,
+    min,
+  };
+}
+
+function buildManualPropertyLabel(bien: BienApi | null): string {
+  if (!bien) return '';
+  const reference = String(bien.reference || '').trim();
+  const title = String(bien.titre || '').trim();
+  if (reference && title) return `Ref ${reference}, ${title}`;
+  return title || (reference ? `Ref ${reference}` : '');
+}
+
+function parseContractCreationHistory(raw: string | null | undefined): Record<string, any> | null {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, any> : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractManualPropertyEquipements(bien: BienApi | null, seasonalConfig: Record<string, any>): string {
+  if (!bien) return '';
+  const scalarFlags: Array<[unknown, string]> = [
+    [(seasonalConfig as any)?.climatisation, 'Climatisation'],
+    [(seasonalConfig as any)?.terrasse, 'Terrasse'],
+    [(seasonalConfig as any)?.vue_mer ?? (seasonalConfig as any)?.vue === 'mer', 'Vue mer'],
+    [(seasonalConfig as any)?.proche_plage, 'Proche plage'],
+    [(seasonalConfig as any)?.ascenseur, 'Ascenseur'],
+  ];
+  const arraySources = [
+    Array.isArray((seasonalConfig as any)?.confort_equipements_interieurs) ? (seasonalConfig as any).confort_equipements_interieurs : [],
+    Array.isArray((seasonalConfig as any)?.confortEquipementsInterieurs) ? (seasonalConfig as any).confortEquipementsInterieurs : [],
+    Array.isArray((seasonalConfig as any)?.exterieur_jardin) ? (seasonalConfig as any).exterieur_jardin : [],
+    Array.isArray((seasonalConfig as any)?.exterieurJardin) ? (seasonalConfig as any).exterieurJardin : [],
+  ];
+  const normalized = Array.from(new Set([
+    ...arraySources.flat().map((item) => String(item || '').trim()).filter(Boolean),
+    ...scalarFlags.filter(([enabled]) => Boolean(enabled)).map(([, label]) => label),
+  ]));
+  return normalized.join(', ');
+}
+
 function computeNights(start: Date | null, end: Date | null): number {
   if (!start || !end) return 0;
   const startUtc = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
@@ -221,27 +404,68 @@ export default function ContratsPage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualStep, setManualStep] = useState<ManualStep>(1);
   const [manualDraft, setManualDraft] = useState<ManualReservationDraft>(MANUAL_DEFAULT);
+  const [manualTemplateVars, setManualTemplateVars] = useState<Record<string, string>>(() => createEmptyTemplateVars());
+  const [manualEditedTemplateVars, setManualEditedTemplateVars] = useState<Record<string, boolean>>({});
+  const [manualTouchedFields, setManualTouchedFields] = useState<Record<string, boolean>>({});
   const [manualBienSearch, setManualBienSearch] = useState('');
   const [selectedBienId, setSelectedBienId] = useState('');
   const [selectedStart, setSelectedStart] = useState<Date | null>(null);
   const [selectedEnd, setSelectedEnd] = useState<Date | null>(null);
   const [selectedBienUnavailableDates, setSelectedBienUnavailableDates] = useState<UnavailableDateApi[]>([]);
   const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [manualPreviewUrl, setManualPreviewUrl] = useState('');
+  const [manualPreviewLoading, setManualPreviewLoading] = useState(false);
   const [loadingManualCalendar, setLoadingManualCalendar] = useState(false);
   const [selectedManualServiceIds, setSelectedManualServiceIds] = useState<string[]>([]);
   const [selectedManualServiceCategory, setSelectedManualServiceCategory] = useState<string>('all');
   const [templateVarsEditorOpen, setTemplateVarsEditorOpen] = useState(false);
   const [templateVarsTargetContract, setTemplateVarsTargetContract] = useState<ContratApi | null>(null);
   const [templateVarsDraft, setTemplateVarsDraft] = useState<Record<string, string>>({});
+  const [historyViewerContract, setHistoryViewerContract] = useState<ContratApi | null>(null);
 
-  const templateVarKeys = [
-    'fullName', 'identityRef', 'userAddress', 'userPhone',
-    'typeLogement', 'adresseBien', 'capacite', 'adultes', 'enfants', 'equipementsBien',
-    'jj1', 'mm1', 'jj2', 'mm2', 'heureArrivee', 'heureDepart',
-    'loyerTotal', 'acompteReservation', 'jjp', 'mmp', 'hhp', 'minp',
-    'idPaiement', 'soldeArrivee', 'modePaiement', 'caution',
-    'VS', 'JJs', 'MMS'
-  ];
+  const templateVarKeys = useMemo(() => {
+    const known = new Set<string>(DEFAULT_TEMPLATE_VAR_KEYS);
+    const extras = Object.keys(templateVarsDraft)
+      .map((key) => String(key || '').trim())
+      .filter((key) => key && !known.has(key))
+      .sort((a, b) => a.localeCompare(b));
+    return [...DEFAULT_TEMPLATE_VAR_KEYS, ...extras];
+  }, [templateVarsDraft]);
+
+  const manualLivePreview = useMemo(() => {
+    const read = (key: TemplateVarKey, fallback = 'Auto apres bien et dates') => {
+      const value = String(manualTemplateVars[key] || '').trim();
+      return value || fallback;
+    };
+    return {
+      fullName: read('fullName', 'Nom locataire'),
+      identityRef: read('identityRef', 'CIN / passeport auto'),
+      userPhone: read('userPhone', 'Telephone auto'),
+      userAddress: read('userAddress', 'Adresse auto'),
+      typeLogement: read('typeLogement'),
+      adresseBien: read('adresseBien'),
+      capacite: read('capacite'),
+      adultes: read('adultes'),
+      enfants: read('enfants'),
+      equipementsBien: read('equipementsBien'),
+      arrivalDate: `${read('jj1', '--')}/${read('mm1', '--')}`,
+      departureDate: `${read('jj2', '--')}/${read('mm2', '--')}`,
+      heureArrivee: read('heureArrivee', '14:00'),
+      heureDepart: read('heureDepart', '11:00'),
+      loyerTotal: read('loyerTotal', 'Montant auto'),
+      acompteReservation: read('acompteReservation', 'Acompte auto'),
+      paymentDeadline: `${read('jjp', '--')}/${read('mmp', '--')} a ${read('hhp', '--')}:${read('minp', '--')}`,
+      idPaiement: read('idPaiement', 'ID paiement auto'),
+      soldeArrivee: read('soldeArrivee', 'Solde auto'),
+      modePaiement: read('modePaiement', 'Mode auto'),
+      caution: read('caution', 'Caution auto'),
+      signature: `${read('VS', 'Ville auto')} le ${read('JJs', '--')}/${read('MMS', '--')}`,
+    };
+  }, [manualTemplateVars]);
+  const historyViewerData = useMemo(
+    () => parseContractCreationHistory(historyViewerContract?.creation_steps_json),
+    [historyViewerContract]
+  );
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -340,7 +564,7 @@ export default function ContratsPage() {
 
   useEffect(() => {
     const bienId = String(selectedBienId || '').trim();
-    if (!manualOpen || manualStep !== 3 || !bienId) {
+    if (!manualOpen || manualStep !== 2 || !bienId) {
       setSelectedBienUnavailableDates([]);
       return;
     }
@@ -533,6 +757,20 @@ export default function ContratsPage() {
   const manualAdultGuests = Math.max(1, Number(manualDraft.adult_guests || 1));
   const manualChildGuests = Math.max(0, Number(manualDraft.child_guests || 0));
   const manualGuestsTotal = Math.max(1, manualAdultGuests + manualChildGuests);
+  const manualFullName = String(manualTemplateVars.fullName || '').trim();
+  const manualIdentityRef = String(manualTemplateVars.identityRef || '').trim();
+  const manualEmail = String(manualDraft.client_email || '').trim();
+  const manualStep1RequiredFields = ['fullName', 'identityRef'];
+  const manualStep2RequiredFields = ['client_email'];
+  const manualMissingStep1Fields = manualStep1RequiredFields.filter((field) => {
+    if (field === 'fullName') return !manualFullName;
+    if (field === 'identityRef') return !manualIdentityRef;
+    return false;
+  });
+  const manualMissingStep2Fields = manualStep2RequiredFields.filter((field) => {
+    if (field === 'client_email') return !manualEmail;
+    return false;
+  });
   const resolvedManualCaution = baseCaution;
   const autoManualAccommodationTotal = Number(pricingSummary.accommodationTotal || 0);
   const manualTotalInput = parseOptionalAmount(manualDraft.total_amount);
@@ -691,6 +929,9 @@ export default function ContratsPage() {
     setManualOpen(false);
     setManualStep(1);
     setManualDraft(MANUAL_DEFAULT);
+    setManualTemplateVars(createEmptyTemplateVars());
+    setManualEditedTemplateVars({});
+    setManualTouchedFields({});
     setManualBienSearch('');
     setSelectedBienId('');
     setSelectedStart(null);
@@ -698,15 +939,126 @@ export default function ContratsPage() {
     setSelectedBienUnavailableDates([]);
     setSelectedManualServiceIds([]);
     setSelectedManualServiceCategory('all');
+    setManualPreviewUrl('');
+  };
+
+  const buildManualTemplateVarsPayload = () => (
+    Object.fromEntries(
+      Object.entries(manualTemplateVars)
+        .map(([key, value]) => [key, String(value || '').trim()])
+        .filter(([, value]) => value.length > 0)
+    )
+  );
+
+  const markManualFieldsTouched = (fields: string[]) => {
+    setManualTouchedFields((prev) => ({
+      ...prev,
+      ...Object.fromEntries(fields.map((field) => [field, true])),
+    }));
+  };
+
+  const updateManualTemplateVar = (key: string, value: string) => {
+    setManualTemplateVars((prev) => ({ ...prev, [key]: value }));
+    setManualEditedTemplateVars((prev) => ({ ...prev, [key]: true }));
+  };
+
+  const buildManualReservationPayload = () => {
+    const { firstName, lastName } = splitManualFullName(manualFullName);
+    const templateVars = buildManualTemplateVarsPayload();
+    return {
+      bien_id: selectedBienId,
+      start_date: manualStartDateSql,
+      end_date: manualEndDateSql,
+      guests: manualGuestsTotal,
+      adult_guests: manualAdultGuests,
+      child_guests: manualChildGuests,
+      caution_amount: resolvedManualCaution,
+      payment_mode: manualDraft.payment_mode,
+      total_amount: resolvedManualTotal,
+      amount_due_now: resolvedManualDueNow,
+      client_note: manualDraft.client_note,
+      client_first_name: firstName,
+      client_last_name: lastName,
+      client_email: manualDraft.client_email,
+      client_telephone: manualTemplateVars.userPhone || manualDraft.client_telephone,
+      client_address: manualTemplateVars.userAddress || manualDraft.client_address,
+      identity_document_type: manualDraft.identity_document_type,
+      identity_document_number: normalizeManualIdentityNumber(manualIdentityRef),
+      representative: manualDraft.representative,
+      arrival_time: manualTemplateVars.heureArrivee || manualDraft.arrival_time,
+      departure_time: manualTemplateVars.heureDepart || manualDraft.departure_time,
+      payment_id: manualTemplateVars.idPaiement || manualDraft.payment_id,
+      payment_method: manualDraft.payment_method,
+      payment_deadline_date: manualDraft.payment_deadline_date,
+      payment_deadline_time: manualDraft.payment_deadline_time,
+      signature_city: manualTemplateVars.VS || manualDraft.signature_city,
+      service_1: selectedSeasonalServices[0]?.label || '',
+      prix_service_1: String(selectedSeasonalServices[0]?.prix || ''),
+      service_2: selectedSeasonalServices[1]?.label || '',
+      prix_service_2: String(selectedSeasonalServices[1]?.prix || ''),
+      service_3: selectedSeasonalServices[2]?.label || '',
+      prix_service_3: String(selectedSeasonalServices[2]?.prix || ''),
+      template_vars: templateVars,
+      creation_steps: {
+        saved_at: new Date().toISOString(),
+        preview_url: manualPreviewUrl || null,
+        step_1: {
+          title: 'Variables du contrat',
+          fields: templateVars,
+          edited_keys: Object.keys(manualEditedTemplateVars).filter((key) => manualEditedTemplateVars[key]),
+        },
+        step_2: {
+          title: 'Bien, sejour et paiement',
+          bien: selectedBien ? {
+            id: selectedBien.id,
+            reference: selectedBien.reference || null,
+            titre: selectedBien.titre || null,
+          } : null,
+          period: {
+            start_date: manualStartDateSql,
+            end_date: manualEndDateSql,
+            nights: manualNights,
+            arrival_time: manualTemplateVars.heureArrivee || manualDraft.arrival_time,
+            departure_time: manualTemplateVars.heureDepart || manualDraft.departure_time,
+          },
+          guests: {
+            total: manualGuestsTotal,
+            adults: manualAdultGuests,
+            children: manualChildGuests,
+            capacity_max: guestCaps.maxGuests,
+          },
+          payment: {
+            payment_mode: manualDraft.payment_mode,
+            payment_method: manualDraft.payment_method,
+            payment_id: manualTemplateVars.idPaiement || manualDraft.payment_id,
+            payment_deadline_date: manualDraft.payment_deadline_date,
+            payment_deadline_time: manualDraft.payment_deadline_time,
+            total_amount: resolvedManualTotal,
+            amount_due_now: resolvedManualDueNow,
+            balance_due: resolvedManualBalance,
+            caution_amount: resolvedManualCaution,
+          },
+          selected_services: selectedSeasonalServices.map((service) => ({
+            id: String(service.id || ''),
+            label: String(service.label || ''),
+            prix: Number(service.prix || 0),
+            categorie: String(service.categorie || ''),
+          })),
+          client_note: manualDraft.client_note || '',
+        },
+        step_3: {
+          title: 'Generation et confirmation',
+          preview_generated: Boolean(manualPreviewUrl),
+          ready_to_confirm: Boolean(selectedBienId && manualStartDateSql && manualEndDateSql),
+        },
+      },
+    };
   };
 
   const goToManualStep2 = () => {
-    const first = manualDraft.client_first_name.trim();
-    const last = manualDraft.client_last_name.trim();
-    const email = manualDraft.client_email.trim();
-    const doc = manualDraft.identity_document_number.trim();
-    if (!first || !last || !email || !doc) {
-      toast.error('Remplissez les informations client obligatoires');
+    if (manualMissingStep1Fields.length > 0) {
+      markManualFieldsTouched(manualStep1RequiredFields);
+      toast.error('Remplissez les champs obligatoires en rouge');
       return;
     }
     if (!Number.isFinite(manualAdultGuests) || manualAdultGuests < 1) {
@@ -721,8 +1073,17 @@ export default function ContratsPage() {
   };
 
   const goToManualStep3 = () => {
+    if (manualMissingStep2Fields.length > 0) {
+      markManualFieldsTouched(manualStep2RequiredFields);
+      toast.error('Remplissez les champs obligatoires en rouge');
+      return;
+    }
     if (!selectedBienId) {
       toast.error('Selectionnez un bien');
+      return;
+    }
+    if (!manualStartDateSql || !manualEndDateSql) {
+      toast.error('Selectionnez la periode de reservation');
       return;
     }
     setManualDraft((prev) => {
@@ -779,6 +1140,84 @@ export default function ContratsPage() {
     : (manualAdvanceInputIsValid && manualAdvanceInput !== null ? manualAdvanceInput : autoManualDueNow);
   const resolvedManualBalance = Math.max(0, Math.round((resolvedManualTotal - resolvedManualDueNow) * 100) / 100);
 
+  useEffect(() => {
+    const startParts = getManualDateParts(manualStartDateSql);
+    const endParts = getManualDateParts(manualEndDateSql);
+    const paymentDateParts = getManualDateParts(manualDraft.payment_deadline_date);
+    const paymentTimeParts = getManualTimeParts(manualDraft.payment_deadline_time);
+    const locationParts = [
+      String((selectedBien as any)?.zone_nom || '').trim(),
+      String((selectedBien as any)?.ville || '').trim(),
+      String((selectedBien as any)?.adresse || '').trim(),
+      String(selectedBien?.titre || '').trim(),
+    ].filter(Boolean);
+    const equipements = extractManualPropertyEquipements(selectedBien, selectedSeasonalConfig);
+    const autoVars: Record<string, string> = {
+      typeLogement: buildManualPropertyLabel(selectedBien),
+      adresseBien: locationParts[0] || '',
+      capacite: selectedBien ? String(guestCaps.maxGuests) : '',
+      adultes: String(manualAdultGuests > 0 ? `${manualAdultGuests} adulte(s)` : ''),
+      enfants: String(`${manualChildGuests} enfant(s)`),
+      equipementsBien: equipements,
+      heureArrivee: manualDraft.arrival_time || '14:00',
+      heureDepart: manualDraft.departure_time || '11:00',
+      jj1: startParts.dd,
+      mm1: startParts.mm,
+      jj2: endParts.dd,
+      mm2: endParts.mm,
+      loyerTotal: resolvedManualTotal > 0 ? formatManualAmount(resolvedManualTotal) : '',
+      acompteReservation: resolvedManualDueNow > 0 ? formatManualAmount(resolvedManualDueNow) : '',
+      soldeArrivee: formatManualAmount(resolvedManualBalance),
+      idPaiement: manualDraft.payment_id || '',
+      modePaiement: manualDraft.payment_method ? `Paiement par ${manualDraft.payment_method}` : '',
+      caution: resolvedManualCaution > 0 ? String(resolvedManualCaution) : '',
+      jjp: paymentDateParts.dd,
+      mmp: paymentDateParts.mm,
+      hhp: paymentTimeParts.hh,
+      minp: paymentTimeParts.min,
+      VS: manualDraft.signature_city || String((selectedBien as any)?.ville || '').trim() || 'Kelibia',
+    };
+    setManualTemplateVars((prev) => {
+      const next = { ...prev };
+      for (const [key, value] of Object.entries(autoVars)) {
+        if (manualEditedTemplateVars[key]) continue;
+        next[key] = value;
+      }
+      return next;
+    });
+  }, [
+    selectedBien,
+    selectedSeasonalServices,
+    guestCaps.maxGuests,
+    manualAdultGuests,
+    manualChildGuests,
+    manualDraft.arrival_time,
+    manualDraft.departure_time,
+    manualDraft.payment_deadline_date,
+    manualDraft.payment_deadline_time,
+    manualDraft.payment_id,
+    manualDraft.payment_method,
+    manualDraft.signature_city,
+    manualStartDateSql,
+    manualEndDateSql,
+    resolvedManualTotal,
+    resolvedManualDueNow,
+    resolvedManualBalance,
+    resolvedManualCaution,
+    manualEditedTemplateVars,
+  ]);
+
+  useEffect(() => {
+    setManualPreviewUrl('');
+  }, [
+    manualTemplateVars,
+    manualDraft,
+    selectedBienId,
+    manualStartDateSql,
+    manualEndDateSql,
+    selectedManualServiceIds,
+  ]);
+
   const handleCreateManualReservation = async () => {
     if (!selectedBienId || !manualStartDateSql || !manualEndDateSql) {
       toast.error('Selectionnez un bien et une periode');
@@ -819,40 +1258,7 @@ export default function ContratsPage() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bien_id: selectedBienId,
-          start_date: manualStartDateSql,
-          end_date: manualEndDateSql,
-          guests: manualGuestsTotal,
-          adult_guests: manualAdultGuests,
-          child_guests: manualChildGuests,
-          caution_amount: resolvedManualCaution,
-          payment_mode: manualDraft.payment_mode,
-          total_amount: resolvedManualTotal,
-          amount_due_now: resolvedManualDueNow,
-          client_note: manualDraft.client_note,
-          client_first_name: manualDraft.client_first_name,
-          client_last_name: manualDraft.client_last_name,
-          client_email: manualDraft.client_email,
-          client_telephone: manualDraft.client_telephone,
-          client_address: manualDraft.client_address,
-          identity_document_type: manualDraft.identity_document_type,
-          identity_document_number: manualDraft.identity_document_number,
-          representative: manualDraft.representative,
-          arrival_time: manualDraft.arrival_time,
-          departure_time: manualDraft.departure_time,
-          payment_id: manualDraft.payment_id,
-          payment_method: manualDraft.payment_method,
-          payment_deadline_date: manualDraft.payment_deadline_date,
-          payment_deadline_time: manualDraft.payment_deadline_time,
-          signature_city: manualDraft.signature_city,
-          service_1: selectedSeasonalServices[0]?.label || '',
-          prix_service_1: String(selectedSeasonalServices[0]?.prix || ''),
-          service_2: selectedSeasonalServices[1]?.label || '',
-          prix_service_2: String(selectedSeasonalServices[1]?.prix || ''),
-          service_3: selectedSeasonalServices[2]?.label || '',
-          prix_service_3: String(selectedSeasonalServices[2]?.prix || ''),
-        }),
+        body: JSON.stringify(buildManualReservationPayload()),
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Creation reservation manuelle impossible'));
       toast.success('Reservation manuelle creee avec contrat');
@@ -863,6 +1269,32 @@ export default function ContratsPage() {
       toast.error(err?.message || 'Erreur creation reservation manuelle');
     } finally {
       setManualSubmitting(false);
+    }
+  };
+
+  const handleGenerateManualPreview = async () => {
+    if (!selectedBienId || !manualStartDateSql || !manualEndDateSql) {
+      toast.error('Completez le bien et la periode avant la generation de l apercu');
+      return;
+    }
+    setManualPreviewLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/contrats/manual-reservation-preview`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildManualReservationPayload()),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Generation apercu impossible'));
+      const data = await response.json();
+      const nextUrl = String(data?.contract_url || '').trim();
+      if (!nextUrl) throw new Error('Apercu du contrat indisponible');
+      setManualPreviewUrl(nextUrl);
+      toast.success('Apercu du contrat genere');
+    } catch (error: any) {
+      toast.error(error?.message || 'Generation apercu impossible');
+    } finally {
+      setManualPreviewLoading(false);
     }
   };
 
@@ -907,36 +1339,155 @@ export default function ContratsPage() {
 
           {manualStep === 1 && (
             <div className="space-y-3">
-              <h2 className="text-base font-semibold text-gray-900">Informations client</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Prenom *" value={manualDraft.client_first_name} onChange={(e) => setManualDraft((p) => ({ ...p, client_first_name: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Nom *" value={manualDraft.client_last_name} onChange={(e) => setManualDraft((p) => ({ ...p, client_last_name: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Email *" value={manualDraft.client_email} onChange={(e) => setManualDraft((p) => ({ ...p, client_email: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Telephone" value={manualDraft.client_telephone} onChange={(e) => setManualDraft((p) => ({ ...p, client_telephone: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Adresse locataire" value={manualDraft.client_address} onChange={(e) => setManualDraft((p) => ({ ...p, client_address: e.target.value }))} />
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.identity_document_type} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_type: e.target.value as ManualReservationDraft['identity_document_type'] }))}>
-                  <option value="cin_tn">CIN tunisienne</option>
-                  <option value="passport_tn">Passeport tunisien</option>
-                  <option value="passport_foreign">Passeport etranger</option>
-                </select>
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Numero identite *" value={manualDraft.identity_document_number} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_number: e.target.value }))} />
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.representative} onChange={(e) => setManualDraft((p) => ({ ...p, representative: e.target.value as ManualReservationDraft['representative'] }))}>
-                  <option value="ghaith">Representant: Ghaith</option>
-                  <option value="chayma">Representant: Chayma</option>
-                </select>
-                <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure arrivee" value={manualDraft.arrival_time} onChange={(e) => setManualDraft((p) => ({ ...p, arrival_time: e.target.value }))} />
-                <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure depart" value={manualDraft.departure_time} onChange={(e) => setManualDraft((p) => ({ ...p, departure_time: e.target.value }))} />
-                <input type="date" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Date limite paiement" value={manualDraft.payment_deadline_date} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_date: e.target.value }))} />
-                <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure limite paiement" value={manualDraft.payment_deadline_time} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_time: e.target.value }))} />
-                <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Ville signature (optionnel)" value={manualDraft.signature_city} onChange={(e) => setManualDraft((p) => ({ ...p, signature_city: e.target.value }))} />
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_method} onChange={(e) => setManualDraft((p) => ({ ...p, payment_method: e.target.value as ManualReservationDraft['payment_method'] }))}>
-                  <option value="virement">Methode paiement: Virement</option>
-                  <option value="especes">Methode paiement: Especes</option>
-                  <option value="carte">Methode paiement: Carte</option>
-                  <option value="cheque">Methode paiement: Cheque</option>
-                </select>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Variables du contrat</h2>
+                <p className="mt-1 text-sm text-gray-600">Remplissez seulement ce que vous voulez imposer. Le reste restera automatique. La vue a droite se met a jour pendant la saisie.</p>
               </div>
-              <textarea className="w-full rounded-lg border px-3 py-2 text-sm" rows={2} placeholder="Note client (optionnel)" value={manualDraft.client_note} onChange={(e) => setManualDraft((p) => ({ ...p, client_note: e.target.value }))} />
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+                <div className="space-y-4">
+                  <div className="max-h-[72vh] space-y-4 overflow-auto pr-1">
+                    {MANUAL_TEMPLATE_FIELD_GROUPS.filter((group) => MANUAL_STEP1_GROUP_TITLES.has(group.title)).map((group) => (
+                      <div key={group.title} className="rounded-2xl border border-emerald-100 bg-white/90 p-4 shadow-sm">
+                        <h3 className="text-sm font-semibold text-gray-900">{group.title}</h3>
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {group.keys.map((key) => (
+                            <label key={key} className={key === 'equipementsBien' || key === 'userAddress' ? 'sm:col-span-2' : ''}>
+                              <span className="mb-1 block text-xs font-medium text-gray-700">{MANUAL_TEMPLATE_VAR_LABELS[key]}</span>
+                              <input
+                                type="text"
+                                className={getManualFieldClass(
+                                  Boolean(manualTouchedFields[key]) && ((key === 'fullName' && !manualFullName) || (key === 'identityRef' && !manualIdentityRef))
+                                )}
+                                placeholder={MANUAL_TEMPLATE_VAR_PLACEHOLDERS[key]}
+                                value={manualTemplateVars[key] || ''}
+                                onChange={(e) => updateManualTemplateVar(key, e.target.value)}
+                                onBlur={() => setManualTouchedFields((prev) => ({ ...prev, [key]: true }))}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <div className="sticky top-4 rounded-[28px] border border-gray-200 bg-[#f6f8fb] p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Vue live</p>
+                        <h3 className="text-sm font-semibold text-gray-900">Apercu graphique du contrat</h3>
+                      </div>
+                      <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-500">Mise a jour instantanee</div>
+                    </div>
+                    <div className="overflow-hidden rounded-[24px] border border-gray-200 bg-white shadow-inner">
+                      <div className="bg-white px-5 py-6 text-[12px] leading-5 text-black">
+                        <h4 className="text-center text-[16px] font-bold uppercase tracking-[0.03em] text-black">
+                          CONTRAT DE LOCATION SAISONNIERE
+                        </h4>
+
+                        <div className="mt-4">
+                          <p className="mb-2 font-semibold">Entre les soussignes:</p>
+                          <div className="overflow-hidden border border-gray-300">
+                            {[
+                              ['Le Bailleur :', 'Agence Dwira'],
+                              ['Adresse :', 'Rue Ibn Khaldoun, Kelibia 8090, Nabeul'],
+                              ['Tel :', '29 879 227 / 52 080 695'],
+                              ['MF :', '1919183/K/A/M/000'],
+                              ['Represente par :', manualDraft.representative === 'chayma' ? 'Lengliz Chayma, Gerante' : 'Hafsi Ghaith, Responsable commercial'],
+                            ].map(([label, value], index) => (
+                              <div key={label} className={`grid grid-cols-[220px_minmax(0,1fr)] ${index > 0 ? 'border-t border-gray-300' : ''}`}>
+                                <div className="border-r border-gray-300 bg-gray-50 px-2 py-1 font-semibold">{label}</div>
+                                <div className="px-2 py-1">{value}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-1 text-[10px] italic text-gray-600">(ci-apres designe "le Bailleur")</p>
+                        </div>
+
+                        <p className="my-3 text-center text-[14px] font-bold">Et</p>
+
+                        <div>
+                          <div className="overflow-hidden border border-gray-300">
+                            {[
+                              ['Le Locataire :', ''],
+                              ['Nom et prenom :', manualLivePreview.fullName],
+                              ['N° CIN ou Passeport :', manualLivePreview.identityRef],
+                              ['Adresse :', manualLivePreview.userAddress],
+                              ['Tel :', manualLivePreview.userPhone],
+                            ].map(([label, value], index) => (
+                              <div key={label} className={`grid grid-cols-[220px_minmax(0,1fr)] ${index > 0 ? 'border-t border-gray-300' : ''}`}>
+                                <div className="border-r border-gray-300 bg-gray-50 px-2 py-1 font-semibold">{label}</div>
+                                <div className="px-2 py-1">{value || '\u00A0'}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-1 text-[10px] italic text-gray-600">(ci-apres designe "le Locataire")</p>
+                        </div>
+
+                        <div className="mt-5 space-y-4">
+                          <section>
+                            <p className="font-bold">1. Objet du contrat</p>
+                            <p>Le present contrat a pour objet la location d'un bien immobilier meuble a usage exclusif d'habitation saisonniere.</p>
+                          </section>
+
+                          <section>
+                            <p className="font-bold">2. Designation du bien loue</p>
+                            <div className="mt-1 space-y-1">
+                              <p><span className="font-semibold">Type de logement :</span> {manualLivePreview.typeLogement}</p>
+                              <p><span className="font-semibold">Adresse exacte du bien loue :</span> {manualLivePreview.adresseBien}</p>
+                              <p><span className="font-semibold">Capacite maximale d'accueil :</span> {manualLivePreview.capacite} personnes, {manualLivePreview.adultes}, {manualLivePreview.enfants}</p>
+                              <p><span className="font-semibold">Equipements fournis :</span></p>
+                              <p>{manualLivePreview.equipementsBien}</p>
+                            </div>
+                          </section>
+
+                          <section>
+                            <p className="font-bold">3. Duree de la location</p>
+                            <p>Le present contrat est conclu pour une duree determinee :</p>
+                            <div className="mt-1 space-y-1">
+                              <p><span className="font-semibold">Du :</span> {manualLivePreview.arrivalDate} <span className="font-semibold">au</span> {manualLivePreview.departureDate}</p>
+                              <p><span className="font-semibold">Heure d'arrivee :</span> {manualLivePreview.heureArrivee}</p>
+                              <p><span className="font-semibold">Heure de depart :</span> {manualLivePreview.heureDepart}</p>
+                              <p className="font-semibold">NB : Le contrat ne pourra etre renouvele automatiquement.</p>
+                            </div>
+                          </section>
+
+                          <section>
+                            <p className="font-bold">4. Prix et modalites de paiement</p>
+                            <div className="mt-2 overflow-hidden border border-gray-300">
+                              {[
+                                ['Loyer total :', manualLivePreview.loyerTotal],
+                                ['Acompte verse a la reservation :', manualLivePreview.acompteReservation],
+                                ['Date limite de paiement de l’avance :', manualLivePreview.paymentDeadline],
+                                ['N° de quittance / ID du virement :', manualLivePreview.idPaiement],
+                                ['Solde a regler a l’arrivee :', manualLivePreview.soldeArrivee],
+                                ['Mode de paiement :', manualLivePreview.modePaiement],
+                                ['Caution :', manualLivePreview.caution],
+                              ].map(([label, value], index) => (
+                                <div key={label} className={`grid grid-cols-[260px_minmax(0,1fr)] ${index > 0 ? 'border-t border-gray-300' : ''}`}>
+                                  <div className="border-r border-gray-300 bg-gray-50 px-2 py-1 font-semibold">{label}</div>
+                                  <div className="px-2 py-1">{value}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+                        </div>
+
+                        <div className="mt-5 flex items-end justify-between gap-4 border-t border-gray-200 pt-4">
+                          <div>
+                            <p className="font-semibold">Fait a {manualTemplateVars.VS || 'Kelibia'}</p>
+                            <p>{manualLivePreview.signature}</p>
+                          </div>
+                          <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-right text-[11px]">
+                            <p className="font-semibold text-emerald-800">Etat</p>
+                            <p className="font-bold text-emerald-900">Brouillon interactif</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div className="flex justify-end">
                 <button type="button" onClick={goToManualStep2} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                   Suivant
@@ -988,6 +1539,211 @@ export default function ContratsPage() {
                   );
                 })}
               </div>
+              <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Bien et sejour</h3>
+                  <div className="mt-3 rounded-lg border border-emerald-100 bg-white p-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {MANUAL_TEMPLATE_FIELD_GROUPS.find((group) => group.title === 'Bien et sejour')?.keys.map((key) => (
+                        <label key={key} className={key === 'equipementsBien' ? 'sm:col-span-2' : ''}>
+                          <span className="mb-1 block text-xs font-medium text-gray-700">{MANUAL_TEMPLATE_VAR_LABELS[key]}</span>
+                          <input
+                            type="text"
+                            className={getManualFieldClass(false)}
+                            placeholder={MANUAL_TEMPLATE_VAR_PLACEHOLDERS[key]}
+                            value={manualTemplateVars[key] || ''}
+                            onChange={(e) => updateManualTemplateVar(key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  {selectedBien ? (
+                    <div className="mt-2 rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700">
+                      <p><strong>Bien:</strong> {selectedBien.reference || selectedBien.id} - {selectedBien.titre || 'Bien'}</p>
+                    </div>
+                  ) : (
+                    <div className="mt-2 rounded-lg border border-dashed border-gray-300 bg-white p-3 text-sm text-gray-500">
+                      Selectionnez un bien ci-dessus pour continuer.
+                    </div>
+                  )}
+                  <div className="mt-3">
+                    <h4 className="text-sm font-semibold text-gray-900">Dates de sejour</h4>
+                    <p className="mt-1 text-xs text-gray-600">Le calendrier definit la periode de sejour.</p>
+                    <div className="mt-3 rounded-lg border border-emerald-100 bg-white p-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {MANUAL_TEMPLATE_FIELD_GROUPS.find((group) => group.title === 'Dates sejour')?.keys.map((key) => (
+                          <label key={key}>
+                            <span className="mb-1 block text-xs font-medium text-gray-700">{MANUAL_TEMPLATE_VAR_LABELS[key]}</span>
+                            <input
+                              type="text"
+                              className={getManualFieldClass(false)}
+                              placeholder={MANUAL_TEMPLATE_VAR_PLACEHOLDERS[key]}
+                              value={manualTemplateVars[key] || ''}
+                              onChange={(e) => updateManualTemplateVar(key, e.target.value)}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      {loadingManualCalendar ? (
+                        <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">Chargement du calendrier...</div>
+                      ) : (
+                        <AvailabilityCalendar
+                          unavailableDates={selectedBienUnavailableDates.map((row) => ({
+                            start: String(row.start_date || '').slice(0, 10),
+                            end: String(row.end_date || '').slice(0, 10),
+                            status: row.status,
+                          }))}
+                          onDateRangeSelect={(start, end) => {
+                            setSelectedStart(start);
+                            setSelectedEnd(end);
+                          }}
+                          selectedStart={selectedStart}
+                          selectedEnd={selectedEnd}
+                        />
+                      )}
+                    </div>
+                    <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3 text-sm">
+                      <p><strong>Sejour choisi dans le calendrier:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
+                      <p><strong>Nuits:</strong> {manualNights || 0}</p>
+                      <p><strong>Tarif applique:</strong> {pricingSummary.hasPeriodOverride ? 'Periode tarifaire' : 'Tarif standard'} ({baseNightly} DT/nuit{baseWeekly ? `, ${baseWeekly} DT/semaine` : ''})</p>
+                    </div>
+                  </div>
+                </div>
+
+                <h3 className="text-sm font-semibold text-gray-900">Voyageurs et paiement</h3>
+                <div className="rounded-lg border border-emerald-100 bg-white p-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {MANUAL_TEMPLATE_FIELD_GROUPS.find((group) => group.title === 'Paiement')?.keys.map((key) => (
+                      <label key={key}>
+                        <span className="mb-1 block text-xs font-medium text-gray-700">{MANUAL_TEMPLATE_VAR_LABELS[key]}</span>
+                        <input
+                          type="text"
+                          className={getManualFieldClass(false)}
+                          placeholder={MANUAL_TEMPLATE_VAR_PLACEHOLDERS[key]}
+                          value={manualTemplateVars[key] || ''}
+                          onChange={(e) => updateManualTemplateVar(key, e.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-2">
+                  <input
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      manualTouchedFields.client_email && !manualEmail
+                        ? 'border-red-400 bg-red-50'
+                        : ''
+                    }`}
+                    placeholder="Email client *"
+                    value={manualDraft.client_email}
+                    onChange={(e) => setManualDraft((p) => ({ ...p, client_email: e.target.value }))}
+                    onBlur={() => setManualTouchedFields((prev) => ({ ...prev, client_email: true }))}
+                  />
+                  <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.identity_document_type} onChange={(e) => setManualDraft((p) => ({ ...p, identity_document_type: e.target.value as ManualReservationDraft['identity_document_type'] }))}>
+                    <option value="cin_tn">Type identite: CIN tunisienne</option>
+                    <option value="passport_tn">Type identite: Passeport tunisien</option>
+                    <option value="passport_foreign">Type identite: Passeport etranger</option>
+                  </select>
+                  <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.representative} onChange={(e) => setManualDraft((p) => ({ ...p, representative: e.target.value as ManualReservationDraft['representative'] }))}>
+                    <option value="ghaith">Representant: Ghaith</option>
+                    <option value="chayma">Representant: Chayma</option>
+                  </select>
+                  <select className="w-full rounded-lg border px-3 py-2 text-sm" value={manualDraft.payment_method} onChange={(e) => setManualDraft((p) => ({ ...p, payment_method: e.target.value as ManualReservationDraft['payment_method'] }))}>
+                    <option value="virement">Methode paiement: Virement</option>
+                    <option value="especes">Methode paiement: Especes</option>
+                    <option value="carte">Methode paiement: Carte</option>
+                    <option value="cheque">Methode paiement: Cheque</option>
+                  </select>
+                </div>
+                <textarea className="w-full rounded-lg border px-3 py-2 text-sm" rows={2} placeholder="Note client (optionnel)" value={manualDraft.client_note} onChange={(e) => setManualDraft((p) => ({ ...p, client_note: e.target.value }))} />
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <input type="date" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Date limite paiement" value={manualDraft.payment_deadline_date} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_date: e.target.value }))} />
+                  <input type="time" className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Heure limite paiement" value={manualDraft.payment_deadline_time} onChange={(e) => setManualDraft((p) => ({ ...p, payment_deadline_time: e.target.value }))} />
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
+                  <p><strong>Voyageurs:</strong> {manualGuestsTotal} (Adultes: {manualAdultGuests}, Enfants: {manualChildGuests})</p>
+                  <p><strong>Capacite max:</strong> {guestCaps.maxGuests} voyageurs</p>
+                  <p><strong>Total contrat calcule:</strong> {resolvedManualTotal} DT</p>
+                  <p><strong>Avance calculee:</strong> {resolvedManualDueNow} DT</p>
+                  <p><strong>Solde a l'arrivee:</strong> {Math.max(0, resolvedManualTotal - resolvedManualDueNow)} DT</p>
+                  <p><strong>Caution:</strong> {resolvedManualCaution} DT</p>
+                  <p><strong>Mode de reglement:</strong> {manualDraft.payment_mode === 'totalite' ? 'Totalite' : `Avance (${advancePercent}%)`}</p>
+                  {seasonalServices.length > 0 && (
+                    <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">Services payants</p>
+                          <p className="text-sm font-semibold text-gray-900">Services additionnels disponibles</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-700"
+                          onClick={() => setSelectedManualServiceCategory('all')}
+                        >
+                          Voir les {seasonalServices.length} services
+                        </button>
+                      </div>
+                      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {seasonalServiceCategories.slice(0, 4).map((category) => {
+                          const isActive = selectedManualServiceCategory === category.id;
+                          return (
+                            <button
+                              key={category.id}
+                              type="button"
+                              onClick={() => setSelectedManualServiceCategory(category.id)}
+                              className={`rounded-2xl border px-3 py-3 text-left transition ${isActive ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 bg-white'}`}
+                            >
+                              <p className="text-sm font-semibold text-gray-900">{category.label}</p>
+                              <p className="text-xs text-gray-500">{category.count} services</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="space-y-2 max-h-44 overflow-auto pr-1">
+                        {visibleSeasonalServices.map((service) => {
+                          const checked = selectedManualServiceIds.includes(String(service.id));
+                          return (
+                            <label key={service.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+                              <span className="min-w-0 pr-2">
+                                <span className="block truncate font-semibold text-gray-900">{service.label}</span>
+                                <span className="block truncate text-xs text-gray-500">{service.categorie}</span>
+                              </span>
+                              <span className="flex items-center gap-3">
+                                <span className="text-xs font-semibold text-gray-700">{getServiceDisplayPrice(service)}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    setSelectedManualServiceIds((prev) => (
+                                      checked
+                                        ? prev.filter((id) => id !== String(service.id))
+                                        : [...prev, String(service.id)]
+                                    ));
+                                  }}
+                                />
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2 text-xs text-gray-600">Total services fixes: {fixedSeasonalServicesTotal} DT</p>
+                    </div>
+                  )}
+                  {seasonalServices.length === 0 && (
+                    <div className="mt-3 rounded-2xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500">
+                      Aucun service payant configure pour ce bien.
+                    </div>
+                  )}
+                  <p><strong>Total calcule:</strong> {autoManualTotal} DT</p>
+                  <p><strong>Total contrat:</strong> {resolvedManualTotal} DT{hasManualTotalInput && manualTotalInputIsValid ? ' (manuel)' : ''}</p>
+                  <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT ({manualDraft.payment_mode === 'totalite' ? 'Totalite' : (hasManualAdvanceInput && manualAdvanceInputIsValid ? 'Avance manuelle' : `Avance ${advancePercent}%`)})</p>
+                  <p><strong>Reste a payer a l'arrivee:</strong> {resolvedManualBalance} DT</p>
+                  <p><strong>Caution:</strong> {resolvedManualCaution} DT</p>
+                </div>
+              </div>
               <div className="flex items-center justify-between">
                 <button type="button" onClick={() => setManualStep(1)} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                   <ArrowLeft size={15} />
@@ -1003,194 +1759,59 @@ export default function ContratsPage() {
 
           {manualStep === 3 && (
             <div className="space-y-3">
-              <h2 className="text-base font-semibold text-gray-900">Periode de reservation</h2>
-              {selectedBien ? (
-                <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700">
-                  <p><strong>Bien:</strong> {selectedBien.reference || selectedBien.id} - {selectedBien.titre || 'Bien'}</p>
-                </div>
-              ) : null}
-              {loadingManualCalendar ? (
-                <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">Chargement du calendrier...</div>
-              ) : (
-                <AvailabilityCalendar
-                  unavailableDates={selectedBienUnavailableDates.map((row) => ({
-                    start: String(row.start_date || '').slice(0, 10),
-                    end: String(row.end_date || '').slice(0, 10),
-                    status: row.status,
-                  }))}
-                  onDateRangeSelect={(start, end) => {
-                    setSelectedStart(start);
-                    setSelectedEnd(end);
-                  }}
-                  selectedStart={selectedStart}
-                  selectedEnd={selectedEnd}
-                />
-              )}
-              <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
-                <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
-                <p><strong>Nuits:</strong> {manualNights || 0}</p>
-                <p><strong>Tarif applique:</strong> {pricingSummary.hasPeriodOverride ? 'Periode tarifaire' : 'Tarif standard'} ({baseNightly} DT/nuit{baseWeekly ? `, ${baseWeekly} DT/semaine` : ''})</p>
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-bold text-gray-700">Prix total manuel du contrat</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
-                      placeholder={`Auto: ${autoManualTotal} DT`}
-                      value={manualDraft.total_amount}
-                      onChange={(e) => setManualDraft((p) => ({ ...p, total_amount: e.target.value }))}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-bold text-gray-700">Avance a verser manuelle</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      disabled={manualDraft.payment_mode === 'totalite'}
-                      className="w-full rounded-lg border px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-400"
-                      placeholder={`Auto: ${autoManualDueNow} DT`}
-                      value={manualDraft.amount_due_now}
-                      onChange={(e) => setManualDraft((p) => ({ ...p, amount_due_now: e.target.value }))}
-                    />
-                  </label>
-                </div>
-                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={guestCaps.maxAdults}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    placeholder={`Adultes (max ${guestCaps.maxAdults})`}
-                    value={manualDraft.adult_guests}
-                    onChange={(e) => {
-                      const nextAdults = Math.min(Math.max(1, Number(e.target.value || 1)), guestCaps.maxAdults, guestCaps.maxGuests);
-                      const nextChildren = Math.min(Math.max(0, Number(manualDraft.child_guests || 0)), guestCaps.maxChildren, Math.max(0, guestCaps.maxGuests - nextAdults));
-                      setManualDraft((p) => ({ ...p, adult_guests: String(nextAdults), child_guests: String(nextChildren) }));
-                    }}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    max={guestCaps.maxChildren}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    placeholder={`Enfants (max ${guestCaps.maxChildren})`}
-                    value={manualDraft.child_guests}
-                    onChange={(e) => {
-                      const nextChildren = Math.min(Math.max(0, Number(e.target.value || 0)), guestCaps.maxChildren, Math.max(0, guestCaps.maxGuests - manualAdultGuests));
-                      setManualDraft((p) => ({ ...p, child_guests: String(nextChildren) }));
-                    }}
-                  />
-                  <input type="text" readOnly className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm" value={`Voyageurs total: ${manualGuestsTotal} / ${guestCaps.maxGuests}`} />
-                </div>
-                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <input
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    placeholder="ID paiement (VIR-..., CASH-...)"
-                    value={manualDraft.payment_id}
-                    onChange={(e) => setManualDraft((p) => ({ ...p, payment_id: e.target.value }))}
-                  />
-                  <select
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    value={manualDraft.payment_mode}
-                    disabled={!manualPeriodReady}
-                    onChange={(e) => setManualDraft((p) => ({
-                      ...p,
-                      payment_mode: e.target.value as ManualReservationDraft['payment_mode'],
-                      amount_due_now: e.target.value === 'totalite' ? '' : p.amount_due_now,
-                    }))}
-                  >
-                    <option value="avance">Avance ({advancePercent}%)</option>
-                    <option value="totalite">Totalite</option>
-                  </select>
-                  <input
-                    type="number"
-                    readOnly
-                    className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm"
-                    value={resolvedManualCaution}
-                  />
-                </div>
-                <p><strong>Voyageurs:</strong> {manualGuestsTotal} (Adultes: {manualAdultGuests}, Enfants: {manualChildGuests})</p>
-                {seasonalServices.length > 0 && (
-                  <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">Services payants</p>
-                        <p className="text-sm font-semibold text-gray-900">Services additionnels disponibles</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-700"
-                        onClick={() => setSelectedManualServiceCategory('all')}
-                      >
-                        Voir les {seasonalServices.length} services
-                      </button>
-                    </div>
-                    <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {seasonalServiceCategories.slice(0, 4).map((category) => {
-                        const isActive = selectedManualServiceCategory === category.id;
-                        return (
-                          <button
-                            key={category.id}
-                            type="button"
-                            onClick={() => setSelectedManualServiceCategory(category.id)}
-                            className={`rounded-2xl border px-3 py-3 text-left transition ${isActive ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 bg-white'}`}
-                          >
-                            <p className="text-sm font-semibold text-gray-900">{category.label}</p>
-                            <p className="text-xs text-gray-500">{category.count} services</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="space-y-2 max-h-44 overflow-auto pr-1">
-                      {visibleSeasonalServices.map((service) => {
-                        const checked = selectedManualServiceIds.includes(String(service.id));
-                        return (
-                          <label key={service.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
-                            <span className="min-w-0 pr-2">
-                              <span className="block truncate font-semibold text-gray-900">{service.label}</span>
-                              <span className="block truncate text-xs text-gray-500">{service.categorie}</span>
-                            </span>
-                            <span className="flex items-center gap-3">
-                              <span className="text-xs font-semibold text-gray-700">{getServiceDisplayPrice(service)}</span>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => {
-                                  setSelectedManualServiceIds((prev) => (
-                                    checked
-                                      ? prev.filter((id) => id !== String(service.id))
-                                      : [...prev, String(service.id)]
-                                  ));
-                                }}
-                              />
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-2 text-xs text-gray-600">Total services fixes: {fixedSeasonalServicesTotal} DT</p>
-                  </div>
-                )}
-                {seasonalServices.length === 0 && (
-                  <div className="mt-3 rounded-2xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500">
-                    Aucun service payant configure pour ce bien.
-                  </div>
-                )}
-                <p><strong>Total calcule:</strong> {autoManualTotal} DT</p>
-                <p><strong>Total contrat:</strong> {resolvedManualTotal} DT{hasManualTotalInput && manualTotalInputIsValid ? ' (manuel)' : ''}</p>
-                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT ({manualDraft.payment_mode === 'totalite' ? 'Totalite' : (hasManualAdvanceInput && manualAdvanceInputIsValid ? 'Avance manuelle' : `Avance ${advancePercent}%`)})</p>
-                <p><strong>Reste a payer a l'arrivee:</strong> {resolvedManualBalance} DT</p>
-                <p><strong>Caution:</strong> {resolvedManualCaution} DT</p>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Generation et visualisation</h2>
+                <p className="mt-1 text-sm text-gray-600">Generez d abord l apercu du contrat, verifiez le PDF, puis confirmez la creation definitive.</p>
               </div>
+              <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-700">
+                <p><strong>Client:</strong> {manualFullName || '-'}</p>
+                <p><strong>Email:</strong> {manualEmail || '-'}</p>
+                <p><strong>Identite:</strong> {manualIdentityRef || '-'}</p>
+                <p><strong>Bien:</strong> {selectedBien ? `${selectedBien.reference || selectedBien.id} - ${selectedBien.titre || 'Bien'}` : '-'}</p>
+                <p><strong>Periode:</strong> {manualStartDateSql || '-'} au {manualEndDateSql || '-'}</p>
+                <p><strong>Total contrat:</strong> {resolvedManualTotal} DT</p>
+                <p><strong>A payer maintenant:</strong> {resolvedManualDueNow} DT</p>
+                <p><strong>Reste a payer:</strong> {resolvedManualBalance} DT</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateManualPreview()}
+                  disabled={manualPreviewLoading}
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                >
+                  {manualPreviewLoading ? 'Generation apercu...' : 'Generer l apercu du contrat'}
+                </button>
+                {manualPreviewUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => handlePreviewPdf(manualPreviewUrl)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Eye size={15} />
+                    Ouvrir l apercu
+                  </button>
+                ) : null}
+              </div>
+              {manualPreviewUrl ? (
+                <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                  <iframe
+                    title="Apercu du contrat manuel"
+                    src={getPdfUrl(manualPreviewUrl)}
+                    className="h-[720px] w-full"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
+                  Aucun apercu genere pour le moment.
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <button type="button" onClick={() => setManualStep(2)} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                   <ArrowLeft size={15} />
                   Retour
                 </button>
-                <button type="button" onClick={handleCreateManualReservation} disabled={manualSubmitting || !manualStartDateSql || !manualEndDateSql} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                <button type="button" onClick={handleCreateManualReservation} disabled={manualSubmitting || !manualStartDateSql || !manualEndDateSql || !manualPreviewUrl} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
                   {manualSubmitting ? 'Confirmation...' : 'Confirmer et reserver'}
                 </button>
               </div>
@@ -1278,6 +1899,47 @@ export default function ContratsPage() {
         </div>
       )}
 
+      {historyViewerContract && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-amber-900">Historique de creation: {historyViewerContract.id}</h3>
+              <p className="text-xs text-amber-800">Etapes sauvegardees du parcours de creation du contrat manuel.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHistoryViewerContract(null)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Fermer
+            </button>
+          </div>
+          {historyViewerData ? (
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+              <div className="rounded-lg border border-amber-100 bg-white p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">Etape 1</p>
+                <p className="mt-1 text-sm font-semibold text-gray-900">{String(historyViewerData?.step_1?.title || 'Variables du contrat')}</p>
+                <pre className="mt-2 overflow-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-700 whitespace-pre-wrap break-words">{JSON.stringify(historyViewerData?.step_1 || {}, null, 2)}</pre>
+              </div>
+              <div className="rounded-lg border border-amber-100 bg-white p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">Etape 2</p>
+                <p className="mt-1 text-sm font-semibold text-gray-900">{String(historyViewerData?.step_2?.title || 'Bien, sejour et paiement')}</p>
+                <pre className="mt-2 overflow-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-700 whitespace-pre-wrap break-words">{JSON.stringify(historyViewerData?.step_2 || {}, null, 2)}</pre>
+              </div>
+              <div className="rounded-lg border border-amber-100 bg-white p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">Etape 3</p>
+                <p className="mt-1 text-sm font-semibold text-gray-900">{String(historyViewerData?.step_3?.title || 'Generation et confirmation')}</p>
+                <pre className="mt-2 overflow-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-700 whitespace-pre-wrap break-words">{JSON.stringify(historyViewerData?.step_3 || {}, null, 2)}</pre>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-amber-200 bg-white p-4 text-sm text-gray-500">
+              Aucun historique sauvegarde pour ce contrat.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {filteredAndSorted.map((contrat) => {
           const bien = bienById.get(contrat.bien_id);
@@ -1322,6 +1984,13 @@ export default function ContratsPage() {
                 </button>
                 <button type="button" onClick={() => void handleEditTemplateVars(contrat)} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-300 text-sky-700 text-sm font-medium hover:bg-sky-50">
                   Modifier variables
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryViewerContract(contrat)}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-700 text-sm font-medium hover:bg-amber-50"
+                >
+                  Historique creation
                 </button>
                 <button type="button" onClick={() => void handleSendContractToClient(contrat)} disabled={sendingContratId === contrat.id} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-medium hover:bg-indigo-50 disabled:opacity-50">
                   {sendingContratId === contrat.id ? 'Envoi...' : 'Envoyer client'}
