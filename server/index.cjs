@@ -17748,7 +17748,7 @@ app.post('/api/reservation-demands/:id/clicktopay/create-checkout', requireAuthe
     });
     await ensureReservationDemandSchema();
     if (!isClickToPayConfigured()) {
-      return res.status(501).json({ error: 'ClickToPay non configure. Ajoutez CLICKTOPAY_USER_NAME et CLICKTOPAY_PASSWORD.' });
+      return res.status(501).json({ error: 'ClickToPay non configure. Ajoutez CLICKTOPAY_USERNAME et CLICKTOPAY_PASSWORD.' });
     }
 
     const demandId = String(req.params.id || '').trim();
@@ -17814,11 +17814,11 @@ app.post('/api/reservation-demands/:id/clicktopay/create-checkout', requireAuthe
     const failLink = `${callbackBase}/fail?reservation_demand_id=${encodeURIComponent(demandId)}&return_to=${encodeURIComponent(returnTo)}`;
     const orderNumber = buildClickToPayOrderNumber(demandId);
     const payload = {
-      userName: CLICKTOPAY_USER_NAME,
+      userName: CLICKTOPAY_USERNAME,
       password: CLICKTOPAY_PASSWORD,
       orderNumber,
       amount: amountInMillimes,
-      currency: CLICKTOPAY_CURRENCY_CODE,
+      currency: CLICKTOPAY_CURRENCY,
       returnUrl: successLink,
       failUrl: failLink,
       pageView: buildClickToPayPageView(req),
