@@ -1726,7 +1726,16 @@ export default function PropertiesPage() {
           else missing.push("Critere bord de mer incomplet");
         }
 
-        const matchComfort = selectedComfortOptions.some((option) => propertyMatchesComfortOption(property, option));
+        const selectedPoolComfortOptions = selectedComfortOptions.filter((option) => POOL_OPTION_KEYS.includes(option));
+        const selectedNonPoolComfortOptions = selectedComfortOptions.filter((option) => !POOL_OPTION_KEYS.includes(option));
+        const matchComfort = selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
+        const matchNonPoolComfort = selectedNonPoolComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
+        const hasSharedPoolAlternativeForPrivate = selectedPoolComfortOptions.includes("piscine_privee")
+          && !propertyMatchesComfortOption(property, "piscine_privee")
+          && propertyMatchesComfortOption(property, "piscine_partagee");
+        const hasPoolAlternative = selectedPoolComfortOptions.length > 0
+          && matchNonPoolComfort
+          && selectedPoolComfortOptions.every((option) => option === "piscine_privee" && hasSharedPoolAlternativeForPrivate);
         if (selectedComfortOptions.length > 0) {
           maxScore += 10;
           if (matchComfort) score += 10;
@@ -1941,10 +1950,12 @@ export default function PropertiesPage() {
         const hasComfortFallbackFromRdc = selectedComfortOptions.includes("rdc")
           && !propertyMatchesComfortOption(property, "rdc")
           && propertyMatchesComfortOption(property, "premier_etage");
-        const genericComfortAlternative = selectedComfortOptions.length > 0 && !matchComfort;
+        const genericComfortAlternative = selectedComfortOptions.length > 0
+          && !matchComfort
+          && selectedPoolComfortOptions.length === 0;
         const hasComfortAlternative = requiresRdcComfortFallback
           ? hasComfortFallbackFromRdc
-          : genericComfortAlternative || hasComfortFallbackFromBeach;
+          : genericComfortAlternative || hasComfortFallbackFromBeach || hasPoolAlternative;
         const hasDateRuleAlternative = Boolean(
           hasDateFilter
           && !exactDateAvailable
@@ -1977,9 +1988,11 @@ export default function PropertiesPage() {
           hasDateReducedAlt,
           hasTypeAlternative31,
           hasTypeAlternative32,
+          exactComfortMatch: matchComfort,
           hasComfortAlternative,
           hasComfortFallbackFromBeach,
           hasComfortFallbackFromRdc,
+          hasPoolAlternative,
           hasDateRuleAlternative,
           dateRuleType,
           dateFailureReason,
@@ -1991,6 +2004,7 @@ export default function PropertiesPage() {
       (row) =>
         row.strictTypeMatch
         && row.score >= threshold
+        && row.exactComfortMatch
         && (!requiresRdcComfortFallback || propertyMatchesComfortOption(row.property, "rdc"))
         && (!hasDateFilter || row.exactDateAvailable)
     );
@@ -2307,6 +2321,15 @@ export default function PropertiesPage() {
   };
   const renderComfortAlternativeLine = (row: any) => {
     const parts: JSX.Element[] = [];
+    if (row.hasPoolAlternative && selectedComfortOptions.includes("piscine_privee")) {
+      parts.push(
+        <span key="pool-alt">
+          <span className="text-gray-500 line-through">Piscine privee</span>
+          {" -> "}
+          <span className="font-semibold text-red-600">Piscine partagee</span>
+        </span>
+      );
+    }
     if (row.hasComfortFallbackFromRdc && selectedComfortOptions.includes("rdc")) {
       parts.push(
         <span key="rdc-alt">

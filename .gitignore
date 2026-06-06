@@ -74,3 +74,4 @@ Chatbot/backend/*.log
 Chatbot/backend/*.err.log
 Chatbot/backend/*.out.log
 Chatbot/backend/.tmp-*.log
+dist.tar.gz
