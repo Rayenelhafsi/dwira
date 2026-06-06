@@ -1097,6 +1097,47 @@ async function ensureHotelReservationDemandSchema() {
   }
 }
 
+async function ensurePaiementsSchema() {
+  const columnExists = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+      `,
+      [tableName, columnName]
+    );
+    return rows.length > 0;
+  };
+  const getColumnInfo = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+      `
+      SELECT DATA_TYPE AS data_type, CHARACTER_MAXIMUM_LENGTH AS character_maximum_length
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+      `,
+      [tableName, columnName]
+    );
+    return rows?.[0] || null;
+  };
+
+  if (!(await columnExists('paiements', 'methode'))) {
+    return;
+  }
+  const methodColumn = await getColumnInfo('paiements', 'methode');
+  const dataType = String(methodColumn?.data_type || '').trim().toLowerCase();
+  const maxLength = Number(methodColumn?.character_maximum_length || 0);
+  if (dataType !== 'varchar' || maxLength < 30) {
+    await pool.query('ALTER TABLE paiements MODIFY COLUMN methode VARCHAR(30) NOT NULL');
+  }
+}
+
 async function ensureHotelPricingRulesSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS hotel_pricing_settings (
@@ -13029,11 +13070,13 @@ app.get('/api/paiements', requireAdminSession, async (req, res) => {
 
 app.post('/api/paiements', requireAdminSession, async (req, res) => {
   try {
+    await ensurePaiementsSchema();
     const { contrat_id, montant, date_paiement, statut, methode } = req.body;
     const id = 'pay' + Date.now();
+    const safeMethod = String(methode || 'virement').trim().toLowerCase() || 'virement';
     await pool.query(
       'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, contrat_id, montant, date_paiement, statut || 'en_attente', methode || 'virement']
+      [id, contrat_id, montant, date_paiement, statut || 'en_attente', safeMethod]
     );
     if ((statut || 'en_attente') === 'paye' && contrat_id) {
       const [demandRows] = await pool.query(
@@ -17253,6 +17296,7 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
 });
 
 async function applyReservationDemandPayment({ current, demandId, scope, method, actorType, actorId, explicitPaymentIdPrefix = 'pay' }) {
+  const safeMethod = String(method || 'virement').trim().toLowerCase() || 'virement';
   const reservationAmount = Number.isFinite(Number(current.amount_due_now))
     ? Number(current.amount_due_now)
     : Number(current.total_amount || 0);
@@ -17279,6 +17323,7 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
     }
   }
 
+  await ensurePaiementsSchema();
   const now = getAgencySqlDateTime();
   let reservationPaymentId = String(current.reservation_payment_id || '').trim() || null;
   let servicesPaymentId = String(current.services_payment_id || '').trim() || null;
@@ -17290,7 +17335,7 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
     reservationPaymentId = `${explicitPaymentIdPrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     await pool.query(
       'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
-      [reservationPaymentId, current.contract_id, reservationAmount, now, 'paye', method]
+      [reservationPaymentId, current.contract_id, reservationAmount, now, 'paye', safeMethod]
     );
     reservationPaidAt = now;
   }
@@ -17299,7 +17344,7 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
     servicesPaymentId = `${explicitPaymentIdPrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     await pool.query(
       'INSERT INTO paiements (id, contrat_id, montant, date_paiement, statut, methode) VALUES (?, ?, ?, ?, ?, ?)',
-      [servicesPaymentId, current.contract_id, servicesAmount, now, 'paye', method]
+      [servicesPaymentId, current.contract_id, servicesAmount, now, 'paye', safeMethod]
     );
     servicesPaidAt = now;
     variableServicesQuoteStatus = 'paye';
@@ -17346,11 +17391,11 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
     nextStatus,
     actorType,
     actorId,
-    `Paiement ${method} enregistre pour: ${paidParts.join(' + ')}`
+    `Paiement ${safeMethod} enregistre pour: ${paidParts.join(' + ')}`
   );
   await createAdminNotification(
     'success',
-    `Paiement ${method} recu pour la demande ${demandId}: ${paidParts.join(' + ')}`,
+    `Paiement ${safeMethod} recu pour la demande ${demandId}: ${paidParts.join(' + ')}`,
     now
   );
 }
