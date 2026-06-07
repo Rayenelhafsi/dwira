@@ -1339,10 +1339,6 @@ export default function PropertiesPage() {
   );
 
   useEffect(() => {
-    const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
-    setSelectedMainTypes((prev) => prev.filter((item) => mainTypeAllowed.has(item)));
-  }, [groupedTypeOptions]);
-  useEffect(() => {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
     setSelectedFeatureNames((prev) => prev.filter((item) => allowedFeatures.has(item)));
   }, [tabFeatureOptionsMap]);
