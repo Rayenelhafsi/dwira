@@ -3060,6 +3060,12 @@ function canAccessReservationDemand(authUser, demand) {
 }
 
 function getClientIp(req) {
+  const cfConnectingIp = String(req.headers?.['cf-connecting-ip'] || '').trim();
+  if (cfConnectingIp) return cfConnectingIp;
+  const trueClientIp = String(req.headers?.['true-client-ip'] || '').trim();
+  if (trueClientIp) return trueClientIp;
+  const realIp = String(req.headers?.['x-real-ip'] || '').trim();
+  if (realIp) return realIp;
   const forwarded = String(req.headers?.['x-forwarded-for'] || '').trim();
   if (forwarded) {
     const [firstIp] = forwarded.split(',').map((value) => String(value || '').trim()).filter(Boolean);
