@@ -1,12 +1,13 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
-import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw, Share2 } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServicePayant } from "../utils/servicePayants";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
+import { toast } from "sonner";
 import {
   findBestStayRangeAlternative,
   getStayAvailabilityAlternativeLabel,
@@ -165,6 +166,13 @@ const parseCsvParam = (value: string | null) =>
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+
+const areStringArraysEqual = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
+
+const areStayRangesEqual = (left: StayRangeSelection[], right: StayRangeSelection[]) =>
+  left.length === right.length
+  && left.every((value, index) => value.start === right[index]?.start && value.end === right[index]?.end);
 
 const parseStayRangesParam = (value: string | null): StayRangeSelection[] => {
   const parsed = String(value || "")
@@ -736,6 +744,77 @@ export default function PropertiesPage() {
     setSelectedMainTypes(mainTypes);
   }, [searchParams]);
   useEffect(() => {
+    const nextQuery = searchParams.get("q") || "";
+    const nextLocations = parseCsvParam(searchParams.get("locations") || searchParams.get("location"));
+    const nextStayRangesParsed = parseStayRangesParam(searchParams.get("stayRanges"));
+    const nextStayRanges = nextStayRangesParsed.length > 0
+      ? nextStayRangesParsed
+      : [{
+          start: searchParams.get("checkIn") || "",
+          end: searchParams.get("checkOut") || "",
+        }];
+    const nextCategories = searchParams.get("categories")?.split(",").filter(Boolean) || [];
+    const nextMainTypes = parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[];
+    const nextFeatures = searchParams.get("features")?.split(",").map((item) => item.trim()).filter(Boolean) || [];
+    const nextDoubleRoomsMin = parseInt(searchParams.get("doubleRoomsMin") || "0", 10);
+    const nextParentRoomsMin = parseInt(searchParams.get("parentRoomsMin") || "0", 10);
+    const nextSimpleRoomsMin = parseInt(searchParams.get("simpleRoomsMin") || "0", 10);
+    const nextBathroomsMin = parseInt(searchParams.get("bathroomsMin") || "0", 10);
+    const nextClimatizedRoomsMin = parseInt(searchParams.get("climatizedRoomsMin") || "0", 10);
+    const nextPaidServices = searchParams.get("paidServices")?.split(",").map((item) => item.trim()).filter(Boolean) || [];
+    const nextSeaside = searchParams.get("seaside")?.split(",").map((item) => item.trim()).filter(Boolean) as HomeSeasideOptionKey[] || [];
+    const nextComfort = searchParams.get("comfort")?.split(",").map((item) => item.trim()).filter(Boolean) as HomeComfortOptionKey[] || [];
+    const nextStanding = searchParams.get("standing") || "";
+    const nextGuestsMin = parseInt(searchParams.get("guestsMin") || "1", 10);
+    const nextFeatured = searchParams.get("featured") === "true";
+    const nextPriceMax = parseInt(searchParams.get("maxPrice") || "1650", 10);
+    const nextTolerance = parseInt(searchParams.get("tolerance") || "75", 10);
+    const nextSort = (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured");
+
+    if (query !== nextQuery) setQuery(nextQuery);
+    if (!areStringArraysEqual(selectedLocations, nextLocations)) setSelectedLocations(nextLocations);
+    if (!areStayRangesEqual(stayRanges, nextStayRanges)) setStayRanges(nextStayRanges);
+    if (!areStringArraysEqual(selectedCategories, nextCategories)) setSelectedCategories(nextCategories);
+    if (!areStringArraysEqual(selectedMainTypes, nextMainTypes)) setSelectedMainTypes(nextMainTypes);
+    if (!areStringArraysEqual(selectedFeatureNames, nextFeatures)) setSelectedFeatureNames(nextFeatures);
+    if (minDoubleRooms !== nextDoubleRoomsMin) setMinDoubleRooms(nextDoubleRoomsMin);
+    if (minParentRooms !== nextParentRoomsMin) setMinParentRooms(nextParentRoomsMin);
+    if (minSimpleRooms !== nextSimpleRoomsMin) setMinSimpleRooms(nextSimpleRoomsMin);
+    if (minBathroomsCount !== nextBathroomsMin) setMinBathroomsCount(nextBathroomsMin);
+    if (minClimatizedRooms !== nextClimatizedRoomsMin) setMinClimatizedRooms(nextClimatizedRoomsMin);
+    if (!areStringArraysEqual(selectedPaidServices, nextPaidServices)) setSelectedPaidServices(nextPaidServices);
+    if (!areStringArraysEqual(selectedSeasideOptions, nextSeaside)) setSelectedSeasideOptions(nextSeaside);
+    if (!areStringArraysEqual(selectedComfortOptions, nextComfort)) setSelectedComfortOptions(nextComfort);
+    if (selectedStanding !== nextStanding) setSelectedStanding(nextStanding);
+    if (minGuests !== nextGuestsMin) setMinGuests(nextGuestsMin);
+    if (isFeaturedOnly !== nextFeatured) setIsFeaturedOnly(nextFeatured);
+    if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
+    if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
+    if (sortMode !== nextSort) setSortMode(nextSort);
+  }, [
+    searchParams,
+    query,
+    selectedLocations,
+    stayRanges,
+    selectedCategories,
+    selectedMainTypes,
+    selectedFeatureNames,
+    minDoubleRooms,
+    minParentRooms,
+    minSimpleRooms,
+    minBathroomsCount,
+    minClimatizedRooms,
+    selectedPaidServices,
+    selectedSeasideOptions,
+    selectedComfortOptions,
+    selectedStanding,
+    minGuests,
+    isFeaturedOnly,
+    priceMax,
+    smartTolerance,
+    sortMode,
+  ]);
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
@@ -1257,7 +1336,7 @@ export default function PropertiesPage() {
     [modeProperties]
   );
 
-  useEffect(() => {
+  const buildManagedSearchParams = () => {
     const params = new URLSearchParams(searchParams);
     [
       "mode",
@@ -1314,7 +1393,14 @@ export default function PropertiesPage() {
     if (priceMax < priceCeiling) params.set("maxPrice", String(priceMax));
     if (smartTolerance !== 75) params.set("tolerance", String(smartTolerance));
     if (sortMode !== "matching") params.set("sort", sortMode);
-    setSearchParams(params, { replace: true });
+    return params;
+  };
+
+  useEffect(() => {
+    const params = buildManagedSearchParams();
+    if (params.toString() !== searchParams.toString()) {
+      setSearchParams(params, { replace: true });
+    }
   }, [
     selectedMode,
     query,
@@ -1338,8 +1424,35 @@ export default function PropertiesPage() {
     smartTolerance,
     sortMode,
     priceCeiling,
+    searchParams,
     setSearchParams,
   ]);
+
+  const handleShareSearch = async () => {
+    const params = buildManagedSearchParams();
+    const queryString = params.toString();
+    const shareUrl = `${window.location.origin}${window.location.pathname}${queryString ? `?${queryString}` : ""}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Recherche Dwira",
+          text: "Consultez cette recherche filtrée sur Dwira.",
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fall back to clipboard when native share is cancelled or unavailable.
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Lien de recherche copié.");
+    } catch {
+      toast.error("Impossible de copier le lien de recherche.");
+    }
+  };
 
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) => (prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]));
@@ -2990,11 +3103,21 @@ export default function PropertiesPage() {
           />
         ) : (
           <div ref={resultsAnchorRef}>
-            <div className="mb-6 flex items-center justify-between">
-              <span className="font-medium text-gray-500">
-                {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
-              </span>
-              {alternativeScoredResults.length > 0 && <span className="text-sm text-gray-500">{alternativeScoredResults.length} choix alternatives</span>}
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-medium text-gray-500">
+                  {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
+                </span>
+                {alternativeScoredResults.length > 0 && <span className="text-sm text-gray-500">{alternativeScoredResults.length} choix alternatives</span>}
+              </div>
+              <button
+                type="button"
+                onClick={handleShareSearch}
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+              >
+                <Share2 size={16} />
+                <span>Partager la recherche</span>
+              </button>
             </div>
 
             {sortedScoredResults.length > 0 ? (
