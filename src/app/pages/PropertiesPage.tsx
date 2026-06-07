@@ -1343,26 +1343,6 @@ export default function PropertiesPage() {
     setSelectedMainTypes((prev) => prev.filter((item) => mainTypeAllowed.has(item)));
   }, [groupedTypeOptions]);
   useEffect(() => {
-    if (selectedMainTypes.length === 0) return;
-    const allowedKeys = new Set<string>();
-    groupedTypeOptions
-      .filter((group) => selectedMainTypes.includes(group.mainType))
-      .forEach((group) => {
-        group.subTypes.forEach((item) => {
-          const key = buildMainTypeSubTypeMatchKey(group.mainType, item.label);
-          if (key) allowedKeys.add(key);
-        });
-      });
-    setSelectedCategories((prev) => {
-      const next = dedupeSubTypeLabelsByCanonicalKey(
-        prev.filter((cat) =>
-          getSelectedSubTypeMatchKeys(cat, selectedMainTypes).some((key) => allowedKeys.has(key))
-        )
-      );
-      return areCanonicalStringArraysEqual(prev, next) ? prev : next;
-    });
-  }, [groupedTypeOptions, selectedMainTypes]);
-  useEffect(() => {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
     setSelectedFeatureNames((prev) => prev.filter((item) => allowedFeatures.has(item)));
   }, [tabFeatureOptionsMap]);
