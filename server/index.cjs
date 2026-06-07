@@ -4742,7 +4742,7 @@ app.post('/api/hotel-reservation-demands/:id/clicktopay/create-checkout', requir
       amount: amountInMillimes,
       returnUrl: successUrl,
       failUrl,
-      description: `Reservation hotel ${String(current.hotel_name || '').trim()}`.trim(),
+      description: `DWIRA IMMOBILIER - Reservation hotel ${String(current.hotel_name || '').trim()}`.trim(),
       pageView: buildClickToPayPageView(req),
     });
     const orderId = String(registration?.orderId || '').trim();
@@ -18351,6 +18351,10 @@ app.post('/api/reservation-demands/:id/clicktopay/create-checkout', requireAuthe
       currency: CLICKTOPAY_CURRENCY,
       returnUrl: successLink,
       failUrl: failLink,
+      description: `DWIRA IMMOBILIER - Reservation ${String(current.bien_titre || current.bien_reference || demandId).trim()}`
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 100),
       pageView: buildClickToPayPageView(req),
     };
     const generated = await clickToPayRegisterOrder(payload);

@@ -169,6 +169,14 @@ const parseCsvParam = (value: string | null) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const parseCategoriesParam = (value: string | null) =>
+  dedupeSubTypeLabelsByCanonicalKey(
+    String(value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+
 const areStringArraysEqual = (left: string[], right: string[]) =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
@@ -710,7 +718,7 @@ export default function PropertiesPage() {
         }]
   );
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
-    searchParams.get("categories")?.split(",").filter(Boolean) || []
+    parseCategoriesParam(searchParams.get("categories"))
   );
   const [selectedMainTypes, setSelectedMainTypes] = useState<PropertyMainType[]>(
     parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[]
@@ -781,7 +789,7 @@ export default function PropertiesPage() {
           start: searchParams.get("checkIn") || "",
           end: searchParams.get("checkOut") || "",
         }];
-    const nextCategories = searchParams.get("categories")?.split(",").filter(Boolean) || [];
+    const nextCategories = parseCategoriesParam(searchParams.get("categories"));
     const nextMainTypes = parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[];
     const nextFeatures = searchParams.get("features")?.split(",").map((item) => item.trim()).filter(Boolean) || [];
     const nextDoubleRoomsMin = parseInt(searchParams.get("doubleRoomsMin") || "0", 10);
@@ -802,7 +810,7 @@ export default function PropertiesPage() {
     if (query !== nextQuery) setQuery(nextQuery);
     if (!areStringArraysEqual(selectedLocations, nextLocations)) setSelectedLocations(nextLocations);
     if (!areStayRangesEqual(stayRanges, nextStayRanges)) setStayRanges(nextStayRanges);
-    if (!areStringArraysEqual(selectedCategories, nextCategories)) setSelectedCategories(nextCategories);
+    if (!areCanonicalStringArraysEqual(selectedCategories, nextCategories)) setSelectedCategories(nextCategories);
     if (!areStringArraysEqual(selectedMainTypes, nextMainTypes)) setSelectedMainTypes(nextMainTypes);
     if (!areStringArraysEqual(selectedFeatureNames, nextFeatures)) setSelectedFeatureNames(nextFeatures);
     if (minDoubleRooms !== nextDoubleRoomsMin) setMinDoubleRooms(nextDoubleRoomsMin);
@@ -1332,25 +1340,21 @@ export default function PropertiesPage() {
   }, [groupedTypeOptions]);
   useEffect(() => {
     if (selectedMainTypes.length === 0) return;
-    const canonicalToLabel = new Map<string, string>();
+    const allowedKeys = new Set<string>();
     groupedTypeOptions
       .filter((group) => selectedMainTypes.includes(group.mainType))
       .forEach((group) => {
         group.subTypes.forEach((item) => {
           const key = buildMainTypeSubTypeMatchKey(group.mainType, item.label);
-          if (key && !canonicalToLabel.has(key)) canonicalToLabel.set(key, item.label);
+          if (key) allowedKeys.add(key);
         });
       });
     setSelectedCategories((prev) => {
-      const remapped = prev
-        .map((cat) => {
-          const resolvedLabel = getSelectedSubTypeMatchKeys(cat, selectedMainTypes)
-            .map((key) => canonicalToLabel.get(key) || "")
-            .find(Boolean);
-          return resolvedLabel || cat;
-        })
-        .filter(Boolean);
-      const next = dedupeSubTypeLabelsByCanonicalKey(remapped);
+      const next = dedupeSubTypeLabelsByCanonicalKey(
+        prev.filter((cat) =>
+          getSelectedSubTypeMatchKeys(cat, selectedMainTypes).some((key) => allowedKeys.has(key))
+        )
+      );
       return areCanonicalStringArraysEqual(prev, next) ? prev : next;
     });
   }, [groupedTypeOptions, selectedMainTypes]);

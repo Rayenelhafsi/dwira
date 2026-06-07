@@ -124,7 +124,7 @@ async function registerOrder(overrides = {}) {
   const amount = overrides.amount || getFlag('amount', '10000');
   const returnUrl = overrides.returnUrl || getFlag('returnUrl', 'https://example.com/success');
   const failUrl = overrides.failUrl || getFlag('failUrl', 'https://example.com/fail');
-  const description = overrides.description || getFlag('description', 'Manual ClickToPay test');
+  const description = overrides.description || getFlag('description', 'DWIRA IMMOBILIER - Manual ClickToPay test');
 
   const result = await postForm('register.do', {
     userName,
@@ -219,7 +219,7 @@ async function ctp08() {
 async function main() {
   switch (command) {
     case 'ctp01':
-      await registerOrder({ description: 'CTP-01 valid order registration' });
+      await registerOrder({ description: 'DWIRA IMMOBILIER - CTP-01 valid order registration' });
       return;
     case 'ctp06':
       await ctp06();
