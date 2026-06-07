@@ -170,9 +170,24 @@ const parseCsvParam = (value: string | null) =>
 const areStringArraysEqual = (left: string[], right: string[]) =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
+const areCanonicalStringArraysEqual = (left: string[], right: string[]) =>
+  left.length === right.length
+  && left.every((value, index) => getCanonicalSubTypeKey(value) === getCanonicalSubTypeKey(right[index]));
+
 const areStayRangesEqual = (left: StayRangeSelection[], right: StayRangeSelection[]) =>
   left.length === right.length
   && left.every((value, index) => value.start === right[index]?.start && value.end === right[index]?.end);
+
+const dedupeSubTypeLabelsByCanonicalKey = (values: string[]) => {
+  const byCanonical = new Map<string, string>();
+  values.forEach((value) => {
+    const label = String(value || "").trim();
+    const canonical = getCanonicalSubTypeKey(label);
+    if (!label || !canonical || byCanonical.has(canonical)) return;
+    byCanonical.set(canonical, label);
+  });
+  return Array.from(byCanonical.values());
+};
 
 const parseStayRangesParam = (value: string | null): StayRangeSelection[] => {
   const parsed = String(value || "")
@@ -1057,8 +1072,14 @@ export default function PropertiesPage() {
       .filter((group) => group.subTypes.length > 0 || group.imageUrl !== TYPE_FALLBACK_IMAGE)
       .sort((a, b) => MAIN_TYPE_DISPLAY_ORDER.indexOf(a.mainType) - MAIN_TYPE_DISPLAY_ORDER.indexOf(b.mainType));
   }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
+  const removeCategoriesForMainType = (categories: string[], mainType: PropertyMainType) => {
+    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === mainType);
+    if (!selectedGroup) return categories;
+    const blockedSubTypes = new Set(selectedGroup.subTypes.map((item) => getCanonicalSubTypeKey(item.label)));
+    return categories.filter((item) => !blockedSubTypes.has(getCanonicalSubTypeKey(item)));
+  };
   const secondaryTypeOptions = useMemo(() => {
-    if (selectedMainTypes.length === 0) return availableTypeOptions;
+    if (selectedMainTypes.length === 0) return [];
     const merged = new Map<string, { label: string; imageUrl: string }>();
     groupedTypeOptions
       .filter((group) => selectedMainTypes.includes(group.mainType))
@@ -1069,7 +1090,7 @@ export default function PropertiesPage() {
         });
       });
     return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
-  }, [availableTypeOptions, groupedTypeOptions, selectedMainTypes]);
+  }, [groupedTypeOptions, selectedMainTypes]);
   const availableStandingOptions = useMemo(() => {
     const standingSet = new Set<string>();
     modeProperties.forEach((property) => {
@@ -1316,13 +1337,19 @@ export default function PropertiesPage() {
           return resolvedLabel || cat;
         })
         .filter(Boolean);
-      return Array.from(new Set(remapped));
+      const next = dedupeSubTypeLabelsByCanonicalKey(remapped);
+      return areCanonicalStringArraysEqual(prev, next) ? prev : next;
     });
   }, [groupedTypeOptions, selectedMainTypes]);
   useEffect(() => {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
     setSelectedFeatureNames((prev) => prev.filter((item) => allowedFeatures.has(item)));
   }, [tabFeatureOptionsMap]);
+  useEffect(() => {
+    if (selectedMainTypes.length > 0) return;
+    if (selectedCategories.length === 0) return;
+    setSelectedCategories([]);
+  }, [selectedCategories, selectedMainTypes]);
   // Keep Home -> Advanced transfer lossless: do not auto-drop selected comfort/seaside filters.
   useEffect(() => {
     const allowedStanding = new Set(availableStandingOptions.map((item) => item.value).filter(Boolean));
@@ -1455,13 +1482,28 @@ export default function PropertiesPage() {
   };
 
   const toggleCategory = (cat: string) => {
-    setSelectedCategories((prev) => (prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]));
+    if (selectedMainTypes.length === 0) return;
+    setSelectedCategories((prev) => {
+      const canonical = getCanonicalSubTypeKey(cat);
+      const exists = prev.some((item) => getCanonicalSubTypeKey(item) === canonical);
+      if (exists) {
+        return prev.filter((item) => getCanonicalSubTypeKey(item) !== canonical);
+      }
+      return dedupeSubTypeLabelsByCanonicalKey([...prev, cat]);
+    });
   };
   const toggleLocation = (loc: string) => {
     setSelectedLocations((prev) => (prev.includes(loc) ? prev.filter((item) => item !== loc) : [...prev, loc]));
   };
   const toggleMainType = (mainType: PropertyMainType) => {
-    setSelectedMainTypes((prev) => (prev.includes(mainType) ? prev.filter((item) => item !== mainType) : [...prev, mainType]));
+    setSelectedMainTypes((prev) => {
+      const exists = prev.includes(mainType);
+      const next = exists ? prev.filter((item) => item !== mainType) : [...prev, mainType];
+      if (exists) {
+        setSelectedCategories((current) => removeCategoriesForMainType(current, mainType));
+      }
+      return next;
+    });
   };
   const updateStayRange = (index: number, key: "start" | "end", value: string) => {
     setStayRanges((prev) => prev.map((range, rangeIndex) => (rangeIndex === index ? { ...range, [key]: value } : range)));
@@ -2397,6 +2439,10 @@ export default function PropertiesPage() {
   const requestedLocationLabel = selectedLocations.join(" | ");
   const requestedMainTypeLabel = selectedMainTypes.map((item) => MAIN_TYPE_LABELS[item]).join(" | ");
   const requestedSubTypeLabel = selectedCategories.join(" | ");
+  const isSubTypeSelected = (label: string) => {
+    const canonical = getCanonicalSubTypeKey(label);
+    return selectedCategories.some((item) => getCanonicalSubTypeKey(item) === canonical);
+  };
   const requestedComfortLabel = [
     ...selectedSeasideOptions.map((key) => SEASIDE_OPTION_LABELS[key]),
     ...selectedComfortOptions.map((key) => COMFORT_OPTION_LABELS[key]),
@@ -2738,27 +2784,33 @@ export default function PropertiesPage() {
                     ))}
                   </div>
                   <label className="text-sm font-bold text-gray-900">Sous-type</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {secondaryTypeOptions.map((cat) => (
-                      <button
-                        key={`sub-type-${cat.label}`}
-                        type="button"
-                        onClick={() => toggleCategory(cat.label)}
-                        className={`relative h-24 overflow-hidden rounded-xl border text-left ${
-                          selectedCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"
-                        }`}
-                      >
-                        <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                        <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                        {selectedCategories.includes(cat.label) && (
-                          <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
-                            <Check size={12} />
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                  {selectedMainTypes.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                      Selectionnez d'abord un type principal.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {secondaryTypeOptions.map((cat) => (
+                        <button
+                          key={`sub-type-${cat.label}`}
+                          type="button"
+                          onClick={() => toggleCategory(cat.label)}
+                          className={`relative h-24 overflow-hidden rounded-xl border text-left ${
+                            isSubTypeSelected(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"
+                          }`}
+                        >
+                          <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                          <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                          <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
+                          {isSubTypeSelected(cat.label) && (
+                            <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
+                              <Check size={12} />
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                 </div>
 
