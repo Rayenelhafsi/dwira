@@ -23,6 +23,7 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\
 const resolveMainTypeLabel = (category: string, title: string) => {
   const normalizedCategory = normalizeTypeToken(category);
   const normalizedTitle = normalizeTypeToken(title);
+  if (normalizedCategory.includes("residence")) return "Residence";
   if (normalizedCategory.includes("appartement")) return "Appartement";
   if (normalizedCategory.includes("villa")) return "Villa";
   if (normalizedCategory.includes("maison")) return "Maison";
@@ -34,6 +35,7 @@ const resolveMainTypeLabel = (category: string, title: string) => {
   if (normalizedCategory.includes("local commercial")) return "Local commercial";
   if (normalizedCategory.includes("local")) return "Local";
   if (normalizedCategory.includes("s+")) return "Appartement";
+  if (normalizedTitle.includes("residence")) return "Residence";
   if (normalizedTitle.includes("appartement")) return "Appartement";
   if (normalizedTitle.includes("villa")) return "Villa";
   if (normalizedTitle.includes("maison")) return "Maison";
@@ -128,6 +130,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const typeWidgetLabel = subTypeLabel ? `${mainTypeLabel} ${subTypeLabel}` : mainTypeLabel;
   const displayTitle = buildDisplayTitle(property.reference, property.title);
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
+  const residenceBadgeLabel = String(property.residenceName || "").trim();
 
   useEffect(() => {
     const measureTitle = () => {
@@ -242,8 +245,13 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
           <div className="absolute left-4 top-4 inline-flex rounded-full border border-white/25 bg-black/35 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 backdrop-blur-md">
             Sejour premium
           </div>
+          {residenceBadgeLabel ? (
+            <div className="absolute left-4 top-[3.15rem] inline-flex rounded-full border border-emerald-200/85 bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700 shadow-sm backdrop-blur-md">
+              Residence {residenceBadgeLabel}
+            </div>
+          ) : null}
           {hasInstantReservation ? (
-            <div className="dwira-instant-badge absolute left-4 top-[3.15rem] inline-flex items-center gap-1.5 rounded-full border border-amber-200/85 bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 shadow-sm backdrop-blur-md">
+            <div className={`dwira-instant-badge absolute left-4 ${residenceBadgeLabel ? 'top-[5.4rem]' : 'top-[3.15rem]'} inline-flex items-center gap-1.5 rounded-full border border-amber-200/85 bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 shadow-sm backdrop-blur-md`}>
               <Zap size={12} className="text-amber-500" />
               <span>Reservation rapide</span>
             </div>

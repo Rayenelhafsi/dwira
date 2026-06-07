@@ -12,7 +12,7 @@ export interface CreateBienInput {
   nom_bien_mobile?: string | null;
   description?: string;
   mode: 'vente' | 'location_annuelle' | 'location_saisonniere';
-  type: 'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
+  type: 'appartement' | 'residence' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
   nb_chambres: number;
   nb_salle_bain: number;
   prix_nuitee: number;
@@ -92,7 +92,7 @@ export interface UpdateBienInput {
   nom_bien_mobile?: string | null;
   description?: string;
   mode?: 'vente' | 'location_annuelle' | 'location_saisonniere';
-  type?: 'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
+  type?: 'appartement' | 'residence' | 'villa_maison' | 'studio' | 'immeuble' | 'terrain' | 'local_commercial' | 'bungalow' | 'S1' | 'S2' | 'S3' | 'S4' | 'villa' | 'local';
   nb_chambres?: number;
   nb_salle_bain?: number;
   prix_nuitee?: number;

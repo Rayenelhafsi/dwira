@@ -24,6 +24,7 @@ export interface PropertyFilterProfile {
   mainType?: string;
   subType?: string;
   displayCategory?: string;
+  residenceName?: string;
   locationLabel: string;
   locationTokens: string[];
   locationHierarchy: {
@@ -61,6 +62,8 @@ export interface Property {
   description: string;
   amenities: string[];
   category: string;
+  residenceName?: string | null;
+  residenceUnitSubType?: string | null;
   isFeatured?: boolean;
   unavailableDates?: DateStatus[];
   pricingPeriods?: SeasonalPricingPeriod[];

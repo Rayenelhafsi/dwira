@@ -255,6 +255,20 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     id: row.id,
     reference: row.reference,
     titre: row.titre,
+    residence_parent_bien_id: String((row as any).residence_parent_bien_id || '').trim() || null,
+    residence_parent_name: String((row as any).residence_parent_name || '').trim() || null,
+    residence_unit_key: String((row as any).residence_unit_key || '').trim() || null,
+    residence_unit_sub_type: String((row as any).residence_unit_sub_type || '').trim() || null,
+    residence_units: (() => {
+      try {
+        const raw = (row as any).residence_units_json;
+        if (!raw) return [];
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })(),
     nom_bien_mobile: String((row as any).nom_bien_mobile || (locationSaisonniereConfig as any)?.nom_bien_mobile || (row as any).nom_application || '').trim() || null,
     nom_application: ((row as any).nom_application || null) as string | null,
     description: parsedDescription.description,
@@ -581,8 +595,10 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     || resolvedZone?.pays
     || 'KÃ©libia'
   );
+  const isResidenceChild = Boolean(String((bien as any).residence_parent_bien_id || '').trim());
+  const residenceName = String((bien as any).residence_parent_name || '').trim() || null;
   const categoryFromType = typeToCategory[bien.type] || 'Autre';
-  const mainTypeLabel = typeToMainLabel[bien.type] || categoryFromType;
+  const mainTypeLabel = isResidenceChild ? 'Residence' : (typeToMainLabel[bien.type] || categoryFromType);
   const normalizeLabelToken = (value: string) => String(value || '').toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
   const normalizedMainTypeLabel = normalizeLabelToken(mainTypeLabel);
   const normalizedConfigurationLabel = normalizeLabelToken(normalizedConfiguration);
@@ -595,9 +611,11 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     normalizedConfigurationLabel.startsWith(normalizedMainTypeLabel)
     || normalizedConfigurationLabel.includes(normalizedMainTypeLabel);
   const configurationIsGenericMainType = normalizedConfigurationLabel === normalizedMainTypeLabel;
-  const resolvedSubType = normalizedConfiguration && !configurationIsGenericMainType
-    ? normalizedConfiguration
-    : inferredSubType;
+  const explicitResidenceSubType = String((bien as any).residence_unit_sub_type || '').trim();
+  const resolvedSubType = explicitResidenceSubType
+    || (normalizedConfiguration && !configurationIsGenericMainType
+      ? normalizedConfiguration
+      : inferredSubType);
   let resolvedCategory = mainTypeLabel;
   if (resolvedSubType) {
     resolvedCategory = configurationAlreadyContainsType && normalizedConfiguration && !configurationIsGenericMainType
@@ -631,10 +649,11 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
   const propertyFilterProfile: PropertyFilterProfile = {
     mode: bien.mode,
     propertyType: String(bien.type || '').trim().toLowerCase(),
-    category: resolvedCategory,
-    mainType: String(bien.type || '').trim().toLowerCase(),
+    category: isResidenceChild && resolvedSubType ? `Residence ${resolvedSubType}` : resolvedCategory,
+    mainType: isResidenceChild ? 'residence' : String(bien.type || '').trim().toLowerCase(),
     subType: resolvedSubType || '',
-    displayCategory: resolvedCategory,
+    displayCategory: isResidenceChild && resolvedSubType ? `Residence ${resolvedSubType}` : resolvedCategory,
+    residenceName: residenceName || undefined,
     locationLabel: normalizedLocationLabel,
     locationTokens,
     locationHierarchy: {
@@ -674,7 +693,9 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     videos: videoUrls,
     description: bien.description || `Superbe ${bien.type}`,
     amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),
-    category: resolvedCategory,
+    category: isResidenceChild && resolvedSubType ? `Residence ${resolvedSubType}` : resolvedCategory,
+    residenceName,
+    residenceUnitSubType: resolvedSubType || null,
     isFeatured: bien.is_featured === true,
     unavailableDates: bien.unavailableDates || [],
     pricingPeriods: Array.isArray(bien.pricing_periods) ? bien.pricing_periods : [],
@@ -819,6 +840,9 @@ function writePropertiesCache(payload: PropertiesCachePayload) {
   }
 }
 
+const isPubliclyVisibleBien = (bien: Bien) =>
+  bien.visible_sur_site !== false && String(bien.type || '').trim().toLowerCase() !== 'residence';
+
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -860,7 +884,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     const cachedZones = initialCache?.zones || [];
     const zonesById: Record<string, Zone> = {};
     for (const zone of cachedZones) zonesById[zone.id] = zone;
-    return cachedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zonesById));
+    return cachedBiens.filter(isPubliclyVisibleBien).map((bien) => bienToProperty(bien, zonesById));
   });
   const [zones, setZones] = useState<Zone[]>(initialCache?.zones || []);
   const [proprietaires, setProprietaires] = useState<Proprietaire[]>(initialCache?.proprietaires || []);
@@ -880,7 +904,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
 
     setBiens(mappedBiens);
-    setProperties(mappedBiens.filter((bien) => bien.visible_sur_site !== false).map((bien) => bienToProperty(bien, zonesById)));
+    setProperties(mappedBiens.filter(isPubliclyVisibleBien).map((bien) => bienToProperty(bien, zonesById)));
     setZones(Array.isArray(zonesData) ? zonesData : []);
     setProprietaires(Array.isArray(propsData) ? propsData : []);
     setModePriorities({
@@ -964,7 +988,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       void (async () => {
         const datesByBienId = new Map<string, any[]>();
         const eagerUnavailableDateIds = mappedBiens
-          .filter((bien) => bien.visible_sur_site !== false)
+          .filter(isPubliclyVisibleBien)
           .slice(0, 10)
           .map((bien) => String(bien.id || '').trim())
           .filter(Boolean);

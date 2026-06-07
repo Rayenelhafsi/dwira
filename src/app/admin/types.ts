@@ -113,6 +113,7 @@ export interface Proprietaire {
 export type BienMode = 'vente' | 'location_annuelle' | 'location_saisonniere';
 export type BienType =
   | 'appartement'
+  | 'residence'
   | 'villa_maison'
   | 'studio'
   | 'immeuble'
@@ -185,6 +186,29 @@ export interface ImmeubleGarageDetail {
 export interface ImmeubleLocalCommercialDetail {
   index: number;
   reference?: string | null;
+}
+
+export interface ResidenceApartmentTemplate {
+  name?: string;
+  reference?: string | null;
+  nom_bien_mobile?: string | null;
+  description?: string;
+  proprietaire_id?: string | null;
+  unavailable_dates?: DateStatus[];
+}
+
+export interface ResidenceUnitTemplate {
+  id: string;
+  sub_type: string;
+  quantity: number;
+  apartment_names?: string[];
+  apartment_references?: string[];
+  apartments?: ResidenceApartmentTemplate[];
+  template_bien?: Partial<Bien>;
+  template_media?: Media[];
+  pricing_periods?: SeasonalPricingPeriod[];
+  feature_ids?: string[];
+  feature_values?: Record<string, string | string[]>;
 }
 
 export interface LotissementTerrainDetail {
@@ -296,6 +320,11 @@ export interface Bien {
   description?: string;
   mode: BienMode;
   type: BienType;
+  residence_parent_bien_id?: string | null;
+  residence_parent_name?: string | null;
+  residence_unit_key?: string | null;
+  residence_unit_sub_type?: string | null;
+  residence_units?: ResidenceUnitTemplate[];
   surface?: number;
   nb_chambres: number;
   nb_salle_bain: number;

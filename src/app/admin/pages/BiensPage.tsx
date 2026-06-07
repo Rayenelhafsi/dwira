@@ -111,6 +111,7 @@ const modeLabels: Record<BienMode, string> = {
 };
 const typeLabels: Record<BienType, string> = {
   appartement: "Appartement",
+  residence: "Residence",
   villa_maison: "Villa/Maison",
   studio: "Studio",
   immeuble: "Immeuble",
@@ -127,7 +128,7 @@ const typeLabels: Record<BienType, string> = {
 };
 const BIEN_TYPES_BY_MODE: Record<BienMode, BienType[]> = {
   vente: ['appartement', 'villa_maison', 'studio', 'immeuble', 'terrain', 'lotissement', 'local_commercial'],
-  location_saisonniere: ['appartement', 'villa_maison', 'bungalow', 'studio'],
+  location_saisonniere: ['appartement', 'residence', 'villa_maison', 'bungalow', 'studio'],
   location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
 };
 const TERRAIN_PRIX_MODE_LABELS: Record<ModeAffichagePrixTerrain, string> = {
@@ -263,7 +264,7 @@ const DEFAULT_DETAILS_TABS: CaracteristiqueOnglet[] = [
   { id: 'caracteristiques', nom: 'Caracteristiques', ordre: 30, is_system: 1 },
 ];
 type ValidationIssue = {
-  step: 1 | 2 | 3 | 4 | 5;
+  step: 0 | 1 | 2 | 3 | 4 | 5;
   fieldName: string;
   label: string;
   message: string;
@@ -793,7 +794,7 @@ export default function BiensPage() {
   const [editingBien, setEditingBien] = useState<Bien | null>(null);
   const [duplicateSeedBien, setDuplicateSeedBien] = useState<Bien | null>(null);
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
-  const [editorInitialStep, setEditorInitialStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [editorInitialStep, setEditorInitialStep] = useState<0 | 1 | 2 | 3 | 4 | 5>(1);
   const [saveStatusByBienId, setSaveStatusByBienId] = useState<Record<string, { state: 'saving' | 'saved' | 'error'; at: number }>>({});
   const [priorityDraft, setPriorityDraft] = useState<Record<BienMode, number>>(modePriorities);
   const [isSavingPriorities, setIsSavingPriorities] = useState(false);
@@ -1316,6 +1317,28 @@ export default function BiensPage() {
       }
     }
   };
+  const syncResidenceChildAssets = async (
+    units: Bien['residence_units'],
+    children: Array<{ id: string; unit_id?: string | null; key?: string | null; index?: number | null }>
+  ) => {
+    const normalizedUnits = Array.isArray(units) ? units : [];
+    const childRows = Array.isArray(children) ? children : [];
+    for (const child of childRows) {
+      const unit = normalizedUnits.find((row) => String(row?.id || '') === String(child?.unit_id || ''));
+      if (!unit || !child?.id) continue;
+      const childMedia = Array.isArray(unit.template_media) ? unit.template_media : [];
+      await syncMediaForBien(String(child.id), childMedia.map((media, mediaIndex) => ({
+        ...media,
+        bien_id: String(child.id),
+        position: Number.isFinite(Number(media?.position)) ? Number(media.position) : mediaIndex,
+      })));
+      const apartmentIndex = Math.max(0, Number(child.index || 1) - 1);
+      const childDates = Array.isArray(unit.apartments?.[apartmentIndex]?.unavailable_dates)
+        ? (unit.apartments?.[apartmentIndex]?.unavailable_dates as DateStatus[])
+        : [];
+      await syncUnavailableDatesForBien(String(child.id), childDates);
+    }
+  };
   const handleSave = async (bien: Bien) => {
     const isEditingNow = Boolean(editingBien);
     const editingSnapshot = editingBien;
@@ -1345,11 +1368,35 @@ export default function BiensPage() {
             await syncMediaForBien(bien.id, media || []);
           }
           await syncUnavailableDatesForBien(bien.id, unavailableDates || []);
+          if (bien.type === 'residence') {
+            const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(String(bien.id || ''))}/sync-residence-children`, {
+              method: 'POST',
+              credentials: 'include',
+            });
+            if (!syncResponse.ok) {
+              const payload = await syncResponse.json().catch(() => null);
+              throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
+            }
+            const syncPayload = await syncResponse.json().catch(() => null);
+            await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
+          }
         } else {
           const createdBienId = await addBien(bienData as any);
           finalBienId = String(createdBienId || String(bienData.id || bien.id || ''));
           await syncMediaForBien(finalBienId, media || []);
           await syncUnavailableDatesForBien(finalBienId, unavailableDates || []);
+          if (bien.type === 'residence') {
+            const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(finalBienId)}/sync-residence-children`, {
+              method: 'POST',
+              credentials: 'include',
+            });
+            if (!syncResponse.ok) {
+              const payload = await syncResponse.json().catch(() => null);
+              throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
+            }
+            const syncPayload = await syncResponse.json().catch(() => null);
+            await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
+          }
         }
         await refreshData();
         if (finalBienId) {
@@ -1373,12 +1420,36 @@ export default function BiensPage() {
                 await syncMediaForBien(bien.id, bien.media || []);
               }
               await syncUnavailableDatesForBien(bien.id, bien.unavailableDates || []);
+              if (bien.type === 'residence') {
+                const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(String(bien.id || ''))}/sync-residence-children`, {
+                  method: 'POST',
+                  credentials: 'include',
+                });
+                if (!syncResponse.ok) {
+                  const payload = await syncResponse.json().catch(() => null);
+                  throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
+                }
+                const syncPayload = await syncResponse.json().catch(() => null);
+                await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
+              }
             } else {
               const { created_at: _createdAt, updated_at: _updatedAt, media: _media, unavailableDates: _dates, ...draftBienData } = draftBien;
               const createdBienId = await addBien(draftBienData);
               finalBienId = String(createdBienId || String(draftBienData.id || bien.id || ''));
               await syncMediaForBien(finalBienId, bien.media || []);
               await syncUnavailableDatesForBien(finalBienId, bien.unavailableDates || []);
+              if (bien.type === 'residence') {
+                const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(finalBienId)}/sync-residence-children`, {
+                  method: 'POST',
+                  credentials: 'include',
+                });
+                if (!syncResponse.ok) {
+                  const payload = await syncResponse.json().catch(() => null);
+                  throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
+                }
+                const syncPayload = await syncResponse.json().catch(() => null);
+                await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
+              }
             }
             await refreshData();
             if (finalBienId) {
@@ -1449,7 +1520,10 @@ export default function BiensPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div><h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Biens</h1><p className="text-xs sm:text-sm text-gray-500">Gérez votre portefeuille</p></div>
-        <button onClick={() => { setEditingBien(null); setEditorInitialStep(1); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <button onClick={() => { setDuplicateSeedBien(null); setEditingBien(null); setEditorInitialStep(1); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
+          <button onClick={() => { setDuplicateSeedBien({ mode: 'location_saisonniere', type: 'residence', residence_units: [], statut: 'disponible', visible_sur_site: true } as Bien); setEditingBien(null); setEditorInitialStep(0); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 border border-emerald-600 text-emerald-700 text-sm font-medium rounded-md hover:bg-emerald-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau residence</button>
+        </div>
       </div>
       <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4">
         <div className="relative flex-1"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-gray-400" /></div><input type="text" className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md" placeholder="Rechercher..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
@@ -1670,7 +1744,7 @@ export default function BiensPage() {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(bien); setEditorInitialStep(1); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
+        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(bien); setEditorInitialStep(bien.type === 'residence' ? 0 : 1); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(bien)} />)}
       </div>
       {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
       <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
@@ -1695,8 +1769,8 @@ export default function BiensPage() {
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
             <div className="flex items-center gap-3"><button onClick={() => setViewingBien(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">Apercu</Dialog.Title></div>
             <div className="flex items-center gap-2">
-              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(viewingBien); setEditorInitialStep(2); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><span>Modifier visibilite</span></button>
-              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(viewingBien); setEditorInitialStep(1); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /><span>Modifier</span></button>
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(viewingBien); setEditorInitialStep(viewingBien.type === 'residence' ? 0 : 2); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><span>Modifier visibilite</span></button>
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(viewingBien); setEditorInitialStep(viewingBien.type === 'residence' ? 0 : 1); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /><span>Modifier</span></button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">{viewingBien && <BienPreview bien={viewingBien} zones={zoneOptions} onSaveVisibility={handlePreviewVisibilitySave} />}</div>
@@ -1816,10 +1890,10 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
   );
 }
 
-function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; seedData?: Bien | null; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
+function BienEditor({ initialData, seedData, initialGeneralStep = 1, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; seedData?: Bien | null; initialGeneralStep?: 0 | 1 | 2 | 3 | 4 | 5; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
-  const [generalStep, setGeneralStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialData || seedData || { reference: '', titre: '', nom_bien_mobile: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, prix_semaine: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [generalStep, setGeneralStep] = useState<0 | 1 | 2 | 3 | 4 | 5>(initialGeneralStep);
+  const [formData, setFormData] = useState<Partial<Bien>>(initialData || seedData || { reference: '', titre: '', nom_bien_mobile: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, residence_units: [], nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, prix_semaine: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const saisonConfig: LocationSaisonniereConfig = {
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
@@ -1860,6 +1934,8 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const [deletedMediaIds, setDeletedMediaIds] = useState<string[]>([]);
   const [unavailableDates, setUnavailableDates] = useState<DateStatus[]>(initialData?.unavailableDates || seedData?.unavailableDates || []);
   const [pricingPeriods, setPricingPeriods] = useState<SeasonalPricingPeriod[]>(initialData?.pricing_periods || seedData?.pricing_periods || []);
+  const [activeResidenceUnitId, setActiveResidenceUnitId] = useState<string>('');
+  const [activeResidenceApartmentIndex, setActiveResidenceApartmentIndex] = useState<number>(0);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [removedUiBlocks, setRemovedUiBlocks] = useState<Record<string, boolean>>({});
@@ -1880,6 +1956,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; icon_name: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
+  const [appartementSousTypeOptions, setAppartementSousTypeOptions] = useState<string[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(initialData?.caracteristique_ids || seedData?.caracteristique_ids || []);
   const [featureChoiceValuesById, setFeatureChoiceValuesById] = useState<Record<string, string[]>>({});
   const [featureMultiChoicePickerById, setFeatureMultiChoicePickerById] = useState<Record<string, string>>({});
@@ -1944,7 +2021,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     canAddToCurrentContext: false,
     payload: null,
   });
-  const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [1, 2, 3, 4, 5] : []));
+  const [validatedSteps, setValidatedSteps] = useState<Set<number>>(new Set(initialData ? [0, 1, 2, 3, 4, 5] : []));
   const [terrainSectionTab, setTerrainSectionTab] = useState<TerrainSectionTab>('informations_generales');
   const [detailSectionTabId, setDetailSectionTabId] = useState<string>('informations_generales');
   const [selectedServiceCatalogId, setSelectedServiceCatalogId] = useState<string>('');
@@ -1979,6 +2056,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   };
   const TYPE_REFERENCE_CODES: Record<BienType, string> = {
     appartement: 'APP',
+    residence: 'RES',
     villa_maison: 'VILLA',
     studio: 'STU',
     immeuble: 'IMM',
@@ -1995,6 +2073,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
   };
   const TYPE_UNIT_PREFIX: Record<BienType, string> = {
     appartement: 'A',
+    residence: 'R',
     villa_maison: 'V',
     studio: 'S',
     immeuble: 'I',
@@ -2339,13 +2418,16 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
 
     let cancelled = false;
     const run = async () => {
-      if (selectedMode === 'location_saisonniere' && selectedType !== 'appartement') {
-        await syncSaisonniereTemplateFromAppartement(selectedMode, selectedType);
+      const effectiveFeatureType = selectedMode === 'location_saisonniere' && selectedType === 'residence'
+        ? 'appartement'
+        : selectedType;
+      if (selectedMode === 'location_saisonniere' && effectiveFeatureType !== 'appartement') {
+        await syncSaisonniereTemplateFromAppartement(selectedMode, effectiveFeatureType);
       }
       if (cancelled) return;
-      await loadFeatureTabs(selectedMode, selectedType);
+      await loadFeatureTabs(selectedMode, effectiveFeatureType);
       if (cancelled) return;
-      await loadAvailableFeatures(selectedMode, selectedType);
+      await loadAvailableFeatures(selectedMode, effectiveFeatureType);
     };
     void run();
     return () => {
@@ -2358,6 +2440,14 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       setSousTypeImportType(allowed[0]);
     }
   }, [sousTypeImportMode, sousTypeImportType]);
+  useEffect(() => {
+    const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
+    if (currentMode !== 'location_saisonniere') {
+      setAppartementSousTypeOptions([]);
+      return;
+    }
+    void loadAppartementSousTypeOptions(currentMode);
+  }, [formData.mode]);
   useEffect(() => {
     const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
     const currentType = normalizeLegacyType((formData.type || 'appartement') as BienType);
@@ -2747,6 +2837,81 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       return;
     }
     setFormData(prev => ({ ...prev, [name]: type === 'number' ? Number(value) : value }));
+  };
+  const handleResidenceUnitChange = (index: number, field: 'sub_type' | 'quantity', value: string) => {
+    setFormData((prev) => {
+      const rows = Array.isArray(prev.residence_units) ? [...prev.residence_units] : [];
+      const current = rows[index] || { id: `res_unit_${Date.now()}_${index}`, sub_type: '', quantity: 1 };
+      const nextQuantity = field === 'quantity' ? Math.max(1, Math.floor(Number(value || 1) || 1)) : Math.max(1, Math.floor(Number(current.quantity || 1) || 1));
+      const currentApartments = Array.isArray((current as any).apartments) ? ([...(current as any).apartments] as Array<any>) : [];
+      while (currentApartments.length < nextQuantity) currentApartments.push({});
+      const trimmedApartments = currentApartments.slice(0, nextQuantity);
+      rows[index] = {
+        ...current,
+        [field]: field === 'quantity' ? nextQuantity : value,
+        apartments: trimmedApartments,
+      };
+      return { ...prev, residence_units: rows };
+    });
+  };
+  const handleAddResidenceUnit = () => {
+    setFormData((prev) => ({
+      ...prev,
+      residence_units: [
+        ...(Array.isArray(prev.residence_units) ? prev.residence_units : []),
+        { id: `res_unit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, sub_type: '', quantity: 1 },
+      ],
+    }));
+  };
+  const handleRemoveResidenceUnit = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      residence_units: (Array.isArray(prev.residence_units) ? prev.residence_units : []).filter((_, rowIndex) => rowIndex !== index),
+    }));
+  };
+  const handleResidenceApartmentNameChange = (unitIndex: number, apartmentIndex: number, value: string) => {
+    setFormData((prev) => {
+      const rows = Array.isArray(prev.residence_units) ? [...prev.residence_units] : [];
+      const current = rows[unitIndex] || { id: `res_unit_${Date.now()}_${unitIndex}`, sub_type: '', quantity: 1, apartment_names: [] };
+      const nextNames = Array.isArray(current.apartment_names) ? [...current.apartment_names] : [];
+      const nextApartments = Array.isArray((current as any).apartments) ? ([...(current as any).apartments] as Array<any>) : [];
+      while (nextNames.length < Math.max(1, Number(current.quantity || 1))) nextNames.push('');
+      while (nextApartments.length < Math.max(1, Number(current.quantity || 1))) nextApartments.push({});
+      nextNames[apartmentIndex] = String(value || '');
+      nextApartments[apartmentIndex] = {
+        ...(nextApartments[apartmentIndex] || {}),
+        name: String(value || ''),
+      };
+      rows[unitIndex] = {
+        ...current,
+        apartment_names: nextNames,
+        apartments: nextApartments,
+      };
+      return { ...prev, residence_units: rows };
+    });
+  };
+  const handleResidenceApartmentMetaChange = (unitIndex: number, apartmentIndex: number, field: 'reference' | 'nom_bien_mobile' | 'description' | 'proprietaire_id' | 'name', value: string) => {
+    setFormData((prev) => {
+      const rows = Array.isArray(prev.residence_units) ? [...prev.residence_units] : [];
+      const current = rows[unitIndex] || { id: `res_unit_${Date.now()}_${unitIndex}`, sub_type: '', quantity: 1, apartments: [] };
+      const nextApartments = Array.isArray((current as any).apartments) ? ([...(current as any).apartments] as Array<any>) : [];
+      while (nextApartments.length < Math.max(1, Number(current.quantity || 1))) nextApartments.push({});
+      const nextNames = Array.isArray((current as any).apartment_names) ? [...((current as any).apartment_names as string[])] : [];
+      while (nextNames.length < Math.max(1, Number(current.quantity || 1))) nextNames.push('');
+      nextApartments[apartmentIndex] = {
+        ...(nextApartments[apartmentIndex] || {}),
+        [field]: value,
+      };
+      if (field === 'name') {
+        nextNames[apartmentIndex] = value;
+      }
+      rows[unitIndex] = {
+        ...current,
+        apartment_names: nextNames,
+        apartments: nextApartments,
+      };
+      return { ...prev, residence_units: rows };
+    });
   };
   const resetAppartementVenteFields = (current: Partial<Bien>): Partial<Bien> => ({
     ...current,
@@ -4584,12 +4749,85 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         }
         return feature.nom;
       });
+    const effectiveResidenceUnits = selectedType === 'residence'
+      ? normalizedResidenceUnits.map((row) => {
+          const isActiveRow = isResidenceParent && activeResidenceUnit && String(activeResidenceUnit.id) === String(row.id);
+          const currentFeatureValues = buildResidenceFeatureValuesPayload();
+          return {
+            ...row,
+            apartments: (row.apartments || []).map((apartment, apartmentIndex) => ({
+              ...apartment,
+              unavailable_dates: isActiveRow && apartmentIndex === activeResidenceApartmentIndex
+                ? unavailableDates
+                : (Array.isArray(apartment.unavailable_dates) ? apartment.unavailable_dates : []),
+            })),
+            template_bien: isActiveRow
+              ? {
+                  ...(((row as any).template_bien || {}) as Partial<Bien>),
+                  nb_chambres: formData.nb_chambres,
+                  nb_salle_bain: formData.nb_salle_bain,
+                  prix_nuitee: formData.prix_nuitee,
+                  prix_semaine: formData.prix_semaine,
+                  avance: formData.avance,
+                  caution: formData.caution,
+                  statut: formData.statut,
+                  visible_sur_site: formData.visible_sur_site,
+                  is_featured: formData.is_featured,
+                  superficie_m2: formData.superficie_m2,
+                  etage: formData.etage,
+                  annee_construction: formData.annee_construction,
+                  distance_plage_m: formData.distance_plage_m,
+                  proche_plage: formData.proche_plage,
+                  chauffage_central: formData.chauffage_central,
+                  climatisation: formData.climatisation,
+                  balcon: formData.balcon,
+                  terrasse: formData.terrasse,
+                  ascenseur: formData.ascenseur,
+                  vue_mer: formData.vue_mer,
+                  gaz_ville: formData.gaz_ville,
+                  cuisine_equipee: formData.cuisine_equipee,
+                  place_parking: formData.place_parking,
+                  syndic: formData.syndic,
+                  meuble: formData.meuble,
+                  independant: formData.independant,
+                  eau_puits: formData.eau_puits,
+                  eau_sonede: formData.eau_sonede,
+                  electricite_steg: formData.electricite_steg,
+                  configuration: row.sub_type,
+                  location_saisonniere_config: formData.location_saisonniere_config,
+                  ui_config: formData.ui_config,
+                }
+              : ((row as any).template_bien || {}),
+            template_media: isActiveRow ? imagesWithPositions : (((row as any).template_media || []) as Media[]),
+            pricing_periods: isActiveRow ? pricingPeriods : (((row as any).pricing_periods || []) as SeasonalPricingPeriod[]),
+            feature_ids: isActiveRow ? selectedFeatureIds : (((row as any).feature_ids || []) as string[]),
+            feature_values: isActiveRow ? currentFeatureValues : ((((row as any).feature_values || {}) as Record<string, string | string[]>)),
+          };
+        })
+      : [];
     const finalData: Bien = {
       ...formData,
       nom_bien_mobile: String(formData.nom_bien_mobile || '').trim() || null,
       reference: resolvedReference,
       mode: selectedMode,
       type: selectedType,
+      residence_units: selectedType === 'residence'
+        ? effectiveResidenceUnits
+          .map((row, index) => ({
+            id: String(row?.id || `res_unit_${index + 1}`),
+            sub_type: String(row?.sub_type || '').trim(),
+            quantity: Math.max(1, Math.floor(Number(row?.quantity || 1) || 1)),
+            apartment_names: (row.apartments || []).map((apartment) => String(apartment?.name || '').trim()),
+            apartment_references: (row.apartments || []).map((apartment) => String(apartment?.reference || '').trim()),
+            apartments: row.apartments,
+            template_bien: (row as any).template_bien || {},
+            template_media: (row as any).template_media || [],
+            pricing_periods: (row as any).pricing_periods || [],
+            feature_ids: (row as any).feature_ids || [],
+            feature_values: (row as any).feature_values || {},
+          }))
+          .filter((row) => row.sub_type)
+        : [],
       configuration: resolvedConfiguration,
       nb_chambres: resolvedNbChambres,
       nb_salle_bain: resolvedNbSalleBain,
@@ -4699,13 +4937,359 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       .map((z) => String(z.quartier || '').trim())
       .filter(Boolean)
   ));
+  const locationZoneSection = (
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-gray-700 mb-1">Localisation (Zone)</label>
+      <select name="zone_id" value={formData.zone_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{zonesOptions.map(z => <option key={z.id} value={z.id}>{z.nom}</option>)}</select>
+      {String(formData.zone_id || '').trim() && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-2 space-y-2">
+          {(() => {
+            const selectedZone = zonesOptions.find((zone) => zone.id === formData.zone_id);
+            const selectedZoneImageRaw =
+              selectedZoneImageTarget === 'pays'
+                ? selectedZone?.pays_image_url
+                : selectedZoneImageTarget === 'gouvernerat'
+                  ? selectedZone?.gouvernerat_image_url
+                  : selectedZoneImageTarget === 'region'
+                    ? selectedZone?.region_image_url
+                    : selectedZone?.quartier_image_url;
+            const selectedZoneImage = resolveMediaUrl(selectedZoneImageRaw || '');
+            return (
+              <>
+                {selectedZoneImage && (
+                  <img src={selectedZoneImage} alt={selectedZone?.nom || 'Zone'} className="h-24 w-full rounded-lg border border-gray-200 object-cover" />
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onClick={(e) => { (e.currentTarget as HTMLInputElement).value = ''; }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setSelectedZoneImageFile(file);
+                    if (file) {
+                      setSelectedZoneImagePreview(URL.createObjectURL(file));
+                    } else {
+                      setSelectedZoneImagePreview('');
+                    }
+                  }}
+                  className="block w-full rounded-lg border-gray-300 border p-2 text-xs"
+                />
+                {selectedZoneImageFile && (
+                  <p className="text-[11px] text-emerald-700">Fichier selectionne: {selectedZoneImageFile.name}</p>
+                )}
+                <div className="space-y-1">
+                  <label className="text-[11px] text-gray-600">Appliquer cette image a</label>
+                  <select
+                    value={selectedZoneImageTarget}
+                    onChange={(e) => setSelectedZoneImageTarget(e.target.value as 'quartier' | 'region' | 'gouvernerat' | 'pays')}
+                    className="block w-full rounded-lg border-gray-300 border p-2 text-xs"
+                  >
+                    <option value="pays">Pays courant (ex: Tunisie)</option>
+                    <option value="gouvernerat">Gouvernorat courant (ex: Nabeul)</option>
+                    <option value="region">Region courante</option>
+                    <option value="quartier">Quartier / Zone courante</option>
+                  </select>
+                </div>
+                {selectedZoneImagePreview && (
+                  <img src={selectedZoneImagePreview} alt="Apercu nouvelle zone" className="h-20 w-full rounded-lg border border-dashed border-emerald-300 object-cover" />
+                )}
+                <button type="button" disabled={selectedZoneImageUploading || !selectedZoneImageFile} onClick={handleUpdateSelectedZoneImage} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs disabled:opacity-60">
+                  {selectedZoneImageUploading ? 'Upload...' : 'Mettre a jour photo zone'}
+                </button>
+              </>
+            );
+          })()}
+        </div>
+      )}
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => setShowAddZone(!showAddZone)} className="text-xs text-emerald-700 hover:underline">+ Ajouter une zone</button>
+        <button type="button" onClick={handleDeleteSelectedZone} className="text-xs text-red-600 hover:underline">Supprimer zone selectionnee</button>
+      </div>
+      {showAddZone && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+          <input type="text" list="zone-pays-options" value={newZonePays} onChange={(e) => { setNewZonePays(e.target.value); setNewZoneGouvernerat(''); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Pays" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+          <datalist id="zone-pays-options">
+            {paysOptions.map((item) => <option key={`pays-${item}`} value={item} />)}
+          </datalist>
+          <input type="text" list="zone-gouvernerat-options" disabled={!newZonePays.trim()} value={newZoneGouvernerat} onChange={(e) => { setNewZoneGouvernerat(e.target.value); setNewZoneRegion(''); setNewZoneQuartier(''); }} placeholder="Gouvernerat" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+          <datalist id="zone-gouvernerat-options">
+            {gouverneratOptions.map((item) => <option key={`gouv-${item}`} value={item} />)}
+          </datalist>
+          <input type="text" list="zone-region-options" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim()} value={newZoneRegion} onChange={(e) => { setNewZoneRegion(e.target.value); setNewZoneQuartier(''); }} placeholder="Region" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+          <datalist id="zone-region-options">
+            {regionOptions.map((item) => <option key={`region-${item}`} value={item} />)}
+          </datalist>
+          <input type="text" list="zone-quartier-options" disabled={!newZonePays.trim() || !newZoneGouvernerat.trim() || !newZoneRegion.trim()} value={newZoneQuartier} onChange={(e) => setNewZoneQuartier(e.target.value)} placeholder="Zone/Quartier" className="block w-full rounded-lg border-gray-300 border p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+          <datalist id="zone-quartier-options">
+            {quartierOptions.map((item) => <option key={`quartier-${item}`} value={item} />)}
+          </datalist>
+          <input type="url" value={newZoneGoogleMapsUrl} onChange={(e) => setNewZoneGoogleMapsUrl(e.target.value)} placeholder="Lien Google Maps (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-gray-600">Image de la zone (popup client)</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setNewZoneImageFile(file);
+                if (file) {
+                  setNewZoneImagePreview(URL.createObjectURL(file));
+                } else {
+                  setNewZoneImagePreview('');
+                }
+              }}
+              className="block w-full rounded-lg border-gray-300 border p-2 text-xs"
+            />
+            {newZoneImagePreview && (
+              <img src={newZoneImagePreview} alt="Apercu zone" className="h-24 w-full rounded-lg border border-gray-200 object-cover" />
+            )}
+          </div>
+          <button type="button" disabled={newZoneImageUploading} onClick={handleAddZone} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-60">
+            {newZoneImageUploading ? 'Upload image...' : 'Enregistrer zone'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+  const ownerSection = (
+    <>
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Proprietaire</label>
+        <select name="proprietaire_id" value={formData.proprietaire_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+          <option value="">-- Choisir un proprietaire --</option>
+          {proprietaireOptions.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
+        </select>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => setShowAddProprietaire(!showAddProprietaire)} className="text-xs text-emerald-700 hover:underline">+ Ajouter un proprietaire</button>
+          <button type="button" onClick={handleDeleteSelectedProprietaire} className="text-xs text-red-600 hover:underline">Supprimer proprietaire selectionne</button>
+        </div>
+        {showAddProprietaire && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+            <input type="text" value={newOwnerFirstName} onChange={(e) => setNewOwnerFirstName(e.target.value)} placeholder="Prenom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+            <input type="text" value={newOwnerName} onChange={(e) => setNewOwnerName(e.target.value)} placeholder="Nom" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+            <input type="text" value={newOwnerPhone} onChange={(e) => setNewOwnerPhone(e.target.value)} placeholder="Telephone" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+            <input type="email" value={newOwnerEmail} onChange={(e) => setNewOwnerEmail(e.target.value)} placeholder="Email (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+            <input type="text" value={newOwnerCin} onChange={(e) => setNewOwnerCin(e.target.value)} placeholder="CIN (optionnel)" className="block w-full rounded-lg border-gray-300 border p-2 text-sm" />
+            <button type="button" onClick={handleAddProprietaire} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm">Enregistrer proprietaire</button>
+          </div>
+        )}
+      </div>
+      <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom proprietaire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+      <div><label className="block text-sm font-medium text-gray-700 mb-1">Numero proprietaire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+    </>
+  );
   const isAppartementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement';
   const isLocalCommercialVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial';
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
   const isImmeubleVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'immeuble';
   const selectedModeForUi = (formData.mode || 'location_saisonniere') as BienMode;
-  const isLocationAppartement = selectedModeForUi !== 'vente';
+  const selectedTypeForUi = normalizeLegacyType((formData.type || 'appartement') as BienType);
+  const isResidenceParent = selectedModeForUi === 'location_saisonniere' && selectedTypeForUi === 'residence';
+  const isLocationAppartement = selectedModeForUi === 'location_saisonniere' && selectedTypeForUi !== 'residence';
+  const buildResidenceApartmentDefaultReference = useCallback((unitId: string, apartmentIndex: number) => {
+    const normalizedBase = String(formData.reference || 'REF').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '') || 'REF';
+    return `${normalizedBase}-${String(unitId || 'UNIT').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(-6) || 'UNIT'}-A${apartmentIndex + 1}`;
+  }, [formData.reference]);
+  const normalizedResidenceUnits = useMemo(() => {
+    return (Array.isArray(formData.residence_units) ? formData.residence_units : []).map((row, rowIndex) => {
+      const quantity = Math.max(1, Math.floor(Number(row?.quantity || 1) || 1));
+      const apartmentsSource = Array.isArray((row as any)?.apartments) ? ((row as any).apartments as Array<any>) : [];
+      const apartmentNames = Array.isArray((row as any)?.apartment_names) ? ((row as any).apartment_names as string[]) : [];
+      const apartments = Array.from({ length: quantity }, (_, apartmentIndex) => {
+        const source = apartmentsSource[apartmentIndex] || {};
+        const name = String(source?.name || apartmentNames[apartmentIndex] || '').trim();
+        return {
+          name,
+          reference: String(source?.reference || '').trim() || buildResidenceApartmentDefaultReference(String(row?.id || `res_unit_${rowIndex + 1}`), apartmentIndex),
+          nom_bien_mobile: String(source?.nom_bien_mobile || '').trim(),
+          description: String(source?.description || '').trim(),
+          proprietaire_id: String(source?.proprietaire_id || '').trim(),
+          unavailable_dates: Array.isArray(source?.unavailable_dates) ? source.unavailable_dates : [],
+        };
+      });
+      return {
+        ...row,
+        id: String(row?.id || `res_unit_${rowIndex + 1}`),
+        quantity,
+        apartments,
+      };
+    });
+  }, [buildResidenceApartmentDefaultReference, formData.residence_units]);
+  const activeResidenceUnit = useMemo(
+    () => normalizedResidenceUnits.find((row) => String(row.id) === String(activeResidenceUnitId)) || normalizedResidenceUnits[0] || null,
+    [activeResidenceUnitId, normalizedResidenceUnits]
+  );
+  const activeResidenceUnitIndex = activeResidenceUnit
+    ? normalizedResidenceUnits.findIndex((row) => String(row.id) === String(activeResidenceUnit.id))
+    : -1;
+  const activeResidenceApartment = activeResidenceUnit?.apartments?.[activeResidenceApartmentIndex] || activeResidenceUnit?.apartments?.[0] || null;
+  const hydrateFeatureStateFromResidenceValues = useCallback((rawValues?: Record<string, string | string[]>) => {
+    const nextChoiceValues: Record<string, string[]> = {};
+    const nextTextValues: Record<string, string> = {};
+    Object.entries(rawValues || {}).forEach(([featureId, rawValue]) => {
+      if (Array.isArray(rawValue)) {
+        nextChoiceValues[featureId] = rawValue.map((item) => String(item || '').trim()).filter(Boolean);
+      } else {
+        nextTextValues[featureId] = String(rawValue || '').trim();
+      }
+    });
+    setFeatureChoiceValuesById(nextChoiceValues);
+    setFeatureValueById(nextTextValues);
+  }, []);
+  const buildResidenceFeatureValuesPayload = useCallback(() => {
+    const payload: Record<string, string | string[]> = {};
+    Object.entries(featureChoiceValuesById).forEach(([featureId, values]) => {
+      if (Array.isArray(values) && values.length > 0) payload[featureId] = values;
+    });
+    Object.entries(featureValueById).forEach(([featureId, value]) => {
+      if (String(value || '').trim()) payload[featureId] = String(value || '').trim();
+    });
+    return payload;
+  }, [featureChoiceValuesById, featureValueById]);
+  const persistResidenceSubtypeDraft = useCallback(() => {
+    if (!isResidenceParent || !activeResidenceUnit || activeResidenceUnitIndex < 0) return;
+    setFormData((prev) => {
+      const nextRows = (Array.isArray(prev.residence_units) ? [...prev.residence_units] : []).map((row, rowIndex) => {
+        if (rowIndex !== activeResidenceUnitIndex) return row;
+        const previousTemplate = ((row as any)?.template_bien || {}) as Partial<Bien>;
+        const nextApartments = (activeResidenceUnit.apartments || []).map((apartment, apartmentIndex) => ({
+          ...apartment,
+          unavailable_dates: apartmentIndex === activeResidenceApartmentIndex
+            ? unavailableDates
+            : (Array.isArray(apartment.unavailable_dates) ? apartment.unavailable_dates : []),
+        }));
+        return {
+          ...row,
+          apartments: nextApartments,
+          template_bien: {
+            ...previousTemplate,
+            nom_bien_mobile: null,
+            description: '',
+            proprietaire_id: '',
+            nb_chambres: formData.nb_chambres,
+            nb_salle_bain: formData.nb_salle_bain,
+            prix_nuitee: formData.prix_nuitee,
+            prix_semaine: formData.prix_semaine,
+            avance: formData.avance,
+            caution: formData.caution,
+            statut: formData.statut,
+            visible_sur_site: formData.visible_sur_site,
+            is_featured: formData.is_featured,
+            superficie_m2: formData.superficie_m2,
+            etage: formData.etage,
+            configuration: activeResidenceUnit.sub_type,
+            annee_construction: formData.annee_construction,
+            distance_plage_m: formData.distance_plage_m,
+            proche_plage: formData.proche_plage,
+            chauffage_central: formData.chauffage_central,
+            climatisation: formData.climatisation,
+            balcon: formData.balcon,
+            terrasse: formData.terrasse,
+            ascenseur: formData.ascenseur,
+            vue_mer: formData.vue_mer,
+            gaz_ville: formData.gaz_ville,
+            cuisine_equipee: formData.cuisine_equipee,
+            place_parking: formData.place_parking,
+            syndic: formData.syndic,
+            meuble: formData.meuble,
+            independant: formData.independant,
+            eau_puits: formData.eau_puits,
+            eau_sonede: formData.eau_sonede,
+            electricite_steg: formData.electricite_steg,
+            location_saisonniere_config: formData.location_saisonniere_config,
+            ui_config: formData.ui_config,
+          },
+          template_media: images,
+          pricing_periods: pricingPeriods,
+          feature_ids: selectedFeatureIds,
+          feature_values: buildResidenceFeatureValuesPayload(),
+        };
+      });
+      return { ...prev, residence_units: nextRows };
+    });
+  }, [activeResidenceApartmentIndex, activeResidenceUnit, activeResidenceUnitIndex, buildResidenceFeatureValuesPayload, formData, images, isResidenceParent, pricingPeriods, selectedFeatureIds, unavailableDates]);
+  const loadResidenceSubtypeDraft = useCallback((unitId: string, apartmentIndex = 0) => {
+    const targetUnit = normalizedResidenceUnits.find((row) => String(row.id) === String(unitId));
+    if (!targetUnit) return;
+    const templateBien = ((targetUnit as any).template_bien || {}) as Partial<Bien>;
+    setFormData((prev) => ({
+      ...prev,
+      residence_units: Array.isArray(prev.residence_units) ? prev.residence_units : [],
+      nb_chambres: Number(templateBien.nb_chambres ?? deriveBedroomsFromConfiguration(targetUnit.sub_type) ?? prev.nb_chambres ?? 0),
+      nb_salle_bain: Number(templateBien.nb_salle_bain ?? prev.nb_salle_bain ?? 0),
+      prix_nuitee: Number(templateBien.prix_nuitee ?? prev.prix_nuitee ?? 0),
+      prix_semaine: templateBien.prix_semaine ?? prev.prix_semaine ?? null,
+      avance: Number(templateBien.avance ?? prev.avance ?? 0),
+      caution: Number(templateBien.caution ?? prev.caution ?? 0),
+      statut: (templateBien.statut as BienStatut) || prev.statut || 'disponible',
+      visible_sur_site: templateBien.visible_sur_site ?? prev.visible_sur_site,
+      is_featured: templateBien.is_featured ?? prev.is_featured,
+      superficie_m2: templateBien.superficie_m2 ?? prev.superficie_m2 ?? null,
+      etage: templateBien.etage ?? prev.etage ?? null,
+      annee_construction: templateBien.annee_construction ?? prev.annee_construction ?? null,
+      distance_plage_m: templateBien.distance_plage_m ?? prev.distance_plage_m ?? null,
+      proche_plage: Boolean(templateBien.proche_plage ?? prev.proche_plage ?? false),
+      chauffage_central: Boolean(templateBien.chauffage_central ?? prev.chauffage_central ?? false),
+      climatisation: Boolean(templateBien.climatisation ?? prev.climatisation ?? false),
+      balcon: Boolean(templateBien.balcon ?? prev.balcon ?? false),
+      terrasse: Boolean(templateBien.terrasse ?? prev.terrasse ?? false),
+      ascenseur: Boolean(templateBien.ascenseur ?? prev.ascenseur ?? false),
+      vue_mer: Boolean(templateBien.vue_mer ?? prev.vue_mer ?? false),
+      gaz_ville: Boolean(templateBien.gaz_ville ?? prev.gaz_ville ?? false),
+      cuisine_equipee: Boolean(templateBien.cuisine_equipee ?? prev.cuisine_equipee ?? false),
+      place_parking: Boolean(templateBien.place_parking ?? prev.place_parking ?? false),
+      syndic: Boolean(templateBien.syndic ?? prev.syndic ?? false),
+      meuble: Boolean(templateBien.meuble ?? prev.meuble ?? false),
+      independant: Boolean(templateBien.independant ?? prev.independant ?? false),
+      eau_puits: Boolean(templateBien.eau_puits ?? prev.eau_puits ?? false),
+      eau_sonede: Boolean(templateBien.eau_sonede ?? prev.eau_sonede ?? false),
+      electricite_steg: Boolean(templateBien.electricite_steg ?? prev.electricite_steg ?? false),
+      location_saisonniere_config: (templateBien.location_saisonniere_config as LocationSaisonniereConfig) || prev.location_saisonniere_config || null,
+      ui_config: (templateBien.ui_config as BienUiConfig) || prev.ui_config || null,
+      configuration: targetUnit.sub_type,
+    }));
+    setImages(Array.isArray((targetUnit as any).template_media) ? ((targetUnit as any).template_media as Media[]) : []);
+    setPricingPeriods(Array.isArray((targetUnit as any).pricing_periods) ? ((targetUnit as any).pricing_periods as SeasonalPricingPeriod[]) : []);
+    setSelectedFeatureIds(Array.isArray((targetUnit as any).feature_ids) ? ((targetUnit as any).feature_ids as string[]) : []);
+    hydrateFeatureStateFromResidenceValues(((targetUnit as any).feature_values || {}) as Record<string, string | string[]>);
+    const nextApartmentIndex = Math.min(Math.max(0, apartmentIndex), Math.max(0, (targetUnit.apartments?.length || 1) - 1));
+    setActiveResidenceUnitId(String(targetUnit.id));
+    setActiveResidenceApartmentIndex(nextApartmentIndex);
+    setUnavailableDates(Array.isArray(targetUnit.apartments?.[nextApartmentIndex]?.unavailable_dates) ? (targetUnit.apartments?.[nextApartmentIndex]?.unavailable_dates as DateStatus[]) : []);
+  }, [hydrateFeatureStateFromResidenceValues, normalizedResidenceUnits]);
+  useEffect(() => {
+    if (!isResidenceParent) return;
+    if (normalizedResidenceUnits.length === 0) {
+      setActiveResidenceUnitId('');
+      setActiveResidenceApartmentIndex(0);
+      return;
+    }
+    if (!activeResidenceUnitId || !normalizedResidenceUnits.some((row) => String(row.id) === String(activeResidenceUnitId))) {
+      loadResidenceSubtypeDraft(String(normalizedResidenceUnits[0].id), 0);
+    }
+  }, [activeResidenceUnitId, isResidenceParent, loadResidenceSubtypeDraft, normalizedResidenceUnits]);
+  const handleResidenceUnitTabChange = (unitId: string) => {
+    persistResidenceSubtypeDraft();
+    loadResidenceSubtypeDraft(unitId, 0);
+  };
+  const handleResidenceApartmentCalendarChange = (apartmentIndex: number, dates: DateStatus[]) => {
+    if (!activeResidenceUnit || activeResidenceUnitIndex < 0) return;
+    setUnavailableDates(dates);
+    setFormData((prev) => {
+      const nextRows = (Array.isArray(prev.residence_units) ? [...prev.residence_units] : []).map((row, rowIndex) => {
+        if (rowIndex !== activeResidenceUnitIndex) return row;
+        const nextApartments = Array.isArray((row as any).apartments) ? ([...((row as any).apartments as Array<any>)]) : [];
+        while (nextApartments.length < Math.max(1, Number((row as any).quantity || 1))) nextApartments.push({});
+        nextApartments[apartmentIndex] = {
+          ...(nextApartments[apartmentIndex] || {}),
+          unavailable_dates: dates,
+        };
+        return { ...row, apartments: nextApartments };
+      });
+      return { ...prev, residence_units: nextRows };
+    });
+  };
   const uiSectionOptions = selectedModeForUi === 'vente' ? UI_SECTION_OPTIONS_VENTE : UI_SECTION_OPTIONS_LOCATION;
   const terrainTabsForRender = featureTabs
     .slice()
@@ -4909,9 +5493,10 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     () => {
       const fromFeature = step2SousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(step2SousTypeFeature.choix_json)) : [];
       const fromConfiguration = String(formData.configuration || '').trim();
-      return Array.from(new Set([...fromFeature, ...(fromConfiguration ? [fromConfiguration] : [])]));
+      const fallbackOptions = isResidenceParent ? appartementSousTypeOptions : [];
+      return Array.from(new Set([...fromFeature, ...fallbackOptions, ...(fromConfiguration ? [fromConfiguration] : [])]));
     },
-    [formData.configuration, step2SousTypeFeature]
+    [appartementSousTypeOptions, formData.configuration, isResidenceParent, step2SousTypeFeature]
   );
   const step2SousTypeSelectedValue = useMemo(() => {
     const configurationValue = String(formData.configuration || '').trim();
@@ -5180,6 +5765,34 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     const missing = requiredChoices.filter((choice) => !existingTokens.has(normalizeFeatureName(choice)));
     return [...baseChoices, ...missing];
   };
+
+  const loadAppartementSousTypeOptions = async (mode: BienMode) => {
+    const featureApiBases = getFeatureApiBases();
+    let lastResponse: Response | null = null;
+    for (const base of featureApiBases) {
+      const response = await fetch(`${base}?mode_bien=${mode}&type_bien=appartement`);
+      lastResponse = response;
+      if (response.ok) {
+        const rows = await response.json().catch(() => []);
+        const features = Array.isArray(rows) ? rows : [];
+        const sousTypeFeature = features.find((feature: Caracteristique) => {
+          const featureType = normalizeFeatureType(feature.type_caracteristique);
+          if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix') return false;
+          const normalizedName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+          return normalizedName === 'sous type'
+            || normalizedName.includes('sous type')
+            || normalizedName.startsWith('configuration');
+        });
+        const options = sousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(sousTypeFeature.choix_json)) : [];
+        setAppartementSousTypeOptions(Array.from(new Set(options.map((item) => String(item || '').trim()).filter(Boolean))));
+        return;
+      }
+      if (response.status !== 404) break;
+    }
+    if (lastResponse && !lastResponse.ok) {
+      setAppartementSousTypeOptions([]);
+    }
+  };
   const renderFeatureControl = (feature: Caracteristique, keyPrefix: string) => {
     const featureType = normalizeFeatureType(feature.type_caracteristique);
     const featureId = String(feature.id || '');
@@ -5445,19 +6058,21 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_locaux_commerciaux || 0)) }, (_, idx) => ({ unitKey: `local_commercial_${idx + 1}`, label: `Local commercial ${idx + 1}` })),
   ];
   const lotissementClientImageUnits = Array.from({ length: Math.max(1, Number(formData.lotissement_nb_terrains || 1)) }, (_, idx) => ({ unitKey: `terrain_${idx + 1}`, label: `Terrain ${idx + 1}` }));
+  const residenceUnitTemplates = Array.isArray(formData.residence_units) ? formData.residence_units : [];
   const isModeVente = (formData.mode || 'location_saisonniere') === 'vente';
+  const isResidenceDraft = (formData.mode || 'location_saisonniere') === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'residence';
   const currentTarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
   const venteTarificationPreview = computeVenteTarification(formData);
   const currentModalitePaiementVente = (formData.modalite_paiement_vente || 'comptant') as ModalitePaiementVente;
   const ventePaiementPreview = computeVentePaiement(formData, venteTarificationPreview.prixFinal);
   const requiredPrimaryStep = isModeVente ? 5 : 4;
-  const createValidationIssue = (step: 1 | 2 | 3 | 4 | 5, fieldName: string, label: string, message: string): ValidationIssue => ({
+  const createValidationIssue = (step: 0 | 1 | 2 | 3 | 4 | 5, fieldName: string, label: string, message: string): ValidationIssue => ({
     step,
     fieldName,
     label,
     message,
   });
-  const getStepValidationIssues = (step: 1 | 2 | 3 | 4 | 5): ValidationIssue[] => {
+  const getStepValidationIssues = (step: 0 | 1 | 2 | 3 | 4 | 5): ValidationIssue[] => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
     const allowedTypes = BIEN_TYPES_BY_MODE[selectedMode] || [];
@@ -5471,6 +6086,22 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     const immeubleVente = selectedMode === 'vente' && selectedType === 'immeuble';
     const issues: ValidationIssue[] = [];
 
+    if (step === 0) {
+      if (selectedType !== 'residence') return issues;
+      if (!String(formData.titre || '').trim()) issues.push(createValidationIssue(0, 'titre', 'Nom de la residence', 'Nom de la residence obligatoire'));
+      const validResidenceUnits = (Array.isArray(formData.residence_units) ? formData.residence_units : []).filter((row) => String(row?.sub_type || '').trim() && Number(row?.quantity || 0) > 0);
+      if (validResidenceUnits.length === 0) {
+        issues.push(createValidationIssue(0, 'residence_units', 'Residence', 'Ajoutez au moins un sous-type avec une quantite'));
+      }
+      const invalidNamesRow = validResidenceUnits.find((row) => {
+        const names = Array.isArray(row?.apartment_names) ? row.apartment_names : [];
+        return names.length > 0 && names.length !== Number(row.quantity || 0);
+      });
+      if (invalidNamesRow) {
+        issues.push(createValidationIssue(0, 'residence_units', 'Noms appartements', 'Le nombre de noms doit correspondre a la quantite du sous-type'));
+      }
+    }
+
     if (step === 1) {
       if (!String(formData.titre || '').trim()) issues.push(createValidationIssue(1, 'titre', 'Titre', 'Titre obligatoire'));
       if (!String(formData.reference || '').trim()) issues.push(createValidationIssue(1, 'reference', 'Reference interne', 'Reference obligatoire'));
@@ -5482,6 +6113,12 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         issues.push(createValidationIssue(2, 'type', 'Type', 'Type invalide pour ce mode'));
       }
       if (selectedMode !== 'vente') {
+        if (selectedType === 'residence') {
+          const validResidenceUnits = (Array.isArray(formData.residence_units) ? formData.residence_units : []).filter((row) => String(row?.sub_type || '').trim() && Number(row?.quantity || 0) > 0);
+          if (validResidenceUnits.length === 0) {
+            issues.push(createValidationIssue(2, 'residence_units', 'Residence', 'Ajoutez au moins un sous-type avec une quantite'));
+          }
+        }
         const sousTypeFeature = availableFeatures.find((feature) => {
           const featureType = normalizeFeatureType(feature.type_caracteristique);
           if (featureType !== 'choix_multiple' && featureType !== 'plusieurs_choix') return false;
@@ -5491,7 +6128,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
             || normalizedName.startsWith('configuration');
         });
         const sousTypeChoices = sousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(sousTypeFeature.choix_json)) : [];
-        if (sousTypeChoices.length > 0 && !String(formData.configuration || '').trim()) {
+        if (selectedType !== 'residence' && sousTypeChoices.length > 0 && !String(formData.configuration || '').trim()) {
           issues.push(createValidationIssue(2, 'configuration', 'Sous-type', 'Sous-type obligatoire'));
         }
       }
@@ -5758,7 +6395,7 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       target.focus();
     }, 180);
   };
-  const validateStepBeforeContinue = (step: 1 | 2 | 3 | 4 | 5, nextStep?: 1 | 2 | 3 | 4 | 5) => {
+  const validateStepBeforeContinue = (step: 0 | 1 | 2 | 3 | 4 | 5, nextStep?: 0 | 1 | 2 | 3 | 4 | 5) => {
     const issues = getStepValidationIssues(step);
     if (issues.length > 0) {
       openValidationDialog(issues);
@@ -5782,15 +6419,17 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
     });
   };
   const isStepUnlocked = (targetStep: number) => {
-    if (targetStep <= 1) return true;
-    for (let step = 1; step < targetStep; step += 1) {
+    if (targetStep <= 0) return true;
+    const startStep = isResidenceDraft ? 0 : 1;
+    for (let step = startStep; step < targetStep; step += 1) {
       if (!validatedSteps.has(step)) return false;
     }
     return true;
   };
-  const goToStep = (targetStep: 1 | 2 | 3 | 4 | 5) => {
-    if (targetStep > 1) {
-      for (let step = 1 as 1 | 2 | 3 | 4 | 5; step < targetStep; step += 1) {
+  const goToStep = (targetStep: 0 | 1 | 2 | 3 | 4 | 5) => {
+    const startStep = isResidenceDraft ? 0 : 1;
+    if (targetStep > startStep) {
+      for (let step = startStep as 0 | 1 | 2 | 3 | 4 | 5; step < targetStep; step += 1) {
         const issues = getStepValidationIssues(step);
         if (issues.length > 0) {
           openValidationDialog(issues);
@@ -5816,8 +6455,31 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
       <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
         {activeTab === 'general' && (
           <div className="max-w-4xl mx-auto space-y-6">
+            {isResidenceParent && generalStep >= 1 && activeResidenceUnit && (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">Sous-types de la residence</h4>
+                  <p className="text-xs text-gray-600">Chaque onglet pilote les etapes 1 a 4, les images et le calendrier du sous-type selectionne.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {normalizedResidenceUnits.map((unit) => (
+                    <button
+                      key={`residence-general-unit-${unit.id}`}
+                      type="button"
+                      onClick={() => handleResidenceUnitTabChange(String(unit.id))}
+                      className={`rounded-lg border px-3 py-2 text-sm ${String(activeResidenceUnit?.id || '') === String(unit.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                    >
+                      {unit.sub_type || 'Sous-type'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className={`grid gap-2 text-xs sm:text-sm ${isModeVente ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-4'}`}>
+                {isResidenceParent && (
+                  <button type="button" onClick={() => goToStep(0)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 0 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 0: Residence</button>
+                )}
                 <button type="button" onClick={() => goToStep(1)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 1 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Etape 1: Base</button>
                 <button type="button" disabled={!isStepUnlocked(2)} onClick={() => goToStep(2)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 2 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(2) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 2: Type</button>
                 <button type="button" disabled={!isStepUnlocked(3)} onClick={() => goToStep(3)} className={`min-h-11 px-3 py-2 rounded-lg border leading-tight text-left ${generalStep === 3 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'} ${!isStepUnlocked(3) ? 'opacity-50 cursor-not-allowed' : ''}`}>Etape 3: Details</button>
@@ -5827,9 +6489,141 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                 )}
               </div>
             </div>
+            {generalStep === 0 && isResidenceParent && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+              <h3 className="text-lg font-semibold"><Home className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 0 - Configuration de la residence</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nom de la residence *</label>
+                  <input required name="titre" value={formData.titre || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" placeholder="Ex: Residence Les Jasmins" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference interne *</label>
+                  <div className="flex gap-2">
+                    <input required name="reference" value={formData.reference || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    <button type="button" title={isReferenceManuallyEdited ? 'Revenir a la reference automatique' : 'Generer automatiquement la reference'} onClick={() => { setIsReferenceManuallyEdited(false); setFormData(prev => ({ ...prev, reference: generateReference() })); }} className="px-3 py-2 rounded-lg border border-gray-300 text-xs">Auto</button>
+                  </div>
+                </div>
+                <div className="md:col-span-2">{locationZoneSection}</div>
+                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">{ownerSection}</div>
+              </div>
+              <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4" data-field="residence_units">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Sous-types appartements</label>
+                    <p className="mt-1 text-xs text-gray-500">Les options reprennent les sous-types du type principal Appartement.</p>
+                  </div>
+                  <button type="button" onClick={handleAddResidenceUnit} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">
+                    + Ajouter un sous-type
+                  </button>
+                </div>
+                {residenceUnitTemplates.length === 0 && (
+                  <p className="text-sm text-gray-500">Aucun sous-type ajoute.</p>
+                )}
+                    {residenceUnitTemplates.map((row, index) => (
+                      <div key={row.id || `res-step0-row-${index}`} className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_140px_44px]">
+                      <select
+                        value={row.sub_type || ''}
+                        onChange={(e) => handleResidenceUnitChange(index, 'sub_type', e.target.value)}
+                        className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+                      >
+                        <option value="">Choisir un sous-type</option>
+                        {step2SousTypeOptions.map((option) => (
+                          <option key={`residence-unit-option-${index}-${option}`} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min={1}
+                        value={Math.max(1, Number(row.quantity || 1))}
+                        onChange={(e) => handleResidenceUnitChange(index, 'quantity', e.target.value)}
+                        className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+                      />
+                      <button type="button" onClick={() => handleRemoveResidenceUnit(index)} className="rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
+                        <Trash2 className="mx-auto h-4 w-4" />
+                      </button>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">Nom de chaque appartement</label>
+                          <div className="space-y-2">
+                            {Array.from({ length: Math.max(1, Number(row.quantity || 1)) }, (_, apartmentIndex) => (
+                              <div key={`residence-apartment-name-${index}-${apartmentIndex}`} className="grid gap-2 md:grid-cols-2">
+                                <input
+                                  type="text"
+                                  value={normalizedResidenceUnits[index]?.apartments?.[apartmentIndex]?.name || ''}
+                                  onChange={(e) => handleResidenceApartmentNameChange(index, apartmentIndex, e.target.value)}
+                                  placeholder={`Appartement ${apartmentIndex + 1}`}
+                                  className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+                                />
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={normalizedResidenceUnits[index]?.apartments?.[apartmentIndex]?.reference || ''}
+                                    onChange={(e) => handleResidenceApartmentMetaChange(index, apartmentIndex, 'reference', e.target.value)}
+                                    placeholder="Reference appartement"
+                                    className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResidenceApartmentMetaChange(index, apartmentIndex, 'reference', buildResidenceApartmentDefaultReference(String(row.id || `res_unit_${index + 1}`), apartmentIndex))}
+                                    className="rounded-lg border border-gray-300 px-3 py-2 text-xs"
+                                  >
+                                    Auto
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+              </div>
+              <div className="flex justify-end">
+                <button type="button" onClick={() => validateStepBeforeContinue(0, 1)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 1</button>
+              </div>
+            </div>}
             {generalStep === 1 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <h3 className="text-lg font-semibold"><Home className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 1 - Informations de base</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {isResidenceParent && activeResidenceUnit && (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 text-sm text-emerald-900">
+                    Sous-type actif: <span className="font-semibold">{activeResidenceUnit.sub_type || 'Sous-type'}</span>
+                  </div>
+                  {(activeResidenceUnit.apartments || []).map((apartment, apartmentIndex) => (
+                    <div key={`res-base-${activeResidenceUnit.id}-${apartmentIndex}`} className="rounded-xl border border-gray-200 p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-900">{apartment.name || `Appartement ${apartmentIndex + 1}`}</h4>
+                          <p className="text-xs text-gray-500">Chaque appartement garde sa reference, son proprietaire et sa description.</p>
+                        </div>
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">{apartment.reference || buildResidenceApartmentDefaultReference(String(activeResidenceUnit.id), apartmentIndex)}</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Reference interne</label>
+                          <input value={apartment.reference || ''} onChange={(e) => handleResidenceApartmentMetaChange(activeResidenceUnitIndex, apartmentIndex, 'reference', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nom dans l'application proprietaire</label>
+                          <input value={apartment.nom_bien_mobile || ''} onChange={(e) => handleResidenceApartmentMetaChange(activeResidenceUnitIndex, apartmentIndex, 'nom_bien_mobile', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Proprietaire</label>
+                          <select value={apartment.proprietaire_id || ''} onChange={(e) => handleResidenceApartmentMetaChange(activeResidenceUnitIndex, apartmentIndex, 'proprietaire_id', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="">-- Choisir un proprietaire --</option>
+                            {proprietaireOptions.map((p) => <option key={`res-proprietaire-${activeResidenceUnit.id}-${apartmentIndex}-${p.id}`} value={p.id}>{p.nom}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <textarea value={apartment.description || ''} onChange={(e) => handleResidenceApartmentMetaChange(activeResidenceUnitIndex, apartmentIndex, 'description', e.target.value)} rows={3} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!isResidenceParent && <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Titre *</label><input required name="titre" value={formData.titre || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Reference interne *</label>
@@ -5979,16 +6773,25 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                 </div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Nom propri�taire</label><input value={selectedProprietaire?.nom || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Num�ro propri�taire</label><input value={selectedProprietaire?.telephone || ''} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-gray-700" /></div>
+              </div>}
+              {!isResidenceParent && <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>}
+              <div className="flex justify-end gap-3">
+                {isResidenceParent && <button type="button" onClick={() => goToStep(0)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm">Retour</button>}
+                <button type="button" onClick={() => validateStepBeforeContinue(1, 2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button>
               </div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea name="description" value={formData.description || ''} onChange={handleChange} rows={4} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-              <div className="flex justify-end"><button type="button" onClick={() => validateStepBeforeContinue(1, 2)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Continuer vers etape 2</button></div>
             </div>}
             {generalStep === 2 && <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold"><Maximize className="h-5 w-5 inline text-emerald-600 mr-2" />Etape 2 - Type de bien</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Type *</label><select name="type" value={formData.type || 'appartement'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{(BIEN_TYPES_BY_MODE[(formData.mode || 'location_saisonniere') as BienMode] || []).map((typeValue) => <option key={typeValue} value={typeValue}>{typeLabels[typeValue]}</option>)}</select></div>
+                {isResidenceParent && activeResidenceUnit ? (
+                  <div className="md:col-span-2 xl:col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 text-sm text-emerald-900">
+                    Sous-type actif pour les etapes 2 a 4: <span className="font-semibold">{activeResidenceUnit.sub_type}</span>
+                  </div>
+                ) : (
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Type *</label><select name="type" value={formData.type || 'appartement'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{(BIEN_TYPES_BY_MODE[(formData.mode || 'location_saisonniere') as BienMode] || []).map((typeValue) => <option key={typeValue} value={typeValue}>{typeLabels[typeValue]}</option>)}</select></div>
+                )}
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
                 {isLocationAppartement && (
                   <div data-field="configuration">
@@ -6060,6 +6863,11 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
                     <p className="mt-1 text-xs text-gray-500">
                       Valeurs de la variable Sous-type (créée dans Informations générales).
                     </p>
+                  </div>
+                )}
+                {isResidenceParent && (
+                  <div className="md:col-span-2 xl:col-span-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 text-sm text-emerald-800">
+                    La configuration des sous-types de la residence se fait dans l'etape 0.
                   </div>
                 )}
               </div>
@@ -7702,6 +8510,26 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
         {activeTab === 'images' && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+              {isResidenceParent && activeResidenceUnit && (
+                <div className="mb-4 space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900">Images par sous-type</h4>
+                    <p className="text-xs text-gray-600">Les images ajoutees ici seront partagees par tous les appartements du sous-type selectionne.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {normalizedResidenceUnits.map((unit) => (
+                      <button
+                        key={`residence-images-unit-${unit.id}`}
+                        type="button"
+                        onClick={() => handleResidenceUnitTabChange(String(unit.id))}
+                        className={`rounded-lg border px-3 py-2 text-sm ${String(activeResidenceUnit?.id || '') === String(unit.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                      >
+                        {unit.sub_type || 'Sous-type'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <h3 className="text-lg font-semibold mb-4"><ImageIcon className="h-5 w-5 inline text-emerald-600 mr-2" />Gestion des images</h3>
               {normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial' && (
                 <div className="mb-3">
@@ -7990,10 +8818,46 @@ function BienEditor({ initialData, seedData, zones, proprietaires, existingBiens
           </div>
         )}
         {!isModeVente && activeTab === 'calendar' && (
-          <div className="max-w-5xl mx-auto">
+          <div className="max-w-5xl mx-auto space-y-4">
+            {isResidenceParent && activeResidenceUnit && (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">Calendriers par sous-type et appartement</h4>
+                  <p className="text-xs text-gray-600">Choisissez un sous-type puis un appartement. Les indisponibilites restent independantes par appartement.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {normalizedResidenceUnits.map((unit) => (
+                    <button
+                      key={`residence-calendar-unit-${unit.id}`}
+                      type="button"
+                      onClick={() => handleResidenceUnitTabChange(String(unit.id))}
+                      className={`rounded-lg border px-3 py-2 text-sm ${String(activeResidenceUnit?.id || '') === String(unit.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                    >
+                      {unit.sub_type || 'Sous-type'}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(activeResidenceUnit.apartments || []).map((apartment, apartmentIndex) => (
+                    <button
+                      key={`residence-calendar-apartment-${activeResidenceUnit.id}-${apartmentIndex}`}
+                      type="button"
+                      onClick={() => {
+                        handleResidenceApartmentCalendarChange(activeResidenceApartmentIndex, unavailableDates);
+                        setActiveResidenceApartmentIndex(apartmentIndex);
+                        setUnavailableDates(Array.isArray(apartment.unavailable_dates) ? apartment.unavailable_dates : []);
+                      }}
+                      className={`rounded-lg border px-3 py-2 text-sm ${activeResidenceApartmentIndex === apartmentIndex ? 'border-sky-600 bg-sky-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                    >
+                      {apartment.name || `Appartement ${apartmentIndex + 1}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <AdminCalendar
               dates={unavailableDates}
-              onDatesChange={setUnavailableDates}
+              onDatesChange={isResidenceParent ? ((dates) => handleResidenceApartmentCalendarChange(activeResidenceApartmentIndex, dates)) : setUnavailableDates}
               pricingPeriods={pricingPeriods}
               onPricingPeriodsChange={setPricingPeriods}
               defaultNightlyPrice={Number(formData.prix_nuitee || 0)}

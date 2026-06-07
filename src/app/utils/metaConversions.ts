@@ -94,11 +94,16 @@ export async function trackMetaEvent({
 
 export function trackMetaPageViewOncePerPath() {
   if (typeof window === "undefined") return;
-  let lastPath = "";
+  let lastTrackedPathname = "";
+  let lastTrackedAt = 0;
+  const MIN_PAGEVIEW_INTERVAL_MS = 1500;
   const fire = () => {
-    const currentPath = `${window.location.pathname}${window.location.search}`;
-    if (currentPath === lastPath) return;
-    lastPath = currentPath;
+    const currentPathname = window.location.pathname;
+    const now = Date.now();
+    if (currentPathname === lastTrackedPathname && now - lastTrackedAt < MIN_PAGEVIEW_INTERVAL_MS) return;
+    if (currentPathname === lastTrackedPathname) return;
+    lastTrackedPathname = currentPathname;
+    lastTrackedAt = now;
     void trackMetaEvent({ eventName: "PageView" });
   };
   fire();

@@ -38,7 +38,7 @@ import { resolveMediaUrl } from "../utils/media";
 import WebsiteChatbotWidget from "../components/WebsiteChatbotWidget";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
-type PropertyMainType = "appartement" | "villa_maison" | "studio" | "immeuble" | "autre";
+type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
 type HomeSeasideOptionKey = "pied_dans_eau" | "vue_sur_mer" | "pres_plage";
 type HomeComfortOptionKey =
   | "climatise"
@@ -62,6 +62,7 @@ const TYPE_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Cdefs%3E%3ClinearGradient id='tg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23ecfeff'/%3E%3Cstop offset='100%25' stop-color='%23cffafe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='360' fill='url(%23tg)'/%3E%3Cpath d='M0 270h640v90H0z' fill='%230899b2' fill-opacity='0.16'/%3E%3C/svg%3E";
 const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
   appartement: "Appartement",
+  residence: "Residence",
   villa_maison: "Villa / Maison",
   studio: "Studio",
   immeuble: "Immeuble",
@@ -69,6 +70,7 @@ const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
 };
 const MAIN_TYPE_DISPLAY_ORDER: PropertyMainType[] = [
   "appartement",
+  "residence",
   "villa_maison",
   "studio",
   "immeuble",
@@ -292,6 +294,7 @@ function clearPendingHomeHotelReserve() {
 const getMainTypeFromCategory = (category: string): PropertyMainType => {
   const normalized = String(category || "").trim().toLowerCase();
   if (normalized.includes("appartement")) return "appartement";
+  if (normalized.includes("residence")) return "residence";
   if (normalized.startsWith("s+")) return "appartement";
   if (normalized.includes("bungalow")) return "villa_maison";
   if (normalized.includes("villa")) return "villa_maison";
@@ -328,6 +331,7 @@ const hasExplicitMainTypeInLabel = (value?: string | null) => {
     .replace(/\s+/g, " ");
   return (
     normalized.includes("appartement")
+    || normalized.includes("residence")
     || normalized.includes("villa")
     || normalized.includes("maison")
     || normalized.includes("bungalow")
@@ -338,7 +342,7 @@ const hasExplicitMainTypeInLabel = (value?: string | null) => {
 const getNormalizedMainTypeForMatchKey = (value?: string | null): PropertyMainType | "" => {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return "";
-  if (raw === "appartement" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
     return raw;
   }
   return getMainTypeFromCategory(raw);
@@ -381,7 +385,7 @@ const isGenericPropertySubtype = (label?: string | null) => {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return ["appartement", "villa", "maison", "villa maison", "bungalow"].includes(normalized);
+  return ["appartement", "residence", "villa", "maison", "villa maison", "bungalow"].includes(normalized);
 };
 const isInvalidPropertySubtype = (label?: string | null) => {
   const raw = String(label || "").trim();
@@ -405,6 +409,7 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
     const resolvedMainType = getNormalizedMainTypeForMatchKey(rawMainType) || getMainTypeFromCategory(rawMainType);
     const mainLabelByType: Record<PropertyMainType, string> = {
       appartement: "Appartement",
+      residence: "Residence",
       villa_maison: "Villa / Maison",
       studio: "Studio",
       immeuble: "Immeuble",
@@ -435,14 +440,16 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
     .trim();
   const isGenericMainCategory = [
     "appartement",
+    "residence",
     "villa",
     "maison",
     "villa maison",
     "bungalow",
   ].includes(normalizedPlainCategory);
-  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "villa_maison";
+  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "residence" || inferredMainType === "villa_maison";
   const mainLabelByType: Record<PropertyMainType, string> = {
     appartement: "Appartement",
+    residence: "Residence",
     villa_maison: normalizedPlainCategory.includes("maison") && !normalizedPlainCategory.includes("villa") ? "Maison" : "Villa",
     studio: "Studio",
     immeuble: "Immeuble",
