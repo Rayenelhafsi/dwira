@@ -1106,8 +1106,12 @@ export default function PropertiesPage() {
       .filter((group) => selectedMainTypes.includes(group.mainType))
       .forEach((group) => {
         group.subTypes.forEach((subType) => {
-          const key = buildMainTypeSubTypeMatchKey(group.mainType, subType.label) || subType.label;
-          if (!merged.has(key)) merged.set(key, subType);
+          const canonicalKey = getCanonicalSubTypeKey(subType.label) || subType.label;
+          if (!canonicalKey) return;
+          if (!merged.has(canonicalKey)) {
+            const normalizedLabel = /^s\+\d+$/i.test(canonicalKey) ? canonicalKey.toUpperCase() : subType.label;
+            merged.set(canonicalKey, { label: normalizedLabel, imageUrl: subType.imageUrl });
+          }
         });
       });
     return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
