@@ -4765,10 +4765,13 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, zones, prop
         if (rawValue) caracteristiqueValeurs[featureId] = rawValue;
       }
     }
-    const persistedCaracteristiqueIds = Array.from(new Set([
-      ...selectedFeatureIds.map((id) => String(id || '').trim()).filter(Boolean),
-      ...Object.keys(caracteristiqueValeurs).map((id) => String(id || '').trim()).filter(Boolean),
-    ]));
+    const persistedCaracteristiqueIds = selectedType === 'residence'
+      ? []
+      : Array.from(new Set([
+          ...selectedFeatureIds.map((id) => String(id || '').trim()).filter(Boolean),
+          ...Object.keys(caracteristiqueValeurs).map((id) => String(id || '').trim()).filter(Boolean),
+        ]));
+    const persistedCaracteristiqueValeurs = selectedType === 'residence' ? {} : caracteristiqueValeurs;
     const characteristicDisplayLines = availableFeatures
       .filter((feature) => selectedFeatureIds.includes(feature.id) && Number(feature.visibilite_client) !== 0)
       .map((feature) => {
@@ -4935,10 +4938,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, zones, prop
             distance_plage_m: (formData.distance_plage_m ?? derivedSeasonSignals.distancePlageM) ?? null,
           }
         : null,
-      description: buildDescriptionWithCharacteristics(formData.description || '', characteristicDisplayLines),
+      description: selectedType === 'residence'
+        ? String(formData.description || '').trim()
+        : buildDescriptionWithCharacteristics(formData.description || '', characteristicDisplayLines),
       caracteristiques: characteristicDisplayLines,
       caracteristique_ids: persistedCaracteristiqueIds,
-      caracteristique_valeurs: caracteristiqueValeurs,
+      caracteristique_valeurs: persistedCaracteristiqueValeurs,
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       media: imagesWithPositions,
       unavailableDates: unavailableDates,

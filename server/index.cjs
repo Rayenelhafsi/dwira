@@ -8949,6 +8949,39 @@ async function syncBienPricingPeriods(bienId, periods) {
   }
 }
 
+async function filterCaracteristiqueIdsForContext(mode, type, caracteristiqueIds) {
+  const normalizedIds = Array.isArray(caracteristiqueIds)
+    ? Array.from(new Set(caracteristiqueIds.map((id) => String(id || '').trim()).filter(Boolean)))
+    : [];
+  if (normalizedIds.length === 0) return [];
+
+  const placeholders = normalizedIds.map(() => '?').join(',');
+  const [allowedRows] = await pool.query(
+    `SELECT caracteristique_id
+     FROM caracteristique_contextes
+     WHERE mode_bien = ? AND type_bien = ? AND caracteristique_id IN (${placeholders})`,
+    [normalizeBienMode(mode), normalizeBienType(type), ...normalizedIds]
+  );
+  const allowedIds = new Set((allowedRows || []).map((row) => String(row.caracteristique_id || '').trim()).filter(Boolean));
+  return normalizedIds.filter((id) => allowedIds.has(id));
+}
+
+function pickCaracteristiqueValeurs(caracteristiqueIds, caracteristiqueValeurs) {
+  const allowedIds = new Set(
+    Array.isArray(caracteristiqueIds)
+      ? caracteristiqueIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : []
+  );
+  const source = caracteristiqueValeurs && typeof caracteristiqueValeurs === 'object' ? caracteristiqueValeurs : {};
+  const next = {};
+  for (const [rawId, rawValue] of Object.entries(source)) {
+    const featureId = String(rawId || '').trim();
+    if (!featureId || !allowedIds.has(featureId)) continue;
+    next[featureId] = rawValue;
+  }
+  return next;
+}
+
 async function cloneResidenceSharedData(parentBienId, childBienId) {
   await pool.query('DELETE FROM media WHERE bien_id = ?', [childBienId]);
   await pool.query(
@@ -8957,17 +8990,6 @@ async function cloneResidenceSharedData(parentBienId, childBienId) {
      FROM media
      WHERE bien_id = ?
      ORDER BY COALESCE(position, 0) ASC, id ASC`,
-    [childBienId, parentBienId]
-  );
-
-  await pool.query('DELETE FROM bien_caracteristiques WHERE bien_id = ?', [childBienId]);
-  await pool.query(
-    `INSERT INTO bien_caracteristiques (
-       bien_id, caracteristique_id, visibilite_client, override_nom, override_type_caracteristique, override_unite, override_onglet_id, override_valeur_json
-     )
-     SELECT ?, caracteristique_id, visibilite_client, override_nom, override_type_caracteristique, override_unite, override_onglet_id, override_valeur_json
-     FROM bien_caracteristiques
-     WHERE bien_id = ?`,
     [childBienId, parentBienId]
   );
 
@@ -9015,6 +9037,8 @@ async function syncResidenceChildrenForParent(parentBienId) {
         apartmentDescription: String(apartmentMeta?.description || '').trim() || '',
         apartmentOwnerId: String(apartmentMeta?.proprietaire_id || '').trim() || '',
         templateBien: unit.template_bien && typeof unit.template_bien === 'object' ? unit.template_bien : {},
+        featureIds: Array.isArray(unit.feature_ids) ? unit.feature_ids : [],
+        featureValues: unit.feature_values && typeof unit.feature_values === 'object' ? unit.feature_values : {},
         pricingPeriods: Array.isArray(unit.pricing_periods) ? unit.pricing_periods : [],
       });
     }
@@ -9095,8 +9119,6 @@ async function syncResidenceChildrenForParent(parentBienId) {
     updated_at: now,
     admin_last_saved_at: now,
   };
-
-  const childColumns = Object.keys(sharedChildPayload);
 
   for (const desiredChild of desiredChildren) {
     const existingChild = existingByKey.get(desiredChild.key) || null;
@@ -9182,18 +9204,13 @@ async function syncResidenceChildrenForParent(parentBienId) {
     };
 
     if (existingChild) {
+      const childPayloadColumns = Object.keys(childPayload);
       const updateAssignments = ['reference = ?', 'titre = ?']
-        .concat(childColumns.map((column) => `${column} = ?`))
-        .concat(['nb_chambres = ?', 'configuration = ?', 'residence_unit_key = ?', 'residence_unit_sub_type = ?', 'residence_units_json = ?']);
+        .concat(childPayloadColumns.map((column) => `${column} = ?`));
       const updateValues = [
         childReference,
         childTitle,
-        ...childColumns.map((column) => childPayload[column]),
-        childPayload.nb_chambres,
-        childPayload.configuration,
-        childPayload.residence_unit_key,
-        childPayload.residence_unit_sub_type,
-        null,
+        ...childPayloadColumns.map((column) => childPayload[column]),
         childId,
       ];
       await pool.query(`UPDATE biens SET ${updateAssignments.join(', ')} WHERE id = ?`, updateValues);
@@ -9215,6 +9232,17 @@ async function syncResidenceChildrenForParent(parentBienId) {
     }
 
     await cloneResidenceSharedData(parentBienId, childId);
+    const allowedChildFeatureIds = await filterCaracteristiqueIdsForContext(
+      'location_saisonniere',
+      'appartement',
+      desiredChild.featureIds
+    );
+    await syncBienCaracteristiques(childId, allowedChildFeatureIds);
+    await syncBienCaracteristiqueValeurs(
+      childId,
+      allowedChildFeatureIds,
+      pickCaracteristiqueValeurs(allowedChildFeatureIds, desiredChild.featureValues)
+    );
     await syncBienPricingPeriods(childId, desiredChild.pricingPeriods.length > 0 ? desiredChild.pricingPeriods : parentPricingPeriods);
     syncedChildren.push({
       id: childId,
@@ -12370,8 +12398,13 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
       ]
     );
     if (Array.isArray(caracteristique_ids)) {
-      await syncBienCaracteristiques(bienId, caracteristique_ids);
-      await syncBienCaracteristiqueValeurs(bienId, caracteristique_ids, caracteristique_valeurs);
+      const allowedCaracteristiqueIds = await filterCaracteristiqueIdsForContext(resolvedMode, resolvedType, caracteristique_ids);
+      await syncBienCaracteristiques(bienId, allowedCaracteristiqueIds);
+      await syncBienCaracteristiqueValeurs(
+        bienId,
+        allowedCaracteristiqueIds,
+        pickCaracteristiqueValeurs(allowedCaracteristiqueIds, caracteristique_valeurs)
+      );
     }
     await syncBienPaidServices(bienId, effectiveLocationSaisonniereConfig?.services_payants || []);
     await pool.query('UPDATE biens SET prix_semaine = ? WHERE id = ?', [
@@ -12637,8 +12670,13 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       ]
     );
     if (Array.isArray(caracteristique_ids)) {
-      await syncBienCaracteristiques(req.params.id, caracteristique_ids);
-      await syncBienCaracteristiqueValeurs(req.params.id, caracteristique_ids, caracteristique_valeurs);
+      const allowedCaracteristiqueIds = await filterCaracteristiqueIdsForContext(resolvedMode, resolvedType, caracteristique_ids);
+      await syncBienCaracteristiques(req.params.id, allowedCaracteristiqueIds);
+      await syncBienCaracteristiqueValeurs(
+        req.params.id,
+        allowedCaracteristiqueIds,
+        pickCaracteristiqueValeurs(allowedCaracteristiqueIds, caracteristique_valeurs)
+      );
     }
     await syncBienPaidServices(req.params.id, effectiveLocationSaisonniereConfig?.services_payants || []);
     await pool.query('UPDATE biens SET prix_semaine = ? WHERE id = ?', [

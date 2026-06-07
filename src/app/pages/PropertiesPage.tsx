@@ -643,6 +643,13 @@ const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw
   return { ok: true, reason: "" };
 };
 
+const isPropertyStayRangeCalendarAvailable = (property: any, startRaw: string, endRaw: string) => {
+  if (!isValidStayRange(startRaw, endRaw)) return false;
+  const stayRules = property?.filterProfile?.stayRules || null;
+  const stayAvailability = resolveStayAvailability(stayRules?.unavailableDates || property?.unavailableDates || [], startRaw, endRaw);
+  return stayAvailability.exactAvailable;
+};
+
 export default function PropertiesPage() {
   const PAGE_SIZE = 10;
   const { properties, biens, zones, modePriorities, loading } = useProperties();
@@ -1997,10 +2004,21 @@ export default function PropertiesPage() {
 
           if (hasDateFilter) {
             maxScore += 20;
-            const exactRange = validStayRanges.find((range) => evaluatePropertyStayBookability(property, range.start, range.end).ok);
+            const exactRange = validStayRanges.find((range) => isPropertyStayRangeCalendarAvailable(property, range.start, range.end));
             exactDateAvailable = Boolean(exactRange);
+            const exactBookableRange = validStayRanges.find((range) => evaluatePropertyStayBookability(property, range.start, range.end).ok);
             if (exactDateAvailable) {
               score += 20;
+              if (!exactBookableRange) {
+                const exactAvailabilityRange = exactRange || validStayRanges[0];
+                if (exactAvailabilityRange) {
+                  const stayValidation = evaluatePropertyStayBookability(property, exactAvailabilityRange.start, exactAvailabilityRange.end);
+                  if (stayValidation.reason) {
+                    dateFailureReason = stayValidation.reason;
+                    dateRuleType = classifyDateRuleReason(stayValidation.reason);
+                  }
+                }
+              }
             } else {
               let failureReason = "Dates non disponibles";
               const alternatives = validStayRanges
