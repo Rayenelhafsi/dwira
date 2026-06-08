@@ -17,7 +17,7 @@ interface User {
   cin?: string | null;
   cinImageUrl?: string | null;
   profileCompleted?: boolean;
-  authProvider?: 'local' | 'google' | 'facebook' | 'phone' | 'email' | 'passkey' | null;
+  authProvider?: 'local' | 'google' | 'facebook' | 'apple' | 'phone' | 'email' | 'passkey' | null;
   providerUserId?: string | null;
 }
 

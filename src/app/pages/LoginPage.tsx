@@ -36,7 +36,7 @@ export default function LoginPage() {
   const [isProcessingSocialToken, setIsProcessingSocialToken] = useState(false);
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
   const [isPasskeyRegisterLoading, setIsPasskeyRegisterLoading] = useState(false);
-  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true });
+  const [providers, setProviders] = useState({ google: false, facebook: false, apple: false, phoneOtp: false, emailOtp: false, passkey: true });
   const [passkeyRegisterEmail, setPasskeyRegisterEmail] = useState('');
   const [passkeyRegisterName, setPasskeyRegisterName] = useState('');
   const [profileForm, setProfileForm] = useState({
@@ -162,6 +162,14 @@ export default function LoginPage() {
         facebook_access_token_missing: "Token d'acces Facebook manquant.",
         facebook_email_missing: "Facebook n'a pas fourni d'email exploitable.",
         facebook_callback_failed: 'Erreur interne pendant le callback Facebook.',
+        apple_config_missing: 'Apple Sign In non configure (APPLE_CLIENT_ID et secret Apple manquants).',
+        apple_access_denied: 'Connexion Apple annulee.',
+        apple_code_missing: 'Code Apple manquant.',
+        apple_token_exchange_failed: "Echec d'echange du token Apple.",
+        apple_id_token_missing: 'Jeton Apple manquant.',
+        apple_id_token_invalid: 'Jeton Apple invalide.',
+        apple_subject_missing: 'Identifiant Apple introuvable.',
+        apple_callback_failed: 'Erreur interne pendant le callback Apple.',
       };
       toast.error(messages[oauthError] || 'Echec de la connexion sociale. Verifiez la configuration OAuth.');
       navigate('/login', { replace: true });
@@ -232,13 +240,17 @@ export default function LoginPage() {
     }
   };
 
-  const handleSocialLogin = (provider: 'google' | 'facebook') => {
+  const handleSocialLogin = (provider: 'google' | 'facebook' | 'apple') => {
     if (provider === 'google' && !providers.google) {
       toast.error('Google login indisponible: OAuth Google non configure sur le serveur.');
       return;
     }
     if (provider === 'facebook' && !providers.facebook) {
       toast.error('Facebook login indisponible: OAuth Facebook non configure sur le serveur.');
+      return;
+    }
+    if (provider === 'apple' && !providers.apple) {
+      toast.error('Apple login indisponible: OAuth Apple non configure sur le serveur.');
       return;
     }
     const params = new URLSearchParams(window.location.search);
@@ -556,7 +568,7 @@ export default function LoginPage() {
           Connexion administrateur
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Les utilisateurs normaux se connectent avec Google ou Facebook ci-dessous.
+          Les utilisateurs normaux se connectent avec Google, Facebook ou Apple ci-dessous.
         </p>
       </div>
 
@@ -628,7 +640,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-2 gap-3">
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <button
                   type="button"
@@ -650,6 +662,17 @@ export default function LoginPage() {
                 >
                   <Facebook className="h-5 w-5 text-blue-800 mr-2" />
                   Facebook
+                </button>
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  disabled={!providers.apple}
+                  onClick={() => handleSocialLogin('apple')}
+                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Apple / iCloud
                 </button>
               </div>
             </div>
@@ -686,7 +709,7 @@ export default function LoginPage() {
                 {isPasskeyRegisterLoading ? 'Creation...' : 'Creer avec Passkey'}
               </button>
             </form>
-            {(!providers.google || !providers.facebook) && (
+            {(!providers.google || !providers.facebook || !providers.apple) && (
               <p className="mt-3 text-xs text-amber-700">
                 Certains fournisseurs sociaux sont indisponibles car OAuth n'est pas configure sur le serveur.
               </p>

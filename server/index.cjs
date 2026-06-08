@@ -98,6 +98,12 @@ const WEBAUTHN_RP_NAME = String(process.env.WEBAUTHN_RP_NAME || 'Dwira Immobilie
 const WEBAUTHN_RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim().toLowerCase();
 const TURNSTILE_SECRET_KEY = String(process.env.TURNSTILE_SECRET_KEY || '').trim();
 const TURNSTILE_SITE_KEY = String(process.env.TURNSTILE_SITE_KEY || '').trim();
+const APPLE_CLIENT_ID = String(process.env.APPLE_CLIENT_ID || '').trim();
+const APPLE_TEAM_ID = String(process.env.APPLE_TEAM_ID || '').trim();
+const APPLE_KEY_ID = String(process.env.APPLE_KEY_ID || '').trim();
+const APPLE_PRIVATE_KEY = String(process.env.APPLE_PRIVATE_KEY || '').trim();
+const APPLE_CLIENT_SECRET = String(process.env.APPLE_CLIENT_SECRET || '').trim();
+const APPLE_REDIRECT_URI = String(process.env.APPLE_REDIRECT_URI || '').trim();
 const FLOUCI_ENABLED = Boolean(FLOUCI_PUBLIC_KEY && FLOUCI_PRIVATE_KEY);
 const CLICKTOPAY_DEFAULT_CA_BUNDLE_PATH = path.resolve(__dirname, 'certs', 'clicktopay-ca-bundle.pem');
 const HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH = '/voucher-template/hotel-voucher.png';
@@ -3270,6 +3276,170 @@ function resolveFacebookRedirectUri(req = null) {
     return `${protocol}://${host}/api/auth/facebook/callback`;
   }
   return `http://localhost:${PORT}/api/auth/facebook/callback`;
+}
+
+function resolveAppleRedirectUri(req = null) {
+  if (APPLE_REDIRECT_URI) return APPLE_REDIRECT_URI;
+  try {
+    return new URL('/api/auth/apple/callback', CANONICAL_FRONTEND_URL).toString();
+  } catch {
+    // fall through
+  }
+  const host = String(req?.headers?.host || '').trim();
+  if (host) {
+    const protocol = isSecureRequest(req) ? 'https' : 'http';
+    return `${protocol}://${host}/api/auth/apple/callback`;
+  }
+  return `http://localhost:${PORT}/api/auth/apple/callback`;
+}
+
+function hasAppleOauthSigningConfig() {
+  return Boolean(APPLE_TEAM_ID && APPLE_KEY_ID && APPLE_PRIVATE_KEY);
+}
+
+function isAppleOauthConfigured() {
+  return Boolean(APPLE_CLIENT_ID && (APPLE_CLIENT_SECRET || hasAppleOauthSigningConfig()));
+}
+
+function normalizeApplePrivateKey(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  return normalized.includes('-----BEGIN PRIVATE KEY-----')
+    ? normalized.replace(/\\n/g, '\n')
+    : normalized.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+}
+
+let appleClientSecretCache = null;
+
+async function getAppleOauthClientSecret() {
+  if (APPLE_CLIENT_SECRET) return APPLE_CLIENT_SECRET;
+  if (!isAppleOauthConfigured()) {
+    throw new Error('Apple OAuth config missing');
+  }
+  if (appleClientSecretCache && Number(appleClientSecretCache.expiresAt || 0) > (Date.now() + 60_000)) {
+    return appleClientSecretCache.value;
+  }
+  const privateKeyPem = normalizeApplePrivateKey(APPLE_PRIVATE_KEY);
+  if (!privateKeyPem) {
+    throw new Error('Apple private key missing');
+  }
+  const { SignJWT, importPKCS8 } = await import('jose');
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const expiresAt = issuedAt + (60 * 60 * 24 * 180);
+  const privateKey = await importPKCS8(privateKeyPem, 'ES256');
+  const value = await new SignJWT({})
+    .setProtectedHeader({ alg: 'ES256', kid: APPLE_KEY_ID })
+    .setIssuer(APPLE_TEAM_ID)
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(expiresAt)
+    .setAudience('https://appleid.apple.com')
+    .setSubject(APPLE_CLIENT_ID)
+    .sign(privateKey);
+  appleClientSecretCache = {
+    value,
+    expiresAt: expiresAt * 1000,
+  };
+  return value;
+}
+
+let appleJwksResolver = null;
+
+async function verifyAppleIdentityToken(idToken) {
+  const { createRemoteJWKSet, jwtVerify } = await import('jose');
+  if (!appleJwksResolver) {
+    appleJwksResolver = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
+  }
+  const verification = await jwtVerify(String(idToken || '').trim(), appleJwksResolver, {
+    issuer: 'https://appleid.apple.com',
+    audience: APPLE_CLIENT_ID,
+  });
+  return verification.payload || {};
+}
+
+function parseAppleUserProfile(rawUser) {
+  if (!rawUser) return { firstName: '', lastName: '', name: '' };
+  let parsed = rawUser;
+  if (typeof rawUser === 'string') {
+    try {
+      parsed = JSON.parse(rawUser);
+    } catch {
+      parsed = null;
+    }
+  }
+  const firstName = String(parsed?.name?.firstName || '').trim();
+  const lastName = String(parsed?.name?.lastName || '').trim();
+  const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+  return { firstName, lastName, name };
+}
+
+async function handleAppleOauthCallback(req, res) {
+  const rawState = req.method === 'POST' ? req.body?.state : req.query?.state;
+  const oauthState = decodeOauthState(rawState);
+  const returnTo = sanitizeReturnToPath(oauthState?.returnTo);
+  try {
+    if (!isAppleOauthConfigured()) {
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_config_missing', returnTo }));
+    }
+    const oauthError = String((req.method === 'POST' ? req.body?.error : req.query?.error) || '').trim();
+    if (oauthError) {
+      const mappedError = oauthError === 'access_denied' ? 'apple_access_denied' : 'apple_callback_failed';
+      return res.redirect(buildFrontendLoginUrl({ oauthError: mappedError, returnTo }));
+    }
+    const code = String((req.method === 'POST' ? req.body?.code : req.query?.code) || '').trim();
+    if (!code) {
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_code_missing', returnTo }));
+    }
+
+    const tokenResponse = await fetch('https://appleid.apple.com/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: APPLE_CLIENT_ID,
+        client_secret: await getAppleOauthClientSecret(),
+        redirect_uri: resolveAppleRedirectUri(req),
+      }),
+    });
+    const tokenData = await tokenResponse.json().catch(() => ({}));
+    if (!tokenResponse.ok) {
+      console.error('Apple token exchange failed:', tokenData);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_token_exchange_failed', returnTo }));
+    }
+    if (!tokenData.id_token) {
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_id_token_missing', returnTo }));
+    }
+
+    let claims = null;
+    try {
+      claims = await verifyAppleIdentityToken(tokenData.id_token);
+    } catch (error) {
+      console.error('Apple id_token verification failed:', error);
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_id_token_invalid', returnTo }));
+    }
+
+    const providerUserId = String(claims?.sub || '').trim();
+    if (!providerUserId) {
+      return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_subject_missing', returnTo }));
+    }
+    const rawEmail = String(claims?.email || '').trim().toLowerCase();
+    const email = rawEmail || `apple_${providerUserId.replace(/[^a-zA-Z0-9._-]/g, '')}@apple.dwira.local`;
+    const appleProfile = parseAppleUserProfile(req.method === 'POST' ? req.body?.user : null);
+    const fallbackDisplayName = email.includes('@') ? email.split('@')[0] : 'Utilisateur Apple';
+    const user = await upsertSocialUser({
+      email,
+      name: appleProfile.name || fallbackDisplayName,
+      avatar: null,
+      provider: 'apple',
+      providerUserId,
+    });
+
+    const socialToken = createTemporarySocialToken(user);
+    return res.redirect(buildFrontendLoginUrl({ socialToken, returnTo }));
+  } catch (error) {
+    console.error('Apple callback error:', error);
+    return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_callback_failed', returnTo }));
+  }
 }
 
 function buildFacebookOauthUrl({ mobilePreferred = false, returnTo = null, req = null } = {}) {
@@ -20775,12 +20945,14 @@ app.post('/api/agent-amicale/reservation-demands/:id/reject', requireAgentAmical
 app.get('/api/auth/providers', (req, res) => {
   const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
   const facebookConfigured = Boolean(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET);
+  const appleConfigured = isAppleOauthConfigured();
   const phoneOtpConfigured = false;
   const emailOtpConfigured = Boolean((process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.ALLOW_EMAIL_OTP_IN_RESPONSE === '1');
   const passkeyConfigured = true;
   res.json({
     google: googleConfigured,
     facebook: facebookConfigured,
+    apple: appleConfigured,
     phoneOtp: phoneOtpConfigured,
     emailOtp: emailOtpConfigured,
     passkey: passkeyConfigured,
@@ -22174,6 +22346,30 @@ app.post('/api/client-interactions', async (req, res) => {
     res.status(500).json({ error: "Impossible d'enregistrer l interaction client" });
   }
 });
+
+app.get('/api/auth/apple/start', async (req, res) => {
+  const returnTo = sanitizeReturnToPath(req.query.return_to || req.query.returnTo);
+  if (!isAppleOauthConfigured()) {
+    return res.redirect(buildFrontendLoginUrl({ oauthError: 'apple_config_missing', returnTo }));
+  }
+
+  const params = new URLSearchParams({
+    client_id: APPLE_CLIENT_ID,
+    redirect_uri: resolveAppleRedirectUri(req),
+    response_type: 'code',
+    response_mode: 'form_post',
+    scope: 'name email',
+  });
+  if (returnTo) {
+    params.set('state', encodeOauthState({ returnTo }));
+  }
+
+  return res.redirect(`https://appleid.apple.com/auth/authorize?${params.toString()}`);
+});
+
+const appleOauthFormParser = express.urlencoded({ extended: false });
+app.get('/api/auth/apple/callback', handleAppleOauthCallback);
+app.post('/api/auth/apple/callback', appleOauthFormParser, handleAppleOauthCallback);
 
 app.post('/api/meta/conversions', metaCapiRateLimit, async (req, res) => {
   try {

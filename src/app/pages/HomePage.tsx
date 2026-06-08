@@ -885,7 +885,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }>(null);
   const [submittingHotelReserve, setSubmittingHotelReserve] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true });
+  const [providers, setProviders] = useState({ google: false, facebook: false, apple: false, phoneOtp: false, emailOtp: false, passkey: true });
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
   const [isPasskeyPromptLoading, setIsPasskeyPromptLoading] = useState(false);
   const [isPasskeyCreateLoading, setIsPasskeyCreateLoading] = useState(false);
@@ -2195,13 +2195,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     });
   };
 
-  const handlePromptSocialLogin = (provider: "google" | "facebook") => {
+  const handlePromptSocialLogin = (provider: "google" | "facebook" | "apple") => {
     if (provider === "google" && !providers.google) {
       toast.error("Google login indisponible pour le moment");
       return;
     }
     if (provider === "facebook" && !providers.facebook) {
       toast.error("Facebook login indisponible pour le moment");
+      return;
+    }
+    if (provider === "apple" && !providers.apple) {
+      toast.error("Apple login indisponible pour le moment");
       return;
     }
     const returnTo = `${routerLocation.pathname}${routerLocation.search}`;
@@ -4891,6 +4895,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     <button type="button" disabled={!providers.facebook} onClick={() => handlePromptSocialLogin("facebook")} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
                       <Facebook className="h-5 w-5 text-blue-600" />
                       Continuer avec Facebook
+                    </button>
+                    <button type="button" disabled={!providers.apple} onClick={() => handlePromptSocialLogin("apple")} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      Continuer avec Apple / iCloud
                     </button>
                     <button type="button" disabled={isPasskeyPromptLoading || !providers.passkey} onClick={() => void handlePromptPasskeyLogin()} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
                       <KeyRound className="h-5 w-5 text-emerald-700" />

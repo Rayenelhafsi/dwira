@@ -126,7 +126,7 @@ export default function HotelDetailsPage() {
   const [reservationTravellerAccordionOpen, setReservationTravellerAccordionOpen] = useState("");
   const [submittingReservation, setSubmittingReservation] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [providers, setProviders] = useState({ google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true });
+  const [providers, setProviders] = useState({ google: false, facebook: false, apple: false, phoneOtp: false, emailOtp: false, passkey: true });
   const [isPasskeyPromptLoading, setIsPasskeyPromptLoading] = useState(false);
   const [isPasskeyCreateLoading, setIsPasskeyCreateLoading] = useState(false);
   const [loginPromptStep, setLoginPromptStep] = useState<"choices" | "passkey_setup" | "profile_setup">("choices");
@@ -454,13 +454,17 @@ export default function HotelDetailsPage() {
     }
   };
 
-  const handlePromptSocialLogin = (provider: "google" | "facebook") => {
+  const handlePromptSocialLogin = (provider: "google" | "facebook" | "apple") => {
     if (provider === "google" && !providers.google) {
       toast.error("Google login indisponible pour le moment");
       return;
     }
     if (provider === "facebook" && !providers.facebook) {
       toast.error("Facebook login indisponible pour le moment");
+      return;
+    }
+    if (provider === "apple" && !providers.apple) {
+      toast.error("Apple login indisponible pour le moment");
       return;
     }
     const returnTo = `${location.pathname}${location.search}`;
@@ -1178,7 +1182,7 @@ export default function HotelDetailsPage() {
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-gray-900">Connectez-vous pour continuer</DialogTitle>
             <DialogDescription className="text-sm leading-6 text-gray-500">
-              Utilisez Google, Facebook ou Passkey pour envoyer votre demande hotel et proceder directement au paiement.
+              Utilisez Google, Facebook, Apple ou Passkey pour envoyer votre demande hotel et proceder directement au paiement.
             </DialogDescription>
           </DialogHeader>
 
@@ -1202,6 +1206,14 @@ export default function HotelDetailsPage() {
                 >
                   <Facebook className="h-5 w-5 text-blue-600" />
                   Continuer avec Facebook
+                </button>
+                <button
+                  type="button"
+                  disabled={!providers.apple}
+                  onClick={() => handlePromptSocialLogin("apple")}
+                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Continuer avec Apple / iCloud
                 </button>
                 <button
                   type="button"

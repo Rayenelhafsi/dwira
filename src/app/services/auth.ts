@@ -15,7 +15,7 @@ export interface AuthUser {
   cin?: string | null;
   cinImageUrl?: string | null;
   profileCompleted?: boolean;
-  authProvider?: 'local' | 'google' | 'facebook' | 'phone' | 'email' | 'passkey' | null;
+  authProvider?: 'local' | 'google' | 'facebook' | 'apple' | 'phone' | 'email' | 'passkey' | null;
   providerUserId?: string | null;
 }
 
@@ -49,6 +49,7 @@ export interface CompleteSocialProfileInput {
 interface AuthProvidersResponse {
   google: boolean;
   facebook: boolean;
+  apple?: boolean;
   phoneOtp?: boolean;
   emailOtp?: boolean;
   passkey?: boolean;
@@ -110,6 +111,7 @@ export async function getAuthProviders(): Promise<AuthProvidersResponse> {
       const normalized = {
         google: Boolean(data?.google),
         facebook: Boolean(data?.facebook),
+        apple: Boolean(data?.apple),
         phoneOtp: Boolean(data?.phoneOtp),
         emailOtp: Boolean(data?.emailOtp),
         passkey: data?.passkey !== false,
@@ -117,7 +119,7 @@ export async function getAuthProviders(): Promise<AuthProvidersResponse> {
       providersCache = { value: normalized, at: Date.now() };
       return normalized;
     } catch {
-      return { google: false, facebook: false, phoneOtp: false, emailOtp: false, passkey: true };
+      return { google: false, facebook: false, apple: false, phoneOtp: false, emailOtp: false, passkey: true };
     } finally {
       providersInFlight = null;
     }
@@ -296,7 +298,7 @@ export async function verifyPhoneOtp(telephone: string, code: string): Promise<A
   return data.user;
 }
 
-export function startSocialLogin(provider: 'google' | 'facebook', returnTo?: string) {
+export function startSocialLogin(provider: 'google' | 'facebook' | 'apple', returnTo?: string) {
   const query = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : '';
   window.location.replace(buildApiUrl(`/auth/${provider}/start${query}`));
 }
