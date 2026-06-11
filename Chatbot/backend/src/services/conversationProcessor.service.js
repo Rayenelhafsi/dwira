@@ -2599,9 +2599,9 @@ function buildProjectDemandCreatedReply(lang, demand) {
     return `Le proprietaire a accepte votre demande. Voici votre contrat PDF : ${contractLink}. Pour finaliser la reservation, choisissez votre mode de paiement : ClickToPay ou virement. Si vous choisissez ClickToPay, je vous enverrai le lien. Si vous choisissez le virement, envoyez-moi le recu ici.`;
   }
   if (status === "succes_paiement") {
-    if (lang === "tn") return `Paiement tsajjel b succes.${contractLink ? ` Hedha contratk: ${contractLink}` : ""}`;
-    if (lang === "en") return `Payment recorded successfully.${contractLink ? ` Here is your contract: ${contractLink}` : ""}`;
-    return `Le paiement a ete enregistre avec succes.${contractLink ? ` Voici votre contrat : ${contractLink}` : ""}`;
+    if (lang === "tn") return `Paiement reservation mte3ek tsajjel b succes. Merci pour votre confiance.${contractLink ? ` Hedha contratk: ${contractLink}` : ""}`;
+    if (lang === "en") return `Your reservation payment was successful. Thank you for your trust.${contractLink ? ` Here is your contract: ${contractLink}` : ""}`;
+    return `Le paiement de votre reservation a ete confirme avec succes. Merci pour votre confiance.${contractLink ? ` Voici votre contrat : ${contractLink}` : ""}`;
   }
   return formatProjectReservationStatus(lang, demand);
 }
@@ -2617,11 +2617,24 @@ async function handleProjectReservationFollowup({ lang, constraints, quick, payl
   if (!demand) return null;
 
   const paymentPageLink = `${WEBSITE_BASE_URL}/mes-reservations/${encodeURIComponent(demandId)}/paiement`;
+  const attachmentReceiptUrl = !quick.mentionsIdentityDocument ? await getFirstAttachmentImageUrl(payload) : null;
   const receiptUrl =
     (!quick.mentionsIdentityDocument && quick.hasReceiptLink ? extractFirstHttpUrl(payload.message) : null)
-    || (!quick.mentionsIdentityDocument && quick.asksReceipt ? await getFirstAttachmentImageUrl(payload) : null);
+    || attachmentReceiptUrl;
+  const demandStatus = String(demand.status || "").trim();
+  const canAcceptReceiptNow = ["client_procede_vers_paiement_en_cours", "contrat_realise", "recu_paiement_envoye"].includes(demandStatus);
+  const isReceiptSubmission = Boolean(
+    receiptUrl
+    && !quick.mentionsIdentityDocument
+    && (
+      quick.asksReceipt
+      || quick.hasReceiptLink
+      || constraints?.payment?.method === "bank_transfer"
+      || canAcceptReceiptNow
+    )
+  );
 
-  if (quick.asksReceipt && receiptUrl) {
+  if (isReceiptSubmission && canAcceptReceiptNow) {
     const updatedDemand = await uploadReservationPaymentReceiptLinkFromChat(demandId, {
       receiptUrl,
       note: payload.message,
@@ -2631,16 +2644,16 @@ async function handleProjectReservationFollowup({ lang, constraints, quick, payl
     return {
       reply:
         lang === "tn"
-          ? `Recu wasel pour demande ${demandId}. Ladmin bech ythabet el paiement. ${paymentPageLink}`
+          ? `Recu paiement wasel. Taw ladmin bech yethabet menou w y3aljem demande mte3ek.`
           : lang === "en"
-          ? `Receipt received for request ${demandId}. Admin will verify the payment. ${paymentPageLink}`
-          : `Recu recu pour la demande ${demandId}. L'administration va verifier le paiement.`,
+          ? `Your payment receipt has been received. The admin team will review it and process your request.`
+          : `Nous avons bien recu votre recu de paiement. L'administration va le verifier et traiter votre demande.`,
       reservationDemand: updatedDemand,
       state: STATES.PENDING_CONFIRMATION,
     };
   }
 
-  if ((quick.paymentMethod || quick.asksReceipt || quick.hasReceiptLink) && String(demand.status || "").trim() === "en_attente_reponse_proprietaire") {
+  if ((quick.paymentMethod || quick.asksReceipt || quick.hasReceiptLink || attachmentReceiptUrl) && demandStatus === "en_attente_reponse_proprietaire") {
     return {
       reply:
         lang === "tn"

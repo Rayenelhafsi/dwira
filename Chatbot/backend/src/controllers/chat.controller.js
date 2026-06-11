@@ -93,9 +93,9 @@ function buildDemandAutomationReply(lang, demand) {
   }
 
   if (status === "succes_paiement") {
-    if (lang === "tn") return `Paiement mte3ek ta3mal b succes. Reservation mte3ek tkamlet${contractUrl ? ` w hedha contratk: ${contractUrl}` : ""}.`;
-    if (lang === "en") return `Your payment was successful. Your reservation is finalized${contractUrl ? ` and here is your contract: ${contractUrl}` : ""}.`;
-    return `Votre paiement a ete confirme avec succes. Votre reservation est finalisee${contractUrl ? ` et voici votre contrat : ${contractUrl}` : ""}.`;
+    if (lang === "tn") return `Paiement reservation mte3ek tsajjel b succes. Merci pour votre confiance.${contractUrl ? ` Hedha contratk: ${contractUrl}` : ""}`;
+    if (lang === "en") return `Your reservation payment was successful. Thank you for your trust.${contractUrl ? ` Here is your contract: ${contractUrl}` : ""}`;
+    return `Le paiement de votre reservation a ete confirme avec succes. Merci pour votre confiance.${contractUrl ? ` Voici votre contrat : ${contractUrl}` : ""}`;
   }
 
   return null;

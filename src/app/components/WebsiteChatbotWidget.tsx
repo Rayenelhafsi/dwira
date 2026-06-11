@@ -33,6 +33,7 @@ type SessionMessage = {
 
 const VISITOR_KEY = "dwira_chatbot_visitor_id";
 const WELCOME_TEXT = "Marhbe bik. A7ki m3aya b franca, عربي, english wala tounsi. Tnajem zeda تبعث photo CIN wala reçu paiement men houni.";
+const messageStorageKey = (visitorId: string) => `dwira_chatbot_messages_${visitorId}`;
 
 function getVisitorId() {
   const next = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -96,21 +97,84 @@ function buildWelcomeMessage(idSuffix?: string): ChatMessage {
   };
 }
 
-function normalizeStoredMessages(rawMessages: SessionMessage[]): ChatMessage[] {
+function serializeMessages(messages: ChatMessage[]) {
+  return JSON.stringify(
+    (Array.isArray(messages) ? messages : []).map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      options: Array.isArray(message.options) ? message.options : [],
+      attachments: Array.isArray(message.attachments) ? message.attachments : [],
+    }))
+  );
+}
+
+function readLocalMessages(visitorId: string): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(messageStorageKey(visitorId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((message, index) => ({
+        id: String(message?.id || `local_${index}`),
+        role: message?.role === "user" ? "user" : "assistant",
+        text: String(message?.text || ""),
+        options: Array.isArray(message?.options) ? normalizeOptions(message.options) : [],
+        attachments: Array.isArray(message?.attachments)
+          ? message.attachments
+              .map((attachment: any, attachmentIndex: number) => ({
+                id: String(attachment?.id || `local_att_${index}_${attachmentIndex}`),
+                name: String(attachment?.name || "image"),
+                mimeType: String(attachment?.mimeType || "image/*"),
+                dataUrl: String(attachment?.dataUrl || attachment?.previewUrl || ""),
+                previewUrl: String(attachment?.previewUrl || attachment?.dataUrl || ""),
+              }))
+              .filter((attachment: ChatAttachment) => attachment.previewUrl)
+          : [],
+      }))
+      .filter((message) => message.text || (Array.isArray(message.attachments) && message.attachments.length > 0));
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalMessages(visitorId: string, messages: ChatMessage[]) {
+  try {
+    localStorage.setItem(messageStorageKey(visitorId), serializeMessages(messages));
+  } catch {
+    // Ignore storage issues.
+  }
+}
+
+function mergeStoredMessages(rawMessages: SessionMessage[], localMessages: ChatMessage[]): ChatMessage[] {
   const restored = (Array.isArray(rawMessages) ? rawMessages : [])
     .map((message, index) => {
-      const text = String(message?.content || "").trim();
-      if (!text) return null;
       const sender = String(message?.senderType || "").trim().toLowerCase();
+      const text = String(message?.content || "");
+      const localMatch = Array.isArray(localMessages) ? localMessages[index] : null;
+      const attachments =
+        localMatch?.role === (sender === "client" ? "user" : "assistant")
+        && String(localMatch?.text || "") === text
+        && Array.isArray(localMatch?.attachments)
+        ? localMatch.attachments
+        : [];
+      if (!text.trim() && attachments.length === 0) return null;
       return {
         id: String(message?.id || `stored_${index}`),
         role: sender === "client" ? "user" : "assistant",
         text,
+        attachments,
       } satisfies ChatMessage;
     })
     .filter((message): message is ChatMessage => Boolean(message));
 
-  return restored.length > 0 ? restored : [buildWelcomeMessage("restored")];
+  if (restored.length === 0) {
+    return localMessages.length > 0 ? localMessages : [buildWelcomeMessage("restored")];
+  }
+
+  const extras = localMessages.slice(restored.length).filter((message) => message.text || (message.attachments?.length || 0) > 0);
+  return extras.length > 0 ? [...restored, ...extras] : restored;
 }
 
 export default function WebsiteChatbotWidget() {
@@ -121,7 +185,11 @@ export default function WebsiteChatbotWidget() {
   const [resetting, setResetting] = useState(false);
   const [visitorId, setVisitorId] = useState(() => getVisitorId());
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([buildWelcomeMessage("initial")]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const initialVisitorId = getVisitorId();
+    const localMessages = readLocalMessages(initialVisitorId);
+    return localMessages.length > 0 ? localMessages : [buildWelcomeMessage("initial")];
+  });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -134,14 +202,19 @@ export default function WebsiteChatbotWidget() {
     node.scrollTop = node.scrollHeight;
   }, [messages, pendingAttachments, open]);
 
+  useEffect(() => {
+    writeLocalMessages(visitorId, messages);
+  }, [visitorId, messages]);
+
   const hydrateConversation = async (targetVisitorId = visitorId) => {
     const response = await fetch(`${getChatbotApiBase()}/chat/session/website/${encodeURIComponent(targetVisitorId)}`);
     if (!response.ok) return;
     const data = await response.json();
-    const storedMessages = normalizeStoredMessages(data?.snapshot?.conversation?.messages || []);
+    const localMessages = readLocalMessages(targetVisitorId);
+    const storedMessages = mergeStoredMessages(data?.snapshot?.conversation?.messages || [], localMessages);
     setMessages((current) => {
-      const currentSignature = JSON.stringify(current.map((item) => [item.role, item.text]));
-      const nextSignature = JSON.stringify(storedMessages.map((item) => [item.role, item.text]));
+      const currentSignature = serializeMessages(current);
+      const nextSignature = serializeMessages(storedMessages);
       return currentSignature === nextSignature ? current : storedMessages;
     });
     hydratedVisitorRef.current = targetVisitorId;
@@ -179,6 +252,11 @@ export default function WebsiteChatbotWidget() {
     setDraft("");
     setPendingAttachments([]);
     setMessages([buildWelcomeMessage(nextVisitorId)]);
+    try {
+      localStorage.removeItem(messageStorageKey(visitorId));
+    } catch {
+      // Ignore storage issues.
+    }
     hydratedVisitorRef.current = nextVisitorId || null;
   };
 
