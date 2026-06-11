@@ -110,8 +110,10 @@ function detectMessageAnswerMode(text, constraints = {}) {
   if (/(bonjour|bonsoir|sallem|slm|salem|hello|hi|ahla|marhbe|aslema|coucou|cc)\b/.test(s)) return "greeting";
   const asksZone = /(?:\bwin\b|\bou\b|\bwhere\b|anahi|fama win|zone|zones|quartier|quartiers)/.test(s);
   const asksPrice = /(?:price|prix|tarif|combien|b9adech|bqadech|9adech|9addech|soum|soumou)/.test(s);
+  const asksList = /(?:\blist\b|liste|options?|show|montre|warri|warini|nchouf|nra|chnw\s+andek|chnowa\s+andek)/.test(s);
   const asksKnowledge = isGeneralInfoMessage(s);
   const hasSearchContext = hasMeaningfulSearchSignal(constraints);
+  if (asksList && hasSearchContext) return "property_list";
   if (/^(w|et)\s+(soum|prix|price)\b/.test(s) && hasSearchContext) return "price_summary";
   if (/^(w|et)\s+(win|ou|where|zone|zones)\b/.test(s) && hasSearchContext) return "zone_summary";
   if (/^(w|et)\s+(kifeh|kifesh|paiement|payment|reservation|check-?in|check-?out|regle|regles)\b/.test(s)) return "clarify";
@@ -128,6 +130,7 @@ function detectSearchModeFromMessage(text, constraints = {}) {
   if (!s) return null;
   if (isGeneralInfoMessage(s)) return "none";
   if (/(?:\bref\b|reference|r?f?rence)/.test(s)) return "reference_first";
+  if (/(?:\blist\b|liste|options?|show|montre|warri|warini|nchouf|nra|chnw\s+andek|chnowa\s+andek)/.test(s) && hasMeaningfulSearchSignal(constraints)) return "exact_then_alternatives";
   if (/(?:\bwin\b|\bou\b|\bwhere\b|anahi|fama win|zone|zones|quartier|quartiers)/.test(s)) return "zone_aggregation";
   if (/(alternative|autre choix|autres choix|badel|badeli|ken ma famech|sinon|autre proposition|chnw\s*e5er|chnowa\s*e5er|e5er|ekher)/.test(s) && hasMeaningfulSearchSignal(constraints)) return "exact_then_alternatives";
   return null;

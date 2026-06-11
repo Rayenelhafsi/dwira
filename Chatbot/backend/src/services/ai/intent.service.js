@@ -329,7 +329,8 @@ function buildFallbackIntent(userMessage) {
 function inferResponseModeFromText(text) {
   const s = norm(text);
   if (inferIntentLabel(text) === "greeting") return "greeting";
-  if (/(comment|kifeh|kifesh|chnowa|achno|policy|regle|regles|r[eÃ¨]gle|paiement|payment|reservation|reserver|booking|annulation|cancel|check-?in|check-?out|minimum nuit|minimum nuits|disponibilit[eÃ©]|\bfaq\b)/.test(s)) return "clarify";
+  if (/(comment|kifeh|kifesh|chnowa|achno|policy|regle|regles|r[eè]gle|paiement|payment|reservation|reserver|booking|annulation|cancel|check-?in|check-?out|minimum nuit|minimum nuits|disponibilit[eé]|\bfaq\b)/.test(s)) return "clarify";
+  if (/(list|liste|options?|show|montre|warri|warini|nchouf|nra|chnw\s+andek|chnowa\s+andek)/.test(s)) return "property_list";
   if (/(win|where|ou|anahi|zone|zones|quartier|quartiers)/.test(s) && /(price|prix|tarif|combien|b9adech|bqadech|9adech|9addech|soum|soumou)/.test(s)) return "zone_price_summary";
   if (/(win|where|ou|anahi|zone|zones|quartier|quartiers)/.test(s)) return "zone_summary";
   if (/(price|prix|tarif|combien|b9adech|bqadech|9adech|9addech|soum|soumou)/.test(s)) return "price_summary";
@@ -495,3 +496,4 @@ ${userMessage}`.trim();
   }
   return parsed;
 }
+

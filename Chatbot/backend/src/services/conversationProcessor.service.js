@@ -998,6 +998,29 @@ function hasSearchSignal(constraints, message) {
   );
 }
 
+function isPropertyListFollowupMessage(message) {
+  const text = normText(message);
+  if (!text) return false;
+  return /(\blist\b|liste|options?|show|montre|warri|warini|nchouf|nra|chnw andek|chnowa andek)/.test(text);
+}
+
+function isLocationOnlyFollowupMessage(message, constraints) {
+  const text = normText(message);
+  if (!text || !constraints?.location) return false;
+  if (/(win|where|ou|anahi|zone|zones|quartier|quartiers|prix|price|tarif|combien|b9adech|9adech|soum)/.test(text)) return false;
+  if (isPropertyListFollowupMessage(text)) return false;
+  const selectedLocation = normText(constraints.location).split(",")[0].trim();
+  if (!selectedLocation) return false;
+  return text.includes(selectedLocation);
+}
+
+function shouldForcePropertyListMode(message, constraints, responseMode, previousState) {
+  if (!constraints || !hasMeaningfulSearchConstraints(constraints)) return false;
+  if (isPropertyListFollowupMessage(message)) return true;
+  if (responseMode !== "zone_summary") return false;
+  return previousState === STATES.SHOWING_OPTIONS && isLocationOnlyFollowupMessage(message, constraints);
+}
+
 function isGreetingOnly(message, extracted, constraints, quick = null) {
   const hasIntentGreeting = String(extracted?.intent || "").trim().toLowerCase() === "greeting";
   const hasGreetingMode = String(extracted?.responseMode || "").trim().toLowerCase() === "greeting";
@@ -3083,6 +3106,9 @@ export async function processIncomingMessage(payload) {
 
     const lang = constraints.language || extracted.language || client.language || "fr";
     const responseMode = String(planner?.answerMode || extracted?.responseMode || "").trim().toLowerCase() || "property_list";
+    const effectiveResponseMode = shouldForcePropertyListMode(payload.message, constraints, responseMode, conversation.state)
+      ? "property_list"
+      : responseMode;
     const L = languagePack(lang);
     let reply = "";
     let options = propertyCards;
@@ -3289,17 +3315,23 @@ export async function processIncomingMessage(payload) {
         }
       }
       newState = STATES.PENDING_CONFIRMATION;
-    } else if (responseMode === "zone_price_summary") {
+    } else if (effectiveResponseMode === "zone_price_summary") {
       clearShownOptions(constraints);
       reply = buildZonePriceSummaryReply(lang, constraints, propertyCards);
       newState = STATES.SHOWING_OPTIONS;
-    } else if (responseMode === "zone_summary") {
+    } else if (effectiveResponseMode === "zone_summary") {
       clearShownOptions(constraints);
       reply = buildZoneSummaryReply(lang, constraints, propertyCards);
       newState = STATES.SHOWING_OPTIONS;
-    } else if (responseMode === "price_summary") {
+    } else if (effectiveResponseMode === "price_summary") {
       clearShownOptions(constraints);
       reply = buildPriceSummaryReply(lang, constraints, propertyCards);
+      newState = STATES.SHOWING_OPTIONS;
+    } else if (effectiveResponseMode === "property_list" && hasSearchSignal(constraints, payload.message) && propertyCards.length > 0) {
+      reply = buildProgressiveSearchReply(lang, constraints, propertyCards);
+      options = propertyCards.slice(0, 3);
+      clearShownOptions(constraints);
+      rememberShownOptions(constraints, options);
       newState = STATES.SHOWING_OPTIONS;
     } else if (!planner?.shouldUseRag && (!constraints.startDate || !constraints.endDate || !constraints.guests || (!constraints.location && !constraints.selectedPropertyId && !constraints.selectedPropertyRef))) {
       let selectedProperty = options.find((p) => String(p.id) === String(constraints.selectedPropertyId)) || findOptionByReference(options, constraints.selectedPropertyRef);
@@ -3586,7 +3618,7 @@ export async function processIncomingMessage(payload) {
         shouldSearch,
         shouldUseRag,
         optionsCount: Array.isArray(options) ? options.length : 0,
-        responseMode,
+        responseMode: effectiveResponseMode,
         exactCount: classified.exact.length,
         alternativeCount: classified.alternatives.length,
         exactZoneSummary: summarizeZones(classified.exact),
