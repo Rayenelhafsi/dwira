@@ -2575,31 +2575,33 @@ function formatProjectReservationStatus(lang, demand) {
 }
 
 function buildProjectDemandCreatedReply(lang, demand) {
-  const demandId = String(demand?.id || "").trim();
   const status = String(demand?.status || "").trim();
-  const reservationLink = `${WEBSITE_BASE_URL}/mes-reservations`;
-  const paymentLink = `${WEBSITE_BASE_URL}/mes-reservations/${encodeURIComponent(demandId)}/paiement`;
   const contractLink = toWebsiteUrl(String(demand?.contract_url || "").trim());
   const clientName = String(demand?.client_name || "").trim();
   if (status === "en_attente_reponse_proprietaire") {
-    if (lang === "tn") return `${clientName ? `Sallem ${clientName}, ` : ""}talbetek tsajlet. Taw nstannaou reponse mel proprietaire 9bal ay paiement. Ki fama update n9olk. Tnajem tba3 men houni: ${reservationLink}`;
-    if (lang === "en") return `Your reservation request is created. It is waiting for the owner response before any payment step. You can track it here: ${reservationLink}`;
-    return `Votre demande de reservation est creee. Elle attend d'abord la reponse du proprietaire avant toute etape de paiement. Suivi ici: ${reservationLink}`;
+    if (lang === "tn") return `${clientName ? `Sallem ${clientName}, ` : ""}talbetek tsajlet. Taw nstannaou reponse mel proprietaire 9bal ay paiement. Ki fama update n9olk houni fel conversation.`;
+    if (lang === "en") return "Your reservation request is created. It is now waiting for the owner response before any payment step. I will update you here in this conversation.";
+    return "Votre demande de reservation est creee. Elle attend maintenant la reponse du proprietaire avant toute etape de paiement. Je vous informerai ici dans cette conversation.";
   }
   if (status === "reponse_positive_attente_confirmation_client") {
-    if (lang === "tn") return `El proprietaire 9bel ettaleb. Tawa l contrat mazelt yeta7dher 9bal el paiement. Tnajem ttab3 men houni: ${reservationLink}`;
-    if (lang === "en") return `The owner accepted the request. The contract is being prepared before payment. Track it here: ${reservationLink}`;
-    return `Le proprietaire a accepte la demande. Le contrat est en cours de preparation avant le paiement. Suivi ici: ${reservationLink}`;
+    if (lang === "tn") return "El proprietaire 9bel ettaleb. Tawa n7atherlek el contrat, w ki yجهز nab3athoulek houni m3a tari9et el paiement.";
+    if (lang === "en") return "The owner accepted the request. I am preparing your contract now and I will send it here with the payment options.";
+    return "Le proprietaire a accepte la demande. Je prepare maintenant votre contrat et je vous l'enverrai ici avec les options de paiement.";
   }
   if (["client_procede_vers_paiement_en_cours", "contrat_realise"].includes(status)) {
-    if (lang === "tn") return `El proprietaire 9bel ettaleb mte3ek. El contrat ????${contractLink ? `: ${contractLink}` : ""}. Bech nkamlou finalisation, ikhtar tari9et el paiement elli tnasbek: clicktopay wala virement. Page paiement: ${paymentLink}`;
-    if (lang === "en") return `Your request is now at the payment step. Continue here: ${paymentLink}${contractLink ? ` | Contract: ${contractLink}` : ""}`;
-    return `Votre demande est maintenant a l'etape paiement. Vous pouvez continuer ici: ${paymentLink}${contractLink ? ` | Contrat: ${contractLink}` : ""}`;
+    if (!contractLink) {
+      if (lang === "tn") return "El proprietaire 9bel ettaleb mte3ek. Tawa n7atherlek el contrat, w ki yجهز nab3athoulek houni m3a tari9et el paiement.";
+      if (lang === "en") return "The owner accepted your request. I am preparing your contract now and I will send it here with the payment options.";
+      return "Le proprietaire a accepte votre demande. Je prepare maintenant votre contrat et je vous l'enverrai ici avec les options de paiement.";
+    }
+    if (lang === "tn") return `El proprietaire 9bel ettaleb mte3ek. Hedha contratk PDF: ${contractLink}. Bech nkamlou finalisation, 9olli t7eb t5alles b clicktopay wala b virement. Ken clicktopay, nab3athlek lien paiement. Ken virement, ab3athli recu paiement houni.`;
+    if (lang === "en") return `The owner accepted your request. Here is your PDF contract: ${contractLink}. To finalize the reservation, choose your payment method: ClickToPay or bank transfer. If you choose ClickToPay, I will send the payment link. If you choose bank transfer, send me the receipt here.`;
+    return `Le proprietaire a accepte votre demande. Voici votre contrat PDF : ${contractLink}. Pour finaliser la reservation, choisissez votre mode de paiement : ClickToPay ou virement. Si vous choisissez ClickToPay, je vous enverrai le lien. Si vous choisissez le virement, envoyez-moi le recu ici.`;
   }
   if (status === "succes_paiement") {
-    if (lang === "tn") return `Paiement tsajjel b succes. Hedha rabt el dossier mte3ek: ${reservationLink}${contractLink ? ` | Contrat: ${contractLink}` : ""}`;
-    if (lang === "en") return `Payment recorded successfully. Here is your reservation file: ${reservationLink}${contractLink ? ` | Contract: ${contractLink}` : ""}`;
-    return `Le paiement a ete enregistre avec succes. Voici votre dossier reservation: ${reservationLink}${contractLink ? ` | Contrat: ${contractLink}` : ""}`;
+    if (lang === "tn") return `Paiement tsajjel b succes.${contractLink ? ` Hedha contratk: ${contractLink}` : ""}`;
+    if (lang === "en") return `Payment recorded successfully.${contractLink ? ` Here is your contract: ${contractLink}` : ""}`;
+    return `Le paiement a ete enregistre avec succes.${contractLink ? ` Voici votre contrat : ${contractLink}` : ""}`;
   }
   return formatProjectReservationStatus(lang, demand);
 }
@@ -2632,7 +2634,7 @@ async function handleProjectReservationFollowup({ lang, constraints, quick, payl
           ? `Recu wasel pour demande ${demandId}. Ladmin bech ythabet el paiement. ${paymentPageLink}`
           : lang === "en"
           ? `Receipt received for request ${demandId}. Admin will verify the payment. ${paymentPageLink}`
-          : `Recu re�u pour la demande ${demandId}. L'administration va verifier le paiement. ${paymentPageLink}`,
+          : `Recu recu pour la demande ${demandId}. L'administration va verifier le paiement.`,
       reservationDemand: updatedDemand,
       state: STATES.PENDING_CONFIRMATION,
     };
@@ -2642,7 +2644,7 @@ async function handleProjectReservationFollowup({ lang, constraints, quick, payl
     return {
       reply:
         lang === "tn"
-          ? `Demande mte3ek mazelt ????? reponse mel proprietaire. Ma fama hata etape paiement taw. Ki yetsajjel accord w yetwajjed el contrat, n9olk.`
+          ? `Demande mte3ek mazelt testanna reponse mel proprietaire. Ma fama hata etape paiement taw. Ki yetsajjel accord w yetwajjed el contrat, n9olk.`
           : lang === "en"
           ? `Your request is still waiting for the owner response. There is no payment step yet. Once the owner accepts and the contract is prepared, payment will open.`
           : `Votre demande attend encore la reponse du proprietaire. Aucune etape de paiement n'est ouverte pour le moment. Le paiement s'ouvrira apres acceptation et preparation du contrat.`,
@@ -2655,7 +2657,7 @@ async function handleProjectReservationFollowup({ lang, constraints, quick, payl
     return {
       reply:
         lang === "tn"
-          ? `El propri�taire 9bel ettaleb. Tawa lezim tetkammel mar7let el contrat 9bal ma yethall paiement. Taba3 update men houni: ${WEBSITE_BASE_URL}/mes-reservations`
+          ? `El proprietaire 9bel ettaleb. Tawa n7atherlek el contrat, w ki yetsajjel nab3athoulek houni m3a tari9et el paiement.`
           : lang === "en"
           ? `The owner accepted the request. The contract step must be completed before payment becomes available.`
           : `Le proprietaire a accepte la demande. L'etape du contrat doit etre finalisee avant l'ouverture du paiement.`,
@@ -2690,7 +2692,7 @@ async function handleProjectReservationFollowup({ lang, constraints, quick, payl
       return {
         reply:
           lang === "tn"
-            ? `Mriguel. Ken bech t5alles b virement, ab3ath recu paiement fel conversation, soit image wala lien direct, w taw ntsajlouh w ????? ta2kid succes mta3 paiement. Page suivi: ${paymentPageLink}`
+            ? `Mriguel. Ken bech t5alles b virement, ab3ath recu paiement fel conversation, soit image wala lien direct, w taw ntsajlouh w nstannaw ta2kid succes mta3 paiement.`
             : lang === "en"
             ? `Okay. If you want to pay by bank transfer, send the payment receipt in this conversation as an image or direct link. We will store it and wait for payment success confirmation. Tracking page: ${paymentPageLink}`
             : `D'accord. Si vous choisissez le virement, envoyez le recu de paiement dans cette conversation sous forme d'image ou de lien direct. Nous l'enregistrerons puis nous attendrons la confirmation du succes du paiement. Page de suivi: ${paymentPageLink}`,

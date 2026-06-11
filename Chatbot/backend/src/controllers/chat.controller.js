@@ -2,7 +2,10 @@ import { incomingMessageQueue } from "../queues/incomingMessage.queue.js";
 import { prisma } from "../config/prisma.js";
 import { redis } from "../config/redis.js";
 import { processIncomingMessage } from "../services/conversationProcessor.service.js";
-import { fetchReservationDemandById } from "../services/projectBooking.service.js";
+import {
+  fetchReservationDemandById,
+  submitReservationIdentityFromChat,
+} from "../services/projectBooking.service.js";
 import { sendMetaMessage } from "../services/meta/sender.service.js";
 import { chatSchema, chatSessionSchema } from "../utils/validators.js";
 
@@ -48,45 +51,87 @@ async function loadConversationSnapshot(platform, platformUserId) {
   return { client, conversation, context };
 }
 
+function toAbsoluteWebsiteUrl(rawUrl, websiteBaseUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${websiteBaseUrl}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
 function buildDemandAutomationReply(lang, demand) {
   const status = String(demand?.status || "").trim();
   const demandId = String(demand?.id || "").trim();
   const websiteBaseUrl = String(process.env.WEBSITE_BASE_URL || "http://localhost:5173").replace(/\/+$/, "");
-  const rawContractUrl = String(demand?.contract_url || "").trim();
-  const contractUrl = !rawContractUrl ? "" : /^https?:\/\//i.test(rawContractUrl)
-    ? rawContractUrl
-    : `${websiteBaseUrl}${rawContractUrl.startsWith("/") ? rawContractUrl : `/${rawContractUrl}`}`;
+  const contractUrl = toAbsoluteWebsiteUrl(demand?.contract_url, websiteBaseUrl);
   const paymentPageUrl = `${websiteBaseUrl}/mes-reservations/${encodeURIComponent(demandId)}/paiement`;
+
   if (status === "reponse_positive_attente_confirmation_client") {
     if (lang === "tn") {
-      return `El proprietaire 9bel ettaleb mte3ek. Tawa l contrat mazelt yeta7dher 9bal el paiement. Tnajem ttab3 men houni: ${websiteBaseUrl}/mes-reservations`;
+      return "El proprietaire 9bel ettaleb mte3ek. Tawa n7atherlek el contrat, w ki yetsajjel nab3athoulek houni m3a tari9et el paiement.";
     }
     if (lang === "en") {
-      return `The owner accepted your request. The contract is being prepared before payment. Track it here: ${websiteBaseUrl}/mes-reservations`;
+      return "The owner accepted your request. I am preparing your contract now and I will send it here with the payment options.";
     }
-    return `Le proprietaire a accepte votre demande. Le contrat est en cours de preparation avant le paiement. Vous pouvez suivre votre reservation ici: ${websiteBaseUrl}/mes-reservations`;
+    return "Le proprietaire a accepte votre demande. Je prepare maintenant votre contrat et je vous l'enverrai ici avec les options de paiement.";
   }
+
   if (["client_procede_vers_paiement_en_cours", "contrat_realise"].includes(status)) {
     if (!contractUrl) return null;
     if (lang === "tn") {
-      return `El propriétaire 9bel ettaleb mte3ek. El contrat جاهز${contractUrl ? `: ${contractUrl}` : ""}. Bech nkamlou finalisation, ikhtar tari9et el paiement elli tnasbek: clicktopay wala virement. Page paiement: ${paymentPageUrl}`;
+      return `El proprietaire 9bel ettaleb mte3ek. Hedha contratk PDF: ${contractUrl}. Bech nkamlou finalisation, 9olli t7eb t5alles b clicktopay wala b virement. Ken clicktopay, nab3athlek lien paiement. Ken virement, ab3athli recu paiement houni.`;
     }
     if (lang === "en") {
-      return `The owner accepted your request. Your contract is ready${contractUrl ? `: ${contractUrl}` : ""}. To finalize the reservation, choose your payment method. Payment page: ${paymentPageUrl}`;
+      return `The owner accepted your request. Here is your PDF contract: ${contractUrl}. To finalize the reservation, choose your payment method: ClickToPay or bank transfer. If you choose ClickToPay, I will send the payment link. If you choose bank transfer, send me the receipt here.`;
     }
-    return `Le proprietaire a accepte votre demande. Votre contrat est pret${contractUrl ? ` : ${contractUrl}` : ""}. Pour finaliser la reservation, choisissez votre mode de paiement. Page paiement: ${paymentPageUrl}`;
+    return `Le proprietaire a accepte votre demande. Voici votre contrat PDF : ${contractUrl}. Pour finaliser la reservation, choisissez votre mode de paiement : ClickToPay ou virement. Si vous choisissez ClickToPay, je vous enverrai le lien. Si vous choisissez le virement, envoyez-moi le recu ici.`;
   }
+
   if (status === "recu_paiement_envoye") {
-    if (lang === "tn") return `Recu paiement tsajjel. Taw نستناو ta2kid succes mta3 paiement. Suivi: ${paymentPageUrl}`;
-    if (lang === "en") return `Your payment receipt has been recorded. We are waiting for payment confirmation. Track here: ${paymentPageUrl}`;
-    return `Votre recu de paiement a ete enregistre. Nous attendons la confirmation du paiement. Suivi ici: ${paymentPageUrl}`;
+    if (lang === "tn") return `Recu paiement tsajjel. Taw nstannaw ta2kid succes mta3 paiement. Page paiement: ${paymentPageUrl}`;
+    if (lang === "en") return `Your payment receipt has been recorded. We are waiting for payment confirmation. Payment page: ${paymentPageUrl}`;
+    return `Votre recu de paiement a ete enregistre. Nous attendons la confirmation du paiement. Page paiement : ${paymentPageUrl}`;
   }
+
   if (status === "succes_paiement") {
     if (lang === "tn") return `Paiement mte3ek ta3mal b succes. Reservation mte3ek tkamlet${contractUrl ? ` w hedha contratk: ${contractUrl}` : ""}.`;
     if (lang === "en") return `Your payment was successful. Your reservation is finalized${contractUrl ? ` and here is your contract: ${contractUrl}` : ""}.`;
-    return `Votre paiement a ete confirme avec succes. Votre reservation est finalisee${contractUrl ? ` et voici votre contrat: ${contractUrl}` : ""}.`;
+    return `Votre paiement a ete confirme avec succes. Votre reservation est finalisee${contractUrl ? ` et voici votre contrat : ${contractUrl}` : ""}.`;
   }
+
   return null;
+}
+
+function buildIdentityProfileFromSources(demand, context) {
+  const profile = context?.profile || {};
+  const fullName = String(
+    profile.fullName
+    || demand?.client_name
+    || [demand?.identity_first_name, demand?.identity_last_name].filter(Boolean).join(" ")
+    || ""
+  ).trim();
+  const phone = String(profile.phone || "").trim();
+  const email = String(profile.email || demand?.client_email || "").trim();
+  const address = String(profile.address || "").trim();
+  const identityNumber = String(
+    profile.identityNumber
+    || demand?.identity_document_number
+    || ""
+  ).trim();
+  const identityImageUrl = String(
+    profile.identityImageUrl
+    || demand?.identity_document_image_url
+    || ""
+  ).trim();
+
+  if (!fullName || !identityNumber || !identityImageUrl) return null;
+  return {
+    fullName,
+    phone,
+    email,
+    address,
+    identityNumber,
+    identityImageUrl,
+  };
 }
 
 async function notifyDemandConversation(demand) {
@@ -94,11 +139,13 @@ async function notifyDemandConversation(demand) {
   if (!demandId) return { delivered: false, reason: "missing_demand_id" };
   const conversationId = String(await redis.get(`reservation:demand:conversation:${demandId}`) || "").trim();
   if (!conversationId) return { delivered: false, reason: "missing_conversation_binding" };
+
   const conversation = await prisma.conversation.findUnique({
     where: { id: Number(conversationId) },
     include: { client: true, messages: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
   if (!conversation?.client) return { delivered: false, reason: "conversation_not_found" };
+
   let context = null;
   const rawContext = await redis.get(`conversation:ctx:${conversation.id}`);
   if (rawContext) {
@@ -108,13 +155,29 @@ async function notifyDemandConversation(demand) {
       context = null;
     }
   }
+
   const lang = String(context?.language || conversation.client.language || "fr").trim().toLowerCase();
-  const reply = buildDemandAutomationReply(lang, demand);
+  let effectiveDemand = demand;
+  if (String(effectiveDemand?.status || "").trim() === "reponse_positive_attente_confirmation_client" && !String(effectiveDemand?.contract_id || "").trim()) {
+    const identityProfile = buildIdentityProfileFromSources(effectiveDemand, context);
+    if (identityProfile) {
+      try {
+        await submitReservationIdentityFromChat(demandId, identityProfile);
+        effectiveDemand = await fetchReservationDemandById(demandId) || effectiveDemand;
+      } catch {
+        // Keep the owner-accepted fallback message when automatic contract generation is not ready.
+      }
+    }
+  }
+
+  const reply = buildDemandAutomationReply(lang, effectiveDemand);
   if (!reply) return { delivered: false, reason: "unsupported_status" };
+
   const lastMessage = Array.isArray(conversation.messages) ? conversation.messages[0] : null;
   if (String(lastMessage?.senderType || "").trim() === "bot" && String(lastMessage?.content || "").trim() === reply.trim()) {
     return { delivered: true, deduplicated: true, reply };
   }
+
   await prisma.message.create({
     data: {
       conversationId: conversation.id,
@@ -122,9 +185,11 @@ async function notifyDemandConversation(demand) {
       content: reply,
     },
   });
+
   if (conversation.client.platform !== "website") {
     await sendMetaMessage(conversation.client.platformUserId, reply);
   }
+
   return { delivered: true, reply };
 }
 
@@ -222,3 +287,4 @@ export async function notifyReservationDemandChatController(req, res) {
     ...result,
   });
 }
+

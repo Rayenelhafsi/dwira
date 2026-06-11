@@ -70,17 +70,17 @@ function buildDemandAutomationReply(lang, demand) {
   const paymentPageUrl = `${websiteBaseUrl}/mes-reservations/${encodeURIComponent(demandId)}/paiement`;
   if (status === "reponse_positive_attente_confirmation_client") {
     if (lang === "tn") {
-      return `El proprietaire 9bel ettaleb mte3ek. Tawa l contrat mazelt yeta7dher 9bal el paiement. Tnajem ttab3 men houni: ${websiteBaseUrl}/mes-reservations`;
+      return "El proprietaire 9bel ettaleb mte3ek. Tawa n7atherlek el contrat, w ki yetsajjel nab3athoulek houni m3a tari9et el paiement.";
     }
     if (lang === "en") {
-      return `The owner accepted your request. The contract is being prepared before payment. Track it here: ${websiteBaseUrl}/mes-reservations`;
+      return "The owner accepted your request. I am preparing your contract now and I will send it here with the payment options.";
     }
-    return `Le proprietaire a accepte votre demande. Le contrat est en cours de preparation avant le paiement. Suivi ici: ${websiteBaseUrl}/mes-reservations`;
+    return "Le proprietaire a accepte votre demande. Je prepare maintenant votre contrat et je vous l'enverrai ici avec les options de paiement.";
   }
   if (["client_procede_vers_paiement_en_cours", "contrat_realise"].includes(status)) {
     if (!contractUrl) return null;
     if (lang === "tn") {
-      return `El propriétaire 9bel ettaleb mte3ek. El contrat tجهز${contractUrl ? `: ${contractUrl}` : ""}. Bech nkamlou finalisation, ikhtar tari9et el paiement elli tnasbek: clicktopay wala virement. Ken t7eb clicktopay, naab3athlek lien paiement. Ken t7eb virement, ابعثلي reçu paiement w taw نستناو ta2kid succes. Page paiement: ${paymentPageUrl}`;
+      return `El proprietaire 9bel ettaleb mte3ek. Hedha contratk PDF: ${contractUrl}. Bech nkamlou finalisation, 9olli t7eb t5alles b clicktopay wala b virement. Ken clicktopay, nab3athlek lien paiement. Ken virement, ab3athli recu paiement houni.`;
     }
     if (lang === "en") {
       return `The owner accepted your request. Your contract is ready${contractUrl ? `: ${contractUrl}` : ""}. To finalize the reservation, choose your payment method: ClickToPay or bank transfer. If you choose ClickToPay, I will send the payment link. If you choose bank transfer, send the receipt and we will wait for payment success confirmation. Payment page: ${paymentPageUrl}`;
@@ -88,7 +88,7 @@ function buildDemandAutomationReply(lang, demand) {
     return `Le proprietaire a accepte votre demande. Votre contrat est pret${contractUrl ? ` : ${contractUrl}` : ""}. Pour finaliser la reservation, choisissez votre mode de paiement: ClickToPay ou virement. Si vous choisissez ClickToPay, je vous enverrai le lien de paiement. Si vous choisissez le virement, envoyez le recu et nous attendrons la confirmation du paiement. Page paiement: ${paymentPageUrl}`;
   }
   if (status === "recu_paiement_envoye") {
-    if (lang === "tn") return `Recu paiement tsajjel. Taw نستناو ta2kid succes mta3 paiement. Ken t7eb, tnajem ترجع تتابع men houni: ${paymentPageUrl}`;
+    if (lang === "tn") return `Recu paiement tsajjel. Taw nstannaw ta2kid succes mta3 paiement. Page paiement: ${paymentPageUrl}`;
     if (lang === "en") return `Your payment receipt has been recorded. We are now waiting for payment success confirmation. You can follow the reservation here: ${paymentPageUrl}`;
     return `Votre recu de paiement a ete enregistre. Nous attendons maintenant la confirmation du paiement. Suivi ici: ${paymentPageUrl}`;
   }
@@ -305,3 +305,4 @@ export async function debugReservationDemandActionController(req, res) {
     return res.status(500).json({ error: String(error?.message || error || "Action failed") });
   }
 }
+
