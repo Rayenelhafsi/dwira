@@ -902,6 +902,7 @@ export default function BiensPage() {
     climatise: 'Climatise',
     toutes_pieces_climatisees: 'Toutes les pieces climatisees',
     rdc: 'RDC',
+    premier_etage: '1er etage',
     jardin_gazon: 'Jardin / Gazon',
     terrasse: 'Terrasse',
     piscine_privee: 'Piscine privee',
@@ -909,7 +910,7 @@ export default function BiensPage() {
   };
   const homeFilterOptionsByGroup: Record<'seaside' | 'comfort', string[]> = {
     seaside: ['pied_dans_eau', 'vue_sur_mer', 'pres_plage'],
-    comfort: ['climatise', 'toutes_pieces_climatisees', 'rdc', 'jardin_gazon', 'terrasse', 'piscine_privee', 'piscine_partagee'],
+    comfort: ['climatise', 'toutes_pieces_climatisees', 'rdc', 'premier_etage', 'jardin_gazon', 'terrasse', 'piscine_privee', 'piscine_partagee'],
   };
   const currentHomeFilterOptions = homeFilterOptionsByGroup[homeFilterImageGroup];
 
