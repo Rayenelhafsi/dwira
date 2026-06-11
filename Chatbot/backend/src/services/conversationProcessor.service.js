@@ -3461,7 +3461,7 @@ export async function processIncomingMessage(payload) {
             },
           });
           if (payload.platform !== "website") {
-            await sendMetaMessage(payload.platformUserId, reply);
+            await sendMetaMessage(payload.platform, payload.platformUserId, reply);
           }
           return {
             conversationId: conversation.id,
@@ -3573,7 +3573,7 @@ export async function processIncomingMessage(payload) {
     });
 
     if (payload.platform !== "website") {
-      await sendMetaMessage(payload.platformUserId, reply);
+      await sendMetaMessage(payload.platform, payload.platformUserId, reply);
     }
 
     return {

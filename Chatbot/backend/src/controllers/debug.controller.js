@@ -134,7 +134,7 @@ async function notifyDemandConversation(demand) {
     },
   });
   if (conversation.client.platform !== "website") {
-    await sendMetaMessage(conversation.client.platformUserId, reply);
+    await sendMetaMessage(conversation.client.platform, conversation.client.platformUserId, reply);
   }
 }
 

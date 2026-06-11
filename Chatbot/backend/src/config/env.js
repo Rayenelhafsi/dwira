@@ -27,6 +27,7 @@ export const config = {
     pageAccessToken: process.env.META_PAGE_ACCESS_TOKEN,
     whatsappPhoneNumberId: process.env.META_WHATSAPP_PHONE_NUMBER_ID,
     instagramAccountId: process.env.META_INSTAGRAM_ACCOUNT_ID,
+    graphVersion: process.env.META_GRAPH_VERSION || "v21.0",
   },
   websiteMeta: {
     pixelId: process.env.META_CAPI_PIXEL_ID,

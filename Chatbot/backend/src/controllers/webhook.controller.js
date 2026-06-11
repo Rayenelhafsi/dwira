@@ -15,7 +15,7 @@ export async function metaWebhookController(req, res) {
   const ok = verifyMetaSignature(req.rawBody || "", sig);
   if (!ok) return res.status(401).json({ error: "Invalid signature" });
 
-  const parsed = parseMetaIncoming(req.body);
+  const parsed = await parseMetaIncoming(req.body);
   await Promise.all(
     parsed.map((m) =>
       incomingMessageQueue.add("incoming", {
