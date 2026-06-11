@@ -112,6 +112,53 @@ const HOTEL_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
 const HOTEL_PENDING_HOME_RESERVE_KEY = "dwira_pending_home_hotel_reserve";
 
+const normalizeLocationMatchToken = (value?: string | null) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getPropertyLocationValues = (property: any): string[] => {
+  const hierarchy = property?.filterProfile?.locationHierarchy;
+  return [
+    property?.filterProfile?.locationLabel,
+    hierarchy?.pays,
+    hierarchy?.gouvernerat,
+    hierarchy?.region,
+    hierarchy?.quartier,
+    property?.location,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+};
+
+const propertyMatchesLocation = (property: any, selectedLocation: string) => {
+  const selectedParts = String(selectedLocation || "")
+    .split("/")
+    .map((item) => normalizeLocationMatchToken(item))
+    .filter(Boolean);
+  const normalizedSelected = selectedParts[selectedParts.length - 1] || normalizeLocationMatchToken(selectedLocation);
+  if (!normalizedSelected) return false;
+
+  const normalizedValues = Array.from(
+    new Set(getPropertyLocationValues(property).map((value) => normalizeLocationMatchToken(value)).filter(Boolean))
+  );
+
+  if (selectedParts.length > 1) {
+    return selectedParts.every((part) =>
+      normalizedValues.some((value) => value === part || value.includes(part) || part.includes(value))
+    );
+  }
+
+  return normalizedValues.some((value) =>
+    value === normalizedSelected
+    || value.includes(normalizedSelected)
+    || normalizedSelected.includes(value)
+  );
+};
+
 type PendingHomeHotelReserve = {
   hotel: HotelSummary;
   adults: number;
@@ -1039,6 +1086,61 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       byToken.set(token, value);
     }
     return Array.from(byToken.values()).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  };
+  const findZoneForRegion = (regionValue?: string | null) => {
+    const targetRegion = normalizeLocationToken(regionValue);
+    if (!targetRegion) return null;
+    return normalizedZones.find((zone) => {
+      const sameRegion = isSameLocationToken(zone.region, regionValue);
+      if (!sameRegion) return false;
+      if (locationPays && !isSameLocationToken(locationPays, zone.pays)) return false;
+      if (locationGouvernerat && !isSameLocationToken(locationGouvernerat, zone.gouvernerat)) return false;
+      return true;
+    }) || normalizedZones.find((zone) => isSameLocationToken(zone.region, regionValue)) || null;
+  };
+  const findZoneForQuartier = (zoneValue?: string | null) => {
+    const targetZone = normalizeLocationToken(zoneValue);
+    if (!targetZone) return null;
+    return normalizedZones.find((zone) => {
+      const sameZone = isSameLocationToken(zone.quartier || zone.nom, zoneValue);
+      if (!sameZone) return false;
+      if (locationPays && !isSameLocationToken(locationPays, zone.pays)) return false;
+      if (locationGouvernerat && !isSameLocationToken(locationGouvernerat, zone.gouvernerat)) return false;
+      if (locationRegion && !isSameLocationToken(locationRegion, zone.region)) return false;
+      return true;
+    }) || normalizedZones.find((zone) => isSameLocationToken(zone.quartier || zone.nom, zoneValue)) || null;
+  };
+  const applyGovernorateSelection = (value: string) => {
+    setLocationGouvernerat(value);
+    setLocationRegion("");
+    setLocationZone("");
+    setOpenLocationLevel("region");
+  };
+  const applyRegionSelection = (value: string) => {
+    const resolvedZone = findZoneForRegion(value);
+    if (resolvedZone?.pays) setLocationPays(String(resolvedZone.pays));
+    if (resolvedZone?.gouvernerat) setLocationGouvernerat(String(resolvedZone.gouvernerat));
+    setLocationRegion(value);
+    setLocationZone("");
+    setOpenLocationLevel("zone");
+  };
+  const applyZoneSelection = (value: string) => {
+    const resolvedZone = findZoneForQuartier(value);
+    if (resolvedZone?.pays) setLocationPays(String(resolvedZone.pays));
+    if (resolvedZone?.gouvernerat) setLocationGouvernerat(String(resolvedZone.gouvernerat));
+    if (resolvedZone?.region) setLocationRegion(String(resolvedZone.region));
+    setLocationZone(value);
+    if (value) {
+      const hierarchicalValue = buildHierarchicalLocationLabel([
+        resolvedZone?.pays && String(resolvedZone.pays).trim().toLowerCase() !== "tunisie" ? String(resolvedZone.pays) : "",
+        resolvedZone?.gouvernerat || locationGouvernerat,
+        resolvedZone?.region || locationRegion,
+        value,
+      ]) || value;
+      setDraftSelectedLocations((prev) =>
+        dedupeHierarchicalLocations(prev.includes(hierarchicalValue) ? prev : [...prev, hierarchicalValue])
+      );
+    }
   };
   const cascadePaysOptions = useMemo(
     () => dedupeLocationValues(normalizedZones.map((zone) => String(zone.pays || "").trim()).filter(Boolean)),
@@ -2501,14 +2603,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const shouldFilterByStay = hasSearched && validStayRanges.length > 0;
     const baseProperties = hasSearched
       ? modeProperties.filter((property) => {
-          const propertyLocationText = String(property.location || "").toLowerCase();
           const matchLocation =
             selectedLocations.length === 0
-            || selectedLocations.some((item) => {
-              const parts = String(item || "").split("/").map((part) => part.trim().toLowerCase()).filter(Boolean);
-              if (parts.length === 0) return false;
-              return parts.some((part) => propertyLocationText.includes(part));
-            });
+            || selectedLocations.some((item) => propertyMatchesLocation(property, item));
           const resolvedCategory = getResolvedPropertyCategoryLabel(property);
           const propertyMainType = getMainTypeFromCategory(String(resolvedCategory || property.category || ""));
           const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategory || property.category || "");
@@ -3101,10 +3198,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                         setOpenLocationLevel("gouvernerat");
                                         return;
                                       }
-                                      setLocationGouvernerat(item.value);
-                                      setLocationRegion("");
-                                      setLocationZone("");
-                                      setOpenLocationLevel("region");
+                                      applyGovernorateSelection(item.value);
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
@@ -3133,9 +3227,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                         setOpenLocationLevel("region");
                                         return;
                                       }
-                                      setLocationRegion(item.value);
-                                      setLocationZone("");
-                                      setOpenLocationLevel("zone");
+                                      applyRegionSelection(item.value);
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
@@ -3164,18 +3256,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                         setOpenLocationLevel("zone");
                                         return;
                                       }
-                                      setLocationZone(item.value);
-                                      if (item.value) {
-                                        const hierarchicalValue = buildHierarchicalLocationLabel([
-                                          locationPays && String(locationPays).trim().toLowerCase() !== "tunisie" ? locationPays : "",
-                                          locationGouvernerat,
-                                          locationRegion,
-                                          item.value,
-                                        ]) || item.value;
-                                        setDraftSelectedLocations((prev) =>
-                                          dedupeHierarchicalLocations(prev.includes(hierarchicalValue) ? prev : [...prev, hierarchicalValue])
-                                        );
-                                      }
+                                      applyZoneSelection(item.value);
                                     }}
                                     className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                                   >
@@ -3653,7 +3734,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       ? [{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))]
                       : [([{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationGouvernerat) || { label: "Tous gouvernorats", value: "" })]
                     ).map((item) => (
-                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "gouvernerat") { setOpenLocationLevel("gouvernerat"); return; } setLocationGouvernerat(item.value); setLocationRegion(""); setLocationZone(""); setOpenLocationLevel("region"); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "gouvernerat") { setOpenLocationLevel("gouvernerat"); return; } applyGovernorateSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -3668,7 +3749,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       ? [{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))]
                       : [([{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationRegion) || { label: "Toutes regions", value: "" })]
                     ).map((item) => (
-                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "region") { setOpenLocationLevel("region"); return; } setLocationRegion(item.value); setLocationZone(""); setOpenLocationLevel("zone"); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "region") { setOpenLocationLevel("region"); return; } applyRegionSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
@@ -3683,7 +3764,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       ? [{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))]
                       : [([{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationZone) || { label: "Toutes zones", value: "" })]
                     ).map((item) => (
-                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "zone") { setOpenLocationLevel("zone"); return; } setLocationZone(item.value); if (item.value) { const hierarchicalValue = buildHierarchicalLocationLabel([locationPays && String(locationPays).trim().toLowerCase() !== "tunisie" ? locationPays : "", locationGouvernerat, locationRegion, item.value]) || item.value; setDraftSelectedLocations((prev) => dedupeHierarchicalLocations(prev.includes(hierarchicalValue) ? prev : [...prev, hierarchicalValue])); } }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
+                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "zone") { setOpenLocationLevel("zone"); return; } applyZoneSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
                         <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                         <div className="pointer-events-none absolute inset-0 bg-black/40" />
                         <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>

@@ -15,6 +15,12 @@ export const config = {
   qdrantPropertyCollection: process.env.QDRANT_PROPERTY_COLLECTION || "chatbot_properties",
   hybridSearchEnabled: String(process.env.HYBRID_SEARCH_ENABLED || "true").toLowerCase() === "true",
   hybridCandidateLimit: Number(process.env.HYBRID_CANDIDATE_LIMIT || 80),
+  chatbotSearchLimit: Number(process.env.CHATBOT_SEARCH_LIMIT || 60),
+  chatbotAlternativeLimit: Number(process.env.CHATBOT_ALTERNATIVE_LIMIT || 60),
+  openaiTimeoutMs: Number(process.env.OPENAI_TIMEOUT_MS || 8000),
+  ragTimeoutMs: Number(process.env.RAG_TIMEOUT_MS || 5000),
+  hybridTimeoutMs: Number(process.env.HYBRID_TIMEOUT_MS || 5000),
+  tonePolishTimeoutMs: Number(process.env.TONE_POLISH_TIMEOUT_MS || 3500),
   meta: {
     verifyToken: process.env.META_VERIFY_TOKEN,
     appSecret: process.env.META_APP_SECRET,

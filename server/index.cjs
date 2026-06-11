@@ -2988,8 +2988,21 @@ async function authenticateAdminFromHeaders(req) {
   });
 }
 
-function requireAuthenticatedSession(req, res, next) {
+async function requireAuthenticatedSession(req, res, next) {
   const user = getSessionUserFromRequest(req);
+  if (user) {
+    req.authUser = user;
+    return next();
+  }
+  try {
+    const headerAdmin = await authenticateAdminFromHeaders(req);
+    if (headerAdmin) {
+      req.authUser = headerAdmin;
+      return next();
+    }
+  } catch (error) {
+    console.warn('auth_header_fallback_failed:', error?.message || error);
+  }
   if (!user) {
     void logSecurityEvent({
       req,
@@ -3001,8 +3014,6 @@ function requireAuthenticatedSession(req, res, next) {
     });
     return res.status(401).json({ error: 'Authentification requise' });
   }
-  req.authUser = user;
-  return next();
 }
 
 async function requireAdminSession(req, res, next) {
@@ -5217,7 +5228,8 @@ const dbConfig = {
   password: isSiteDbSource ? siteDbPassword : localDbPassword,
   database: isSiteDbSource ? siteDbName : (process.env.DB_NAME || 'dwira'),
   waitForConnections: true,
-  connectionLimit: 10
+  connectionLimit: 10,
+  dateStrings: ['DATE'],
 };
 console.log(
   `[DB] source=${isSiteDbSource ? 'site' : 'local'} host=${dbConfig.host} db=${dbConfig.database} user=${dbConfig.user}`
@@ -5399,6 +5411,7 @@ function createSiteMirrorPool() {
     database: siteDbName,
     waitForConnections: true,
     connectionLimit: 2,
+    dateStrings: ['DATE'],
   });
 }
 
@@ -8467,6 +8480,7 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
     `Contrat ${contractId} realise pour la demande ${demandId}`,
     now
   );
+  await notifyChatbotReservationDemandChange(demandId);
   return { contractId };
 }
 
@@ -9554,6 +9568,30 @@ async function fetchReservationDemandDetailsById(demandId) {
     [normalizedId]
   );
   return formatReservationDemandRow(rows?.[0] || null);
+}
+
+async function notifyChatbotReservationDemandChange(demandId) {
+  const normalizedId = String(demandId || '').trim();
+  if (!normalizedId) return;
+  const baseUrl = String(
+    process.env.CHATBOT_INTERNAL_API_URL
+    || process.env.VITE_CHATBOT_API_URL
+    || 'http://127.0.0.1:8090'
+  ).trim().replace(/\/+$/, '');
+  if (!baseUrl) return;
+  try {
+    const response = await fetch(`${baseUrl}/chat/project/reservation-demand/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ demandId: normalizedId }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.warn('chatbot_reservation_notify_failed:', response.status, text);
+    }
+  } catch (error) {
+    console.warn('chatbot_reservation_notify_error:', error?.message || error);
+  }
 }
 
 async function deleteLocalFileFromPublicUrl(fileUrl, subdirectory = '') {
@@ -13667,6 +13705,7 @@ app.post('/api/contrats', requireAdminSession, async (req, res) => {
         `Contrat ${id} cree automatiquement depuis la demande`,
         demandUpdatedAt
       );
+      await notifyChatbotReservationDemandChange(matchingDemandRows[0].id);
     }
     const [newContrat] = await pool.query('SELECT * FROM contrats WHERE id = ?', [id]);
     res.status(201).json(newContrat[0]);
@@ -15385,6 +15424,7 @@ app.post('/api/mobile/owners/:ownerId/availability-requests/:demandId/respond', 
       `${available ? 'Disponibilite confirmee' : 'Indisponibilite confirmee'} par proprietaire ${ownerId} pour ${String(demand.bien_reference || demand.bien_id || 'bien')} (${String(demand.start_date || '')} -> ${String(demand.end_date || '')})`,
       now
     );
+    await notifyChatbotReservationDemandChange(demandId);
 
     await createOwnerMobileNotification({
       ownerId,
@@ -16330,7 +16370,14 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
   try {
     await ensureReservationDemandSchema();
     await ensureSeasonalPricingSchema();
-    const requester = getSessionUserFromRequest(req);
+    let requester = getSessionUserFromRequest(req);
+    if (!requester) {
+      try {
+        requester = await authenticateAdminFromHeaders(req);
+      } catch (error) {
+        console.warn('reservation_admin_header_auth_failed:', error?.message || error);
+      }
+    }
     if (requester) {
       req.authUser = requester;
     }
@@ -16405,20 +16452,22 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       }
     }
 
-    const antiBotCheck = await verifyTurnstileToken(turnstileToken, getClientIp(req));
-    if (antiBotCheck.enabled && !antiBotCheck.success) {
-      void logSecurityEvent({
-        req,
-        eventType: 'reservation_antibot_failed',
-        severity: 'warning',
-        success: false,
-        statusCode: 403,
-        userId: resolvedClientUserId,
-        userEmail: resolvedClientEmail,
-        message: 'Reservation denied by anti-bot verification',
-        metadata: { reason: antiBotCheck.reason || null },
-      });
-      return res.status(403).json({ error: 'Verification anti-bot invalide. Veuillez reessayer.' });
+    if (requester?.role !== 'admin') {
+      const antiBotCheck = await verifyTurnstileToken(turnstileToken, getClientIp(req));
+      if (antiBotCheck.enabled && !antiBotCheck.success) {
+        void logSecurityEvent({
+          req,
+          eventType: 'reservation_antibot_failed',
+          severity: 'warning',
+          success: false,
+          statusCode: 403,
+          userId: resolvedClientUserId,
+          userEmail: resolvedClientEmail,
+          message: 'Reservation denied by anti-bot verification',
+          metadata: { reason: antiBotCheck.reason || null },
+        });
+        return res.status(403).json({ error: 'Verification anti-bot invalide. Veuillez reessayer.' });
+      }
     }
 
     if (!bien_id || !start_date || !end_date) {
@@ -17133,6 +17182,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
           WHERE d.id = ? LIMIT 1`,
           [demandId]
         );
+        await notifyChatbotReservationDemandChange(demandId);
         return res.json(formatReservationDemandRow(updatedRows?.[0] || null));
       }
       await pool.query(
@@ -17206,6 +17256,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         WHERE d.id = ? LIMIT 1`,
         [demandId]
       );
+      await notifyChatbotReservationDemandChange(demandId);
       return res.json(formatReservationDemandRow(updatedRows?.[0] || null));
     }
     const ownerNotifiedAt = body.communicateToOwner
@@ -17401,6 +17452,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
       WHERE d.id = ? LIMIT 1`,
       [demandId]
     );
+    await notifyChatbotReservationDemandChange(demandId);
     res.json(formatReservationDemandRow(updatedRows[0]));
     if (nextStatus === 'client_procede_vers_paiement_en_cours' || nextStatus === 'contrat_realise') {
       logMobileFlow('reservation_status_update_success', req, {
@@ -17889,6 +17941,7 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
       `Recu de paiement recu pour la demande ${demandId}. Verification admin requise.`,
       now
     );
+    await notifyChatbotReservationDemandChange(demandId);
 
     const [updatedRows] = await pool.query(
       `SELECT
@@ -18011,10 +18064,9 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
   if (current.contract_id && paidAmount > 0) {
     await pool.query(
       `UPDATE contrats
-       SET montant_recu = ?,
-           updated_at = ?
+       SET montant_recu = ?
        WHERE id = ?`,
-      [paidAmount, now, current.contract_id]
+      [paidAmount, current.contract_id]
     );
   }
 
@@ -18627,6 +18679,7 @@ app.post('/api/reservation-demands/:id/clicktopay/confirm', requireAuthenticated
         demandId,
       ]
     );
+    await notifyChatbotReservationDemandChange(demandId);
 
     if (!decision.isSuccess) {
       return res.status(409).json({

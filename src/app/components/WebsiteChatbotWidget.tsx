@@ -1,12 +1,5 @@
-import { useMemo, useState } from "react";
-import { MessageCircle, Send, X } from "lucide-react";
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  options?: ChatOption[];
-};
+﻿import { useEffect, useRef, useState } from "react";
+import { ImagePlus, MessageCircle, Send, X } from "lucide-react";
 
 type ChatOption = {
   id: string | number;
@@ -15,18 +8,52 @@ type ChatOption = {
   pricePerNightTnd?: number | null;
 };
 
+type ChatAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  previewUrl: string;
+};
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  options?: ChatOption[];
+  attachments?: ChatAttachment[];
+};
+
+type SessionMessage = {
+  id?: string | number | null;
+  senderType?: string | null;
+  content?: string | null;
+  createdAt?: string | null;
+};
+
 const VISITOR_KEY = "dwira_chatbot_visitor_id";
+const WELCOME_TEXT = "Marhbe bik. A7ki m3aya b franca, عربي, english wala tounsi. Tnajem zeda تبعث photo CIN wala reçu paiement men houni.";
 
 function getVisitorId() {
+  const next = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   try {
     const existing = localStorage.getItem(VISITOR_KEY);
     if (existing) return existing;
-    const next = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     localStorage.setItem(VISITOR_KEY, next);
     return next;
   } catch {
-    return `web_${Date.now()}`;
+    return next;
   }
+}
+
+function replaceVisitorId() {
+  const next = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    localStorage.setItem(VISITOR_KEY, next);
+  } catch {
+    // Ignore storage failure and still return a fresh in-memory id.
+  }
+  return next;
 }
 
 function getChatbotApiBase() {
@@ -40,27 +67,193 @@ function getChatbotApiBase() {
   return `${window.location.origin.replace(/\/+$/, "")}/chatbot-api`;
 }
 
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Impossible de lire l'image"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function normalizeOptions(rawOptions: any[]): ChatOption[] {
+  return rawOptions
+    .slice(0, 3)
+    .map((option) => ({
+      id: option?.id ?? "",
+      title: String(option?.title || "").trim(),
+      location: String(option?.location || "").trim() || null,
+      pricePerNightTnd: Number.isFinite(Number(option?.pricePerNightTnd)) ? Number(option.pricePerNightTnd) : null,
+    }))
+    .filter((option) => option.title);
+}
+
+function buildWelcomeMessage(idSuffix?: string): ChatMessage {
+  return {
+    id: `welcome_${idSuffix || Date.now()}`,
+    role: "assistant",
+    text: WELCOME_TEXT,
+  };
+}
+
+function normalizeStoredMessages(rawMessages: SessionMessage[]): ChatMessage[] {
+  const restored = (Array.isArray(rawMessages) ? rawMessages : [])
+    .map((message, index) => {
+      const text = String(message?.content || "").trim();
+      if (!text) return null;
+      const sender = String(message?.senderType || "").trim().toLowerCase();
+      return {
+        id: String(message?.id || `stored_${index}`),
+        role: sender === "client" ? "user" : "assistant",
+        text,
+      } satisfies ChatMessage;
+    })
+    .filter((message): message is ChatMessage => Boolean(message));
+
+  return restored.length > 0 ? restored : [buildWelcomeMessage("restored")];
+}
+
 export default function WebsiteChatbotWidget() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Bonjour, je suis l'assistant reservation Dwira. Indiquez vos dates, nombre de voyageurs et budget.",
-    },
-  ]);
+  const [uploading, setUploading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [visitorId, setVisitorId] = useState(() => getVisitorId());
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([buildWelcomeMessage("initial")]);
 
-  const visitorId = useMemo(() => getVisitorId(), []);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const pollingRef = useRef<number | null>(null);
+  const hydratedVisitorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const node = messageListRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [messages, pendingAttachments, open]);
+
+  const hydrateConversation = async (targetVisitorId = visitorId) => {
+    const response = await fetch(`${getChatbotApiBase()}/chat/session/website/${encodeURIComponent(targetVisitorId)}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const storedMessages = normalizeStoredMessages(data?.snapshot?.conversation?.messages || []);
+    setMessages((current) => {
+      const currentSignature = JSON.stringify(current.map((item) => [item.role, item.text]));
+      const nextSignature = JSON.stringify(storedMessages.map((item) => [item.role, item.text]));
+      return currentSignature === nextSignature ? current : storedMessages;
+    });
+    hydratedVisitorRef.current = targetVisitorId;
+  };
+
+  useEffect(() => {
+    if (!open) {
+      if (pollingRef.current) {
+        window.clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+
+    void hydrateConversation(visitorId);
+    pollingRef.current = window.setInterval(() => {
+      if (sending || uploading || resetting) return;
+      void hydrateConversation(visitorId);
+    }, 4000);
+
+    return () => {
+      if (pollingRef.current) {
+        window.clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [open, visitorId, sending, uploading, resetting]);
+
+  useEffect(() => {
+    if (hydratedVisitorRef.current === visitorId) return;
+    void hydrateConversation(visitorId);
+  }, [visitorId]);
+
+  const resetLocalConversation = (nextVisitorId?: string) => {
+    setDraft("");
+    setPendingAttachments([]);
+    setMessages([buildWelcomeMessage(nextVisitorId)]);
+    hydratedVisitorRef.current = nextVisitorId || null;
+  };
+
+  const handleNewConversation = async () => {
+    if (sending || uploading || resetting) return;
+    setResetting(true);
+    try {
+      await fetch(`${getChatbotApiBase()}/chat/session/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "website",
+          platformUserId: visitorId,
+        }),
+      });
+    } catch {
+      // Local reset still matters even if the backend reset fails.
+    } finally {
+      const nextVisitorId = replaceVisitorId();
+      setVisitorId(nextVisitorId);
+      resetLocalConversation(nextVisitorId);
+      setResetting(false);
+    }
+  };
+
+  const handlePickImage = () => {
+    if (sending || uploading || resetting) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    setUploading(true);
+    try {
+      const nextAttachments: ChatAttachment[] = [];
+      for (const file of files.slice(0, 3)) {
+        if (!file.type.startsWith("image/")) continue;
+        const dataUrl = await fileToDataUrl(file);
+        nextAttachments.push({
+          id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          name: file.name || "image",
+          mimeType: file.type || "image/*",
+          dataUrl,
+          previewUrl: dataUrl,
+        });
+      }
+      if (nextAttachments.length) {
+        setPendingAttachments((prev) => [...prev, ...nextAttachments].slice(0, 3));
+      }
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  };
+
+  const removePendingAttachment = (attachmentId: string) => {
+    setPendingAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
+  };
 
   const sendMessage = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    const attachmentsToSend = pendingAttachments;
+    if ((!text && attachmentsToSend.length === 0) || sending || uploading || resetting) return;
 
-    const userMessage: ChatMessage = { id: `u_${Date.now()}`, role: "user", text };
+    const userMessage: ChatMessage = {
+      id: `u_${Date.now()}`,
+      role: "user",
+      text,
+      attachments: attachmentsToSend,
+    };
     setMessages((prev) => [...prev, userMessage]);
     setDraft("");
+    setPendingAttachments([]);
     setSending(true);
 
     try {
@@ -71,6 +264,12 @@ export default function WebsiteChatbotWidget() {
           platform: "website",
           platformUserId: visitorId,
           message: text,
+          attachments: attachmentsToSend.map((attachment) => ({
+            type: "image",
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            dataUrl: attachment.dataUrl,
+          })),
         }),
       });
 
@@ -80,25 +279,16 @@ export default function WebsiteChatbotWidget() {
 
       const data = await response.json();
       const reply = String(data?.reply || "").trim() || "Merci. Un conseiller vous repondra sous peu.";
-      const options = Array.isArray(data?.options)
-        ? data.options
-            .slice(0, 3)
-            .map((option: any) => ({
-              id: option?.id ?? "",
-              title: String(option?.title || "").trim(),
-              location: String(option?.location || "").trim() || null,
-              pricePerNightTnd: Number.isFinite(Number(option?.pricePerNightTnd)) ? Number(option.pricePerNightTnd) : null,
-            }))
-            .filter((option: ChatOption) => option.title)
-        : [];
+      const options = Array.isArray(data?.options) ? normalizeOptions(data.options) : [];
       setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", text: reply, options }]);
+      hydratedVisitorRef.current = visitorId;
     } catch {
       setMessages((prev) => [
         ...prev,
         {
           id: `a_${Date.now()}`,
           role: "assistant",
-          text: "Service temporairement indisponible. Contactez-nous via WhatsApp ou Messenger.",
+          text: "Service temporairement indisponible. Essayez encore ou contactez-nous via WhatsApp / Messenger.",
         },
       ]);
     } finally {
@@ -110,33 +300,59 @@ export default function WebsiteChatbotWidget() {
     <>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-5 right-5 z-[95] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg hover:bg-emerald-700"
+        onClick={() => setOpen((value) => !value)}
+        className="fixed bottom-5 right-5 z-[95] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg transition hover:bg-emerald-700"
         aria-label="Ouvrir assistant"
       >
         {open ? <X size={22} /> : <MessageCircle size={22} />}
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-5 z-[95] flex h-[70vh] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl">
-          <div className="border-b border-emerald-100 bg-emerald-50 px-4 py-3">
-            <p className="text-sm font-semibold text-emerald-900">Assistant reservation Dwira</p>
-            <p className="text-xs text-emerald-700">FR | AR | TN | EN</p>
+        <div className="fixed bottom-24 right-5 z-[95] flex h-[78vh] w-[min(94vw,420px)] flex-col overflow-hidden rounded-[28px] border border-emerald-100 bg-white shadow-2xl">
+          <div className="border-b border-emerald-100 bg-[linear-gradient(135deg,#effcf4,#ecfdf5_55%,#f8fffb)] px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-emerald-900">Assistant reservation Dwira</p>
+                <p className="text-xs text-emerald-700">FR | AR | TN | EN</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleNewConversation()}
+                disabled={sending || uploading || resetting}
+                className="rounded-lg border border-emerald-200 px-2.5 py-1 text-[11px] font-medium text-emerald-900 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resetting ? "Reset..." : "Nouvelle discussion"}
+              </button>
+            </div>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+          <div ref={messageListRef} className="flex-1 space-y-3 overflow-y-auto bg-slate-50/45 px-3 py-3">
+            {messages.map((message) => (
+              <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                    msg.role === "user" ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-800"
+                  className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                    message.role === "user" ? "bg-emerald-600 text-white" : "bg-white text-slate-800"
                   }`}
                 >
-                  <div className="whitespace-pre-line">{msg.text}</div>
-                  {msg.role === "assistant" && Array.isArray(msg.options) && msg.options.length > 0 ? (
+                  {message.text ? <div className="whitespace-pre-line">{message.text}</div> : null}
+
+                  {Array.isArray(message.attachments) && message.attachments.length > 0 ? (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {message.attachments.map((attachment) => (
+                        <img
+                          key={attachment.id}
+                          src={attachment.previewUrl}
+                          alt={attachment.name}
+                          className="h-24 w-full rounded-xl object-cover ring-1 ring-black/5"
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {message.role === "assistant" && Array.isArray(message.options) && message.options.length > 0 ? (
                     <div className="mt-3 space-y-2">
-                      {msg.options.map((option) => (
-                        <div key={String(option.id)} className="rounded-xl border border-emerald-200 bg-white/80 px-3 py-2 text-xs text-slate-700">
+                      {message.options.map((option) => (
+                        <div key={String(option.id)} className="rounded-xl border border-emerald-200 bg-emerald-50/40 px-3 py-2 text-xs text-slate-700">
                           <div className="font-semibold text-slate-900">{option.title}</div>
                           {option.location ? <div>{option.location}</div> : null}
                           {option.pricePerNightTnd ? <div>{option.pricePerNightTnd} TND / nuit</div> : null}
@@ -147,31 +363,78 @@ export default function WebsiteChatbotWidget() {
                 </div>
               </div>
             ))}
+
+            {pendingAttachments.length > 0 ? (
+              <div className="rounded-2xl border border-dashed border-emerald-200 bg-white px-3 py-3">
+                <div className="mb-2 text-xs font-medium text-slate-600">Images pretes a envoyer</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {pendingAttachments.map((attachment) => (
+                    <div key={attachment.id} className="relative">
+                      <img
+                        src={attachment.previewUrl}
+                        alt={attachment.name}
+                        className="h-20 w-full rounded-xl object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removePendingAttachment(attachment.id)}
+                        className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white"
+                        aria-label="Supprimer image"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          <div className="border-t border-slate-100 p-3">
+          <div className="border-t border-slate-100 bg-white p-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={handlePickImage}
+                disabled={sending || uploading || resetting || pendingAttachments.length >= 3}
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 px-3 py-2 text-xs font-medium text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ImagePlus size={15} />
+                {uploading ? "Chargement image..." : "Ajouter image"}
+              </button>
+              <span className="text-[11px] text-slate-500">CIN, recu, capture, photo du document</span>
+            </div>
+
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
                     void sendMessage();
                   }
                 }}
-                placeholder="Ex: 12/08 au 18/08, 4 personnes, proche plage"
-                className="h-10 flex-1 rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-emerald-500"
+                placeholder="Ex: nheb ref-251 / photo CIN / 12-18 aout, 4 personnes"
+                className="h-11 flex-1 rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-emerald-500"
               />
               <button
                 type="button"
                 onClick={() => void sendMessage()}
-                disabled={sending}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white disabled:opacity-50"
+                disabled={sending || uploading || resetting || (!draft.trim() && pendingAttachments.length === 0)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600 text-white transition disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Envoyer"
               >
-                <Send size={16} />
+                <Send size={17} />
               </button>
             </div>
           </div>

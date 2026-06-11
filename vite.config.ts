@@ -31,6 +31,10 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/chatbot-media': {
+        target: 'http://localhost:8090',
+        changeOrigin: true,
+      },
     },
   },
 

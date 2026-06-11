@@ -8,6 +8,8 @@
     "start": "node src/server.js",
     "worker": "node src/workers/conversation.worker.js",
     "env:check": "node scripts/validate-env.mjs",
+    "qdrant:start": "powershell -ExecutionPolicy Bypass -File scripts/start-qdrant-local.ps1",
+    "rag:index-knowledge": "node scripts/index-knowledge-qdrant.mjs",
     "rag:index-properties": "node scripts/index-properties-qdrant.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

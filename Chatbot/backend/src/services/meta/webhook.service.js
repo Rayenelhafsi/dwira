@@ -13,11 +13,29 @@ export function parseMetaIncoming(body) {
     for (const change of entry.changes || []) {
       const value = change.value || {};
       for (const msg of value.messages || []) {
+        const attachments = [];
+        if (msg.image?.id) {
+          attachments.push({
+            type: "image",
+            url: String(msg.image.id).trim(),
+            mimeType: String(msg.image.mime_type || "image/*").trim(),
+            name: "meta-image",
+          });
+        }
+        if (msg.document?.id) {
+          attachments.push({
+            type: "document",
+            url: String(msg.document.id).trim(),
+            mimeType: String(msg.document.mime_type || "application/octet-stream").trim(),
+            name: String(msg.document.filename || "meta-document").trim(),
+          });
+        }
         messages.push({
           platform: value.messaging_product || "messenger",
           platformUserId: msg.from,
           text: msg.text?.body || "",
           messageId: msg.id,
+          attachments,
         });
       }
     }

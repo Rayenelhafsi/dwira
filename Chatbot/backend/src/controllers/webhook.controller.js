@@ -22,6 +22,7 @@ export async function metaWebhookController(req, res) {
         platform: m.platform,
         platformUserId: m.platformUserId,
         message: m.text,
+        attachments: m.attachments || [],
       })
     )
   );
