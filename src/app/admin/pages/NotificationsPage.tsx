@@ -253,6 +253,21 @@ function resolveAssetUrl(url?: string | null) {
   return `${window.location.origin}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
+function appendCacheBuster(url: string, version?: string | null) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  const token = String(version || '').trim();
+  if (!token) return value;
+  try {
+    const parsed = new URL(value, window.location.origin);
+    parsed.searchParams.set('v', token);
+    return parsed.toString();
+  } catch {
+    const separator = value.includes('?') ? '&' : '?';
+    return `${value}${separator}v=${encodeURIComponent(token)}`;
+  }
+}
+
 function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null) {
   const value = String(status?.status || '').trim();
   const sentAt = value === 'pending'
@@ -1081,7 +1096,10 @@ export default function NotificationsPage() {
             const isExpanded = Boolean(expandedDemandIds[demand.id]);
             const receiptUrl = demand.payment_receipt_image_url ? resolveAssetUrl(demand.payment_receipt_image_url) : '';
             const hasReceipt = Boolean(receiptUrl);
-            const cinPhotoUrl = demand.identity_document_image_url ? resolveAssetUrl(demand.identity_document_image_url) : '';
+            const cinPhotoUrlBase = demand.identity_document_image_url ? resolveAssetUrl(demand.identity_document_image_url) : '';
+            const cinPhotoUrl = cinPhotoUrlBase && /\/chatbot-media\//i.test(cinPhotoUrlBase)
+              ? appendCacheBuster(cinPhotoUrlBase, demand.updated_at || demand.identity_submitted_at || demand.id)
+              : cinPhotoUrlBase;
             const hasCinPhoto = Boolean(cinPhotoUrl);
             const isAmicaleDemand = String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
             const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : '';
