@@ -68,6 +68,13 @@ export default function LoginPage() {
   });
   const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const handleGoBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate('/', { replace: true });
+  };
 
   const loginUser = (authUser: AuthUser) => {
     login({
@@ -567,6 +574,14 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <button
+          type="button"
+          onClick={handleGoBack}
+          className="mb-6 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Retour
+        </button>
         <Link to="/" className="flex justify-center mb-6">
           <span className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
             <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />

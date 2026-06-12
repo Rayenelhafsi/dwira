@@ -1,12 +1,12 @@
 import { Link, useLocation } from 'react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  LayoutDashboard, 
-  Home, 
-  Users, 
-  Settings, 
-  LogOut, 
+import {
+  LayoutDashboard,
+  Home,
+  Users,
+  Settings,
+  LogOut,
   FileText,
   CreditCard,
   Wrench,
@@ -15,9 +15,10 @@ import {
   Megaphone,
   UserCheck,
   Bell,
+  BellRing,
   ShieldCheck,
   Handshake,
-  Hotel
+  Hotel,
 } from 'lucide-react';
 import logo from '../../../../logo dwira.jpg';
 
@@ -45,6 +46,8 @@ const openStatuses = new Set([
 
 type SidebarNotification = {
   id?: string;
+  type?: 'info' | 'warning' | 'success' | 'error';
+  message?: string;
   lu?: boolean;
 };
 
@@ -59,6 +62,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [notificationAlertCount, setNotificationAlertCount] = useState(0);
+  const [importantAlertCount, setImportantAlertCount] = useState(0);
   const hasLoadedAlertsRef = useRef(false);
   const isFetchingAlertsRef = useRef(false);
 
@@ -82,20 +86,42 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
       if (!notificationsResponse.ok || !demandsResponse.ok || !pendingCalendarRequestsResponse.ok) {
         return;
       }
+
       const notifications = await notificationsResponse.json();
       const demands = await demandsResponse.json();
       const pendingCalendarRequests = await pendingCalendarRequestsResponse.json();
+
+      const urgentNotificationsCount = Array.isArray(notifications)
+        ? notifications.filter((notification: SidebarNotification) => {
+            if (notification?.lu) return false;
+            const normalized = String(notification?.message || '').toLowerCase();
+            return notification?.type === 'error'
+              || normalized.includes('urgent')
+              || normalized.includes('echec')
+              || normalized.includes('expire')
+              || normalized.includes('expir')
+              || normalized.includes('rejet')
+              || normalized.includes('annule')
+              || normalized.includes('impossible');
+          }).length
+        : 0;
+
       const unreadNotificationsCount = Array.isArray(notifications)
         ? notifications.filter((notification: SidebarNotification) => !notification?.lu).length
         : 0;
+
       const pendingDemandsCount = Array.isArray(demands)
         ? demands.filter((demand: SidebarReservationDemand) => {
-            const isAmicale = String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
+            const isAmicale = String(demand.payment_mode || '').trim() === 'amicale'
+              || Boolean(String(demand.pricing_amicale_id || '').trim());
             return !isAmicale && openStatuses.has(String(demand.status || '').trim());
           }).length
         : 0;
+
       const pendingCalendarRequestsCount = Array.isArray(pendingCalendarRequests) ? pendingCalendarRequests.length : 0;
+
       setNotificationAlertCount(unreadNotificationsCount + pendingDemandsCount + pendingCalendarRequestsCount);
+      setImportantAlertCount(urgentNotificationsCount + pendingCalendarRequestsCount);
       hasLoadedAlertsRef.current = true;
     } finally {
       isFetchingAlertsRef.current = false;
@@ -129,28 +155,45 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     { name: 'Marketing', path: '/admin/marketing', icon: Megaphone },
     { name: 'Utilisateurs', path: '/admin/utilisateurs', icon: UserCheck },
     { name: 'Audit securite', path: '/admin/audit-securite', icon: ShieldCheck },
-    { name: 'Paramètres', path: '/admin/parametres', icon: Settings },
+    { name: 'Parametres', path: '/admin/parametres', icon: Settings },
   ];
 
   return (
-    <aside className="w-64 bg-emerald-950 text-white flex flex-col h-screen overflow-y-auto">
-      <div className="p-6 border-b border-emerald-900 flex items-center gap-3 lg:block hidden">
-        <img src={logo} alt="Dwira" className="h-8 w-auto" />
-        <div>
-          <h2 className="font-bold text-lg leading-tight">Dwira Admin</h2>
-          <p className="text-emerald-400 text-xs">Gestion immobilière</p>
+    <aside className="flex h-screen w-64 flex-col overflow-y-auto bg-emerald-950 text-white">
+      <div className="hidden border-b border-emerald-900 p-6 lg:block">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <img src={logo} alt="Dwira" className="h-8 w-auto" />
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Dwira Admin</h2>
+              <p className="text-xs text-emerald-400">Gestion immobiliere</p>
+            </div>
+          </div>
+          <Link
+            to="/admin/notifications?focus=urgent"
+            onClick={handleNavClick}
+            className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-800 bg-emerald-900/70 text-emerald-100 transition-colors hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-100"
+            aria-label="Voir les notifications urgentes"
+          >
+            <BellRing size={18} />
+            {hasLoadedAlertsRef.current && importantAlertCount > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                {importantAlertCount > 99 ? '99+' : importantAlertCount}
+              </span>
+            )}
+          </Link>
         </div>
       </div>
-      
-      <nav className="flex-1 py-6 px-3 space-y-1">
+
+      <nav className="flex-1 space-y-1 px-3 py-6">
         {navItems.map((item) => (
-          <Link 
+          <Link
             key={item.path}
-            to={item.path} 
+            to={item.path}
             onClick={handleNavClick}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              isActive(item.path) 
-                ? 'bg-emerald-800 text-white shadow-sm' 
+            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              isActive(item.path)
+                ? 'bg-emerald-800 text-white shadow-sm'
                 : 'text-emerald-100/70 hover:bg-emerald-900 hover:text-white'
             }`}
           >
@@ -164,31 +207,30 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
           </Link>
         ))}
       </nav>
-      
-      <div className="p-4 border-t border-emerald-900 bg-emerald-950">
-        <div className="flex items-center gap-3 mb-4">
-          <img 
-            src={user?.avatar || `https://ui-avatars.com/api/?name=${user?.name || 'Admin'}`} 
-            alt={user?.name} 
-            className="w-9 h-9 rounded-full bg-white border border-emerald-700"
+
+      <div className="border-t border-emerald-900 bg-emerald-950 p-4">
+        <div className="mb-4 flex items-center gap-3">
+          <img
+            src={user?.avatar || `https://ui-avatars.com/api/?name=${user?.name || 'Admin'}`}
+            alt={user?.name}
+            className="h-9 w-9 rounded-full border border-emerald-700 bg-white"
           />
           <div className="overflow-hidden">
-            <p className="font-medium text-sm truncate">{user?.name}</p>
-            <p className="text-xs text-emerald-400 truncate capitalize">{user?.role || 'Admin'}</p>
+            <p className="truncate text-sm font-medium">{user?.name}</p>
+            <p className="truncate text-xs capitalize text-emerald-400">{user?.role || 'Admin'}</p>
           </div>
         </div>
-        <button 
+        <button
           onClick={() => {
             logout();
             window.location.href = '/';
           }}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-500/10 text-red-300 hover:bg-red-600 hover:text-white rounded-lg transition-colors text-sm font-medium"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-600 hover:text-white"
         >
           <LogOut size={16} />
-          Déconnexion
+          Deconnexion
         </button>
       </div>
     </aside>
   );
 }
-

@@ -2826,6 +2826,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const params = applyAmicaleParam(new URLSearchParams(searchParams));
     const logementsMode = selectedMode === "location_annuelle" ? "location_annuelle" : "location_saisonniere";
     params.set("mode", logementsMode);
+    params.set("openFilters", "1");
     params.delete("location");
     params.delete("locations");
     params.delete("mainType");

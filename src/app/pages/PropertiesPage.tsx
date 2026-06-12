@@ -780,6 +780,19 @@ export default function PropertiesPage() {
     setSelectedMainTypes(mainTypes);
   }, [searchParams]);
   useEffect(() => {
+    if (searchParams.get("openFilters") !== "1") return;
+    setIsFilterOpen(true);
+    setTimeout(() => {
+      if (filtersAnchorRef.current) {
+        filtersAnchorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 120);
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("openFilters");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+  useEffect(() => {
     const nextQuery = searchParams.get("q") || "";
     const nextLocations = parseCsvParam(searchParams.get("locations") || searchParams.get("location"));
     const nextStayRangesParsed = parseStayRangesParam(searchParams.get("stayRanges"));
@@ -827,29 +840,7 @@ export default function PropertiesPage() {
     if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
     if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
     if (sortMode !== nextSort) setSortMode(nextSort);
-  }, [
-    searchParams,
-    query,
-    selectedLocations,
-    stayRanges,
-    selectedCategories,
-    selectedMainTypes,
-    selectedFeatureNames,
-    minDoubleRooms,
-    minParentRooms,
-    minSimpleRooms,
-    minBathroomsCount,
-    minClimatizedRooms,
-    selectedPaidServices,
-    selectedSeasideOptions,
-    selectedComfortOptions,
-    selectedStanding,
-    minGuests,
-    isFeaturedOnly,
-    priceMax,
-    smartTolerance,
-    sortMode,
-  ]);
+  }, [searchParams]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
