@@ -1034,6 +1034,9 @@ export default function NotificationsPage() {
     return firstImage ? resolveMediaUrl(firstImage.url) : 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520"%3E%3Crect width="800" height="520" fill="%23ecfdf5"/%3E%3Cpath d="M0 360L180 230l110 84 120-96 180 142H0z" fill="%23a7f3d0"/%3E%3Ccircle cx="620" cy="140" r="44" fill="%236ee7b7"/%3E%3C/svg%3E';
   };
 
+  const getOwnerQrCodeUrl = (ownerId?: string | null, size = 160) =>
+    `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(String(ownerId || '').trim())}`;
+
   const getPropertyPreviewText = (bien?: Bien | null) => {
     if (!bien) return '';
     const comfort = Array.isArray(bien.caracteristiques) ? bien.caracteristiques.slice(0, 4).join(', ') : '';
@@ -2493,6 +2496,21 @@ export default function NotificationsPage() {
                     </div>
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-base font-semibold text-slate-900">QR proprietaire</h4>
+                        <p className="mt-1 text-sm text-slate-500">Code rapide lie au dossier de ce proprietaire.</p>
+                      </div>
+                      <div className="rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_72%)] p-3">
+                        <img
+                          src={getOwnerQrCodeUrl(selectedChatOwner.id, 160)}
+                          alt={`QR ${selectedChatOwner.name}`}
+                          className="h-32 w-32 rounded-xl border border-emerald-200 bg-white object-contain p-2"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <h4 className="text-base font-semibold text-slate-900">References rattachees</h4>
@@ -2534,6 +2552,9 @@ export default function NotificationsPage() {
                             <div className="space-y-3 p-4">
                               <div>
                                 <h5 className="line-clamp-2 text-sm font-semibold text-slate-900">{bien.titre || 'Bien'}</h5>
+                                {String(bien.nom_bien_mobile || '').trim() ? (
+                                  <p className="mt-1 text-xs font-medium text-emerald-700">Nom dans l'application: {String(bien.nom_bien_mobile).trim()}</p>
+                                ) : null}
                                 <p className="mt-1 text-xs text-slate-500">{bien.type || 'Bien immobilier'}</p>
                               </div>
                               <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">

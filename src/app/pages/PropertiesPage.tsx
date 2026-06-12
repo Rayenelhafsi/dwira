@@ -2118,6 +2118,7 @@ export default function PropertiesPage() {
           property,
           score: normalizedScore,
           strictTypeMatch: strictMainTypeMatch && strictSubTypeMatch,
+          exactSeasideMatch: selectedSeasideOptions.length === 0 || matchSeaside,
           exactDateAvailable,
           stayDateAlternative,
           details: {
@@ -2154,6 +2155,7 @@ export default function PropertiesPage() {
       (row) =>
         row.strictTypeMatch
         && row.score >= threshold
+        && row.exactSeasideMatch
         && row.exactComfortMatch
         && (!requiresRdcComfortFallback || propertyMatchesComfortOption(row.property, "rdc"))
         && (!hasDateFilter || row.exactDateAvailable)
@@ -2190,6 +2192,7 @@ export default function PropertiesPage() {
       primary = rows.filter(
         (row) =>
           row.strictTypeMatch
+          && row.exactSeasideMatch
           && row.exactComfortMatch
           && (!hasDateFilter || row.exactDateAvailable)
       );
@@ -2695,11 +2698,9 @@ export default function PropertiesPage() {
                       <button
                         type="button"
                         onClick={() => setSelectedLocations([])}
-                        className={`relative h-16 overflow-hidden rounded-xl border px-3 text-left ${selectedLocations.length === 0 ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                        className={`h-16 rounded-xl border px-3 text-left ${selectedLocations.length === 0 ? "border-emerald-300 bg-emerald-50 ring-2 ring-emerald-400" : "border-gray-200 bg-white"}`}
                       >
-                        <img src={resolveZoneImageUrl(null)} alt="Tous les emplacements" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-black/30" />
-                        <span className="relative z-10 text-xs font-semibold text-white">Tous les emplacements</span>
+                        <span className={`text-xs font-semibold ${selectedLocations.length === 0 ? "text-emerald-700" : "text-gray-700"}`}>Tous les emplacements</span>
                       </button>
                       {uniqueLocations.map((loc) => (
                         <button

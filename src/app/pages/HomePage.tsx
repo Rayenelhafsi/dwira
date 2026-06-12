@@ -2846,12 +2846,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     }
     navigate(`/logements?${params.toString()}`);
   };
-  const selectedLocationWidgetImage =
-    selectedLocationImages.zone
-    || selectedLocationImages.region
-    || selectedLocationImages.gouvernerat
-    || selectedLocationImages.pays
-    || null;
+  const selectedLocationWidgetImage = selectedLocations.length > 0
+    ? (
+      selectedLocationImages.zone
+      || selectedLocationImages.region
+      || selectedLocationImages.gouvernerat
+      || selectedLocationImages.pays
+      || null
+    )
+    : null;
   const selectedLocationSummary = selectedLocations.length > 0 ? selectedLocations.join(", ") : "Tous les emplacements";
 
   useEffect(() => {
@@ -3307,6 +3310,50 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               Étape {locationSelectionStep === "gouvernerat" ? "1/3" : locationSelectionStep === "region" ? "2/3" : "3/3"}
                             </div>
                           </div>
+                          <div className="mt-4 grid grid-cols-3 gap-3">
+                            <button
+                              className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${draftSelectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
+                              onClick={() => { setDraftSelectedLocations([]); resetCurrentLocationPath(); }}
+                            >
+                              Tous les emplacements
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (locationSelectionStep === "gouvernerat") return;
+                                const previousStep = locationSelectionStep === "zone" ? "region" : "gouvernerat";
+                                setLocationSelectionStep(previousStep);
+                                setOpenLocationLevel(previousStep);
+                              }}
+                              disabled={locationSelectionStep === "gouvernerat"}
+                              className="w-full rounded-xl border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Précédent
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (locationSelectionStep === "gouvernerat") {
+                                  setLocationSelectionStep("region");
+                                  setOpenLocationLevel("region");
+                                  return;
+                                }
+                                if (locationSelectionStep === "region") {
+                                  setLocationSelectionStep("zone");
+                                  setOpenLocationLevel("zone");
+                                  return;
+                                }
+                                confirmLocationSelection();
+                              }}
+                              disabled={
+                                (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
+                                || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
+                              }
+                              className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
+                            </button>
+                          </div>
 
                           <div className="mt-4 grid grid-cols-3 gap-3">
                             {locationStepMeta[locationSelectionStep].options.map((item) => {
@@ -3336,50 +3383,6 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               );
                             })}
                           </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-3">
-                          <button
-                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${draftSelectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
-                            onClick={() => { setDraftSelectedLocations([]); resetCurrentLocationPath(); }}
-                          >
-                            Tous les emplacements
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (locationSelectionStep === "gouvernerat") return;
-                              const previousStep = locationSelectionStep === "zone" ? "region" : "gouvernerat";
-                              setLocationSelectionStep(previousStep);
-                              setOpenLocationLevel(previousStep);
-                            }}
-                            disabled={locationSelectionStep === "gouvernerat"}
-                            className="w-full rounded-xl border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Précédent
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (locationSelectionStep === "gouvernerat") {
-                                setLocationSelectionStep("region");
-                                setOpenLocationLevel("region");
-                                return;
-                              }
-                              if (locationSelectionStep === "region") {
-                                setLocationSelectionStep("zone");
-                                setOpenLocationLevel("zone");
-                                return;
-                              }
-                              confirmLocationSelection();
-                            }}
-                            disabled={
-                              (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
-                              || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
-                            }
-                            className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -3811,6 +3814,50 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     {locationSelectionStep === "gouvernerat" ? "1/3" : locationSelectionStep === "region" ? "2/3" : "3/3"}
                   </div>
                 </div>
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <button
+                    className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${draftSelectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                    onClick={() => { setDraftSelectedLocations([]); resetCurrentLocationPath(); }}
+                  >
+                    Tous les emplacements
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (locationSelectionStep === "gouvernerat") return;
+                      const previousStep = locationSelectionStep === "zone" ? "region" : "gouvernerat";
+                      setLocationSelectionStep(previousStep);
+                      setOpenLocationLevel(previousStep);
+                    }}
+                    disabled={locationSelectionStep === "gouvernerat"}
+                    className="w-full rounded-xl border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Précédent
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (locationSelectionStep === "gouvernerat") {
+                        setLocationSelectionStep("region");
+                        setOpenLocationLevel("region");
+                        return;
+                      }
+                      if (locationSelectionStep === "region") {
+                        setLocationSelectionStep("zone");
+                        setOpenLocationLevel("zone");
+                        return;
+                      }
+                      confirmLocationSelection();
+                    }}
+                    disabled={
+                      (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
+                      || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
+                    }
+                    className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
+                  </button>
+                </div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
                   {locationStepMeta[locationSelectionStep].options.map((item) => {
                     const level = locationSelectionStep;
@@ -3839,50 +3886,6 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     );
                   })}
                 </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <button
-                  className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ${draftSelectedLocations.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
-                  onClick={() => { setDraftSelectedLocations([]); resetCurrentLocationPath(); }}
-                >
-                  Tous les emplacements
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (locationSelectionStep === "gouvernerat") return;
-                    const previousStep = locationSelectionStep === "zone" ? "region" : "gouvernerat";
-                    setLocationSelectionStep(previousStep);
-                    setOpenLocationLevel(previousStep);
-                  }}
-                  disabled={locationSelectionStep === "gouvernerat"}
-                  className="w-full rounded-xl border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Précédent
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (locationSelectionStep === "gouvernerat") {
-                      setLocationSelectionStep("region");
-                      setOpenLocationLevel("region");
-                      return;
-                    }
-                    if (locationSelectionStep === "region") {
-                      setLocationSelectionStep("zone");
-                      setOpenLocationLevel("zone");
-                      return;
-                    }
-                    confirmLocationSelection();
-                  }}
-                  disabled={
-                    (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
-                    || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
-                  }
-                  className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
-                </button>
               </div>
             </div>
           </div>

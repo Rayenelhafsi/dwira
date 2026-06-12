@@ -105,7 +105,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <h3 className="mb-1 text-lg font-bold text-gray-900">Email</h3>
-                  <a href="mailto:contact@dwira-immobilier.com" className="block text-gray-600 transition-colors hover:text-emerald-600">contact@dwira-immobilier.com</a>
+                  <a href="mailto:dwiraimmobilier@gmail.com" className="block text-gray-600 transition-colors hover:text-emerald-600">dwiraimmobilier@gmail.com</a>
                   <p className="mt-1 text-sm text-gray-500">Reponse sous 24h</p>
                 </div>
               </div>

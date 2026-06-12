@@ -791,7 +791,7 @@ export function Footer() {
               <li><Link to="/contact" className="text-emerald-100/70 hover:text-white transition-colors">Contactez-nous</Link></li>
               <li><a href="/privacy-policy.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Politique de confidentialite</a></li>
               <li><a href="/terms-of-service.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Conditions d'utilisation</a></li>
-              <li><Link to="/cgv" className="text-emerald-100/70 hover:text-white transition-colors">CGV</Link></li>
+              <li><Link to="/cgv" className="text-emerald-100/70 hover:text-white transition-colors">Conditions Generales de Vente</Link></li>
               <li><Link to="/mentions-legales" className="text-emerald-100/70 hover:text-white transition-colors">Mentions legales</Link></li>
               <li><a href="/data-deletion.html" target="_blank" rel="noreferrer" className="text-emerald-100/70 hover:text-white transition-colors">Suppression des donnees</a></li>
             </ul>
@@ -812,7 +812,7 @@ export function Footer() {
               </li>
               <li className="flex items-start gap-3 text-emerald-100/70">
                 <Mail className="shrink-0 text-amber-400" size={20} />
-                <span>contact@dwira-immobilier.com</span>
+                <span>dwiraimmobilier@gmail.com</span>
               </li>
             </ul>
           </div>
