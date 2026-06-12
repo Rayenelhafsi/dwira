@@ -15362,7 +15362,6 @@ app.get('/api/mobile/owners/:ownerId/availability-requests', async (req, res) =>
 	         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
 	         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
 	         b.titre AS bien_titre,
-	         b.nom_bien_mobile AS bien_nom_bien_mobile,
 	         b.reference AS bien_reference,
 	         b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
 	         (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
@@ -15380,7 +15379,6 @@ app.get('/api/mobile/owners/:ownerId/availability-requests', async (req, res) =>
 	      ...row,
 	      propertyTitle: resolveBienOwnerDisplayName({
 	        titre: row.bien_titre,
-	        nom_bien_mobile: row.bien_nom_bien_mobile,
 	        reference: row.bien_reference,
 	        location_saisonniere_config_json: row.bien_location_saisonniere_config_json,
 	      }),
@@ -16928,7 +16926,6 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
 	      `SELECT
 	         d.*,
 	         b.titre AS bien_titre,
-	         b.nom_bien_mobile AS bien_nom_bien_mobile,
 	         b.reference AS bien_reference,
 	         b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
 	         p.nom AS proprietaire_nom,
@@ -16953,7 +16950,6 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
 	    const nextStatus = 'en_attente_reponse_proprietaire';
 	    const ownerPropertyTitle = resolveBienOwnerDisplayName({
 	      titre: current.bien_titre,
-	      nom_bien_mobile: current.bien_nom_bien_mobile,
 	      reference: current.bien_reference,
 	      location_saisonniere_config_json: current.bien_location_saisonniere_config_json,
 	    });
@@ -16981,11 +16977,12 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
       now
     );
 
-	    const notificationMessage = `Confirmez la disponibilite de ${ownerPropertyTitle} du ${String(current.start_date || '')} au ${String(current.end_date || '')}`;
+	    const notificationTitle = ownerPropertyTitle;
+	    const notificationMessage = `Disponibilite a confirmer du ${String(current.start_date || '')} au ${String(current.end_date || '')}`;
 	    await createOwnerMobileNotification({
 	      ownerId,
 	      type: 'warning',
-	      message: notificationMessage,
+	      message: `Confirmez la disponibilite de ${ownerPropertyTitle} du ${String(current.start_date || '')} au ${String(current.end_date || '')}`,
 	      metadata: {
 	        kind: 'reservation_availability_request',
 	        demandId,
@@ -17001,10 +16998,10 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
     });
 
 	    const pushResult = await pushToOwnerDevices(ownerId, {
-	      title: 'Demande de disponibilite',
+	      title: notificationTitle,
 	      body: notificationMessage,
 	      data: {
-	        title: 'Demande de disponibilite',
+	        title: notificationTitle,
 	        body: notificationMessage,
 	        kind: 'reservation_availability_request',
 	        demandId,
