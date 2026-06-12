@@ -86,6 +86,7 @@ export const router = createBrowserRouter([
       { path: "mentions-legales", lazy: lazyPage(() => import("./pages/MentionsLegalesPage")) },
       { path: "deploy-mobile", lazy: lazyPage(() => import("./pages/DeployAppsPage")) },
       { path: "login", lazy: lazyPage(() => import("./pages/LoginPage")) },
+      { path: "connexion-admin-interne", lazy: lazyPage(() => import("./pages/InternalAdminLoginPage")) },
       { path: "agent-amicale/login", lazy: lazyPage(() => import("./pages/AgentAmicaleLoginPage")) },
       { path: "agent-amicale/dashboard", lazy: lazyPage(() => import("./pages/AgentAmicaleDashboardPage")) },
       { path: ":amicaleSlug/:propertyRef", lazy: lazyPage(() => import("./pages/AmicalePropertyRedirectPage")) },

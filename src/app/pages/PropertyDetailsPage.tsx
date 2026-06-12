@@ -1120,7 +1120,7 @@ out body 40;
     if (!selectedStart) return null;
     return getPeriodMinStayForDate(property?.pricingPeriods || [], selectedStart, pricingAmicaleId);
   }, [pricingAmicaleId, property?.pricingPeriods, selectedStart]);
-  const displayedMinStay = Math.max(minStay, periodMinStay || 0);
+  const displayedMinStay = periodMinStay || minStay;
   const activeWeekdayRule = useMemo(() => {
     if (!selectedStart || !selectedEnd) return { requiredCheckinDay: null, requiredCheckoutDay: null };
     const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;

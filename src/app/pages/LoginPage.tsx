@@ -1,12 +1,31 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, Facebook, Globe, User, FileText, Upload, Phone, KeyRound } from 'lucide-react';
+import { ChevronLeft, Facebook, KeyRound, Mail, FileText, Upload, Phone, User } from 'lucide-react';
 import { toast } from 'sonner';
 import logo from '../../../logo dwira.jpg';
-import { completeSocialProfile, getAuthProviders, getSocialSession, loginAdmin, loginWithPasskey, registerWithPasskey, startSocialLogin, AuthUser } from '../services/auth';
+import { completeSocialProfile, getAuthProviders, getSocialSession, loginWithPasskey, registerWithPasskey, startSocialLogin, AuthUser } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
 import { clearAuthReturnTo, readAuthReturnTo, readPendingReservationDraft, saveAuthReturnTo } from '../utils/pendingReservation';
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.2-.9 2.2-1.9 2.9l3.1 2.4c1.8-1.7 2.9-4.1 2.9-7 0-.7-.1-1.4-.2-2H12Z" />
+      <path fill="#34A853" d="M12 22c2.6 0 4.8-.9 6.4-2.5l-3.1-2.4c-.9.6-2 .9-3.3.9-2.5 0-4.6-1.7-5.4-4H3.4v2.5A10 10 0 0 0 12 22Z" />
+      <path fill="#4A90E2" d="M6.6 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.5H3.4A10 10 0 0 0 2 12c0 1.6.4 3.1 1.4 4.5L6.6 14Z" />
+      <path fill="#FBBC05" d="M12 6c1.4 0 2.7.5 3.7 1.4l2.8-2.8C16.8 3 14.6 2 12 2A10 10 0 0 0 3.4 7.5L6.6 10c.8-2.3 2.9-4 5.4-4Z" />
+    </svg>
+  );
+}
+
+function AppleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-current">
+      <path d="M16.37 12.09c.03 3.2 2.81 4.27 2.84 4.28-.02.07-.44 1.52-1.45 3-.87 1.28-1.78 2.56-3.2 2.58-1.39.03-1.84-.83-3.43-.83-1.6 0-2.09.8-3.4.85-1.36.05-2.41-1.37-3.29-2.65C2.68 16.82 1.3 12.6 3.15 9.4c.92-1.59 2.57-2.6 4.37-2.62 1.34-.03 2.61.91 3.43.91.81 0 2.35-1.13 3.96-.96.67.03 2.56.27 3.77 2.04-.1.07-2.25 1.31-2.21 3.32ZM14.95 4.92c.73-.88 1.22-2.1 1.09-3.32-1.05.04-2.32.7-3.08 1.58-.68.78-1.28 2.03-1.11 3.22 1.17.09 2.37-.6 3.1-1.48Z" />
+    </svg>
+  );
+}
 
 function normalizeReturnToPath(value: string | null | undefined) {
   const next = String(value || '').trim();
@@ -28,14 +47,12 @@ function splitHumanName(fullName?: string | null) {
 }
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [isCompletingProfile, setIsCompletingProfile] = useState(false);
   const [isUploadingCin, setIsUploadingCin] = useState(false);
   const [isProcessingSocialToken, setIsProcessingSocialToken] = useState(false);
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
   const [isPasskeyRegisterLoading, setIsPasskeyRegisterLoading] = useState(false);
+  const [passkeyMode, setPasskeyMode] = useState<'closed' | 'chooser' | 'login' | 'register'>('closed');
   const [providers, setProviders] = useState({ google: false, facebook: false, apple: false, phoneOtp: false, emailOtp: false, passkey: true });
   const [passkeyRegisterEmail, setPasskeyRegisterEmail] = useState('');
   const [passkeyRegisterName, setPasskeyRegisterName] = useState('');
@@ -217,29 +234,6 @@ export default function LoginPage() {
     restoreSocialSession();
   }, [login, navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    try {
-      const adminUser = await loginAdmin(email, password);
-      login({
-        id: adminUser.id,
-        email: adminUser.email,
-        name: adminUser.name,
-        avatar: adminUser.avatar || undefined,
-        profileCompleted: true,
-        role: 'admin',
-      });
-      toast.success('Connexion administrateur reussie');
-      navigate('/admin', { replace: true });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Connexion administrateur echouee');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleSocialLogin = (provider: 'google' | 'facebook' | 'apple') => {
     if (provider === 'google' && !providers.google) {
       toast.error('Google login indisponible: OAuth Google non configure sur le serveur.');
@@ -258,6 +252,18 @@ export default function LoginPage() {
     startSocialLogin(provider, returnTo);
   };
 
+  const handlePasskeyEntry = () => {
+    if (!providers.passkey) {
+      toast.error('Passkey indisponible sur ce serveur');
+      return;
+    }
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      toast.error('Passkey non supporte sur ce navigateur/appareil');
+      return;
+    }
+    setPasskeyMode((current) => (current === 'closed' ? 'chooser' : current));
+  };
+
   const handlePasskeyLogin = async () => {
     if (!providers.passkey) {
       toast.error('Passkey indisponible sur ce serveur');
@@ -271,6 +277,7 @@ export default function LoginPage() {
     try {
       const passkeyUser = await loginWithPasskey();
       loginUser(passkeyUser);
+      setPasskeyMode('closed');
       if (!passkeyUser.profileCompleted) {
         const fallbackNames = splitHumanName(passkeyUser.name);
         setProfileForm((prev) => ({
@@ -311,6 +318,7 @@ export default function LoginPage() {
     try {
       const passkeyUser = await registerWithPasskey(passkeyRegisterEmail.trim(), passkeyRegisterName.trim());
       loginUser(passkeyUser);
+      setPasskeyMode('closed');
       if (!passkeyUser.profileCompleted) {
         const fallbackNames = splitHumanName(passkeyUser.name);
         setProfileForm((prev) => ({
@@ -564,157 +572,162 @@ export default function LoginPage() {
             <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
           </span>
         </Link>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Connexion administrateur
-        </h2>
+        <h1 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          Connexion client
+        </h1>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Les utilisateurs normaux se connectent avec Google, Facebook ou Apple ci-dessous.
+          Connectez-vous pour reserver, payer et suivre vos demandes.
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-100">
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Adresse email admin
-              </label>
-              <div className="mt-1 relative rounded-md shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" aria-hidden="true" />
-                </div>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
-                  placeholder="admin@exemple.com"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Mot de passe
-              </label>
-              <div className="mt-1 relative rounded-md shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" aria-hidden="true" />
-                </div>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2"
-                  placeholder="********"
-                />
-              </div>
-            </div>
-
-            <div>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {isLoading ? 'Connexion en cours...' : 'Se connecter (Admin)'}
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Connexion utilisateur normal</span>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <button
-                  type="button"
-                  disabled={!providers.google}
-                  onClick={() => handleSocialLogin('google')}
-                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Globe className="h-5 w-5 text-blue-500 mr-2" />
-                  Google
-                </button>
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  disabled={!providers.facebook}
-                  onClick={() => handleSocialLogin('facebook')}
-                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Facebook className="h-5 w-5 text-blue-800 mr-2" />
-                  Facebook
-                </button>
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  disabled={!providers.apple}
-                  onClick={() => handleSocialLogin('apple')}
-                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Apple / iCloud
-                </button>
-              </div>
-            </div>
+          <div className="space-y-3">
             <button
               type="button"
-              onClick={() => void handlePasskeyLogin()}
-              disabled={isPasskeyLoading || !providers.passkey}
-              className="mt-3 w-full inline-flex items-center justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!providers.google}
+              onClick={() => handleSocialLogin('google')}
+              className="inline-flex w-full items-center justify-center gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <KeyRound className="h-5 w-5 text-emerald-700 mr-2" />
-              {isPasskeyLoading ? 'Connexion Passkey...' : 'Continuer avec Passkey'}
+              <GoogleIcon />
+              <span>Se connecter avec Google</span>
             </button>
-            <form className="mt-4 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3" onSubmit={handlePasskeyRegister}>
-              <p className="text-xs font-medium text-gray-700">Creer un compte Passkey</p>
-              <input
-                type="email"
-                value={passkeyRegisterEmail}
-                onChange={(e) => setPasskeyRegisterEmail(e.target.value)}
-                placeholder="Email client"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-              <input
-                type="text"
-                value={passkeyRegisterName}
-                onChange={(e) => setPasskeyRegisterName(e.target.value)}
-                placeholder="Nom (optionnel)"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-              <button
-                type="submit"
-                disabled={isPasskeyRegisterLoading}
-                className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {isPasskeyRegisterLoading ? 'Creation...' : 'Creer avec Passkey'}
-              </button>
-            </form>
-            {(!providers.google || !providers.facebook || !providers.apple) && (
-              <p className="mt-3 text-xs text-amber-700">
-                Certains fournisseurs sociaux sont indisponibles car OAuth n'est pas configure sur le serveur.
-              </p>
-            )}
+
+            <button
+              type="button"
+              disabled={!providers.apple}
+              onClick={() => handleSocialLogin('apple')}
+              className="inline-flex w-full items-center justify-center gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <AppleIcon />
+              <span>Se connecter avec Apple</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePasskeyEntry}
+              disabled={!providers.passkey}
+              className="inline-flex w-full items-center justify-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <KeyRound className="h-5 w-5" />
+              <span>Se connecter avec Passkey</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={!providers.facebook}
+              onClick={() => handleSocialLogin('facebook')}
+              className="inline-flex w-full items-center justify-center gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Facebook className="h-5 w-5 text-blue-700" />
+              <span>Se connecter avec Facebook</span>
+            </button>
           </div>
+
+          {passkeyMode !== 'closed' && (
+            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-900">Passkey</p>
+                  <p className="text-xs text-emerald-800">Choisissez votre parcours.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPasskeyMode('closed')}
+                  className="text-xs font-medium text-emerald-700 hover:text-emerald-900"
+                >
+                  Fermer
+                </button>
+              </div>
+
+              {(passkeyMode === 'chooser' || passkeyMode === 'login' || passkeyMode === 'register') && (
+                <div className="mt-4 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setPasskeyMode('login')}
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-colors ${
+                      passkeyMode === 'login'
+                        ? 'border-emerald-600 bg-emerald-600 text-white'
+                        : 'border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-50'
+                    }`}
+                  >
+                    J&apos;ai un compte Passkey
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPasskeyMode('register')}
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-colors ${
+                      passkeyMode === 'register'
+                        ? 'border-emerald-600 bg-emerald-600 text-white'
+                        : 'border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-50'
+                    }`}
+                  >
+                    Creer un compte Passkey
+                  </button>
+                </div>
+              )}
+
+              {passkeyMode === 'login' && (
+                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
+                  <p className="text-sm text-gray-700">
+                    Utilisez la Passkey deja enregistree sur cet appareil ou dans votre gestionnaire.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handlePasskeyLogin()}
+                    disabled={isPasskeyLoading}
+                    className="mt-3 inline-flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    <KeyRound className="h-5 w-5" />
+                    <span>{isPasskeyLoading ? 'Connexion Passkey...' : 'Continuer avec ma Passkey'}</span>
+                  </button>
+                </div>
+              )}
+
+              {passkeyMode === 'register' && (
+                <form className="mt-4 space-y-3 rounded-xl border border-gray-200 bg-white p-3" onSubmit={handlePasskeyRegister}>
+                  <div className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                    <button
+                      type="button"
+                      onClick={() => setPasskeyMode('chooser')}
+                      className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Retour
+                    </button>
+                  </div>
+                  <input
+                    type="email"
+                    value={passkeyRegisterEmail}
+                    onChange={(e) => setPasskeyRegisterEmail(e.target.value)}
+                    placeholder="Email client"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={passkeyRegisterName}
+                    onChange={(e) => setPasskeyRegisterName(e.target.value)}
+                    placeholder="Nom (optionnel)"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isPasskeyRegisterLoading}
+                    className="w-full rounded-xl bg-emerald-600 px-3 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {isPasskeyRegisterLoading ? 'Creation Passkey...' : 'Creer avec Passkey'}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {(!providers.google || !providers.apple || !providers.passkey) && (
+            <p className="mt-4 text-xs text-amber-700">
+              Certains moyens de connexion sont indisponibles sur ce serveur.
+            </p>
+          )}
+
         </div>
       </div>
     </div>

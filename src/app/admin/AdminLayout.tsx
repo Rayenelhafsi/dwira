@@ -13,9 +13,9 @@ export function AdminLayout() {
   useEffect(() => {
     if (!isLoading) {
       if (!user) {
-        navigate('/login');
+        navigate('/connexion-admin-interne', { replace: true });
       } else if (user.role !== 'admin') {
-        navigate('/');
+        navigate('/', { replace: true });
       }
     }
   }, [user, isLoading, navigate]);

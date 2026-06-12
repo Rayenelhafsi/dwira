@@ -92,6 +92,31 @@ function getPeriodScopeRank(period: SeasonalPricingPeriod, amicaleId?: string | 
   return 0;
 }
 
+function getPeriodDurationDays(period?: SeasonalPricingPeriod | null): number {
+  const start = toDateAtMidnight(period?.start || null);
+  const end = toDateAtMidnight(period?.end || null);
+  if (!start || !end || end < start) return Number.POSITIVE_INFINITY;
+  return differenceInDays(end, start) + 1;
+}
+
+function comparePeriodPriority(
+  left: SeasonalPricingPeriod,
+  right: SeasonalPricingPeriod,
+  amicaleId?: string | null
+): number {
+  const scopeDiff = getPeriodScopeRank(right, amicaleId) - getPeriodScopeRank(left, amicaleId);
+  if (scopeDiff !== 0) return scopeDiff;
+
+  // Prefer the most specific override when periods overlap.
+  const durationDiff = getPeriodDurationDays(left) - getPeriodDurationDays(right);
+  if (durationDiff !== 0) return durationDiff;
+
+  const startDiff = String(right.start || '').localeCompare(String(left.start || ''));
+  if (startDiff !== 0) return startDiff;
+
+  return String(right.end || '').localeCompare(String(left.end || ''));
+}
+
 function toDateKey(value: Date): string {
   return format(value, 'yyyy-MM-dd');
 }
@@ -124,13 +149,7 @@ export function resolveCurrentPricing(params: {
       const nightly = normalizePrice(period?.prix_nuitee);
       return start && end && start <= end && nightly > 0 && todayKey >= start && todayKey <= end && getPeriodScopeRank(period, params.amicaleId) > 0;
     })
-    .sort((a, b) => {
-      const scopeDiff = getPeriodScopeRank(b, params.amicaleId) - getPeriodScopeRank(a, params.amicaleId);
-      if (scopeDiff !== 0) return scopeDiff;
-      const startDiff = String(b.start || '').localeCompare(String(a.start || ''));
-      if (startDiff !== 0) return startDiff;
-      return String(b.end || '').localeCompare(String(a.end || ''));
-    });
+    .sort((a, b) => comparePeriodPriority(a, b, params.amicaleId));
 
   const activePeriod = candidates[0] || null;
   if (!activePeriod) {
@@ -170,13 +189,7 @@ function findPeriodForNight(periods: SeasonalPricingPeriod[], day: Date, amicale
       const end = String(period.end || '').slice(0, 10);
       return start && end && target >= start && target <= end && getPeriodScopeRank(period, amicaleId) > 0;
     })
-    .sort((a, b) => {
-      const scopeDiff = getPeriodScopeRank(b, amicaleId) - getPeriodScopeRank(a, amicaleId);
-      if (scopeDiff !== 0) return scopeDiff;
-      const startDiff = String(b.start || '').localeCompare(String(a.start || ''));
-      if (startDiff !== 0) return startDiff;
-      return String(b.end || '').localeCompare(String(a.end || ''));
-    });
+    .sort((a, b) => comparePeriodPriority(a, b, amicaleId));
   return candidates[0] || null;
 }
 
@@ -226,15 +239,25 @@ export function getReservationMinStayRequirement(params: {
   if (nights <= 0) return fallback;
 
   const rangeStart = start <= end ? start : end;
-  let required = fallback;
+  let requiredFromPeriods: number | null = null;
+  let hasUncoveredNight = false;
   const periods = Array.isArray(params.periods) ? params.periods : [];
   for (let offset = 0; offset < nights; offset += 1) {
     const day = addDays(rangeStart, offset);
     const period = findPeriodForNight(periods, day, params.amicaleId);
     const periodMin = normalizeMinNights(period?.minimum_nuitees);
-    if (periodMin && periodMin > required) required = periodMin;
+    if (periodMin) {
+      requiredFromPeriods = requiredFromPeriods === null
+        ? periodMin
+        : Math.max(requiredFromPeriods, periodMin);
+    } else {
+      hasUncoveredNight = true;
+    }
   }
-  return required;
+
+  if (requiredFromPeriods === null) return fallback;
+  if (hasUncoveredNight) return Math.max(fallback, requiredFromPeriods);
+  return requiredFromPeriods;
 }
 
 export function getReservationWeekdayRule(params: {
