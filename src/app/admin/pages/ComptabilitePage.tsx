@@ -18,6 +18,7 @@ const API_URL = import.meta.env.VITE_API_URL || "/api";
 const STORAGE_KEY = "dwira_admin_comptabilite_v1";
 const ACCOUNTING_ACCESS_CODE_HASH = "7791bbeb1bb62b9658180226f794a5c6afd6cfe00f9bf304201983c309c6650b";
 const ACCOUNTING_ACCESS_STORAGE_KEY = "dwira_admin_comptabilite_access_v1";
+const ACCOUNTING_ACCESS_SESSION_VALUE = "unlocked";
 
 type ManualRevenueEntry = {
   id: string;
@@ -271,7 +272,7 @@ export default function ComptabilitePage() {
   const [unlockCode, setUnlockCode] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.sessionStorage.getItem(ACCOUNTING_ACCESS_STORAGE_KEY) === ACCOUNTING_ACCESS_CODE;
+    return window.sessionStorage.getItem(ACCOUNTING_ACCESS_STORAGE_KEY) === ACCOUNTING_ACCESS_SESSION_VALUE;
   });
 
   const loadData = useCallback(async () => {
@@ -596,7 +597,7 @@ export default function ComptabilitePage() {
       return;
     }
     if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(ACCOUNTING_ACCESS_STORAGE_KEY, ACCOUNTING_ACCESS_CODE);
+      window.sessionStorage.setItem(ACCOUNTING_ACCESS_STORAGE_KEY, ACCOUNTING_ACCESS_SESSION_VALUE);
     }
     setIsUnlocked(true);
     toast.success("Edition comptable deverrouillee.");

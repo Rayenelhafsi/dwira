@@ -802,11 +802,6 @@ export default function NotificationsPage() {
     });
   }, [notificationInsights, demands, biensById, biensByReference]);
 
-  const urgentNotificationCount = useMemo(
-    () => enrichedNotificationInsights.filter((item) => !item.notification.lu && item.importance === 'urgent').length,
-    [enrichedNotificationInsights]
-  );
-
   const notificationCategoryCounters = useMemo(() => {
     const counters: Record<NotificationCategory, number> = {
       contrat: 0,
@@ -816,11 +811,17 @@ export default function NotificationsPage() {
       calendrier: 0,
       systeme: 0,
     };
-    enrichedNotificationInsights.forEach((item) => {
+    enrichedNotificationInsights
+      .filter((item) => {
+        if (showUrgentNotificationsOnly && item.importance !== 'urgent') return false;
+        if (notificationImportanceFilter !== 'all' && item.importance !== notificationImportanceFilter) return false;
+        return true;
+      })
+      .forEach((item) => {
       counters[item.category] += 1;
-    });
+      });
     return counters;
-  }, [enrichedNotificationInsights]);
+  }, [enrichedNotificationInsights, notificationImportanceFilter, showUrgentNotificationsOnly]);
 
   const notificationImportanceCounters = useMemo(() => {
     const counters: Record<NotificationImportance, number> = {
@@ -828,11 +829,22 @@ export default function NotificationsPage() {
       modere: 0,
       normal: 0,
     };
-    enrichedNotificationInsights.forEach((item) => {
-      counters[item.importance] += 1;
-    });
+    enrichedNotificationInsights
+      .filter((item) => {
+        if (showUrgentNotificationsOnly && item.importance !== 'urgent') return false;
+        if (notificationCategoryFilter !== 'all' && item.category !== notificationCategoryFilter) return false;
+        return true;
+      })
+      .forEach((item) => {
+        counters[item.importance] += 1;
+      });
     return counters;
-  }, [enrichedNotificationInsights]);
+  }, [enrichedNotificationInsights, notificationCategoryFilter, showUrgentNotificationsOnly]);
+
+  const urgentNotificationCount = useMemo(
+    () => notificationImportanceCounters.urgent,
+    [notificationImportanceCounters]
+  );
 
   const filteredNotificationInsights = useMemo(() => {
     return enrichedNotificationInsights.filter((item) => {
