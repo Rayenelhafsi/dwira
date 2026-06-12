@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, Globe, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info, KeyRound, Upload } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info, KeyRound, Upload } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, cloneElement } from "react";
 import { createPortal } from "react-dom";
@@ -46,6 +46,25 @@ const LIGHTBOX_QUALITY_MEDIUM = 58;
 const LIGHTBOX_QUALITY_HIGH = 70;
 const GOOGLE_HYBRID_TILE_URL = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
 const GOOGLE_TILE_ATTRIBUTION = '&copy; <a href="https://maps.google.com">Google</a>';
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.2-.9 2.2-1.9 2.9l3.1 2.4c1.8-1.7 2.9-4.1 2.9-7 0-.7-.1-1.4-.2-2H12Z" />
+      <path fill="#34A853" d="M12 22c2.6 0 4.8-.9 6.4-2.5l-3.1-2.4c-.9.6-2 .9-3.3.9-2.5 0-4.6-1.7-5.4-4H3.4v2.5A10 10 0 0 0 12 22Z" />
+      <path fill="#4A90E2" d="M6.6 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.5H3.4A10 10 0 0 0 2 12c0 1.6.4 3.1 1.4 4.5L6.6 14Z" />
+      <path fill="#FBBC05" d="M12 6c1.4 0 2.7.5 3.7 1.4l2.8-2.8C16.8 3 14.6 2 12 2A10 10 0 0 0 3.4 7.5L6.6 10c.8-2.3 2.9-4 5.4-4Z" />
+    </svg>
+  );
+}
+
+function AppleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-current">
+      <path d="M16.37 12.09c.03 3.2 2.81 4.27 2.84 4.28-.02.07-.44 1.52-1.45 3-.87 1.28-1.78 2.56-3.2 2.58-1.39.03-1.84-.83-3.43-.83-1.6 0-2.09.8-3.4.85-1.36.05-2.41-1.37-3.29-2.65C2.68 16.82 1.3 12.6 3.15 9.4c.92-1.59 2.57-2.6 4.37-2.62 1.34-.03 2.61.91 3.43.91.81 0 2.35-1.13 3.96-.96.67.03 2.56.27 3.77 2.04-.1.07-2.25 1.31-2.21 3.32ZM14.95 4.92c.73-.88 1.22-2.1 1.09-3.32-1.05.04-2.32.7-3.08 1.58-.68.78-1.28 2.03-1.11 3.22 1.17.09 2.37-.6 3.1-1.48Z" />
+    </svg>
+  );
+}
 
 function canLoadFullResByConnection(): boolean {
   if (typeof navigator === "undefined") return true;
@@ -781,7 +800,7 @@ export default function PropertyDetailsPage() {
   const [providers, setProviders] = useState({ google: false, facebook: false, apple: false, phoneOtp: false, emailOtp: false, passkey: true });
   const [isPasskeyPromptLoading, setIsPasskeyPromptLoading] = useState(false);
   const [isPasskeyCreateLoading, setIsPasskeyCreateLoading] = useState(false);
-  const [loginPromptStep, setLoginPromptStep] = useState<"choices" | "passkey_setup" | "profile_setup">("choices");
+  const [loginPromptStep, setLoginPromptStep] = useState<"choices" | "passkey_choice" | "passkey_setup" | "profile_setup">("choices");
   const [passkeyPromptEmail, setPasskeyPromptEmail] = useState("");
   const [passkeyPromptName, setPasskeyPromptName] = useState("");
   const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
@@ -2649,7 +2668,7 @@ out body 40;
         'introuvable',
       ].some((token) => normalizedMessage.includes(token));
       if (noPasskeyDetected) {
-        setLoginPromptStep("passkey_setup");
+        setLoginPromptStep("passkey_choice");
         toast.info('Aucune passkey detectee. Creez-en une pour continuer.');
         return;
       }
@@ -2657,6 +2676,18 @@ out body 40;
     } finally {
       setIsPasskeyPromptLoading(false);
     }
+  };
+
+  const handlePromptPasskeyEntry = () => {
+    if (!providers.passkey) {
+      toast.error('Passkey indisponible pour le moment');
+      return;
+    }
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      toast.error('Passkey non supporte sur ce navigateur/appareil');
+      return;
+    }
+    setLoginPromptStep("passkey_choice");
   };
 
   const handlePromptPasskeyCreate = async () => {
@@ -4613,44 +4644,71 @@ out body 40;
             <div className="mt-6 overflow-hidden">
               {loginPromptStep === "choices" && (
                 <div className="space-y-3 animate-[fadeInScale_.2s_ease-out]">
-                  {!isPasskeyPromptLoading && (
-                    <>
-                      <button
-                        type="button"
-                        disabled={!providers.google}
-                        onClick={() => handlePromptSocialLogin('google')}
-                        className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Globe className="h-5 w-5 text-emerald-700" />
-                        Continuer avec Google
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!providers.facebook}
-                        onClick={() => handlePromptSocialLogin('facebook')}
-                        className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Facebook className="h-5 w-5 text-blue-600" />
-                        Continuer avec Facebook
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!providers.apple}
-                        onClick={() => handlePromptSocialLogin('apple')}
-                        className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Continuer avec Apple / iCloud
-                      </button>
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    disabled={!providers.google}
+                    onClick={() => handlePromptSocialLogin('google')}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <GoogleIcon />
+                    Se connecter avec Google
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!providers.apple}
+                    onClick={() => handlePromptSocialLogin('apple')}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <AppleIcon />
+                    Se connecter avec Apple
+                  </button>
                   <button
                     type="button"
                     disabled={isPasskeyPromptLoading || !providers.passkey}
-                    onClick={() => void handlePromptPasskeyLogin()}
+                    onClick={handlePromptPasskeyEntry}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <KeyRound className="h-5 w-5" />
+                    Se connecter avec Passkey
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!providers.facebook}
+                    onClick={() => handlePromptSocialLogin('facebook')}
                     className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
+                    <Facebook className="h-5 w-5 text-blue-600" />
+                    Se connecter avec Facebook
+                  </button>
+                </div>
+              )}
+
+              {loginPromptStep === "passkey_choice" && (
+                <div className="space-y-3 animate-[fadeInScale_.2s_ease-out]">
+                  <button
+                    type="button"
+                    onClick={() => setLoginPromptStep("choices")}
+                    className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 hover:text-emerald-800"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Retour
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handlePromptPasskeyLogin()}
+                    disabled={isPasskeyPromptLoading}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
                     <KeyRound className="h-5 w-5 text-emerald-700" />
-                    {isPasskeyPromptLoading ? 'Verification Passkey...' : 'Continuer avec Passkey'}
+                    {isPasskeyPromptLoading ? 'Connexion Passkey...' : "J'ai un compte Passkey"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoginPromptStep("passkey_setup")}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+                  >
+                    <KeyRound className="h-5 w-5" />
+                    Creer un compte Passkey
                   </button>
                 </div>
               )}
@@ -4659,7 +4717,7 @@ out body 40;
                 <div className="space-y-3 animate-[fadeInScale_.2s_ease-out]">
                   <button
                     type="button"
-                    onClick={() => setLoginPromptStep("choices")}
+                    onClick={() => setLoginPromptStep("passkey_choice")}
                     className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 hover:text-emerald-800"
                   >
                     <ChevronLeft className="h-4 w-4" />

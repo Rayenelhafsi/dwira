@@ -1,5 +1,6 @@
 ﻿import { useState, useRef, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useCallback } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
@@ -846,6 +847,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [locationRegion, setLocationRegion] = useState("");
   const [locationZone, setLocationZone] = useState("");
   const [openLocationLevel, setOpenLocationLevel] = useState<null | "pays" | "gouvernerat" | "region" | "zone">(null);
+  const [locationSelectionStep, setLocationSelectionStep] = useState<"gouvernerat" | "region" | "zone">("gouvernerat");
+  const [draftSelectedGouvernerats, setDraftSelectedGouvernerats] = useState<string[]>([]);
+  const [draftSelectedRegions, setDraftSelectedRegions] = useState<string[]>([]);
+  const [draftSelectedZones, setDraftSelectedZones] = useState<string[]>([]);
   const [selectedSeasideOptions, setSelectedSeasideOptions] = useState<HomeSeasideOptionKey[]>([]);
   const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
   const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
@@ -1076,6 +1081,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       .trim();
   const isSameLocationToken = (left?: string | null, right?: string | null) =>
     normalizeLocationToken(left) !== "" && normalizeLocationToken(left) === normalizeLocationToken(right);
+  const isTokenInList = (values: string[], target?: string | null) => {
+    const normalizedTarget = normalizeLocationToken(target);
+    if (!normalizedTarget) return false;
+    return values.some((value) => normalizeLocationToken(value) === normalizedTarget);
+  };
   const dedupeLocationValues = (values: string[]) => {
     const byToken = new Map<string, string>();
     for (const rawValue of values) {
@@ -1087,6 +1097,29 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     }
     return Array.from(byToken.values()).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
   };
+  const hydrateLocationDraftsFromSelection = useCallback((values: string[]) => {
+    const nextGouvernerats = new Set<string>();
+    const nextRegions = new Set<string>();
+    const nextZones = new Set<string>();
+
+    values.forEach((rawValue) => {
+      const parts = String(rawValue || "")
+        .split("/")
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
+      if (parts.length >= 1) nextGouvernerats.add(parts[0]);
+      if (parts.length >= 2) nextRegions.add(parts[parts.length - 2]);
+      if (parts.length >= 3) nextZones.add(parts[parts.length - 1]);
+    });
+
+    setDraftSelectedGouvernerats(Array.from(nextGouvernerats));
+    setDraftSelectedRegions(Array.from(nextRegions));
+    setDraftSelectedZones(Array.from(nextZones));
+
+    if (nextZones.size > 0) setLocationSelectionStep("zone");
+    else if (nextRegions.size > 0) setLocationSelectionStep("region");
+    else setLocationSelectionStep("gouvernerat");
+  }, []);
   const findZoneForRegion = (regionValue?: string | null) => {
     const targetRegion = normalizeLocationToken(regionValue);
     if (!targetRegion) return null;
@@ -1112,35 +1145,49 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   };
   const applyGovernorateSelection = (value: string) => {
     setLocationGouvernerat(value);
-    setLocationRegion("");
-    setLocationZone("");
-    setOpenLocationLevel("region");
+    setDraftSelectedGouvernerats((prev) => {
+      const next = toggleStringInList(prev, value);
+      const nextRegions = draftSelectedRegions.filter((region) =>
+        normalizedZones.some((zone) =>
+          isTokenInList(next, zone.gouvernerat)
+          && isSameLocationToken(zone.region, region)
+        )
+      );
+      const nextZones = draftSelectedZones.filter((zoneName) =>
+        normalizedZones.some((zone) =>
+          isTokenInList(next, zone.gouvernerat)
+          && (!nextRegions.length || isTokenInList(nextRegions, zone.region))
+          && isSameLocationToken(zone.quartier || zone.nom, zoneName)
+        )
+      );
+      setDraftSelectedRegions(nextRegions);
+      setDraftSelectedZones(nextZones);
+      return next;
+    });
   };
   const applyRegionSelection = (value: string) => {
     const resolvedZone = findZoneForRegion(value);
-    if (resolvedZone?.pays) setLocationPays(String(resolvedZone.pays));
     if (resolvedZone?.gouvernerat) setLocationGouvernerat(String(resolvedZone.gouvernerat));
     setLocationRegion(value);
-    setLocationZone("");
-    setOpenLocationLevel("zone");
+    setDraftSelectedRegions((prev) => {
+      const next = toggleStringInList(prev, value);
+      const nextZones = draftSelectedZones.filter((zoneName) =>
+        normalizedZones.some((zone) =>
+          isTokenInList(draftSelectedGouvernerats, zone.gouvernerat)
+          && isTokenInList(next, zone.region)
+          && isSameLocationToken(zone.quartier || zone.nom, zoneName)
+        )
+      );
+      setDraftSelectedZones(nextZones);
+      return next;
+    });
   };
   const applyZoneSelection = (value: string) => {
     const resolvedZone = findZoneForQuartier(value);
-    if (resolvedZone?.pays) setLocationPays(String(resolvedZone.pays));
     if (resolvedZone?.gouvernerat) setLocationGouvernerat(String(resolvedZone.gouvernerat));
     if (resolvedZone?.region) setLocationRegion(String(resolvedZone.region));
     setLocationZone(value);
-    if (value) {
-      const hierarchicalValue = buildHierarchicalLocationLabel([
-        resolvedZone?.pays && String(resolvedZone.pays).trim().toLowerCase() !== "tunisie" ? String(resolvedZone.pays) : "",
-        resolvedZone?.gouvernerat || locationGouvernerat,
-        resolvedZone?.region || locationRegion,
-        value,
-      ]) || value;
-      setDraftSelectedLocations((prev) =>
-        dedupeHierarchicalLocations(prev.includes(hierarchicalValue) ? prev : [...prev, hierarchicalValue])
-      );
-    }
+    setDraftSelectedZones((prev) => toggleStringInList(prev, value));
   };
   const cascadePaysOptions = useMemo(
     () => dedupeLocationValues(normalizedZones.map((zone) => String(zone.pays || "").trim()).filter(Boolean)),
@@ -1186,6 +1233,29 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     [normalizedZones, locationPays, locationGouvernerat, locationRegion]
   );
   const imageCacheBustTokenRef = useRef(`iosfix-${Date.now()}`);
+  const draftCascadeRegionOptions = useMemo(
+    () =>
+      dedupeLocationValues(
+        normalizedZones
+          .filter((zone) => draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+          .map((zone) => String(zone.region || "").trim())
+          .filter(Boolean)
+      ),
+    [draftSelectedGouvernerats, normalizedZones]
+  );
+  const draftCascadeZoneOptions = useMemo(
+    () =>
+      dedupeLocationValues(
+        normalizedZones
+          .filter((zone) =>
+            (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+            && (draftSelectedRegions.length === 0 || isTokenInList(draftSelectedRegions, zone.region))
+          )
+          .map((zone) => String(zone.quartier || zone.nom || "").trim())
+          .filter(Boolean)
+      ),
+    [draftSelectedGouvernerats, draftSelectedRegions, normalizedZones]
+  );
   const withCacheBust = (url: string) => {
     if (!url || url.startsWith("data:")) return url;
     const separator = url.includes("?") ? "&" : "?";
@@ -1216,14 +1286,20 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setLocation("");
     setSelectedLocations([]);
     setDraftSelectedLocations([]);
-    setLocationPays("");
+    setDraftSelectedGouvernerats([]);
+    setDraftSelectedRegions([]);
+    setDraftSelectedZones([]);
+    setLocationPays("Tunisie");
     setLocationGouvernerat("");
     setLocationRegion("");
     setLocationZone("");
+    setLocationSelectionStep("gouvernerat");
   };
   const openLocationSelector = () => {
     setDraftSelectedLocations(selectedLocations);
-    setOpenLocationLevel(locationZone ? "zone" : locationRegion ? "region" : locationGouvernerat ? "gouvernerat" : locationPays ? "gouvernerat" : "pays");
+    setLocationPays("Tunisie");
+    hydrateLocationDraftsFromSelection(selectedLocations);
+    setOpenLocationLevel(locationZone ? "zone" : locationRegion ? "region" : "gouvernerat");
     setShowLocationDropdown(true);
   };
   const toggleDraftLocationSelection = (value: string) => {
@@ -1231,36 +1307,94 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     if (!nextValue) return;
     setDraftSelectedLocations((prev) => toggleStringInList(prev, nextValue));
   };
-  const currentDraftLocationValue = buildHierarchicalLocationLabel([
-    locationPays && String(locationPays).trim().toLowerCase() !== "tunisie" ? locationPays : "",
-    locationGouvernerat,
-    locationRegion,
-    locationZone,
-  ]) || String(locationPays || "").trim();
   const resetCurrentLocationPath = () => {
     setLocationGouvernerat("");
     setLocationRegion("");
     setLocationZone("");
-    setOpenLocationLevel(locationPays ? "gouvernerat" : "pays");
-  };
-  const addCurrentLocationToDraft = () => {
-    if (!currentDraftLocationValue) return;
-    setDraftSelectedLocations((prev) => dedupeHierarchicalLocations(prev.includes(currentDraftLocationValue) ? prev : [...prev, currentDraftLocationValue]));
-    resetCurrentLocationPath();
+    setDraftSelectedGouvernerats([]);
+    setDraftSelectedRegions([]);
+    setDraftSelectedZones([]);
+    setOpenLocationLevel("gouvernerat");
+    setLocationSelectionStep("gouvernerat");
   };
   const confirmLocationSelection = () => {
-    const nextLocations = currentDraftLocationValue
-      ? dedupeHierarchicalLocations(
-          draftSelectedLocations.includes(currentDraftLocationValue)
-            ? draftSelectedLocations
-            : [...draftSelectedLocations, currentDraftLocationValue]
-        )
-      : dedupeHierarchicalLocations(draftSelectedLocations);
+    const zoneLabels = draftSelectedZones.map((zoneName) => {
+      const resolvedZone = normalizedZones.find((zone) =>
+        (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+        && (draftSelectedRegions.length === 0 || isTokenInList(draftSelectedRegions, zone.region))
+        && isSameLocationToken(zone.quartier || zone.nom, zoneName)
+      );
+      return buildHierarchicalLocationLabel([
+        resolvedZone?.gouvernerat || "",
+        resolvedZone?.region || "",
+        zoneName,
+      ]);
+    }).filter(Boolean);
+    const regionLabels = zoneLabels.length === 0
+      ? draftSelectedRegions.map((regionName) => {
+          const resolvedZone = normalizedZones.find((zone) =>
+            (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+            && isSameLocationToken(zone.region, regionName)
+          );
+          return buildHierarchicalLocationLabel([
+            resolvedZone?.gouvernerat || "",
+            regionName,
+          ]);
+        }).filter(Boolean)
+      : [];
+    const governorateLabels = zoneLabels.length === 0 && regionLabels.length === 0
+      ? draftSelectedGouvernerats
+      : [];
+    const nextLocations = dedupeHierarchicalLocations([
+      ...zoneLabels,
+      ...regionLabels,
+      ...governorateLabels,
+    ]);
     setSelectedLocations(nextLocations);
+    setDraftSelectedLocations(nextLocations);
+    const firstLabel = nextLocations[0] || "";
+    const firstParts = firstLabel.split("/").map((item) => item.trim()).filter(Boolean);
+    setLocationGouvernerat(firstParts[0] || "");
+    setLocationRegion(firstParts.length >= 2 ? firstParts[firstParts.length - 2] : "");
+    setLocationZone(firstParts.length >= 3 ? firstParts[firstParts.length - 1] : "");
     setShowCalendar(true);
     setShowCategoryDropdown(false);
     setShowLocationDropdown(false);
   };
+  useEffect(() => {
+    const zoneLabels = draftSelectedZones.map((zoneName) => {
+      const resolvedZone = normalizedZones.find((zone) =>
+        (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+        && (draftSelectedRegions.length === 0 || isTokenInList(draftSelectedRegions, zone.region))
+        && isSameLocationToken(zone.quartier || zone.nom, zoneName)
+      );
+      return buildHierarchicalLocationLabel([
+        resolvedZone?.gouvernerat || "",
+        resolvedZone?.region || "",
+        zoneName,
+      ]);
+    }).filter(Boolean);
+    const regionLabels = zoneLabels.length === 0
+      ? draftSelectedRegions.map((regionName) => {
+          const resolvedZone = normalizedZones.find((zone) =>
+            (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+            && isSameLocationToken(zone.region, regionName)
+          );
+          return buildHierarchicalLocationLabel([
+            resolvedZone?.gouvernerat || "",
+            regionName,
+          ]);
+        }).filter(Boolean)
+      : [];
+    const governorateLabels = zoneLabels.length === 0 && regionLabels.length === 0
+      ? draftSelectedGouvernerats
+      : [];
+    setDraftSelectedLocations(dedupeHierarchicalLocations([
+      ...zoneLabels,
+      ...regionLabels,
+      ...governorateLabels,
+    ]));
+  }, [draftSelectedGouvernerats, draftSelectedRegions, draftSelectedZones, normalizedZones]);
   const getHomeFilterOptionImage = (group: "seaside" | "comfort", key: string): string | null => {
     const row = homeFilterOptionImageRows.find(
       (item) =>
@@ -1366,16 +1500,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       const region = String(zone.region || "").trim();
       const zoneName = String(zone.quartier || zone.nom || "").trim();
       if (level === "pays") return isSameLocationToken(pays, value);
-      if (level === "gouvernerat") return (!locationPays || isSameLocationToken(pays, locationPays)) && isSameLocationToken(gouv, value);
-      if (level === "region") {
-        return (!locationPays || isSameLocationToken(pays, locationPays))
-          && (!locationGouvernerat || isSameLocationToken(gouv, locationGouvernerat))
-          && isSameLocationToken(region, value);
-      }
-      return (!locationPays || isSameLocationToken(pays, locationPays))
-        && (!locationGouvernerat || isSameLocationToken(gouv, locationGouvernerat))
-        && (!locationRegion || isSameLocationToken(region, locationRegion))
-        && isSameLocationToken(zoneName, value);
+      if (level === "gouvernerat") return isSameLocationToken(gouv, value);
+      if (level === "region") return isSameLocationToken(region, value);
+      return isSameLocationToken(zoneName, value);
     });
     if (!rows.length) return 'about:blank';
     const pickFirstNonEmpty = (field: 'pays_image_url' | 'gouvernerat_image_url' | 'region_image_url' | 'quartier_image_url' | 'image_url') =>
@@ -1391,6 +1518,27 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
     return resolveZoneImageUrl(levelImage || '');
   };
+  const locationCardSelectionClass = (selected: boolean) =>
+    selected
+      ? "border-emerald-300 ring-2 ring-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.75),0_0_22px_rgba(52,211,153,0.65)]"
+      : "border-gray-200";
+  const locationStepMeta = {
+    gouvernerat: {
+      title: "Gouvernorat",
+      subtitle: "Choisissez un ou plusieurs gouvernorats en Tunisie.",
+      options: cascadeGouverneratOptions,
+    },
+    region: {
+      title: "Région",
+      subtitle: "Affinez votre recherche avec une ou plusieurs régions.",
+      options: draftCascadeRegionOptions,
+    },
+    zone: {
+      title: "Zone",
+      subtitle: "Choisissez une ou plusieurs zones puis confirmez.",
+      options: draftCascadeZoneOptions,
+    },
+  } as const;
   const modeProperties = useMemo(
     () => properties.filter((property) => (property.mode || "location_saisonniere") === selectedMode),
     [properties, selectedMode]
@@ -3147,126 +3295,45 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             ))}
                           </div>
                         )}
-                        <div className="grid grid-cols-4 gap-3">
-                          <div className="space-y-1.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
-                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "pays"
-                                ? [{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationPays) || { label: "Tous pays", value: "" })]
-                              ).map((item) => {
-                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
-                                return (
-                                  <button
-                                    key={`home-pays-card-${item.label}`}
-                                    type="button"
-                                    onClick={() => {
-                                      if (openLocationLevel !== "pays") {
-                                        setOpenLocationLevel("pays");
-                                        return;
-                                      }
-                                      setLocationPays(item.value);
-                                      setLocationGouvernerat("");
-                                      setLocationRegion("");
-                                      setLocationZone("");
-                                      setOpenLocationLevel("gouvernerat");
-                                    }}
-                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
-                                  >
-                                    <img src={getLocationOptionImage("pays", item.value || cascadePaysOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
-                                  </button>
-                                );
-                              })}
+                        <div className="rounded-[26px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/60 p-5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Tunisie</p>
+                              <h3 className="mt-2 text-lg font-bold text-gray-900">{locationStepMeta[locationSelectionStep].title}</h3>
+                              <p className="mt-1 text-sm text-gray-600">{locationStepMeta[locationSelectionStep].subtitle}</p>
+                            </div>
+                            <div className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                              Étape {locationSelectionStep === "gouvernerat" ? "1/3" : locationSelectionStep === "region" ? "2/3" : "3/3"}
                             </div>
                           </div>
-                          <div className="space-y-1.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
-                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "gouvernerat"
-                                ? [{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationGouvernerat) || { label: "Tous gouvernorats", value: "" })]
-                              ).map((item) => {
-                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
-                                return (
-                                  <button
-                                    key={`home-gouv-card-${item.label}`}
-                                    type="button"
-                                    onClick={() => {
-                                      if (openLocationLevel !== "gouvernerat") {
-                                        setOpenLocationLevel("gouvernerat");
-                                        return;
-                                      }
-                                      applyGovernorateSelection(item.value);
-                                    }}
-                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
-                                  >
-                                    <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
-                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "region"
-                                ? [{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationRegion) || { label: "Toutes regions", value: "" })]
-                              ).map((item) => {
-                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
-                                return (
-                                  <button
-                                    key={`home-region-card-${item.label}`}
-                                    type="button"
-                                    onClick={() => {
-                                      if (openLocationLevel !== "region") {
-                                        setOpenLocationLevel("region");
-                                        return;
-                                      }
-                                      applyRegionSelection(item.value);
-                                    }}
-                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
-                                  >
-                                    <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
-                            <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                              {(openLocationLevel === "zone"
-                                ? [{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))]
-                                : [([{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationZone) || { label: "Toutes zones", value: "" })]
-                              ).map((item) => {
-                                const selected = hasLocationTokenSelected(draftSelectedLocations, item.value);
-                                return (
-                                  <button
-                                    key={`home-zone-card-${item.label}`}
-                                    type="button"
-                                    onClick={() => {
-                                      if (openLocationLevel !== "zone") {
-                                        setOpenLocationLevel("zone");
-                                        return;
-                                      }
-                                      applyZoneSelection(item.value);
-                                    }}
-                                    className={`relative h-20 w-full overflow-hidden rounded-xl border text-left ${selected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
-                                  >
-                                    <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                                    <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item.label}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
+
+                          <div className="mt-4 grid grid-cols-3 gap-3">
+                            {locationStepMeta[locationSelectionStep].options.map((item) => {
+                              const level = locationSelectionStep;
+                              const selected = level === "gouvernerat"
+                                ? isTokenInList(draftSelectedGouvernerats, item)
+                                : level === "region"
+                                  ? isTokenInList(draftSelectedRegions, item)
+                                  : isTokenInList(draftSelectedZones, item);
+                              return (
+                                <button
+                                  key={`desktop-location-step-${level}-${item}`}
+                                  type="button"
+                                  onClick={() => {
+                                    if (level === "gouvernerat") applyGovernorateSelection(item);
+                                    if (level === "region") applyRegionSelection(item);
+                                    if (level === "zone") applyZoneSelection(item);
+                                  }}
+                                  className={`group relative h-28 overflow-hidden rounded-2xl border text-left transition-all duration-200 ${locationCardSelectionClass(selected)}`}
+                                >
+                                  <img src={getLocationOptionImage(level, item)} alt={item} className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+                                  <div className={`pointer-events-none absolute inset-0 ${selected ? "bg-emerald-950/25" : "bg-black/40"}`} />
+                                  <div className="relative z-10 flex h-full items-end p-4">
+                                    <span className="text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item}</span>
+                                  </div>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-3">
@@ -3278,18 +3345,39 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           </button>
                           <button
                             type="button"
-                            onClick={addCurrentLocationToDraft}
-                            disabled={!currentDraftLocationValue}
+                            onClick={() => {
+                              if (locationSelectionStep === "gouvernerat") return;
+                              const previousStep = locationSelectionStep === "zone" ? "region" : "gouvernerat";
+                              setLocationSelectionStep(previousStep);
+                              setOpenLocationLevel(previousStep);
+                            }}
+                            disabled={locationSelectionStep === "gouvernerat"}
                             className="w-full rounded-xl border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Ajouter un autre emplacement
+                            Précédent
                           </button>
                           <button
                             type="button"
-                            onClick={confirmLocationSelection}
-                            className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                            onClick={() => {
+                              if (locationSelectionStep === "gouvernerat") {
+                                setLocationSelectionStep("region");
+                                setOpenLocationLevel("region");
+                                return;
+                              }
+                              if (locationSelectionStep === "region") {
+                                setLocationSelectionStep("zone");
+                                setOpenLocationLevel("zone");
+                                return;
+                              }
+                              confirmLocationSelection();
+                            }}
+                            disabled={
+                              (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
+                              || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
+                            }
+                            className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Confirmer la selection
+                            {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
                           </button>
                         </div>
                       </div>
@@ -3711,66 +3799,44 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   ))}
                 </div>
               )}
-              <div className="space-y-3">
-                <div>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pays</p>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {(openLocationLevel === "pays"
-                      ? [{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))]
-                      : [([{ label: "Tous pays", value: "" }, ...cascadePaysOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationPays) || { label: "Tous pays", value: "" })]
-                    ).map((item) => (
-                      <button key={`mobile-pays-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "pays") { setOpenLocationLevel("pays"); return; } setLocationPays(item.value); setLocationGouvernerat(""); setLocationRegion(""); setLocationZone(""); setOpenLocationLevel("gouvernerat"); }} className={`relative h-24 min-w-[140px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
-                        <img src={getLocationOptionImage("pays", item.value || cascadePaysOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
-                      </button>
-                    ))}
+              <div className="rounded-[26px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/60 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Tunisie</p>
+                    <h3 className="mt-2 text-lg font-bold text-gray-900">{locationStepMeta[locationSelectionStep].title}</h3>
+                    <p className="mt-1 text-sm text-gray-600">{locationStepMeta[locationSelectionStep].subtitle}</p>
+                  </div>
+                  <div className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                    {locationSelectionStep === "gouvernerat" ? "1/3" : locationSelectionStep === "region" ? "2/3" : "3/3"}
                   </div>
                 </div>
-                <div>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Gouvernorat</p>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {(openLocationLevel === "gouvernerat"
-                      ? [{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))]
-                      : [([{ label: "Tous gouvernorats", value: "" }, ...cascadeGouverneratOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationGouvernerat) || { label: "Tous gouvernorats", value: "" })]
-                    ).map((item) => (
-                      <button key={`mobile-gouv-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "gouvernerat") { setOpenLocationLevel("gouvernerat"); return; } applyGovernorateSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
-                        <img src={getLocationOptionImage("gouvernerat", item.value || cascadeGouverneratOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
+                <div className="mt-4 grid grid-cols-1 gap-3">
+                  {locationStepMeta[locationSelectionStep].options.map((item) => {
+                    const level = locationSelectionStep;
+                    const selected = level === "gouvernerat"
+                      ? isTokenInList(draftSelectedGouvernerats, item)
+                      : level === "region"
+                        ? isTokenInList(draftSelectedRegions, item)
+                        : isTokenInList(draftSelectedZones, item);
+                    return (
+                      <button
+                        key={`mobile-location-step-${level}-${item}`}
+                        type="button"
+                        onClick={() => {
+                          if (level === "gouvernerat") applyGovernorateSelection(item);
+                          if (level === "region") applyRegionSelection(item);
+                          if (level === "zone") applyZoneSelection(item);
+                        }}
+                        className={`group relative h-28 overflow-hidden rounded-2xl border ${locationCardSelectionClass(selected)}`}
+                      >
+                        <img src={getLocationOptionImage(level, item)} alt={item} className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+                        <div className={`pointer-events-none absolute inset-0 ${selected ? "bg-emerald-950/25" : "bg-black/40"}`} />
+                        <div className="relative z-10 flex h-full items-end p-4 text-left">
+                          <span className="text-sm font-semibold text-white">{item}</span>
+                        </div>
                       </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Region</p>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {(openLocationLevel === "region"
-                      ? [{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))]
-                      : [([{ label: "Toutes regions", value: "" }, ...cascadeRegionOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationRegion) || { label: "Toutes regions", value: "" })]
-                    ).map((item) => (
-                      <button key={`mobile-region-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "region") { setOpenLocationLevel("region"); return; } applyRegionSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
-                        <img src={getLocationOptionImage("region", item.value || cascadeRegionOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Zone</p>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {(openLocationLevel === "zone"
-                      ? [{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))]
-                      : [([{ label: "Toutes zones", value: "" }, ...cascadeZoneOptions.map((item) => ({ label: item, value: item }))].find((item) => item.value === locationZone) || { label: "Toutes zones", value: "" })]
-                    ).map((item) => (
-                      <button key={`mobile-zone-card-${item.label}`} type="button" onClick={() => { if (openLocationLevel !== "zone") { setOpenLocationLevel("zone"); return; } applyZoneSelection(item.value); }} className={`relative h-24 min-w-[150px] overflow-hidden rounded-xl border ${hasLocationTokenSelected(draftSelectedLocations, item.value) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}>
-                        <img src={getLocationOptionImage("zone", item.value || cascadeZoneOptions[0] || "")} alt={item.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                        <span className="relative z-10 px-3 text-sm font-semibold text-white">{item.label}</span>
-                      </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -3782,20 +3848,41 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </button>
                 <button
                   type="button"
-                  onClick={addCurrentLocationToDraft}
-                  disabled={!currentDraftLocationValue}
+                  onClick={() => {
+                    if (locationSelectionStep === "gouvernerat") return;
+                    const previousStep = locationSelectionStep === "zone" ? "region" : "gouvernerat";
+                    setLocationSelectionStep(previousStep);
+                    setOpenLocationLevel(previousStep);
+                  }}
+                  disabled={locationSelectionStep === "gouvernerat"}
                   className="w-full rounded-xl border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Ajouter un autre emplacement
+                  Précédent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (locationSelectionStep === "gouvernerat") {
+                      setLocationSelectionStep("region");
+                      setOpenLocationLevel("region");
+                      return;
+                    }
+                    if (locationSelectionStep === "region") {
+                      setLocationSelectionStep("zone");
+                      setOpenLocationLevel("zone");
+                      return;
+                    }
+                    confirmLocationSelection();
+                  }}
+                  disabled={
+                    (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
+                    || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
+                  }
+                  className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={confirmLocationSelection}
-                className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
-              >
-                Confirmer la selection
-              </button>
             </div>
           </div>
         )}
