@@ -521,11 +521,13 @@ export default function NotificationsPage() {
   const [demandTab, setDemandTab] = useState<'pending' | 'finished_success' | 'finished_cancelled'>('pending');
   const [cancelledSubTab, setCancelledSubTab] = useState<'client' | 'echeance'>('client');
   const [selectedChatOwner, setSelectedChatOwner] = useState<{ id: string; name: string; demandId?: string } | null>(null);
+  const [selectedCalendarOwner, setSelectedCalendarOwner] = useState<{ id: string; name: string } | null>(null);
   const [chatMessages, setChatMessages] = useState<Array<{ id: string; text: string; kind?: string; createdAt?: string }>>([]);
   const [chatDraft, setChatDraft] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
   const [chatOwnerSearch, setChatOwnerSearch] = useState('');
+  const [calendarOwnerSearch, setCalendarOwnerSearch] = useState('');
   const [showOwnerProfilePanel, setShowOwnerProfilePanel] = useState(false);
   const [isDesktopChatLayout, setIsDesktopChatLayout] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
@@ -1051,6 +1053,83 @@ export default function NotificationsPage() {
     return byOwner;
   }, [pendingCalendarRequests]);
 
+  const calendarRequestHistoryByOwner = useMemo(() => {
+    const byOwner = new Map<string, AdminCalendarRequest[]>();
+    calendarRequestHistory.forEach((request) => {
+      const ownerId = String(request.ownerId || '').trim();
+      if (!ownerId) return;
+      const current = byOwner.get(ownerId) || [];
+      current.push(request);
+      byOwner.set(ownerId, current);
+    });
+    byOwner.forEach((rows, ownerId) => {
+      byOwner.set(
+        ownerId,
+        [...rows].sort(
+          (a, b) =>
+            new Date(String(b.reviewedAt || b.submittedAt || '')).getTime()
+            - new Date(String(a.reviewedAt || a.submittedAt || '')).getTime()
+        )
+      );
+    });
+    return byOwner;
+  }, [calendarRequestHistory]);
+
+  const filteredCalendarOwners = useMemo(() => {
+    const needle = String(calendarOwnerSearch || '').trim().toLowerCase();
+    const baseRows = !needle ? calendarOwners : calendarOwners.filter((owner) => {
+      const profile = ownerLookup.get(owner.id);
+      const status = ownerCalendarStatuses[owner.id];
+      const pendingRequest = pendingCalendarRequestByOwner.get(owner.id);
+      const historyRows = calendarRequestHistoryByOwner.get(owner.id) || [];
+      const ownedBiens = biensByOwnerId.get(owner.id) || [];
+      return [
+        owner.name,
+        profile?.telephone,
+        profile?.email,
+        status?.responseMetadata?.propertyTitle,
+        pendingRequest?.propertyTitle,
+        pendingRequest?.note,
+        ...historyRows.flatMap((request) => [request.propertyTitle, request.note, request.reason]),
+        ...ownedBiens.flatMap((bien) => [bien.reference, bien.titre, bien.nom_bien_mobile]),
+      ]
+        .map((value) => String(value || '').toLowerCase())
+        .some((value) => value.includes(needle));
+    });
+    return [...baseRows].sort((a, b) => {
+      const aPending = pendingCalendarRequestByOwner.has(a.id) ? 1 : 0;
+      const bPending = pendingCalendarRequestByOwner.has(b.id) ? 1 : 0;
+      if (aPending !== bPending) return bPending - aPending;
+      const aStatus = ownerCalendarStatuses[a.id];
+      const bStatus = ownerCalendarStatuses[b.id];
+      const aUpdatedAt = String(aStatus?.updatedAt || aStatus?.createdAt || '');
+      const bUpdatedAt = String(bStatus?.updatedAt || bStatus?.createdAt || '');
+      if (aUpdatedAt !== bUpdatedAt) return bUpdatedAt.localeCompare(aUpdatedAt);
+      return a.name.localeCompare(b.name, 'fr');
+    });
+  }, [calendarOwnerSearch, calendarOwners, ownerLookup, ownerCalendarStatuses, pendingCalendarRequestByOwner, calendarRequestHistoryByOwner, biensByOwnerId]);
+
+  const selectedCalendarOwnerProfile = selectedCalendarOwner ? ownerLookup.get(selectedCalendarOwner.id) || null : null;
+  const selectedCalendarStatus = selectedCalendarOwner ? ownerCalendarStatuses[selectedCalendarOwner.id] || null : null;
+  const selectedCalendarStatusMeta = getOwnerCalendarStatusMeta(selectedCalendarStatus);
+  const selectedCalendarPendingRequest = selectedCalendarOwner ? pendingCalendarRequestByOwner.get(selectedCalendarOwner.id) || null : null;
+  const selectedCalendarHistory = useMemo(
+    () => (selectedCalendarOwner ? calendarRequestHistoryByOwner.get(selectedCalendarOwner.id) || [] : []),
+    [selectedCalendarOwner, calendarRequestHistoryByOwner]
+  );
+  const selectedCalendarBiens = useMemo(() => {
+    if (!selectedCalendarOwner) return [];
+    const linkedBiens = biensByOwnerId.get(selectedCalendarOwner.id) || [];
+    if (linkedBiens.length > 0) return linkedBiens;
+    const titles = new Set(
+      [selectedCalendarPendingRequest, ...selectedCalendarHistory]
+        .map((request) => String(request?.propertyTitle || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    return biens.filter((bien) => titles.has(String(bien.titre || '').trim().toLowerCase()));
+  }, [selectedCalendarOwner, biensByOwnerId, selectedCalendarPendingRequest, selectedCalendarHistory, biens]);
+  const isCalendarMobileConversationOpen = Boolean(selectedCalendarOwner);
+
   const loadOwnerChat = useCallback(async (ownerId: string, options?: { background?: boolean }) => {
     const normalizedOwnerId = String(ownerId || '').trim();
     if (!normalizedOwnerId) return;
@@ -1137,6 +1216,17 @@ export default function NotificationsPage() {
     setShowOwnerProfilePanel(false);
     void loadOwnerChat(fallbackOwner.id);
   }, [activeView, chatOwners, selectedChatOwner, loadOwnerChat, isDesktopChatLayout]);
+
+  useEffect(() => {
+    if (activeView !== 'calendars') return;
+    if (!isDesktopChatLayout) return;
+    if (selectedCalendarOwner && calendarOwners.some((owner) => owner.id === selectedCalendarOwner.id)) return;
+    if (calendarOwners.length === 0) {
+      if (selectedCalendarOwner) setSelectedCalendarOwner(null);
+      return;
+    }
+    setSelectedCalendarOwner(calendarOwners[0]);
+  }, [activeView, calendarOwners, selectedCalendarOwner, isDesktopChatLayout]);
 
   useEffect(() => {
     if (!chatScrollRef.current) return;
@@ -2454,232 +2544,420 @@ export default function NotificationsPage() {
       )}
 
       {activeView === 'calendars' && (
-        <section className="space-y-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.08),_transparent_38%),linear-gradient(180deg,#f8fafc_0%,#ffffff_18%,#f8fafc_100%)] shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+          <div className="border-b border-slate-200 px-4 py-4 md:px-6">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Relance quotidienne calendrier proprietaires</h2>
-                <p className="text-sm text-gray-500">Suivi complet des relances calendrier, des reponses proprietaires et des demandes de modification.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Calendriers proprietaires</p>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">Centre de suivi calendrier</h2>
+                <p className="mt-1 text-sm text-slate-500">Liste a gauche, suivi de relance et demandes de mise a jour a droite.</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void dispatchCalendarPromptNow()}
-                  disabled={dispatchingCalendarPrompt}
-                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
-                >
-                  {dispatchingCalendarPrompt ? 'Envoi...' : 'Envoyer maintenant'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void saveCalendarPromptSchedule()}
-                  disabled={scheduleSaving || !calendarPromptSchedule}
-                  className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  {scheduleSaving ? 'Enregistrement...' : 'Enregistrer horaire'}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => void fetchData({ background: true })}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Recharger
+              </button>
             </div>
-            {calendarPromptSchedule && (
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium text-gray-700">Date de debut</span>
-                  <input
-                    type="date"
-                    value={calendarPromptSchedule.startDate || ''}
-                    onChange={(event) => setCalendarPromptSchedule((prev) => prev ? { ...prev, startDate: event.target.value || null } : prev)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium text-gray-700">Heure quotidienne ({calendarPromptSchedule.timezoneOffsetLabel})</span>
-                  <input
-                    type="time"
-                    value={calendarPromptSchedule.dailyTime}
-                    onChange={(event) => {
-                      const [hourRaw, minuteRaw] = String(event.target.value || '').split(':');
-                      const hour = Number(hourRaw || 0);
-                      const minute = Number(minuteRaw || 0);
-                      setCalendarPromptSchedule((prev) => prev ? {
-                        ...prev,
-                        dispatchHour: hour,
-                        dispatchMinute: minute,
-                        dailyTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-                      } : prev);
-                    }}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium text-gray-700">Etat</span>
-                  <select
-                    value={calendarPromptSchedule.enabled ? 'enabled' : 'disabled'}
-                    onChange={(event) => setCalendarPromptSchedule((prev) => prev ? {
-                      ...prev,
-                      enabled: event.target.value === 'enabled',
-                    } : prev)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  >
-                    <option value="enabled">Active</option>
-                    <option value="disabled">Inactive</option>
-                  </select>
-                </label>
-                <div className="space-y-1 text-sm">
-                  <span className="font-medium text-gray-700">Dernier envoi</span>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700">
-                    {calendarPromptSchedule.lastDispatchedLocalDate || 'Aucun'}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
-
-          <div className="grid gap-4 xl:grid-cols-[340px,1fr]">
-            <section className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <CalendarDays className="h-5 w-5 text-emerald-600" />
-                <h3 className="text-lg font-semibold text-gray-900">Etat par proprietaire</h3>
-              </div>
-              <div className="space-y-3">
-                {calendarOwners.length === 0 && <p className="text-sm text-gray-500">Aucun proprietaire disponible.</p>}
-                {calendarOwners.map((owner) => {
-                  const calendarStatus = ownerCalendarStatuses[owner.id] || null;
-                  const statusMeta = getOwnerCalendarStatusMeta(calendarStatus);
-                  const pendingCalendarRequest = pendingCalendarRequestByOwner.get(owner.id) || null;
-                  const isDispatchingThisOwner = dispatchingCalendarPromptOwnerId === owner.id;
-                  return (
-                    <div key={owner.id} className="rounded-xl border border-gray-200 bg-white p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-gray-900">{owner.name}</div>
-                          <div className="mt-1 text-xs text-gray-500">Proprietaire actif sur le calendrier</div>
-                        </div>
-                        <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusMeta.tone}`}>
-                          {statusMeta.label}
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void dispatchCalendarPromptToOwner(owner)}
-                          disabled={isDispatchingThisOwner}
-                          className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
-                        >
-                          {isDispatchingThisOwner ? 'Envoi...' : (statusMeta.label === 'En attente' ? 'Renvoyer la relance' : 'Envoyer la relance')}
-                        </button>
-                      </div>
-                      <div className="mt-3 grid gap-1 text-xs">
-                        <div className="text-gray-600">{statusMeta.detail}</div>
-                        {statusMeta.helper ? (
-                          <div className="font-medium text-gray-500">{statusMeta.helper}</div>
-                        ) : null}
-                        <div className="text-gray-500">
-                          Reponse:{' '}
-                          <span className="font-medium text-gray-700">
-                            {statusMeta.respondedAt ? formatDateTime(statusMeta.respondedAt) : '-'}
-                          </span>
-                        </div>
-                      </div>
-                      {statusMeta.label === 'Mise a jour demandee' && pendingCalendarRequest ? (
-                        <div className="mt-3">
-                          <button
-                            type="button"
-                            onClick={() => void openCalendarDiff(pendingCalendarRequest)}
-                            disabled={calendarActionLoadingId === pendingCalendarRequest.id}
-                            className="rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-50"
-                          >
-                            Consulter la difference
-                          </button>
-                        </div>
-                      ) : null}
+          <div className="grid min-h-[720px] bg-white lg:min-h-[78vh] lg:grid-cols-[380px_minmax(0,1fr)]">
+            <aside className={`${isCalendarMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 lg:flex`}>
+              <div className="flex w-full flex-col">
+                <div className="border-b border-slate-200 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-2xl font-semibold text-slate-900">Calendriers</h3>
+                      <p className="mt-1 text-sm text-slate-500">{filteredCalendarOwners.length} proprietaire{filteredCalendarOwners.length > 1 ? 's' : ''}</p>
                     </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Demandes de mise a jour calendrier</h3>
-                  <p className="text-sm text-gray-500">Approuver ou rejeter les changements demandes par les proprietaires.</p>
-                </div>
-                <div className="flex gap-2 text-sm">
-                  <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">En attente {pendingCalendarRequests.length}</span>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">Historique {calendarRequestHistory.length}</span>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div>
-                  <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-amber-700">En attente</h4>
-                  <div className="space-y-3">
-                    {pendingCalendarRequests.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-                        Aucune demande calendrier en attente.
-                      </div>
-                    )}
-                    {pendingCalendarRequests.map((request) => (
-                      <div key={request.id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div>
-                            <div className="text-base font-semibold text-gray-900">{request.ownerName}</div>
-                            <div className="text-xs text-gray-500">Demande envoyee par le proprietaire</div>
-                            <div className="mt-2 text-sm text-gray-700">{request.propertyTitle || 'Bien sans titre'}</div>
-                            <div className="mt-1 text-xs text-gray-500">
-                              {request.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
-                            </div>
-                            <div className="mt-1 text-xs text-gray-500">Envoyee le {formatDateTime(request.submittedAt || request.startDate)} (UTC+01:00)</div>
-                            {request.note ? <div className="mt-2 text-xs text-gray-600">Note: {request.note}</div> : null}
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void openCalendarDiff(request)}
-                              disabled={calendarActionLoadingId === request.id}
-                              className="rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-50"
-                            >
-                              Consulter la difference
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                    <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Suivi</div>
                   </div>
+                  <label className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-500 shadow-sm">
+                    <Search className="h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={calendarOwnerSearch}
+                      onChange={(event) => setCalendarOwnerSearch(event.target.value)}
+                      placeholder="Rechercher un proprietaire ou un bien"
+                      className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                    />
+                  </label>
                 </div>
-
-                <div>
-                  <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Historique</h4>
-                  <div className="space-y-3">
-                    {calendarRequestHistory.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-                        Aucune demande calendrier traitee.
-                      </div>
-                    )}
-                    {calendarRequestHistory.map((request) => (
-                      <div key={request.id} className="rounded-xl border border-gray-200 bg-white p-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div>
-                            <div className="text-base font-semibold text-gray-900">{request.ownerName}</div>
-                            <div className="text-xs text-gray-500">Demande historique proprietaire</div>
-                            <div className="mt-2 text-sm text-gray-700">{request.propertyTitle || 'Bien sans titre'}</div>
-                            <div className="mt-1 text-xs text-gray-500">
-                              {request.requestType === 'open' ? 'Reouverture' : 'Fermeture'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
+                <div className="flex-1 overflow-y-auto px-3 py-3">
+                  {filteredCalendarOwners.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500">
+                      Aucun proprietaire ne correspond a la recherche.
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {filteredCalendarOwners.map((owner) => {
+                      const isActive = selectedCalendarOwner?.id === owner.id;
+                      const status = ownerCalendarStatuses[owner.id] || null;
+                      const statusMeta = getOwnerCalendarStatusMeta(status);
+                      const pendingRequest = pendingCalendarRequestByOwner.get(owner.id) || null;
+                      const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
+                      return (
+                        <button
+                          key={`calendar-owner-${owner.id}`}
+                          type="button"
+                          onClick={() => setSelectedCalendarOwner(owner)}
+                          className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-all ${
+                            isActive
+                              ? 'border-emerald-400 bg-emerald-50 shadow-[0_0_0_1px_rgba(52,211,153,0.28),0_14px_30px_rgba(16,185,129,0.08)]'
+                              : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50 shadow-sm'
+                          }`}
+                        >
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-700 text-sm font-bold text-white shadow-lg">
+                            {getOwnerInitials(owner.name)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                                {pendingRequest ? (
+                                  <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                                    Mise a jour en attente
+                                  </span>
+                                ) : null}
+                              </div>
+                              {(status?.updatedAt || status?.createdAt) ? (
+                                <span className="shrink-0 text-[11px] text-slate-400">
+                                  {formatRelativeDelay(status?.updatedAt || status?.createdAt).replace(/^il y a /, '')}
+                                </span>
+                              ) : null}
                             </div>
-                            <div className="mt-1 text-xs text-gray-500">Soumise le {formatDateTime(request.submittedAt || request.startDate)} (UTC+01:00)</div>
-                            <div className="mt-1 text-xs text-gray-500">Traitee le {request.reviewedAt ? `${formatDateTime(request.reviewedAt)} (UTC+01:00)` : '-'}</div>
-                            {request.reason ? <div className="mt-1 text-xs text-rose-600">Motif rejet: {request.reason}</div> : null}
+                            <p className={`mt-1 line-clamp-2 text-sm ${pendingRequest ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>
+                              {pendingRequest
+                                ? `${pendingRequest.propertyTitle || 'Bien'} - ${pendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'}`
+                                : statusMeta.detail}
+                            </p>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                              <span>{statusMeta.label}</span>
+                              <span>{historyCount} historique</span>
+                            </div>
                           </div>
-                          <div className={`rounded-full border px-3 py-1 text-xs font-semibold ${request.status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
-                            {request.status === 'approved' ? 'Approuvee' : 'Rejetee'}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
-            </section>
+            </aside>
+            <div className={`${isCalendarMobileConversationOpen ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-col bg-white lg:flex`}>
+              {!selectedCalendarOwner ? (
+                <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
+                  <div className="max-w-md">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                      <CalendarDays className="h-8 w-8" />
+                    </div>
+                    <h3 className="mt-5 text-xl font-semibold text-slate-900">Selectionnez un proprietaire</h3>
+                    <p className="mt-2 text-sm text-slate-500">Ouvrez un dossier calendrier depuis la colonne de gauche pour suivre ses relances et demandes.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="border-b border-slate-200 bg-white px-4 py-4 md:px-6">
+                    <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCalendarOwner(null)}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 lg:hidden"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-700 text-sm font-bold text-white shadow-md">
+                        {getOwnerInitials(selectedCalendarOwner.name)}
+                      </div>
+                      <div className="min-w-0 flex-1 basis-[calc(100%-7rem)] sm:basis-auto">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <h3 className="truncate text-base font-semibold text-slate-900 sm:text-lg">{selectedCalendarOwner.name}</h3>
+                          <span className="hidden rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 md:inline-flex">Calendrier</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 sm:gap-x-3 sm:text-xs">
+                          {selectedCalendarOwnerProfile?.telephone ? <span>{selectedCalendarOwnerProfile.telephone}</span> : null}
+                          <span>{selectedCalendarStatusMeta.label}</span>
+                          {selectedCalendarStatusMeta.respondedAt ? <span>Reponse {formatRelativeDelay(selectedCalendarStatusMeta.respondedAt)}</span> : null}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void dispatchCalendarPromptToOwner(selectedCalendarOwner)}
+                        disabled={dispatchingCalendarPromptOwnerId === selectedCalendarOwner.id}
+                        className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-60 sm:ml-0"
+                      >
+                        <SendHorizontal className="h-4 w-4" />
+                        {dispatchingCalendarPromptOwnerId === selectedCalendarOwner.id ? 'Envoi...' : 'Relancer'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef8f3_100%)]">
+                    <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+                      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+                        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Pilotage relance</p>
+                              <h4 className="mt-1 text-lg font-semibold text-slate-900">Programmation quotidienne</h4>
+                              <p className="mt-1 text-sm text-slate-500">Horaires globaux d envoi et relance immediate depuis ce panneau.</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void dispatchCalendarPromptNow()}
+                                disabled={dispatchingCalendarPrompt}
+                                className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                              >
+                                {dispatchingCalendarPrompt ? 'Envoi...' : 'Envoyer maintenant'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void saveCalendarPromptSchedule()}
+                                disabled={scheduleSaving || !calendarPromptSchedule}
+                                className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                              >
+                                {scheduleSaving ? 'Enregistrement...' : 'Enregistrer horaire'}
+                              </button>
+                            </div>
+                          </div>
+                          {calendarPromptSchedule && (
+                            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium text-slate-700">Date de debut</span>
+                                <input
+                                  type="date"
+                                  value={calendarPromptSchedule.startDate || ''}
+                                  onChange={(event) => setCalendarPromptSchedule((prev) => prev ? { ...prev, startDate: event.target.value || null } : prev)}
+                                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+                                />
+                              </label>
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium text-slate-700">Heure quotidienne ({calendarPromptSchedule.timezoneOffsetLabel})</span>
+                                <input
+                                  type="time"
+                                  value={calendarPromptSchedule.dailyTime}
+                                  onChange={(event) => {
+                                    const [hourRaw, minuteRaw] = String(event.target.value || '').split(':');
+                                    const hour = Number(hourRaw || 0);
+                                    const minute = Number(minuteRaw || 0);
+                                    setCalendarPromptSchedule((prev) => prev ? {
+                                      ...prev,
+                                      dispatchHour: hour,
+                                      dispatchMinute: minute,
+                                      dailyTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+                                    } : prev);
+                                  }}
+                                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+                                />
+                              </label>
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium text-slate-700">Etat</span>
+                                <select
+                                  value={calendarPromptSchedule.enabled ? 'enabled' : 'disabled'}
+                                  onChange={(event) => setCalendarPromptSchedule((prev) => prev ? {
+                                    ...prev,
+                                    enabled: event.target.value === 'enabled',
+                                  } : prev)}
+                                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+                                >
+                                  <option value="enabled">Active</option>
+                                  <option value="disabled">Inactive</option>
+                                </select>
+                              </label>
+                              <div className="space-y-1 text-sm">
+                                <span className="font-medium text-slate-700">Dernier envoi</span>
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700">
+                                  {calendarPromptSchedule.lastDispatchedLocalDate || 'Aucun'}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                          <div className="space-y-4">
+                            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Etat proprietaire</p>
+                                  <h4 className="mt-1 text-lg font-semibold text-slate-900">{selectedCalendarStatusMeta.label}</h4>
+                                  <p className="mt-1 text-sm text-slate-500">{selectedCalendarStatusMeta.detail}</p>
+                                </div>
+                                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${selectedCalendarStatusMeta.tone}`}>
+                                  {selectedCalendarStatusMeta.label}
+                                </span>
+                              </div>
+                              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Derniere relance</p>
+                                  <p className="mt-2 text-sm font-semibold text-slate-900">{selectedCalendarStatusMeta.sentAt ? formatDateTime(selectedCalendarStatusMeta.sentAt) : 'Aucune'}</p>
+                                </div>
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reponse proprietaire</p>
+                                  <p className="mt-2 text-sm font-semibold text-slate-900">{selectedCalendarStatusMeta.respondedAt ? formatDateTime(selectedCalendarStatusMeta.respondedAt) : 'Pas encore'}</p>
+                                </div>
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Synthese</p>
+                                  <p className="mt-2 text-sm font-semibold text-slate-900">{selectedCalendarStatusMeta.helper || 'Aucune action detaillee'}</p>
+                                </div>
+                              </div>
+                              {selectedCalendarPendingRequest ? (
+                                <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Demande en attente</p>
+                                      <h5 className="mt-1 text-base font-semibold text-slate-900">{selectedCalendarPendingRequest.propertyTitle || 'Bien sans titre'}</h5>
+                                      <p className="mt-2 text-sm text-slate-600">
+                                        {selectedCalendarPendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} pour la periode du {formatStayDate(selectedCalendarPendingRequest.startDate)} au {formatStayDate(selectedCalendarPendingRequest.endDate)}.
+                                      </p>
+                                      <p className="mt-1 text-xs text-slate-500">Envoyee le {formatDateTime(selectedCalendarPendingRequest.submittedAt || selectedCalendarPendingRequest.startDate)}</p>
+                                      {selectedCalendarPendingRequest.note ? <p className="mt-2 text-sm text-slate-700">Note: {selectedCalendarPendingRequest.note}</p> : null}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => void openCalendarDiff(selectedCalendarPendingRequest)}
+                                      disabled={calendarActionLoadingId === selectedCalendarPendingRequest.id}
+                                      className="rounded-xl border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-50"
+                                    >
+                                      Consulter la difference
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                                  Aucune demande de mise a jour calendrier en attente pour ce proprietaire.
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Historique</p>
+                                  <h4 className="mt-1 text-lg font-semibold text-slate-900">Demandes de mise a jour traitees</h4>
+                                </div>
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                                  {selectedCalendarHistory.length} element{selectedCalendarHistory.length > 1 ? 's' : ''}
+                                </span>
+                              </div>
+                              <div className="mt-4 space-y-3">
+                                {selectedCalendarHistory.length === 0 && (
+                                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                                    Aucune demande calendrier traitee pour ce proprietaire.
+                                  </div>
+                                )}
+                                {selectedCalendarHistory.map((request) => (
+                                  <div key={`calendar-history-${request.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div>
+                                        <h5 className="text-sm font-semibold text-slate-900">{request.propertyTitle || 'Bien sans titre'}</h5>
+                                        <p className="mt-1 text-xs text-slate-500">
+                                          {request.requestType === 'open' ? 'Reouverture' : 'Fermeture'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
+                                        </p>
+                                        <p className="mt-2 text-xs text-slate-500">Soumise le {formatDateTime(request.submittedAt || request.startDate)}</p>
+                                        <p className="mt-1 text-xs text-slate-500">Traitee le {request.reviewedAt ? formatDateTime(request.reviewedAt) : '-'}</p>
+                                        {request.reason ? <p className="mt-2 text-xs font-medium text-rose-600">Motif: {request.reason}</p> : null}
+                                      </div>
+                                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${request.status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                                        {request.status === 'approved' ? 'Approuvee' : 'Rejetee'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Portefeuille biens</p>
+                                  <h4 className="mt-1 text-lg font-semibold text-slate-900">Biens rattaches au calendrier</h4>
+                                </div>
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{selectedCalendarBiens.length}</span>
+                              </div>
+                              {selectedCalendarBiens.length === 0 ? (
+                                <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                                  Aucun bien relie a ce proprietaire.
+                                </div>
+                              ) : (
+                                <div className="mt-4 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
+                                  {selectedCalendarBiens.map((bien) => (
+                                    <article key={`calendar-owner-bien-${bien.id}`} className="w-[280px] shrink-0 snap-start overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.08)]">
+                                      <div className="relative h-40 overflow-hidden">
+                                        <img src={getBienCoverImage(bien)} alt={bien.titre} className="h-full w-full object-cover" />
+                                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/60 via-slate-950/20 to-transparent p-4">
+                                          <span className="inline-flex rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-800">
+                                            {bien.reference || 'Bien'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-3 p-4">
+                                        <div>
+                                          <h5 className="line-clamp-2 text-sm font-semibold text-slate-900">{bien.titre || 'Bien'}</h5>
+                                          <p className="mt-1 text-xs text-slate-500">{bien.type || 'Bien immobilier'}</p>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
+                                          {bien.prix_nuitee > 0 ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{bien.prix_nuitee} DT / nuit</span> : null}
+                                          {bien.prix_semaine > 0 ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{bien.prix_semaine} DT / semaine</span> : null}
+                                        </div>
+                                      </div>
+                                    </article>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Vue globale</p>
+                                  <h4 className="mt-1 text-lg font-semibold text-slate-900">Toutes les demandes calendrier</h4>
+                                </div>
+                                <div className="flex gap-2 text-sm">
+                                  <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">En attente {pendingCalendarRequests.length}</span>
+                                  <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">Historique {calendarRequestHistory.length}</span>
+                                </div>
+                              </div>
+                              <div className="mt-4 space-y-3">
+                                {pendingCalendarRequests.slice(0, 4).map((request) => (
+                                  <div key={`calendar-global-pending-${request.id}`} className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-sm font-semibold text-slate-900">{request.ownerName}</p>
+                                        <p className="mt-1 text-xs text-slate-500">{request.propertyTitle || 'Bien sans titre'}</p>
+                                        <p className="mt-2 text-xs text-slate-600">
+                                          {request.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedCalendarOwner({ id: request.ownerId, name: request.ownerName });
+                                        }}
+                                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                      >
+                                        Voir dossier
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                                {pendingCalendarRequests.length === 0 && (
+                                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                                    Aucune demande calendrier en attente pour le moment.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </section>
       )}
