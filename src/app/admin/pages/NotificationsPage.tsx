@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Bell, BellRing, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronUp, CircleDot, ExternalLink, Filter, History, MessageSquareShare, RefreshCw, Search, SendHorizontal, UserCircle2, X } from 'lucide-react';
+import { useLocation } from 'react-router';
 import { useRef } from 'react';
 import { toast } from 'sonner';
 import AvailabilityCalendar from '../../components/AvailabilityCalendar';
@@ -458,30 +459,49 @@ function summarizeNotificationDetail(message?: string | null) {
   return normalized || 'Action en attente de verification.';
 }
 
-function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null) {
+function formatElapsedDuration(from?: string | null, nowMs = Date.now()) {
+  const parsed = parseDateForRelative(from);
+  if (!parsed) return '';
+  const diffMs = Math.max(0, nowMs - parsed.getTime());
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes} min`;
+  return `${hours} h ${String(minutes).padStart(2, '0')} min`;
+}
+
+function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, nowMs = Date.now()) {
   const value = String(status?.status || '').trim();
   const sentAt = value === 'pending'
     ? status?.updatedAt || status?.createdAt || null
     : status?.createdAt || status?.updatedAt || null;
   if (value === 'pending') {
+    const sentAtDate = parseDateForRelative(sentAt);
+    const overdueMs = sentAtDate ? nowMs - sentAtDate.getTime() : 0;
+    const isOverdue = overdueMs >= 3 * 60 * 60 * 1000;
+    const waitingDurationLabel = sentAt ? formatElapsedDuration(sentAt, nowMs) : '';
     return {
-      label: 'En attente',
-      tone: 'border-amber-200 bg-amber-50 text-amber-800',
-      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)} (UTC+01:00)` : (status?.promptDate ? `Relance du ${formatStayDate(status.promptDate)}` : 'Relance envoyee'),
-      helper: sentAt ? formatRelativeDelay(sentAt, ' sans reponse') : 'Sans reponse',
+      label: isOverdue ? 'Proprietaire en retard' : 'Proprietaire en attente',
+      tone: isOverdue ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-800',
+      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)}` : (status?.promptDate ? `Relance du ${formatStayDate(status.promptDate)}` : 'Relance envoyee'),
+      helper: sentAt ? `Sans reponse depuis ${waitingDurationLabel}` : 'Sans reponse',
       sentAt,
       respondedAt: null,
+      waitingDurationLabel,
+      isOverdue,
     };
   }
   if (value === 'confirmed_up_to_date') {
     const answeredAt = status?.respondedAt || status?.responseMetadata?.respondedAt || null;
     return {
-      label: 'A jour',
+      label: 'Proprietaire a jour',
       tone: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)} (UTC+01:00)` : 'Calendrier confirme a jour',
+      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)}` : 'Calendrier confirme a jour',
       helper: answeredAt ? `Repondu ${formatRelativeDelay(answeredAt).replace(/^il y a /, 'il y a ')}` : 'Calendrier confirme a jour',
       sentAt,
       respondedAt: answeredAt,
+      waitingDurationLabel: '',
+      isOverdue: false,
     };
   }
   if (value === 'update_requested') {
@@ -490,23 +510,28 @@ function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null) {
     return {
       label: 'Mise a jour demandee',
       tone: 'border-sky-200 bg-sky-50 text-sky-800',
-      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)} (UTC+01:00)` : 'Ouverture calendrier demandee',
+      detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)}` : 'Ouverture calendrier demandee',
       helper: propertyTitle ? `Bien: ${propertyTitle}` : 'Ouverture calendrier demandee',
       sentAt,
       respondedAt: answeredAt,
+      waitingDurationLabel: '',
+      isOverdue: false,
     };
   }
   return {
-    label: 'Aucune reponse',
+    label: 'Aucune relance',
     tone: 'border-gray-200 bg-gray-50 text-gray-600',
     detail: 'Aucune relance recente',
     helper: '',
     sentAt: null,
     respondedAt: null,
+    waitingDurationLabel: '',
+    isOverdue: false,
   };
 }
 
 export default function NotificationsPage() {
+  const location = useLocation();
   const { biens } = useProperties();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [demands, setDemands] = useState<ReservationDemand[]>([]);
@@ -528,6 +553,7 @@ export default function NotificationsPage() {
   const [chatSending, setChatSending] = useState(false);
   const [chatOwnerSearch, setChatOwnerSearch] = useState('');
   const [calendarOwnerSearch, setCalendarOwnerSearch] = useState('');
+  const [calendarNowMs, setCalendarNowMs] = useState(() => Date.now());
   const [showOwnerProfilePanel, setShowOwnerProfilePanel] = useState(false);
   const [isDesktopChatLayout, setIsDesktopChatLayout] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
@@ -1111,7 +1137,7 @@ export default function NotificationsPage() {
 
   const selectedCalendarOwnerProfile = selectedCalendarOwner ? ownerLookup.get(selectedCalendarOwner.id) || null : null;
   const selectedCalendarStatus = selectedCalendarOwner ? ownerCalendarStatuses[selectedCalendarOwner.id] || null : null;
-  const selectedCalendarStatusMeta = getOwnerCalendarStatusMeta(selectedCalendarStatus);
+  const selectedCalendarStatusMeta = getOwnerCalendarStatusMeta(selectedCalendarStatus, calendarNowMs);
   const selectedCalendarPendingRequest = selectedCalendarOwner ? pendingCalendarRequestByOwner.get(selectedCalendarOwner.id) || null : null;
   const selectedCalendarHistory = useMemo(
     () => (selectedCalendarOwner ? calendarRequestHistoryByOwner.get(selectedCalendarOwner.id) || [] : []),
@@ -1129,6 +1155,16 @@ export default function NotificationsPage() {
     return biens.filter((bien) => titles.has(String(bien.titre || '').trim().toLowerCase()));
   }, [selectedCalendarOwner, biensByOwnerId, selectedCalendarPendingRequest, selectedCalendarHistory, biens]);
   const isCalendarMobileConversationOpen = Boolean(selectedCalendarOwner);
+  const overdueCalendarOwners = useMemo(
+    () =>
+      filteredCalendarOwners.filter((owner) => getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs).isOverdue),
+    [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
+  );
+  const nonOverdueCalendarOwners = useMemo(
+    () =>
+      filteredCalendarOwners.filter((owner) => !getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs).isOverdue),
+    [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
+  );
 
   const loadOwnerChat = useCallback(async (ownerId: string, options?: { background?: boolean }) => {
     const normalizedOwnerId = String(ownerId || '').trim();
@@ -1204,6 +1240,11 @@ export default function NotificationsPage() {
   }, []);
 
   useEffect(() => {
+    const intervalId = window.setInterval(() => setCalendarNowMs(Date.now()), 60000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
     if (activeView !== 'chat') return;
     if (!isDesktopChatLayout) return;
     if (selectedChatOwner && chatOwners.some((owner) => owner.id === selectedChatOwner.id)) return;
@@ -1245,14 +1286,14 @@ export default function NotificationsPage() {
   }, [isAdminAlertsOpen]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     if (params.get('focus') !== 'urgent') return;
+    setActiveView('system');
     setShowUrgentNotificationsOnly(true);
     setNotificationImportanceFilter('urgent');
     setAdminAlertsUrgentOnly(true);
     setIsAdminAlertsOpen(true);
-  }, []);
+  }, [location.search]);
 
   const sendChatMessage = async () => {
     if (!selectedChatOwner) return;
@@ -1652,7 +1693,7 @@ export default function NotificationsPage() {
             {isAdminAlertsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
           {isAdminAlertsOpen && (
-            <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-[min(26rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
+            <div className="fixed left-3 right-3 top-28 z-40 overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.16)] md:absolute md:left-auto md:right-0 md:top-[calc(100%+0.75rem)] md:z-30 md:w-[26rem]">
               <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">Alertes admin</h2>
@@ -1667,7 +1708,7 @@ export default function NotificationsPage() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="max-h-[28rem] overflow-y-auto px-3 py-3">
+              <div className="max-h-[calc(100vh-13rem)] overflow-y-auto px-3 py-3 md:max-h-[28rem]">
                 {visibleAdminAlertPreviewItems.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
                     Aucune alerte non lue pour le moment.
@@ -2590,11 +2631,72 @@ export default function NotificationsPage() {
                       Aucun proprietaire ne correspond a la recherche.
                     </div>
                   )}
-                  <div className="space-y-2">
-                    {filteredCalendarOwners.map((owner) => {
+                  <div className="space-y-4">
+                    {overdueCalendarOwners.length > 0 && (
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">Proprietaires en retard</p>
+                          <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700">{overdueCalendarOwners.length}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {overdueCalendarOwners.map((owner) => {
+                            const isActive = selectedCalendarOwner?.id === owner.id;
+                            const status = ownerCalendarStatuses[owner.id] || null;
+                            const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
+                            const pendingRequest = pendingCalendarRequestByOwner.get(owner.id) || null;
+                            const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
+                            return (
+                              <button
+                                key={`calendar-owner-overdue-${owner.id}`}
+                                type="button"
+                                onClick={() => setSelectedCalendarOwner(owner)}
+                                className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-all ${
+                                  isActive
+                                    ? 'border-rose-400 bg-rose-50 shadow-[0_0_0_1px_rgba(251,113,133,0.28),0_14px_30px_rgba(244,63,94,0.08)]'
+                                    : 'border-rose-200 bg-white hover:bg-rose-50 shadow-sm'
+                                }`}
+                              >
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-rose-400 to-rose-700 text-sm font-bold text-white shadow-lg">
+                                  {getOwnerInitials(owner.name)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                                      <span className="mt-1 inline-flex rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                                        {statusMeta.label}
+                                      </span>
+                                    </div>
+                                    <span className="shrink-0 text-[11px] font-semibold text-rose-600">
+                                      {statusMeta.waitingDurationLabel}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">
+                                    {pendingRequest
+                                      ? `${pendingRequest.propertyTitle || 'Bien'} - ${pendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'}`
+                                      : statusMeta.detail}
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-rose-600">
+                                    <span>Sans reponse depuis {statusMeta.waitingDurationLabel}</span>
+                                    <span>{historyCount} historique</span>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Autres proprietaires</p>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{nonOverdueCalendarOwners.length}</span>
+                      </div>
+                      <div className="space-y-2">
+                    {nonOverdueCalendarOwners.map((owner) => {
                       const isActive = selectedCalendarOwner?.id === owner.id;
                       const status = ownerCalendarStatuses[owner.id] || null;
-                      const statusMeta = getOwnerCalendarStatusMeta(status);
+                      const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
                       const pendingRequest = pendingCalendarRequestByOwner.get(owner.id) || null;
                       const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
                       return (
@@ -2634,12 +2736,15 @@ export default function NotificationsPage() {
                             </p>
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
                               <span>{statusMeta.label}</span>
+                              {statusMeta.waitingDurationLabel ? <span>Sans reponse {statusMeta.waitingDurationLabel}</span> : null}
                               <span>{historyCount} historique</span>
                             </div>
                           </div>
                         </button>
                       );
                     })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2732,7 +2837,7 @@ export default function NotificationsPage() {
                                 />
                               </label>
                               <label className="space-y-1 text-sm">
-                                <span className="font-medium text-slate-700">Heure quotidienne ({calendarPromptSchedule.timezoneOffsetLabel})</span>
+                                <span className="font-medium text-slate-700">Heure quotidienne</span>
                                 <input
                                   type="time"
                                   value={calendarPromptSchedule.dailyTime}
@@ -2799,6 +2904,12 @@ export default function NotificationsPage() {
                                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Synthese</p>
                                   <p className="mt-2 text-sm font-semibold text-slate-900">{selectedCalendarStatusMeta.helper || 'Aucune action detaillee'}</p>
+                                </div>
+                                <div className={`rounded-2xl border p-4 ${selectedCalendarStatusMeta.isOverdue ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'}`}>
+                                  <p className={`text-xs font-semibold uppercase tracking-wide ${selectedCalendarStatusMeta.isOverdue ? 'text-rose-600' : 'text-slate-500'}`}>Temps sans reponse</p>
+                                  <p className={`mt-2 text-sm font-semibold ${selectedCalendarStatusMeta.isOverdue ? 'text-rose-700' : 'text-slate-900'}`}>
+                                    {selectedCalendarStatusMeta.waitingDurationLabel || 'Aucun retard en cours'}
+                                  </p>
                                 </div>
                               </div>
                               {selectedCalendarPendingRequest ? (

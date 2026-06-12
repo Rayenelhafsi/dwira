@@ -144,6 +144,21 @@ function safeParseJson(value, fallbackValue = null) {
   }
 }
 
+function resolveBienOwnerDisplayName(bien) {
+  if (!bien || typeof bien !== 'object') return 'Bien';
+  const saisonCfg = safeParseJson(
+    bien.location_saisonniere_config_json || bien.location_saisonniere_config || null,
+    {}
+  );
+  return String(
+    bien.nom_bien_mobile
+      || saisonCfg?.nom_bien_mobile
+      || bien.titre
+      || bien.reference
+      || 'Bien'
+  ).trim() || 'Bien';
+}
+
 function buildFlouciAuthorizationHeaders() {
   const bearer = `Bearer ${FLOUCI_PUBLIC_KEY}:${FLOUCI_PRIVATE_KEY}`;
   return {
@@ -15335,22 +15350,24 @@ app.get('/api/mobile/owners/:ownerId/availability-requests', async (req, res) =>
       return res.status(400).json({ error: 'ownerId requis' });
     }
     await ensureReservationDemandSchema();
-    const [rows] = await pool.query(
-      `SELECT
-         d.id,
-         d.bien_id,
-         d.proprietaire_id,
+	    const [rows] = await pool.query(
+	      `SELECT
+	         d.id,
+	         d.bien_id,
+	         d.proprietaire_id,
          d.start_date,
          d.end_date,
          d.guests,
-         d.status,
-         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
-         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
-         b.titre AS bien_titre,
-         b.reference AS bien_reference,
-         (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
-       FROM reservation_demands d
-       LEFT JOIN biens b ON b.id = d.bien_id
+	         d.status,
+	         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+	         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+	         b.titre AS bien_titre,
+	         b.nom_bien_mobile AS bien_nom_bien_mobile,
+	         b.reference AS bien_reference,
+	         b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
+	         (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
+	       FROM reservation_demands d
+	       LEFT JOIN biens b ON b.id = d.bien_id
        WHERE d.proprietaire_id = ?
          AND d.owner_notified_at IS NOT NULL
          AND d.owner_response_at IS NULL
@@ -15359,8 +15376,17 @@ app.get('/api/mobile/owners/:ownerId/availability-requests', async (req, res) =>
        LIMIT 20`,
       [ownerId]
     );
-    res.json(rows || []);
-  } catch (error) {
+	    const mapped = (rows || []).map((row) => ({
+	      ...row,
+	      propertyTitle: resolveBienOwnerDisplayName({
+	        titre: row.bien_titre,
+	        nom_bien_mobile: row.bien_nom_bien_mobile,
+	        reference: row.bien_reference,
+	        location_saisonniere_config_json: row.bien_location_saisonniere_config_json,
+	      }),
+	    }));
+	    res.json(mapped);
+	  } catch (error) {
     console.error('Error fetching owner availability requests:', error);
     res.status(500).json({ error: 'Failed to fetch owner availability requests' });
   }
@@ -16898,14 +16924,16 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
     if (!demandId) {
       return res.status(400).json({ error: 'Demande introuvable' });
     }
-    const [rows] = await pool.query(
-      `SELECT
-         d.*,
-         b.titre AS bien_titre,
-         b.reference AS bien_reference,
-         p.nom AS proprietaire_nom,
-         (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
-       FROM reservation_demands d
+	    const [rows] = await pool.query(
+	      `SELECT
+	         d.*,
+	         b.titre AS bien_titre,
+	         b.nom_bien_mobile AS bien_nom_bien_mobile,
+	         b.reference AS bien_reference,
+	         b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
+	         p.nom AS proprietaire_nom,
+	         (SELECT m.url FROM media m WHERE m.bien_id = d.bien_id ORDER BY COALESCE(m.position, 0) ASC, m.id ASC LIMIT 1) AS cover_media_url
+	       FROM reservation_demands d
        LEFT JOIN biens b ON b.id = d.bien_id
        LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
        WHERE d.id = ?
@@ -16919,11 +16947,17 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
     const ownerId = String(current.proprietaire_id || '').trim();
     if (!ownerId) {
       return res.status(400).json({ error: 'Aucun proprietaire lie a cette demande' });
-    }
+	    }
 
-    const now = getAgencySqlDateTime();
-    const nextStatus = 'en_attente_reponse_proprietaire';
-    // Admin can re-send availability request:
+	    const now = getAgencySqlDateTime();
+	    const nextStatus = 'en_attente_reponse_proprietaire';
+	    const ownerPropertyTitle = resolveBienOwnerDisplayName({
+	      titre: current.bien_titre,
+	      nom_bien_mobile: current.bien_nom_bien_mobile,
+	      reference: current.bien_reference,
+	      location_saisonniere_config_json: current.bien_location_saisonniere_config_json,
+	    });
+	    // Admin can re-send availability request:
     // reset previous owner response timestamp so owner can answer again
     // and admin gets a fresh response cycle.
     await pool.query(
@@ -16947,37 +16981,40 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
       now
     );
 
-    const notificationMessage = `Confirmez la disponibilite du bien ${String(current.bien_titre || current.bien_reference || current.bien_id || 'bien')} pour la periode ${String(current.start_date || '')} -> ${String(current.end_date || '')}`;
-    await createOwnerMobileNotification({
-      ownerId,
-      type: 'warning',
-      message: notificationMessage,
-      metadata: {
-        kind: 'reservation_availability_request',
-        demandId,
-        ownerId,
-        bienId: String(current.bien_id || '').trim(),
-        propertyTitle: String(current.bien_titre || current.bien_reference || '').trim(),
-        startDate: String(current.start_date || '').trim(),
-        endDate: String(current.end_date || '').trim(),
-        guests: Number(current.guests || 1),
-        coverMediaUrl: String(current.cover_media_url || '').trim(),
+	    const notificationMessage = `Confirmez la disponibilite de ${ownerPropertyTitle} du ${String(current.start_date || '')} au ${String(current.end_date || '')}`;
+	    await createOwnerMobileNotification({
+	      ownerId,
+	      type: 'warning',
+	      message: notificationMessage,
+	      metadata: {
+	        kind: 'reservation_availability_request',
+	        demandId,
+	        ownerId,
+	        bienId: String(current.bien_id || '').trim(),
+	        propertyTitle: ownerPropertyTitle,
+	        startDate: String(current.start_date || '').trim(),
+	        endDate: String(current.end_date || '').trim(),
+	        guests: Number(current.guests || 1),
+	        coverMediaUrl: String(current.cover_media_url || '').trim(),
       },
       createdAt: now,
     });
 
-    const pushResult = await pushToOwnerDevices(ownerId, {
-      title: 'Demande de disponibilite',
-      body: notificationMessage,
-      data: {
-        title: 'Demande de disponibilite',
-        body: notificationMessage,
-        kind: 'reservation_availability_request',
-        demandId,
-        ownerId,
-        bienId: String(current.bien_id || '').trim(),
-      },
-    });
+	    const pushResult = await pushToOwnerDevices(ownerId, {
+	      title: 'Demande de disponibilite',
+	      body: notificationMessage,
+	      data: {
+	        title: 'Demande de disponibilite',
+	        body: notificationMessage,
+	        kind: 'reservation_availability_request',
+	        demandId,
+	        ownerId,
+	        bienId: String(current.bien_id || '').trim(),
+	        propertyTitle: ownerPropertyTitle,
+	        startDate: String(current.start_date || '').trim(),
+	        endDate: String(current.end_date || '').trim(),
+	      },
+	    });
 
     await createAdminNotification(
       'info',

@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -61,6 +61,7 @@ type SidebarReservationDemand = {
 export function AdminSidebar({ onClose }: AdminSidebarProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [notificationAlertCount, setNotificationAlertCount] = useState(0);
   const [importantAlertCount, setImportantAlertCount] = useState(0);
   const hasLoadedAlertsRef = useRef(false);
@@ -72,6 +73,11 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     if (onClose) {
       onClose();
     }
+  };
+
+  const openUrgentAlerts = () => {
+    navigate(`/admin/notifications?focus=urgent&panel=alerts&t=${Date.now()}`);
+    handleNavClick();
   };
 
   const fetchNotificationAlerts = useCallback(async () => {
@@ -169,9 +175,9 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
               <p className="text-xs text-emerald-400">Gestion immobiliere</p>
             </div>
           </div>
-          <Link
-            to="/admin/notifications?focus=urgent"
-            onClick={handleNavClick}
+          <button
+            type="button"
+            onClick={openUrgentAlerts}
             className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-800 bg-emerald-900/70 text-emerald-100 transition-colors hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-100"
             aria-label="Voir les notifications urgentes"
           >
@@ -181,7 +187,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
                 {importantAlertCount > 99 ? '99+' : importantAlertCount}
               </span>
             )}
-          </Link>
+          </button>
         </div>
       </div>
 
