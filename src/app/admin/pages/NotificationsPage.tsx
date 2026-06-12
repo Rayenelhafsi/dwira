@@ -4,7 +4,7 @@ import { useRef } from 'react';
 import { toast } from 'sonner';
 import AvailabilityCalendar from '../../components/AvailabilityCalendar';
 import { useProperties } from '../../context/PropertiesContext';
-import type { DateStatus, Notification, Proprietaire, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
+import type { Bien, DateStatus, Notification, Proprietaire, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
 import { getServiceDisplayPrice } from '../../utils/servicePayants';
 import { resolveMediaUrl } from '../../utils/media';
 
@@ -201,21 +201,50 @@ async function getApiErrorMessage(response: Response, fallback: string) {
   return fallback;
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return '-';
+function parseDisplayDate(value?: unknown) {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
   const raw = String(value).trim();
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (!match) return value;
-  const [, year, month, day, hour = '00', minute = '00', second = '00'] = match;
-  return `${day}/${month}/${year} ${hour}:${minute}:${second}`;
+  if (!raw) return null;
+  const regexMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (regexMatch) {
+    const [, year, month, day, hour = '00', minute = '00', second = '00'] = regexMatch;
+    const parsed = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second)
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
-function formatStayDate(value?: string | null) {
-  if (!value) return '-';
-  const raw = String(value).trim();
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return value;
-  const [, year, month, day] = match;
-  return `${day}/${month}/${year}`;
+
+function padDateUnit(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function formatDateTime(value?: unknown) {
+  const parsed = parseDisplayDate(value);
+  if (!parsed) return '-';
+  return `${padDateUnit(parsed.getDate())}/${padDateUnit(parsed.getMonth() + 1)}/${parsed.getFullYear()} ${padDateUnit(parsed.getHours())}:${padDateUnit(parsed.getMinutes())}:${padDateUnit(parsed.getSeconds())}`;
+}
+
+function formatStayDate(value?: unknown) {
+  const parsed = parseDisplayDate(value);
+  if (!parsed) return '-';
+  return `${padDateUnit(parsed.getDate())}/${padDateUnit(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
+}
+
+function formatTimeOnly(value?: unknown) {
+  const parsed = parseDisplayDate(value);
+  if (!parsed) return '--:--';
+  return `${padDateUnit(parsed.getHours())}:${padDateUnit(parsed.getMinutes())}:${padDateUnit(parsed.getSeconds())}`;
 }
 
 function parseDateForRelative(value?: string | null) {
@@ -281,6 +310,25 @@ type NotificationCategory =
 
 type NotificationImportance = 'urgent' | 'modere' | 'normal';
 
+type NotificationInsight = {
+  notification: Notification;
+  category: NotificationCategory;
+  importance: NotificationImportance;
+  title: string;
+};
+
+type EnrichedNotificationInsight = NotificationInsight & {
+  demand: ReservationDemand | null;
+  bien: Bien | null;
+  clientName: string;
+  sourceLabel: string;
+  paymentMethodLabel: string;
+  modeLabel: string;
+  primaryLabel: string;
+  secondaryLabel: string;
+  detailLabel: string;
+};
+
 function classifyNotification(notification: Notification): {
   category: NotificationCategory;
   importance: NotificationImportance;
@@ -338,6 +386,78 @@ function classifyNotification(notification: Notification): {
   };
 }
 
+function formatMoney(value?: number | null) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return '-';
+  return `${amount.toLocaleString('fr-FR')} DT`;
+}
+
+function formatModeLabel(mode?: string | null) {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (normalized === 'hotellerie' || normalized.includes('hotel')) return 'Hotellerie';
+  if (normalized === 'location_saisonniere') return 'Location saisonniere';
+  if (normalized === 'location_annuelle') return 'Location annuelle';
+  if (normalized === 'vente') return 'Vente';
+  return 'Demande client';
+}
+
+function formatPaymentMethodLabel(demand?: ReservationDemand | null, message?: string | null) {
+  const normalizedMessage = String(message || '').toLowerCase();
+  if (String(demand?.clicktopay_payment_id || '').trim() || normalizedMessage.includes('clicktopay')) return 'ClicToPay';
+  if (String(demand?.flouci_checkout_id || '').trim() || normalizedMessage.includes('flouci')) return 'Flouci';
+  if (String(demand?.payment_receipt_image_url || '').trim() || normalizedMessage.includes('recu')) return 'Recu manuel';
+  const paymentMode = String(demand?.payment_mode || '').trim();
+  if (paymentMode === 'avance') return 'Acompte';
+  if (paymentMode === 'totalite') return 'Paiement total';
+  if (paymentMode === 'amicale') return 'Amicale';
+  return 'Paiement a verifier';
+}
+
+function getDemandClientName(demand?: ReservationDemand | null) {
+  const identityName = [demand?.identity_first_name, demand?.identity_last_name]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  if (identityName) return identityName;
+  const clientName = String(demand?.client_name || '').trim();
+  if (clientName) return clientName;
+  const email = String(demand?.client_email || '').trim();
+  if (email) return email;
+  return 'Client non renseigne';
+}
+
+function getDemandSourceLabel(demand?: ReservationDemand | null, message?: string | null) {
+  const demandId = String(demand?.id || '').toLowerCase();
+  const normalizedMessage = String(message || '').toLowerCase();
+  if (demandId.includes('chatbot') || normalizedMessage.includes('chatbot')) return 'Chatbot';
+  if (normalizedMessage.includes('facebook')) return 'Facebook';
+  if (normalizedMessage.includes('whatsapp')) return 'WhatsApp';
+  return 'Site web';
+}
+
+function getDemandActionTitle(category: NotificationCategory, message?: string | null) {
+  const normalizedMessage = String(message || '').toLowerCase();
+  if (category === 'contrat') return 'Contrat genere';
+  if (category === 'paiement') {
+    if (normalizedMessage.includes('recu')) return 'Paiement recu';
+    if (normalizedMessage.includes('clicktopay')) return 'Paiement ClicToPay';
+    return 'Paiement client';
+  }
+  if (category === 'proprietaire') return 'Message proprietaire';
+  if (category === 'calendrier') return 'Alerte calendrier';
+  return 'Demande de reservation';
+}
+
+function summarizeNotificationDetail(message?: string | null) {
+  const normalized = String(message || '')
+    .replace(/rd_chatbot_[^ )]+/gi, '')
+    .replace(/c\d+/gi, '')
+    .replace(/p\d+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return normalized || 'Action en attente de verification.';
+}
+
 function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null) {
   const value = String(status?.status || '').trim();
   const sentAt = value === 'pending'
@@ -392,10 +512,12 @@ export default function NotificationsPage() {
   const [demands, setDemands] = useState<ReservationDemand[]>([]);
   const [historyRows, setHistoryRows] = useState<ReservationDemandHistory[]>([]);
   const [historyDemandId, setHistoryDemandId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'demands' | 'chat' | 'calendars'>('demands');
+  const [activeView, setActiveView] = useState<'demands' | 'chat' | 'calendars' | 'system'>('demands');
   const [notificationCategoryFilter, setNotificationCategoryFilter] = useState<'all' | NotificationCategory>('all');
   const [notificationImportanceFilter, setNotificationImportanceFilter] = useState<'all' | NotificationImportance>('all');
   const [showUrgentNotificationsOnly, setShowUrgentNotificationsOnly] = useState(false);
+  const [isAdminAlertsOpen, setIsAdminAlertsOpen] = useState(false);
+  const [adminAlertsUrgentOnly, setAdminAlertsUrgentOnly] = useState(false);
   const [demandTab, setDemandTab] = useState<'pending' | 'finished_success' | 'finished_cancelled'>('pending');
   const [cancelledSubTab, setCancelledSubTab] = useState<'client' | 'echeance'>('client');
   const [selectedChatOwner, setSelectedChatOwner] = useState<{ id: string; name: string; demandId?: string } | null>(null);
@@ -415,6 +537,7 @@ export default function NotificationsPage() {
   const [calendarRequestHistory, setCalendarRequestHistory] = useState<AdminCalendarRequest[]>([]);
   const [calendarReviewRequest, setCalendarReviewRequest] = useState<AdminCalendarRequest | null>(null);
   const [calendarReviewDiff, setCalendarReviewDiff] = useState<CalendarDiffPayload | null>(null);
+  const [selectedClientDemand, setSelectedClientDemand] = useState<ReservationDemand | null>(null);
   const [calendarReviewLoading, setCalendarReviewLoading] = useState(false);
   const [calendarActionLoadingId, setCalendarActionLoadingId] = useState<string | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
@@ -431,6 +554,7 @@ export default function NotificationsPage() {
   const isFetchingRef = useRef(false);
   const isChatFetchingRef = useRef<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const adminAlertsPanelRef = useRef<HTMLDivElement | null>(null);
 
   const fetchData = useCallback(async (options?: { background?: boolean }) => {
     if (isFetchingRef.current) return;
@@ -572,7 +696,25 @@ export default function NotificationsPage() {
     return { awaitingOwner, awaitingClient, paymentFlow };
   }, [pendingDemands]);
 
-  const notificationInsights = useMemo(
+  const biensById = useMemo(() => {
+    const byId = new Map<string, Bien>();
+    biens.forEach((bien) => {
+      const bienId = String(bien.id || '').trim();
+      if (bienId) byId.set(bienId, bien);
+    });
+    return byId;
+  }, [biens]);
+
+  const biensByReference = useMemo(() => {
+    const byReference = new Map<string, Bien>();
+    biens.forEach((bien) => {
+      const reference = String(bien.reference || '').trim().toLowerCase();
+      if (reference) byReference.set(reference, bien);
+    });
+    return byReference;
+  }, [biens]);
+
+  const notificationInsights = useMemo<NotificationInsight[]>(
     () =>
       notifications.map((notification) => ({
         notification,
@@ -581,9 +723,60 @@ export default function NotificationsPage() {
     [notifications]
   );
 
+  const enrichedNotificationInsights = useMemo<EnrichedNotificationInsight[]>(() => {
+    const demandCandidates = demands.filter((demand) => !isAmicaleDemand(demand));
+    return notificationInsights.map((item) => {
+      const message = String(item.notification.message || '');
+      const normalizedMessage = message.toLowerCase();
+      const linkedDemand = demandCandidates.find((demand) => {
+        const demandId = String(demand.id || '').trim();
+        const contractId = String(demand.contract_id || '').trim();
+        const paymentIds = [
+          demand.reservation_payment_id,
+          demand.services_payment_id,
+          demand.payment_id,
+          demand.clicktopay_payment_id,
+          demand.clicktopay_order_number,
+          demand.flouci_checkout_id,
+        ]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean);
+        const signatures = [
+          demandId,
+          contractId,
+          ...paymentIds,
+          String(demand.client_email || '').trim(),
+          String(demand.client_name || '').trim(),
+          String(demand.identity_first_name || '').trim(),
+          String(demand.identity_last_name || '').trim(),
+          String(demand.bien_reference || '').trim(),
+        ].filter(Boolean);
+        return signatures.some((signature) => normalizedMessage.includes(String(signature).toLowerCase()));
+      }) || null;
+      const linkedBien = linkedDemand
+        ? (biensById.get(String(linkedDemand.bien_id || '').trim()) || biensByReference.get(String(linkedDemand.bien_reference || '').trim().toLowerCase()) || null)
+        : null;
+      const modeLabel = formatModeLabel(linkedBien?.mode || (normalizedMessage.includes('hotel') ? 'hotellerie' : 'location_saisonniere'));
+      return {
+        ...item,
+        demand: linkedDemand,
+        bien: linkedBien,
+        clientName: getDemandClientName(linkedDemand),
+        sourceLabel: getDemandSourceLabel(linkedDemand, message),
+        paymentMethodLabel: formatPaymentMethodLabel(linkedDemand, message),
+        modeLabel,
+        primaryLabel: getDemandActionTitle(item.category, message),
+        secondaryLabel: linkedDemand
+          ? `${getDemandClientName(linkedDemand)} • ${modeLabel}`
+          : `${modeLabel} • ${item.title}`,
+        detailLabel: summarizeNotificationDetail(message),
+      };
+    });
+  }, [notificationInsights, demands, biensById, biensByReference]);
+
   const urgentNotificationCount = useMemo(
-    () => notificationInsights.filter((item) => !item.notification.lu && item.importance === 'urgent').length,
-    [notificationInsights]
+    () => enrichedNotificationInsights.filter((item) => !item.notification.lu && item.importance === 'urgent').length,
+    [enrichedNotificationInsights]
   );
 
   const notificationCategoryCounters = useMemo(() => {
@@ -595,11 +788,11 @@ export default function NotificationsPage() {
       calendrier: 0,
       systeme: 0,
     };
-    notificationInsights.forEach((item) => {
+    enrichedNotificationInsights.forEach((item) => {
       counters[item.category] += 1;
     });
     return counters;
-  }, [notificationInsights]);
+  }, [enrichedNotificationInsights]);
 
   const notificationImportanceCounters = useMemo(() => {
     const counters: Record<NotificationImportance, number> = {
@@ -607,20 +800,20 @@ export default function NotificationsPage() {
       modere: 0,
       normal: 0,
     };
-    notificationInsights.forEach((item) => {
+    enrichedNotificationInsights.forEach((item) => {
       counters[item.importance] += 1;
     });
     return counters;
-  }, [notificationInsights]);
+  }, [enrichedNotificationInsights]);
 
   const filteredNotificationInsights = useMemo(() => {
-    return notificationInsights.filter((item) => {
+    return enrichedNotificationInsights.filter((item) => {
       if (showUrgentNotificationsOnly && item.importance !== 'urgent') return false;
       if (notificationCategoryFilter !== 'all' && item.category !== notificationCategoryFilter) return false;
       if (notificationImportanceFilter !== 'all' && item.importance !== notificationImportanceFilter) return false;
       return true;
     });
-  }, [notificationInsights, showUrgentNotificationsOnly, notificationCategoryFilter, notificationImportanceFilter]);
+  }, [enrichedNotificationInsights, showUrgentNotificationsOnly, notificationCategoryFilter, notificationImportanceFilter]);
 
   const groupedNotificationsByImportance = useMemo(() => {
     return {
@@ -629,6 +822,43 @@ export default function NotificationsPage() {
       normal: filteredNotificationInsights.filter((item) => item.importance === 'normal'),
     };
   }, [filteredNotificationInsights]);
+
+  const adminAlertPreviewItems = useMemo(() => {
+    const importanceScore: Record<NotificationImportance, number> = {
+      urgent: 0,
+      modere: 1,
+      normal: 2,
+    };
+    return enrichedNotificationInsights
+      .filter((item) => !item.notification.lu)
+      .slice()
+      .sort((left, right) => {
+        const scoreGap = importanceScore[left.importance] - importanceScore[right.importance];
+        if (scoreGap !== 0) return scoreGap;
+        return String(right.notification.created_at || '').localeCompare(String(left.notification.created_at || ''));
+      })
+      .slice(0, 6);
+  }, [enrichedNotificationInsights]);
+
+  const visibleAdminAlertPreviewItems = useMemo(
+    () => (adminAlertsUrgentOnly ? adminAlertPreviewItems.filter((item) => item.importance === 'urgent') : adminAlertPreviewItems),
+    [adminAlertPreviewItems, adminAlertsUrgentOnly]
+  );
+
+  const unreadOwnerNotificationByOwnerId = useMemo(() => {
+    const byOwnerId = new Map<string, EnrichedNotificationInsight>();
+    enrichedNotificationInsights
+      .filter((item) => !item.notification.lu && item.category === 'proprietaire')
+      .forEach((item) => {
+        const ownerId = String(item.demand?.proprietaire_id || '').trim();
+        if (!ownerId) return;
+        const current = byOwnerId.get(ownerId);
+        if (!current || String(item.notification.created_at || '') > String(current.notification.created_at || '')) {
+          byOwnerId.set(ownerId, item);
+        }
+      });
+    return byOwnerId;
+  }, [enrichedNotificationInsights]);
 
   const chatOwners = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; demandId?: string }>();
@@ -702,8 +932,7 @@ export default function NotificationsPage() {
 
   const filteredChatOwners = useMemo(() => {
     const needle = String(chatOwnerSearch || '').trim().toLowerCase();
-    if (!needle) return chatOwners;
-    return chatOwners.filter((owner) => {
+    const baseRows = !needle ? chatOwners : chatOwners.filter((owner) => {
       const profile = ownerLookup.get(owner.id);
       const demandReferences = (ownerDemandsByOwnerId.get(owner.id) || []).map((demand) => String(demand.bien_reference || demand.bien_id || ''));
       const ownedBiens = (biensByOwnerId.get(owner.id) || []).flatMap((bien) => [bien.reference, bien.titre, bien.nom_bien_mobile]);
@@ -711,7 +940,18 @@ export default function NotificationsPage() {
         .map((value) => String(value || '').toLowerCase())
         .some((value) => value.includes(needle));
     });
-  }, [chatOwnerSearch, chatOwners, ownerLookup, ownerDemandsByOwnerId, biensByOwnerId]);
+    return [...baseRows].sort((a, b) => {
+      const aUnread = unreadOwnerNotificationByOwnerId.has(a.id) ? 1 : 0;
+      const bUnread = unreadOwnerNotificationByOwnerId.has(b.id) ? 1 : 0;
+      if (aUnread !== bUnread) return bUnread - aUnread;
+      const aDemand = (ownerDemandsByOwnerId.get(a.id) || [])[0];
+      const bDemand = (ownerDemandsByOwnerId.get(b.id) || [])[0];
+      const aUpdatedAt = String(aDemand?.updated_at || aDemand?.created_at || '');
+      const bUpdatedAt = String(bDemand?.updated_at || bDemand?.created_at || '');
+      if (aUpdatedAt !== bUpdatedAt) return bUpdatedAt.localeCompare(aUpdatedAt);
+      return a.name.localeCompare(b.name, 'fr');
+    });
+  }, [chatOwnerSearch, chatOwners, ownerLookup, ownerDemandsByOwnerId, biensByOwnerId, unreadOwnerNotificationByOwnerId]);
 
   const selectedOwnerProfile = selectedChatOwner ? ownerLookup.get(selectedChatOwner.id) || null : null;
   const selectedOwnerDemands = useMemo(
@@ -723,7 +963,7 @@ export default function NotificationsPage() {
       Array.from(
         new Set(
           selectedOwnerDemands
-            .map((demand) => String(demand.bien_reference || demand.bien_id || '').trim())
+            .map((demand) => String(demand.bien_reference || '').trim())
             .filter(Boolean)
         )
       ),
@@ -746,11 +986,10 @@ export default function NotificationsPage() {
   const formatChatPreview = (ownerId: string) => {
     const latestDemand = (ownerDemandsByOwnerId.get(ownerId) || [])[0];
     if (!latestDemand) return 'Aucune demande recente';
-    const reference = String(latestDemand.bien_reference || latestDemand.bien_id || '').trim();
+    const reference = String(latestDemand.bien_reference || '').trim();
     const title = String(latestDemand.bien_titre || '').trim();
     if (reference && title) return `${reference} - ${title}`;
     if (title) return title;
-    if (reference) return `Reference ${reference}`;
     return statusLabels[resolveDisplayStatus(latestDemand)] || 'Conversation proprietaire';
   };
 
@@ -765,6 +1004,20 @@ export default function NotificationsPage() {
   const getBienCoverImage = (bien: typeof biens[number]) => {
     const firstImage = (bien.media || []).find((media) => media.type === 'image' && String(media.url || '').trim());
     return firstImage ? resolveMediaUrl(firstImage.url) : 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520"%3E%3Crect width="800" height="520" fill="%23ecfdf5"/%3E%3Cpath d="M0 360L180 230l110 84 120-96 180 142H0z" fill="%23a7f3d0"/%3E%3Ccircle cx="620" cy="140" r="44" fill="%236ee7b7"/%3E%3C/svg%3E';
+  };
+
+  const getPropertyPreviewText = (bien?: Bien | null) => {
+    if (!bien) return '';
+    const comfort = Array.isArray(bien.caracteristiques) ? bien.caracteristiques.slice(0, 4).join(', ') : '';
+    return [
+      `Emplacement: ${bien.distance_plage_m ? `A ${bien.distance_plage_m} m de la plage` : 'Emplacement a confirmer'}`,
+      `Prix nuit: ${formatMoney(bien.prix_nuitee)}`,
+      `Prix semaine: ${formatMoney(bien.prix_semaine)}`,
+      `Prix proprietaire: ${formatMoney(bien.prix_proprietaire || bien.prix_fixe_proprietaire)}`,
+      `Type: ${String(bien.type || 'Bien').replace(/_/g, ' ')}`,
+      `Sous-type: ${String(bien.residence_unit_sub_type || bien.configuration || '-').replace(/_/g, ' ')}`,
+      `Confort: ${comfort || 'A preciser'}`,
+    ].join('\n');
   };
 
   const calendarOwners = useMemo(() => {
@@ -891,12 +1144,24 @@ export default function NotificationsPage() {
   }, [chatMessages, chatLoading, selectedChatOwner?.id]);
 
   useEffect(() => {
+    if (!isAdminAlertsOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!adminAlertsPanelRef.current) return;
+      if (adminAlertsPanelRef.current.contains(event.target as Node)) return;
+      setIsAdminAlertsOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isAdminAlertsOpen]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('focus') !== 'urgent') return;
     setShowUrgentNotificationsOnly(true);
-    setNotificationImportanceFilter('all');
-    setActiveView('demands');
+    setNotificationImportanceFilter('urgent');
+    setAdminAlertsUrgentOnly(true);
+    setIsAdminAlertsOpen(true);
   }, []);
 
   const sendChatMessage = async () => {
@@ -1272,18 +1537,20 @@ export default function NotificationsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
           <p className="mt-1 text-sm text-gray-500">Demandes de reservation, alertes admin et suivi de progression.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex flex-wrap items-center gap-2" ref={adminAlertsPanelRef}>
           <button
             type="button"
             onClick={() => {
-              setShowUrgentNotificationsOnly((prev) => !prev);
-              setNotificationImportanceFilter('all');
+              setAdminAlertsUrgentOnly(false);
+              setIsAdminAlertsOpen((prev) => !prev);
             }}
             className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors ${
-              showUrgentNotificationsOnly
-                ? 'border-rose-300 bg-rose-50 text-rose-700'
+              isAdminAlertsOpen
+                ? 'border-rose-300 bg-rose-50 text-rose-700 shadow-sm'
                 : 'border-rose-200 bg-white text-rose-700 hover:bg-rose-50'
             }`}
+            aria-expanded={isAdminAlertsOpen}
+            aria-haspopup="dialog"
           >
             <BellRing className="h-4 w-4" />
             Alertes admin
@@ -1292,7 +1559,85 @@ export default function NotificationsPage() {
                 {urgentNotificationCount}
               </span>
             )}
+            {isAdminAlertsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
+          {isAdminAlertsOpen && (
+            <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-[min(26rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
+              <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Alertes admin</h2>
+                  <p className="text-sm text-gray-500">Priorite urgente, moderee et suivi immediat.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAdminAlertsOpen(false)}
+                  className="rounded-full border border-gray-200 p-2 text-gray-500 hover:bg-gray-50"
+                  aria-label="Fermer les alertes admin"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="max-h-[28rem] overflow-y-auto px-3 py-3">
+                {visibleAdminAlertPreviewItems.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
+                    Aucune alerte non lue pour le moment.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {visibleAdminAlertPreviewItems.map(({ notification, importance, title }) => (
+                      <button
+                        key={`admin-alert-preview-${notification.id}`}
+                        type="button"
+                        onClick={() => {
+                          setActiveView('system');
+                          setShowUrgentNotificationsOnly(importance === 'urgent');
+                          setNotificationImportanceFilter(importance === 'urgent' ? 'all' : importance);
+                          setNotificationCategoryFilter('all');
+                          setIsAdminAlertsOpen(false);
+                        }}
+                        className="block w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-left transition-colors hover:border-emerald-200 hover:bg-emerald-50/40"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                importance === 'urgent'
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : importance === 'modere'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {importance === 'urgent' ? 'Urgent' : importance === 'modere' ? 'Modere' : 'Normal'}
+                              </span>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{title}</span>
+                            </div>
+                            <p className="mt-2 line-clamp-2 text-sm leading-5 text-gray-800">{notification.message}</p>
+                            <p className="mt-2 text-xs text-gray-500">{formatDateTime(notification.created_at)}</p>
+                          </div>
+                          <span className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveView('system');
+                    setShowUrgentNotificationsOnly(false);
+                    setNotificationImportanceFilter('all');
+                    setNotificationCategoryFilter('all');
+                    setIsAdminAlertsOpen(false);
+                  }}
+                  className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  Voir toutes les notifications
+                </button>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => void fetchData({ background: true })}
@@ -1345,6 +1690,13 @@ export default function NotificationsPage() {
           className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'calendars' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
         >
           Calendriers
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView('system')}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'system' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+        >
+          Notifications systeme
         </button>
       </div>
 
@@ -1425,10 +1777,11 @@ export default function NotificationsPage() {
                     </span>
                   </div>
                   <p className="text-base font-semibold text-gray-900">
-                    {demand.bien_reference || demand.bien_id} - {demand.bien_titre || 'Bien'}
+                    {(String(demand.bien_titre || '').trim() || 'Bien demande')}
+                    {String(demand.bien_reference || '').trim() ? ` • ${String(demand.bien_reference).trim()}` : ''}
                   </p>
                   <p className="text-sm text-gray-700">
-                    {demand.client_name || demand.client_email || 'Client non identifie'} - {formatStayDate(demand.start_date)} {'->'} {formatStayDate(demand.end_date)} - {demand.guests} voyageurs
+                    {demand.client_name || demand.client_email || 'Client non identifie'} - Arrivee {formatStayDate(demand.start_date)} - Depart {formatStayDate(demand.end_date)} - {demand.guests} voyageurs
                   </p>
                   <p className="text-xs text-gray-500">
                     Proprietaire: <span className="font-medium text-gray-700">{demand.proprietaire_nom || '-'}</span>
@@ -1774,6 +2127,7 @@ export default function NotificationsPage() {
                       const isActive = selectedChatOwner?.id === owner.id;
                       const ownerDemandCount = (ownerDemandsByOwnerId.get(owner.id) || []).length;
                       const latestDemand = (ownerDemandsByOwnerId.get(owner.id) || [])[0];
+                      const unreadOwnerNotification = unreadOwnerNotificationByOwnerId.get(owner.id) || null;
                       return (
                         <button
                           key={owner.id}
@@ -1797,15 +2151,22 @@ export default function NotificationsPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
-                              <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                                {unreadOwnerNotification ? (
+                                  <span className="mt-1 inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                    Message non lu
+                                  </span>
+                                ) : null}
+                              </div>
                               {latestDemand?.updated_at ? (
                                 <span className="shrink-0 text-[11px] text-slate-400">{formatRelativeDelay(latestDemand.updated_at).replace(/^il y a /, '')}</span>
                               ) : null}
                             </div>
-                            <p className="mt-1 line-clamp-2 text-sm text-slate-600">{formatChatPreview(owner.id)}</p>
+                            <p className={`mt-1 line-clamp-2 text-sm ${unreadOwnerNotification ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>
+                              {unreadOwnerNotification?.detailLabel || formatChatPreview(owner.id)}
+                            </p>
                             <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
-                              <span>ID: {owner.id}</span>
-                              <span className="inline-flex h-1 w-1 rounded-full bg-slate-500" />
                               <span>{ownerDemandCount} reference{ownerDemandCount > 1 ? 's' : ''}</span>
                             </div>
                           </div>
@@ -1847,9 +2208,9 @@ export default function NotificationsPage() {
                           <span className="hidden rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 md:inline-flex">Proprietaire</span>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 sm:gap-x-3 sm:text-xs">
-                          <span>ID: {selectedChatOwner.id}</span>
                           {selectedOwnerProfile?.telephone ? <span>{selectedOwnerProfile.telephone}</span> : null}
                           {selectedOwnerLatestDemand?.updated_at ? <span>Derniere activite {formatRelativeDelay(selectedOwnerLatestDemand.updated_at)}</span> : null}
+                          {unreadOwnerNotificationByOwnerId.has(selectedChatOwner.id) ? <span className="font-semibold text-emerald-700">Message non lu a traiter</span> : null}
                         </div>
                       </div>
                       <button
@@ -1862,9 +2223,17 @@ export default function NotificationsPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]">
-                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
-                      {chatLoading && (
+                   <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]">
+                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+                       {selectedChatOwner && unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id) && (
+                         <div className="mx-auto mb-4 max-w-4xl rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
+                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Message non lu</p>
+                           <p className="mt-2 text-sm font-medium text-slate-900">
+                             {unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id)?.detailLabel}
+                           </p>
+                         </div>
+                       )}
+                       {chatLoading && (
                         <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-500 shadow-sm">
                           Chargement de la conversation...
                         </div>
@@ -1970,7 +2339,6 @@ export default function NotificationsPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-lg font-semibold text-slate-900">{selectedChatOwner.name}</p>
-                        <p className="text-sm text-slate-500">ID: {selectedChatOwner.id}</p>
                         {selectedOwnerLatestDemand?.updated_at ? <p className="mt-1 text-xs font-medium text-emerald-700">Derniere activite {formatRelativeDelay(selectedOwnerLatestDemand.updated_at)}</p> : null}
                       </div>
                     </div>
@@ -2028,7 +2396,7 @@ export default function NotificationsPage() {
                               <img src={getBienCoverImage(bien)} alt={bien.titre} className="h-full w-full object-cover" />
                               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/60 via-slate-950/20 to-transparent p-4">
                                 <span className="inline-flex rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-800">
-                                  {bien.reference || bien.id}
+                                  {bien.reference || 'Reference disponible'}
                                 </span>
                               </div>
                             </div>
@@ -2059,8 +2427,11 @@ export default function NotificationsPage() {
                           <div key={`owner-demand-summary-${demand.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
-                                <p className="text-sm font-semibold text-slate-900">{demand.bien_reference || demand.bien_id || 'Sans reference'} - {demand.bien_titre || 'Bien'}</p>
-                                <p className="mt-1 text-xs text-slate-500">Sejour: {formatStayDate(demand.start_date)} {'->'} {formatStayDate(demand.end_date)}</p>
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {demand.bien_titre || 'Bien'}
+                                  {String(demand.bien_reference || '').trim() ? ` • ${String(demand.bien_reference).trim()}` : ''}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">Sejour: Arrivee {formatStayDate(demand.start_date)} - Depart {formatStayDate(demand.end_date)}</p>
                               </div>
                               <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusToneClasses[displayStatus] || 'border-slate-200 bg-slate-100 text-slate-700'}`}>
                                 {statusLabels[displayStatus] || displayStatus}
@@ -2181,7 +2552,7 @@ export default function NotificationsPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate font-semibold text-gray-900">{owner.name}</div>
-                          <div className="mt-1 text-xs text-gray-500">ID: {owner.id}</div>
+                          <div className="mt-1 text-xs text-gray-500">Proprietaire actif sur le calendrier</div>
                         </div>
                         <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusMeta.tone}`}>
                           {statusMeta.label}
@@ -2253,7 +2624,7 @@ export default function NotificationsPage() {
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div>
                             <div className="text-base font-semibold text-gray-900">{request.ownerName}</div>
-                            <div className="text-xs text-gray-500">ID: {request.ownerId}</div>
+                            <div className="text-xs text-gray-500">Demande envoyee par le proprietaire</div>
                             <div className="mt-2 text-sm text-gray-700">{request.propertyTitle || 'Bien sans titre'}</div>
                             <div className="mt-1 text-xs text-gray-500">
                               {request.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
@@ -2290,7 +2661,7 @@ export default function NotificationsPage() {
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div>
                             <div className="text-base font-semibold text-gray-900">{request.ownerName}</div>
-                            <div className="text-xs text-gray-500">ID: {request.ownerId}</div>
+                            <div className="text-xs text-gray-500">Demande historique proprietaire</div>
                             <div className="mt-2 text-sm text-gray-700">{request.propertyTitle || 'Bien sans titre'}</div>
                             <div className="mt-1 text-xs text-gray-500">
                               {request.requestType === 'open' ? 'Reouverture' : 'Fermeture'} du {formatStayDate(request.startDate)} au {formatStayDate(request.endDate)}
@@ -2313,6 +2684,7 @@ export default function NotificationsPage() {
         </section>
       )}
 
+      {activeView === 'system' && (
       <section className="rounded-2xl border border-gray-200 bg-white p-4 md:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -2445,35 +2817,128 @@ export default function NotificationsPage() {
                   <span className={`rounded-full bg-white px-2.5 py-1 text-xs font-semibold ${textTone}`}>{rows.length}</span>
                 </div>
                 <div className="space-y-3">
-                  {rows.map(({ notification, title: categoryTitle }) => (
-                    <div key={notification.id} className={`rounded-xl border bg-white p-4 shadow-sm ${notification.lu ? 'border-gray-200' : 'border-emerald-200'}`}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{categoryTitle}</span>
-                            {!notification.lu && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Non lue</span>}
+                  {rows.map(({ notification, title: categoryTitle, demand, bien, clientName, sourceLabel, paymentMethodLabel, modeLabel, primaryLabel, secondaryLabel, detailLabel }) => {
+                    const hasReceipt = Boolean(String(demand?.payment_receipt_image_url || '').trim());
+                    const receiptUrl = hasReceipt ? resolveAssetUrl(demand?.payment_receipt_image_url) : '';
+                    const propertyTooltip = getPropertyPreviewText(bien);
+                    const propertyName = String(bien?.nom_bien_mobile || bien?.titre || demand?.bien_titre || '').trim();
+                    return (
+                      <div
+                        key={notification.id}
+                        title={propertyTooltip || undefined}
+                        className={`rounded-[28px] border bg-white p-5 shadow-sm transition-shadow hover:shadow-[0_20px_45px_rgba(15,23,42,0.08)] ${notification.lu ? 'border-gray-200' : 'border-emerald-200 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]'}`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700">{categoryTitle}</span>
+                              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${modeLabel === 'Hotellerie' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                {modeLabel}
+                              </span>
+                              <span className="rounded-full bg-cyan-50 px-3 py-1 text-[11px] font-semibold text-cyan-700">
+                                Source: {sourceLabel}
+                              </span>
+                              <span className="rounded-full bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700">
+                                {paymentMethodLabel}
+                              </span>
+                              {!notification.lu && <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">Non lue</span>}
+                            </div>
+                            <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">{primaryLabel}</p>
+                                <h4 className="mt-2 text-xl font-semibold leading-tight text-slate-900">{clientName}</h4>
+                                <p className="mt-1 text-sm font-medium text-slate-600">{secondaryLabel}</p>
+                                {propertyName ? <p className="mt-2 text-sm text-slate-500">{propertyName}</p> : null}
+                                <p className="mt-3 text-sm leading-6 text-slate-700">{detailLabel}</p>
+                              </div>
+                              <div className="min-w-[190px] rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Notification</p>
+                                <p className="mt-2 text-lg font-bold text-slate-900">{formatStayDate(notification.created_at)}</p>
+                                <p className="text-sm font-medium text-slate-600">{formatDateTime(notification.created_at).split(' ').slice(1).join(' ')}</p>
+                              </div>
+                            </div>
+                            {demand && (
+                              <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr,1fr]">
+                                <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Sejour reserve</p>
+                                  <div className="mt-3 grid grid-cols-2 gap-3">
+                                    <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
+                                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Arrivee</p>
+                                      <p className="mt-1 text-lg font-bold text-slate-900">{formatStayDate(demand.start_date)}</p>
+                                    </div>
+                                    <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
+                                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Depart</p>
+                                      <p className="mt-1 text-lg font-bold text-slate-900">{formatStayDate(demand.end_date)}</p>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-600">
+                                    <span>{Number(demand.guests || 0)} voyageur{Number(demand.guests || 0) > 1 ? 's' : ''}</span>
+                                    {(Number(demand.adult_guests || 0) || Number(demand.child_guests || 0)) ? (
+                                      <span>Adultes {Number(demand.adult_guests || demand.guests || 0)} • Enfants {Number(demand.child_guests || 0)}</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <div className="rounded-3xl border border-slate-200 bg-white px-4 py-4">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Paiement et contrat</p>
+                                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                                    <p>Montant client: <span className="font-semibold text-slate-900">{formatMoney(demand.total_amount)}</span></p>
+                                    <p>A regler maintenant: <span className="font-semibold text-slate-900">{formatMoney(demand.amount_due_now)}</span></p>
+                                    <p>Contrat: <span className="font-semibold text-slate-900">{demand.contract_generated_at ? 'Disponible' : 'En attente'}</span></p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <p className="mt-2 text-sm leading-6 text-gray-800">{notification.message}</p>
-                          <p className="mt-2 text-xs text-gray-500">{formatDateTime(notification.created_at)}</p>
+                          <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:max-w-[220px] lg:flex-col">
+                            {demand?.contract_id ? (
+                              <button
+                                type="button"
+                                onClick={() => void viewContractForDemand(demand)}
+                                className="inline-flex items-center justify-center rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 hover:bg-sky-100"
+                              >
+                                Voir contrat
+                              </button>
+                            ) : null}
+                            {hasReceipt ? (
+                              <a
+                                href={receiptUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center justify-center rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-800 hover:bg-cyan-100"
+                              >
+                                Voir recu
+                              </a>
+                            ) : null}
+                            {demand ? (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedClientDemand(demand)}
+                                className="inline-flex items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+                              >
+                                Ouvrir dossier client
+                              </button>
+                            ) : null}
+                            {!notification.lu && (
+                              <button
+                                type="button"
+                                onClick={() => void markNotificationAsRead(notification.id)}
+                                className="inline-flex items-center justify-center rounded-xl border border-emerald-200 px-4 py-2.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                              >
+                                Marquer lu
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        {!notification.lu && (
-                          <button
-                            type="button"
-                            onClick={() => void markNotificationAsRead(notification.id)}
-                            className="shrink-0 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
-                          >
-                            Marquer lu
-                          </button>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
         </div>
       </section>
+      )}
 
       {calendarReviewRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -2564,6 +3029,104 @@ export default function NotificationsPage() {
                   )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedClientDemand && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/45 backdrop-blur-[2px]">
+          <button
+            type="button"
+            aria-label="Fermer dossier client"
+            className="absolute inset-0 cursor-default"
+            onClick={() => setSelectedClientDemand(null)}
+          />
+          <div className="relative h-full w-full max-w-2xl overflow-y-auto border-l border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.28)]">
+            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Dossier client</p>
+                  <h3 className="mt-1 text-xl font-semibold text-slate-900">{getDemandClientName(selectedClientDemand)}</h3>
+                  <p className="mt-1 text-sm text-slate-500">{formatModeLabel(biensById.get(String(selectedClientDemand.bien_id || '').trim())?.mode || 'location_saisonniere')} • {getDemandSourceLabel(selectedClientDemand, selectedClientDemand.client_note || selectedClientDemand.admin_note || '')}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedClientDemand(null)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-5 px-5 py-5">
+              <div className="rounded-3xl border border-emerald-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_62%)] p-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Client</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-900">{getDemandClientName(selectedClientDemand)}</p>
+                    <p className="mt-2 text-sm text-slate-600">{selectedClientDemand.client_email || 'Email non renseigne'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Notification</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">{formatStayDate(selectedClientDemand.created_at)}</p>
+                    <p className="text-sm font-medium text-slate-600">{formatTimeOnly(selectedClientDemand.created_at)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Arrivee</p>
+                  <p className="mt-2 text-xl font-bold text-slate-900">{formatStayDate(selectedClientDemand.start_date)}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Depart</p>
+                  <p className="mt-2 text-xl font-bold text-slate-900">{formatStayDate(selectedClientDemand.end_date)}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paiement</p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                    <p>Methode: <span className="font-semibold text-slate-900">{formatPaymentMethodLabel(selectedClientDemand)}</span></p>
+                    <p>Montant client: <span className="font-semibold text-slate-900">{formatMoney(selectedClientDemand.total_amount)}</span></p>
+                    <p>A regler maintenant: <span className="font-semibold text-slate-900">{formatMoney(selectedClientDemand.amount_due_now)}</span></p>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Identite</p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                    <p>Nom complet: <span className="font-semibold text-slate-900">{getDemandClientName(selectedClientDemand)}</span></p>
+                    <p>CIN / document: <span className="font-semibold text-slate-900">{selectedClientDemand.identity_document_number || 'Non renseigne'}</span></p>
+                    <p>Soumis le: <span className="font-semibold text-slate-900">{formatDateTime(selectedClientDemand.identity_submitted_at)}</span></p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {selectedClientDemand.contract_id ? (
+                  <button
+                    type="button"
+                    onClick={() => void viewContractForDemand(selectedClientDemand)}
+                    className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 hover:bg-sky-100"
+                  >
+                    Voir contrat
+                  </button>
+                ) : null}
+                {selectedClientDemand.payment_receipt_image_url ? (
+                  <a
+                    href={resolveAssetUrl(selectedClientDemand.payment_receipt_image_url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-800 hover:bg-cyan-100"
+                  >
+                    Voir recu
+                  </a>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>

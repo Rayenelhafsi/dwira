@@ -368,6 +368,7 @@ export default function ClientelesPage() {
   });
   const [businessProfileDraft, setBusinessProfileDraft] = useState<ClienteleProfile | null>(null);
   const [isSavingBusinessProfile, setIsSavingBusinessProfile] = useState(false);
+  const [pendingClientFocus, setPendingClientFocus] = useState<null | { category: ClientCategory; email: string; name: string }>(null);
 
   useEffect(() => {
     try {
@@ -392,6 +393,20 @@ export default function ClientelesPage() {
     } catch {
       setDossiers({});
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const category = String(params.get('category') || '').trim();
+    const email = String(params.get('email') || '').trim();
+    const name = String(params.get('name') || '').trim();
+    if (!category && !email && !name) return;
+    const allowedCategories: ClientCategory[] = ['locataires', 'acheteurs', 'proprietaires', 'agents_amicale'];
+    const safeCategory = allowedCategories.includes(category as ClientCategory) ? category as ClientCategory : 'locataires';
+    setPendingClientFocus({ category: safeCategory, email, name });
+    setActiveCategory(safeCategory);
+    setSearchTerm(email || name);
   }, []);
 
   useEffect(() => {
@@ -742,6 +757,21 @@ export default function ClientelesPage() {
       normalizeText(`${client.nom} ${client.prenom} ${client.telephone} ${client.cin} ${client.email}`).includes(normalizeText(searchTerm))
     );
   }, [activeCategory, clients, searchTerm]);
+
+  useEffect(() => {
+    if (!pendingClientFocus || isLoading) return;
+    const normalize = (value?: string | null) => String(value || '').trim().toLowerCase();
+    const target = filteredClients.find((client) => {
+      const emailMatch = pendingClientFocus.email && normalize(client.email) === normalize(pendingClientFocus.email);
+      const fullName = `${client.prenom || ''} ${client.nom || ''}`.trim();
+      const nameMatch = pendingClientFocus.name && normalize(fullName) === normalize(pendingClientFocus.name);
+      return Boolean(emailMatch || nameMatch);
+    }) || filteredClients[0];
+    if (target) {
+      setSelectedClient(target);
+    }
+    setPendingClientFocus(null);
+  }, [filteredClients, isLoading, pendingClientFocus]);
 
   const selectedClientLinkedIds = selectedClient?.linkedRecordIds || (selectedClient ? [selectedClient.id] : []);
   const selectedClientDossier = useMemo<ClientDossier>(() => {

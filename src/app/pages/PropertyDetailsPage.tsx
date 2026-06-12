@@ -1135,11 +1135,31 @@ out body 40;
   });
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
   const maxStay = Math.max(minStay, seasonalConfig?.dureeMaxSejourNuits || 365);
+  const selectedPricingPeriod = useMemo(() => {
+    if (!selectedStart) return null;
+    return resolveCurrentPricing({
+      today: selectedStart,
+      defaultNightlyPrice: property?.pricePerNight || 0,
+      defaultWeeklyPrice: property?.pricePerWeek || 0,
+      pricingPeriods: property?.pricingPeriods || [],
+      amicaleId: pricingAmicaleId,
+    }).activePeriod;
+  }, [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart]);
   const periodMinStay = useMemo(() => {
     if (!selectedStart) return null;
     return getPeriodMinStayForDate(property?.pricingPeriods || [], selectedStart, pricingAmicaleId);
   }, [pricingAmicaleId, property?.pricingPeriods, selectedStart]);
   const displayedMinStay = periodMinStay || minStay;
+  const activeStayRuleLabel = useMemo(() => {
+    if (!selectedStart || !selectedPricingPeriod) return "";
+    const start = String(selectedPricingPeriod.start || "").slice(0, 10);
+    const end = String(selectedPricingPeriod.end || "").slice(0, 10);
+    if (!start || !end) return "";
+    const [startYear, startMonth, startDay] = start.split("-");
+    const [endYear, endMonth, endDay] = end.split("-");
+    if (!startYear || !startMonth || !startDay || !endYear || !endMonth || !endDay) return "";
+    return `${startDay}/${startMonth}/${startYear} - ${endDay}/${endMonth}/${endYear}`;
+  }, [selectedPricingPeriod, selectedStart]);
   const activeWeekdayRule = useMemo(() => {
     if (!selectedStart || !selectedEnd) return { requiredCheckinDay: null, requiredCheckoutDay: null };
     const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
@@ -3771,7 +3791,9 @@ out body 40;
               </p>
               {!isSaleProperty && (
                 <p className="text-sm text-emerald-700 mb-2">
-                  Duree autorisee: minimum {displayedMinStay} nuit(s), maximum {maxStay} nuit(s).
+                  {selectedStart
+                    ? `Duree autorisee pour la periode ${activeStayRuleLabel || 'selectionnee'}: minimum ${displayedMinStay} nuit(s), maximum ${maxStay} nuit(s).`
+                    : 'Selectionnez une date de sejour pour que vous puissiez voir le minimum de nuitees pour la periode.'}
                 </p>
               )}
               {!isSaleProperty && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
@@ -4319,7 +4341,9 @@ out body 40;
           <div className="max-h-[calc(86vh-92px)] overflow-y-auto px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6 sm:pt-4">
             {!isSaleProperty && (
               <p className="mb-2 text-xs text-emerald-700 sm:mb-3 sm:text-sm">
-                Duree autorisee: minimum {displayedMinStay} nuit(s), maximum {maxStay} nuit(s).
+                {selectedStart
+                  ? `Duree autorisee pour la periode ${activeStayRuleLabel || 'selectionnee'}: minimum ${displayedMinStay} nuit(s), maximum ${maxStay} nuit(s).`
+                  : 'Selectionnez une date de sejour pour que vous puissiez voir le minimum de nuitees pour la periode.'}
               </p>
             )}
             {!isSaleProperty && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
