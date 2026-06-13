@@ -11,6 +11,8 @@ import { resolveMediaUrl } from '../../utils/media';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const NOTIFICATIONS_CACHE_KEY = 'dwira_admin_notifications_cache_v1';
+const AGENCY_TIME_ZONE = 'Africa/Tunis';
+const AGENCY_UTC_OFFSET = '+01:00';
 
 type NotificationsCachePayload = {
   notifications: Notification[];
@@ -234,6 +236,24 @@ async function getApiErrorMessage(response: Response, fallback: string) {
   return fallback;
 }
 
+function parseAgencyDateString(value: string) {
+  const regexMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!regexMatch) return null;
+  const [, year, month, day, hour = '00', minute = '00', second = '00'] = regexMatch;
+  const isoValue = `${year}-${month}-${day}T${hour}:${minute}:${second}${AGENCY_UTC_OFFSET}`;
+  const parsed = new Date(isoValue);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return {
+    parsed,
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour: Number(hour),
+    minute: Number(minute),
+    second: Number(second),
+  };
+}
+
 function parseDisplayDate(value?: unknown) {
   if (value == null) return null;
   if (value instanceof Date) {
@@ -241,19 +261,8 @@ function parseDisplayDate(value?: unknown) {
   }
   const raw = String(value).trim();
   if (!raw) return null;
-  const regexMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (regexMatch) {
-    const [, year, month, day, hour = '00', minute = '00', second = '00'] = regexMatch;
-    const parsed = new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-      Number(second)
-    );
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
+  const agencyParsed = parseAgencyDateString(raw);
+  if (agencyParsed) return agencyParsed.parsed;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
@@ -263,37 +272,64 @@ function padDateUnit(value: number) {
 }
 
 function formatDateTime(value?: unknown) {
+  const raw = value == null ? '' : String(value).trim();
+  const agencyParsed = raw ? parseAgencyDateString(raw) : null;
+  if (agencyParsed) {
+    return `${padDateUnit(agencyParsed.day)}/${padDateUnit(agencyParsed.month)}/${agencyParsed.year} ${padDateUnit(agencyParsed.hour)}:${padDateUnit(agencyParsed.minute)}:${padDateUnit(agencyParsed.second)}`;
+  }
   const parsed = parseDisplayDate(value);
   if (!parsed) return '-';
-  return `${padDateUnit(parsed.getDate())}/${padDateUnit(parsed.getMonth() + 1)}/${parsed.getFullYear()} ${padDateUnit(parsed.getHours())}:${padDateUnit(parsed.getMinutes())}:${padDateUnit(parsed.getSeconds())}`;
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: AGENCY_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(parsed).replace(',', '');
 }
 
 function formatStayDate(value?: unknown) {
+  const raw = value == null ? '' : String(value).trim();
+  const agencyParsed = raw ? parseAgencyDateString(raw) : null;
+  if (agencyParsed) {
+    return `${padDateUnit(agencyParsed.day)}/${padDateUnit(agencyParsed.month)}/${agencyParsed.year}`;
+  }
   const parsed = parseDisplayDate(value);
   if (!parsed) return '-';
-  return `${padDateUnit(parsed.getDate())}/${padDateUnit(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: AGENCY_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(parsed);
 }
 
 function formatTimeOnly(value?: unknown) {
+  const raw = value == null ? '' : String(value).trim();
+  const agencyParsed = raw ? parseAgencyDateString(raw) : null;
+  if (agencyParsed) {
+    return `${padDateUnit(agencyParsed.hour)}:${padDateUnit(agencyParsed.minute)}:${padDateUnit(agencyParsed.second)}`;
+  }
   const parsed = parseDisplayDate(value);
   if (!parsed) return '--:--';
-  return `${padDateUnit(parsed.getHours())}:${padDateUnit(parsed.getMinutes())}:${padDateUnit(parsed.getSeconds())}`;
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: AGENCY_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(parsed);
 }
 
 function parseDateForRelative(value?: string | null) {
   if (!value) return null;
   const raw = String(value).trim();
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (!match) return null;
-  const [, year, month, day, hour = '00', minute = '00', second = '00'] = match;
-  const parsed = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second)
-  );
+  const agencyParsed = parseAgencyDateString(raw);
+  if (agencyParsed) return agencyParsed.parsed;
+  const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -670,7 +706,7 @@ function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, n
     const answeredAt = status?.respondedAt || status?.responseMetadata?.respondedAt || null;
     const propertyTitle = String(status?.responseMetadata?.propertyTitle || '').trim();
     return {
-      label: 'Mise a jour demandee',
+      label: 'Demande d approbation de modification calendrier',
       tone: 'border-sky-200 bg-sky-50 text-sky-800',
       detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)}` : 'Ouverture calendrier demandee',
       helper: propertyTitle ? `Bien: ${propertyTitle}` : 'Ouverture calendrier demandee',
@@ -3137,9 +3173,13 @@ export default function NotificationsPage() {
                                 <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
                                 {pendingRequest ? (
                                   <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-                                    Mise a jour en attente
+                                    Demande d'approbation de modification calendrier
                                   </span>
-                                ) : null}
+                                ) : (
+                                  <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusMeta.tone}`}>
+                                    {statusMeta.label}
+                                  </span>
+                                )}
                               </div>
                               {(status?.updatedAt || status?.createdAt) ? (
                                 <span className="shrink-0 text-[11px] text-slate-400">
@@ -3153,7 +3193,6 @@ export default function NotificationsPage() {
                                 : statusMeta.detail}
                             </p>
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                              <span>{statusMeta.label}</span>
                               {statusMeta.waitingDurationLabel ? <span>Sans reponse {statusMeta.waitingDurationLabel}</span> : null}
                               <span>{historyCount} historique</span>
                             </div>
@@ -3199,7 +3238,9 @@ export default function NotificationsPage() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 sm:gap-x-3 sm:text-xs">
                           {selectedCalendarOwnerProfile?.telephone ? <span>{selectedCalendarOwnerProfile.telephone}</span> : null}
-                          <span>{selectedCalendarStatusMeta.label}</span>
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${selectedCalendarStatusMeta.tone}`}>
+                            {selectedCalendarStatusMeta.label}
+                          </span>
                           {selectedCalendarStatusMeta.respondedAt ? <span>Reponse {formatRelativeDelay(selectedCalendarStatusMeta.respondedAt)}</span> : null}
                         </div>
                       </div>
