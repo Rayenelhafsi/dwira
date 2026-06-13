@@ -5,8 +5,10 @@ import AvailabilityCalendar from '../../components/AvailabilityCalendar';
 import { calculateAccommodationPricing, type SeasonalPricingPeriod } from '../../utils/seasonalPricing';
 import { computeGuestLimits } from '../../utils/guestLimits';
 import { getServiceDisplayPrice, splitServicesByTarification } from '../../utils/servicePayants';
+import { readSessionPageCache, writeSessionPageCache } from '../utils/sessionPageCache';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const CONTRACTS_CACHE_KEY = 'dwira_admin_contrats_cache_v1';
 
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get('content-type') || '';
@@ -96,6 +98,13 @@ type UnavailableDateApi = {
   start_date: string;
   end_date: string;
   status: 'blocked' | 'pending' | 'booked';
+};
+
+type ContractsPageCachePayload = {
+  contrats: ContratApi[];
+  biens: BienApi[];
+  locataires: LocataireApi[];
+  bienImageById: Record<string, string>;
 };
 
 type SortOption = 'created_desc' | 'created_asc' | 'start_desc' | 'start_asc';
@@ -418,11 +427,13 @@ function toAbsoluteAssetUrl(value: string): string {
 }
 
 export default function ContratsPage() {
-  const [contrats, setContrats] = useState<ContratApi[]>([]);
-  const [biens, setBiens] = useState<BienApi[]>([]);
-  const [locataires, setLocataires] = useState<LocataireApi[]>([]);
-  const [bienImageById, setBienImageById] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(true);
+  const initialCache = readSessionPageCache<ContractsPageCachePayload>(CONTRACTS_CACHE_KEY);
+  const [contrats, setContrats] = useState<ContratApi[]>(initialCache?.contrats || []);
+  const [biens, setBiens] = useState<BienApi[]>(initialCache?.biens || []);
+  const [locataires, setLocataires] = useState<LocataireApi[]>(initialCache?.locataires || []);
+  const [bienImageById, setBienImageById] = useState<Record<string, string>>(initialCache?.bienImageById || {});
+  const [isLoading, setIsLoading] = useState(!initialCache);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingContratId, setUploadingContratId] = useState<string | null>(null);
   const [regeneratingContratId, setRegeneratingContratId] = useState<string | null>(null);
@@ -501,8 +512,13 @@ export default function ContratsPage() {
     [historyViewerContract]
   );
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
+  const fetchData = useCallback(async (options?: { background?: boolean }) => {
+    const shouldShowBlockingLoader = !initialCache && !options?.background && contrats.length === 0 && biens.length === 0;
+    if (shouldShowBlockingLoader) {
+      setIsLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
     setError(null);
     const [contratsResult, biensResult, locatairesResult] = await Promise.allSettled([
       fetch(`${API_URL}/contrats`, { credentials: 'include' }),
@@ -512,10 +528,15 @@ export default function ContratsPage() {
 
     let hasAnyData = false;
     const errors: string[] = [];
+    let nextContrats: ContratApi[] = [];
+    let nextBiens: BienApi[] = [];
+    let nextLocataires: LocataireApi[] = [];
+    let nextBienImages: Record<string, string> = {};
 
     if (contratsResult.status === 'fulfilled' && contratsResult.value.ok) {
       const contratsData = await contratsResult.value.json();
-      setContrats(Array.isArray(contratsData) ? contratsData : []);
+      nextContrats = Array.isArray(contratsData) ? contratsData : [];
+      setContrats(nextContrats);
       hasAnyData = true;
     } else {
       setContrats([]);
@@ -525,6 +546,7 @@ export default function ContratsPage() {
     if (biensResult.status === 'fulfilled' && biensResult.value.ok) {
       const biensData = await biensResult.value.json();
       const normalizedBiens = Array.isArray(biensData) ? biensData : [];
+      nextBiens = normalizedBiens;
       setBiens(normalizedBiens);
       const bienIds = normalizedBiens.map((row: any) => String(row?.id || '').trim()).filter(Boolean);
       if (bienIds.length > 0) {
@@ -557,6 +579,7 @@ export default function ContratsPage() {
               if (!first) continue;
               nextImages[bienId] = toAbsoluteAssetUrl(first);
             }
+            nextBienImages = nextImages;
             setBienImageById(nextImages);
           } else {
             setBienImageById({});
@@ -576,11 +599,21 @@ export default function ContratsPage() {
 
     if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {
       const locatairesData = await locatairesResult.value.json();
-      setLocataires(Array.isArray(locatairesData) ? locatairesData : []);
+      nextLocataires = Array.isArray(locatairesData) ? locatairesData : [];
+      setLocataires(nextLocataires);
       hasAnyData = true;
     } else {
       setLocataires([]);
       errors.push('locataires');
+    }
+
+    if (hasAnyData) {
+      writeSessionPageCache<ContractsPageCachePayload>(CONTRACTS_CACHE_KEY, {
+        contrats: nextContrats,
+        biens: nextBiens,
+        locataires: nextLocataires,
+        bienImageById: nextBienImages,
+      });
     }
 
     if (errors.length > 0) {
@@ -590,10 +623,21 @@ export default function ContratsPage() {
     }
 
     setIsLoading(false);
-  }, []);
+    setIsRefreshing(false);
+  }, [biens.length, contrats.length, initialCache]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData({ background: Boolean(initialCache) });
+  }, [fetchData]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchData({ background: true });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [fetchData]);
 
   useEffect(() => {
@@ -1343,7 +1387,10 @@ export default function ContratsPage() {
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Contrats</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Contrats</h1>
+          {isRefreshing ? <span className="text-xs font-medium text-emerald-600">Actualisation...</span> : null}
+        </div>
         {!manualOpen ? (
           <button
             type="button"

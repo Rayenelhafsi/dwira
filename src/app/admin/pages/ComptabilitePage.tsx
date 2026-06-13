@@ -13,9 +13,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Bien, Contrat, HotelReservationDemand, Locataire, ReservationDemand, ServicePayantBien } from "../../admin/types";
+import { readSessionPageCache, writeSessionPageCache } from "../utils/sessionPageCache";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const STORAGE_KEY = "dwira_admin_comptabilite_v1";
+const ACCOUNTING_PAGE_CACHE_KEY = "dwira_admin_comptabilite_page_cache_v1";
 const ACCOUNTING_ACCESS_CODE_HASH = "7791bbeb1bb62b9658180226f794a5c6afd6cfe00f9bf304201983c309c6650b";
 const ACCOUNTING_ACCESS_STORAGE_KEY = "dwira_admin_comptabilite_access_v1";
 const ACCOUNTING_ACCESS_SESSION_VALUE = "unlocked";
@@ -86,6 +88,8 @@ type LocalDataState = {
   loading: boolean;
   error: string | null;
 };
+
+type AccountingPageCachePayload = Omit<LocalDataState, "loading" | "error">;
 
 type ServiceLine = {
   id: string;
@@ -258,15 +262,17 @@ function buildEmptyDrafts() {
 }
 
 export default function ComptabilitePage() {
+  const initialCache = readSessionPageCache<AccountingPageCachePayload>(ACCOUNTING_PAGE_CACHE_KEY);
   const [data, setData] = useState<LocalDataState>({
-    contracts: [],
-    biensById: {},
-    locatairesById: {},
-    reservationDemands: [],
-    hotelDemands: [],
-    loading: true,
+    contracts: initialCache?.contracts || [],
+    biensById: initialCache?.biensById || {},
+    locatairesById: initialCache?.locatairesById || {},
+    reservationDemands: initialCache?.reservationDemands || [],
+    hotelDemands: initialCache?.hotelDemands || [],
+    loading: !initialCache,
     error: null,
   });
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [store, setStore] = useState<AccountingStore>(() => loadStore());
   const [drafts, setDrafts] = useState(() => buildEmptyDrafts());
   const [unlockCode, setUnlockCode] = useState("");
@@ -275,8 +281,14 @@ export default function ComptabilitePage() {
     return window.sessionStorage.getItem(ACCOUNTING_ACCESS_STORAGE_KEY) === ACCOUNTING_ACCESS_SESSION_VALUE;
   });
 
-  const loadData = useCallback(async () => {
-    setData((prev) => ({ ...prev, loading: true, error: null }));
+  const loadData = useCallback(async (options?: { background?: boolean }) => {
+    const shouldShowBlockingLoader = !initialCache && !options?.background && data.contracts.length === 0;
+    if (shouldShowBlockingLoader) {
+      setData((prev) => ({ ...prev, loading: true, error: null }));
+    } else {
+      setData((prev) => ({ ...prev, error: null }));
+      setIsRefreshing(true);
+    }
     try {
       const [contractsResponse, biensResponse, locatairesResponse, reservationDemandsResponse, hotelDemandsResponse] = await Promise.all([
         fetch(`${API_URL}/contrats`, { credentials: "include" }),
@@ -303,7 +315,7 @@ export default function ComptabilitePage() {
         parseResponse<HotelReservationDemand>(hotelDemandsResponse),
       ]);
 
-      setData({
+      const nextState = {
         contracts,
         biensById: Object.fromEntries(biens.map((bien) => [String(bien.id), bien])),
         locatairesById: Object.fromEntries(locataires.map((locataire) => [String(locataire.id), locataire])),
@@ -311,16 +323,36 @@ export default function ComptabilitePage() {
         hotelDemands,
         loading: false,
         error: null,
+      };
+      setData(nextState);
+      writeSessionPageCache<AccountingPageCachePayload>(ACCOUNTING_PAGE_CACHE_KEY, {
+        contracts,
+        biensById: nextState.biensById,
+        locatairesById: nextState.locatairesById,
+        reservationDemands,
+        hotelDemands,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Chargement comptabilite impossible";
       setData((prev) => ({ ...prev, loading: false, error: message }));
       toast.error(message);
+    } finally {
+      setIsRefreshing(false);
     }
-  }, []);
+  }, [data.contracts.length, initialCache]);
 
   useEffect(() => {
-    void loadData();
+    void loadData({ background: Boolean(initialCache) });
+  }, [loadData]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadData({ background: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [loadData]);
 
   useEffect(() => {
@@ -619,11 +651,11 @@ export default function ComptabilitePage() {
           </div>
           <button
             type="button"
-            onClick={() => void loadData()}
+            onClick={() => void loadData({ background: true })}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
           >
-            <RefreshCw className="h-4 w-4" />
-            Recharger les donnees
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            {isRefreshing ? "Actualisation..." : "Recharger les donnees"}
           </button>
         </div>
       </div>
