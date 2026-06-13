@@ -1231,7 +1231,7 @@ export default function NotificationsPage() {
         text: String(row.text || ''),
         kind: String(row.kind || ''),
         createdAt: String(row.createdAt || ''),
-      }));
+      })).sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
       setChatMessages(mapped);
     } catch (error) {
       if (!options?.background) {
@@ -1268,6 +1268,31 @@ export default function NotificationsPage() {
     setActiveView('chat');
     void loadOwnerChat(owner.id);
   }, [loadOwnerChat, activeView, selectedChatOwner?.id]);
+
+  const openOwnerChatByOwnerId = useCallback((ownerId: string) => {
+    const normalizedOwnerId = String(ownerId || '').trim();
+    if (!normalizedOwnerId) return;
+    const latestDemand = (ownerDemandsByOwnerId.get(normalizedOwnerId) || [])[0];
+    const ownerName =
+      chatOwners.find((item) => item.id === normalizedOwnerId)?.name
+      || String(ownerLookup.get(normalizedOwnerId)?.nom || '').trim()
+      || String(latestDemand?.proprietaire_nom || '').trim()
+      || normalizedOwnerId;
+    const nextOwner = {
+      id: normalizedOwnerId,
+      name: ownerName,
+      demandId: latestDemand?.id,
+    };
+    setIsAdminAlertsOpen(false);
+    setShowOwnerProfilePanel(false);
+    setChatDraft('');
+    setActiveView('chat');
+    if (selectedChatOwner?.id === normalizedOwnerId && activeView === 'chat') {
+      return;
+    }
+    setSelectedChatOwner(nextOwner);
+    void loadOwnerChat(normalizedOwnerId);
+  }, [activeView, chatOwners, loadOwnerChat, ownerDemandsByOwnerId, ownerLookup, selectedChatOwner?.id]);
 
   useEffect(() => {
     if (activeView !== 'chat' || !selectedChatOwner?.id) return;
@@ -1779,11 +1804,16 @@ export default function NotificationsPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {visibleAdminAlertPreviewItems.map(({ notification, importance, title }) => (
+                    {visibleAdminAlertPreviewItems.map(({ notification, importance, title, category }) => (
                       <button
                         key={`admin-alert-preview-${notification.id}`}
                         type="button"
                         onClick={() => {
+                          const ownerId = extractOwnerIdFromNotificationMessage(notification.message);
+                          if (category === 'proprietaire' && ownerId) {
+                            openOwnerChatByOwnerId(ownerId);
+                            return;
+                          }
                           setActiveView('system');
                           setShowUrgentNotificationsOnly(importance === 'urgent');
                           setNotificationImportanceFilter(importance === 'urgent' ? 'all' : importance);

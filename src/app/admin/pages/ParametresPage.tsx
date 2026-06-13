@@ -6,6 +6,7 @@ import {
   updateSiteMaintenanceStatus,
   type SiteMaintenanceStatus,
 } from "../../services/siteMaintenance";
+import type { Proprietaire } from "../types";
 
 function toDateTimeLocalValue(value?: string | null) {
   const raw = String(value || "").trim();
@@ -33,8 +34,14 @@ export default function ParametresPage() {
   const [resumeAt, setResumeAt] = useState("");
   const [message, setMessage] = useState("");
   const [confirmationPassword, setConfirmationPassword] = useState("");
+  const [ownerAppUpdateUrl, setOwnerAppUpdateUrl] = useState(
+    String(import.meta.env.VITE_OWNER_APP_PLAY_STORE_URL || "").trim()
+  );
+  const [owners, setOwners] = useState<Proprietaire[]>([]);
+  const [selectedOwnerId, setSelectedOwnerId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sendingOwnerAppUpdate, setSendingOwnerAppUpdate] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +64,30 @@ export default function ParametresPage() {
       }
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadOwners = async () => {
+      try {
+        const response = await fetch("/api/proprietaires", { credentials: "include" });
+        const payload = await response.json().catch(() => []);
+        if (!response.ok) {
+          throw new Error(String(payload?.error || "Chargement proprietaires impossible"));
+        }
+        if (!cancelled) {
+          setOwners(Array.isArray(payload) ? payload : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : "Chargement proprietaires impossible");
+        }
+      }
+    };
+    void loadOwners();
     return () => {
       cancelled = true;
     };
@@ -93,6 +124,55 @@ export default function ParametresPage() {
       toast.error(error instanceof Error ? error.message : "Enregistrement maintenance impossible");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const selectedOwnerLabel = useMemo(
+    () => owners.find((owner) => String(owner.id) === String(selectedOwnerId))?.nom || "",
+    [owners, selectedOwnerId]
+  );
+
+  const handleSendOwnerAppUpdateNotification = async (targetOwnerId?: string | null) => {
+    const playStoreUrl = String(ownerAppUpdateUrl || "").trim();
+    if (!playStoreUrl || !/^https?:\/\//i.test(playStoreUrl)) {
+      toast.error("Ajoutez un lien Google Play Store valide.");
+      return;
+    }
+    const normalizedOwnerId = String(targetOwnerId || "").trim();
+    if (targetOwnerId !== undefined && !normalizedOwnerId) {
+      toast.error("Selectionnez un proprietaire.");
+      return;
+    }
+
+    setSendingOwnerAppUpdate(true);
+    try {
+      const response = await fetch("/api/mobile/admin/owner-app-update-notification", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: "Nouvelle mise a jour de l'application dans Google Play Store",
+          playStoreUrl,
+          ownerId: normalizedOwnerId || null,
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error || "Envoi notification mise a jour impossible"));
+      }
+
+      toast.success(
+        normalizedOwnerId
+          ? `Notification envoyee a ${selectedOwnerLabel || "ce proprietaire"}.`
+          : `Notification diffusee a ${Number(payload?.ownersCount || 0)} proprietaire(s).`
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Envoi notification mise a jour impossible");
+    } finally {
+      setSendingOwnerAppUpdate(false);
     }
   };
 
@@ -249,6 +329,100 @@ export default function ParametresPage() {
             className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Reinitialiser le formulaire
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700">
+                <Bell className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Mise a jour application proprietaires</h2>
+                <p className="text-sm text-gray-500">
+                  Diffuse une notification globale a tous les proprietaires pour annoncer une nouvelle mise a jour de l&apos;application.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 lg:max-w-sm">
+            <div className="flex items-start gap-3">
+              <Bell className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-semibold">Notification envoyee aux proprietaires</p>
+                <p className="mt-1">
+                  Au clic, l&apos;application mobile pourra ouvrir Google Play Store via le lien transmis dans la notification si ce comportement est pris en charge cote mobile.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+          <label className="rounded-2xl border border-gray-200 p-4">
+            <span className="text-sm font-semibold text-gray-900">Lien Google Play Store</span>
+            <input
+              type="url"
+              value={ownerAppUpdateUrl}
+              onChange={(event) => setOwnerAppUpdateUrl(event.target.value)}
+              placeholder="https://play.google.com/store/apps/details?id=..."
+              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            />
+            <p className="mt-2 text-xs text-gray-500">
+              Ce lien sera inclus dans la notification envoyee a tous les proprietaires.
+            </p>
+          </label>
+
+          <div className="rounded-2xl border border-gray-200 p-4">
+            <span className="text-sm font-semibold text-gray-900">Proprietaire cible</span>
+            <select
+              value={selectedOwnerId}
+              onChange={(event) => setSelectedOwnerId(event.target.value)}
+              className="mt-3 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            >
+              <option value="">Choisir un proprietaire</option>
+              {owners.map((owner) => (
+                <option key={owner.id} value={owner.id}>
+                  {owner.nom}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-gray-500">
+              Utilisez cette liste pour envoyer la mise a jour a un seul proprietaire.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-gray-200 p-4">
+          <span className="text-sm font-semibold text-gray-900">Message diffuse</span>
+          <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">
+            Nouvelle mise a jour de l&apos;application dans Google Play Store
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Message fixe pour garder une notification claire et uniforme.
+          </p>
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleSendOwnerAppUpdateNotification()}
+            disabled={sendingOwnerAppUpdate}
+            className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {sendingOwnerAppUpdate ? "Envoi en cours..." : "Envoyer a tous les proprietaires"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSendOwnerAppUpdateNotification(selectedOwnerId)}
+            disabled={sendingOwnerAppUpdate || !selectedOwnerId}
+            className="rounded-xl border border-emerald-300 bg-white px-5 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {sendingOwnerAppUpdate ? "Envoi en cours..." : "Envoyer au proprietaire selectionne"}
           </button>
         </div>
       </section>

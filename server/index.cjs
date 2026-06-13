@@ -35,6 +35,7 @@ const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const CANONICAL_FRONTEND_URL = String(FRONTEND_URL || '').trim().replace('https://dwiraimmobilier.com', 'https://www.dwiraimmobilier.com');
 const API_BASE_URL = String(process.env.API_BASE_URL || '').trim().replace(/\/+$/, '') || '';
+const OWNER_APP_PLAY_STORE_URL = String(process.env.OWNER_APP_PLAY_STORE_URL || '').trim();
 const MYGO_HOTEL_API_BASE_URL = String(process.env.MYGO_HOTEL_API_BASE_URL || 'https://admin.mygo.co/api/hotel').trim().replace(/\/+$/, '');
 const MYGO_HOTEL_LOGIN = String(process.env.MYGO_HOTEL_LOGIN || '').trim();
 const MYGO_HOTEL_PASSWORD = String(process.env.MYGO_HOTEL_PASSWORD || '').trim();
@@ -14868,7 +14869,7 @@ app.get('/api/mobile/owners/:ownerId/chat', async (req, res) => {
          AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.ownerId')) = ?
          AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.kind')) IN ('owner_admin_chat', 'admin_owner_chat')
          ${bienFilterSql}
-       ORDER BY event_at DESC
+       ORDER BY event_at ASC
        LIMIT 200`,
       params
     );
@@ -14913,12 +14914,17 @@ app.post('/api/mobile/owners/:ownerId/chat', async (req, res) => {
     if (!text) {
       return res.status(400).json({ error: 'message requis' });
     }
+    const [ownerRows] = await pool.query(
+      'SELECT nom FROM proprietaires WHERE id = ? LIMIT 1',
+      [ownerId]
+    );
+    const ownerDisplayName = String(ownerRows?.[0]?.nom || ownerId).trim();
 
     const created = await appendClientInteraction({
       req,
       clientUserId: ownerId,
       clientEmail: `${ownerId}@owner.local`,
-      clientName: ownerId,
+      clientName: ownerDisplayName,
       type: 'partage',
       bienId: bienId || 'owner-chat',
       propertyTitle: propertyTitle || 'Chat proprietaire',
@@ -14937,7 +14943,7 @@ app.post('/api/mobile/owners/:ownerId/chat', async (req, res) => {
     const messagePreview = text.length > 80 ? `${text.slice(0, 77)}...` : text;
     await createAdminNotification(
       'info',
-      `Nouveau message proprietaire [owner:${ownerId}]${propertyTitle ? ` [bien:${propertyTitle}]` : ''}: ${messagePreview}`
+      `Nouveau message recu du proprietaire ${ownerDisplayName} [owner:${ownerId}]${propertyTitle ? ` [bien:${propertyTitle}]` : ''}: ${messagePreview}`
     );
     res.status(201).json(created);
   } catch (error) {
@@ -15205,6 +15211,98 @@ app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-owner/:ownerId', r
   } catch (error) {
     console.error('Error dispatching owner calendar prompt individually:', error);
     res.status(500).json({ error: 'Failed to dispatch owner calendar prompt individually' });
+  }
+});
+
+app.post('/api/mobile/admin/owner-app-update-notification', requireAdminSession, async (req, res) => {
+  try {
+    const defaultMessage = "Nouvelle mise a jour de l'application dans Google Play Store";
+    const message = String(req.body?.message || defaultMessage).trim() || defaultMessage;
+    const playStoreUrl = String(req.body?.playStoreUrl || OWNER_APP_PLAY_STORE_URL || '').trim();
+    const requestedOwnerId = String(req.body?.ownerId || '').trim();
+    if (!playStoreUrl || !/^https?:\/\//i.test(playStoreUrl)) {
+      return res.status(400).json({ error: 'Lien Google Play Store valide requis.' });
+    }
+
+    const ownerSql = requestedOwnerId
+      ? `SELECT id, nom
+         FROM proprietaires
+         WHERE id = ?
+         LIMIT 1`
+      : `SELECT id, nom
+         FROM proprietaires
+         WHERE id IS NOT NULL AND TRIM(id) <> ''
+         ORDER BY nom ASC`;
+    const ownerParams = requestedOwnerId ? [requestedOwnerId] : [];
+    const [ownerRows] = await pool.query(ownerSql, ownerParams);
+
+    const owners = (ownerRows || [])
+      .map((row) => ({
+        id: String(row?.id || '').trim(),
+        name: String(row?.nom || '').trim(),
+      }))
+      .filter((owner) => owner.id);
+
+    if (owners.length === 0) {
+      return res.status(404).json({ error: requestedOwnerId ? 'Proprietaire introuvable.' : 'Aucun proprietaire a notifier.' });
+    }
+
+    const createdAt = getAgencySqlDateTime();
+    let notificationsCreated = 0;
+    let pushesSent = 0;
+
+    for (const owner of owners) {
+      const notificationId = await createOwnerMobileNotification({
+        ownerId: owner.id,
+        type: 'info',
+        message,
+        metadata: {
+          kind: 'owner_app_update',
+          title: 'Mise a jour application',
+          ownerId: owner.id,
+          ownerName: owner.name || null,
+          playStoreUrl,
+          targetUrl: playStoreUrl,
+          openMode: 'external_url',
+          source: 'admin_settings',
+        },
+        createdAt,
+      });
+      if (notificationId) notificationsCreated += 1;
+
+      const pushResult = await pushToOwnerDevices(owner.id, {
+        title: 'Proprietaires Dwira',
+        body: message,
+        data: {
+          kind: 'owner_app_update',
+          ownerId: owner.id,
+          playStoreUrl,
+          targetUrl: playStoreUrl,
+          openMode: 'external_url',
+          source: 'admin_settings',
+        },
+      });
+      pushesSent += Number(pushResult?.sent || 0);
+    }
+
+    await createAdminNotification(
+      'info',
+      `Notification mise a jour application envoyee a ${owners.length} proprietaire(s) - ${pushesSent} push envoye(s)`
+    );
+
+    res.status(201).json({
+      ok: true,
+      message,
+      playStoreUrl,
+      ownerId: requestedOwnerId || null,
+      ownerName: owners.length === 1 ? owners[0].name || null : null,
+      ownersCount: owners.length,
+      notificationsCreated,
+      pushesSent,
+    });
+  } catch (error) {
+    console.error('Error broadcasting owner app update notification:', error);
+    res.status(500).json({ error: 'Failed to broadcast owner app update notification' });
   }
 });
 
