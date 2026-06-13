@@ -70,13 +70,10 @@ const resolveSubTypeLabel = (category: string, mainType: string, title: string, 
   return rawCategory;
 };
 
-const buildDisplayTitle = (reference: string | undefined, title: string) => {
-  const safeTitle = String(title || "").trim();
+const buildReferenceLabel = (reference?: string) => {
   const safeReference = String(reference || "").trim();
-  if (!safeReference) return safeTitle;
-  return /^ref\b/i.test(safeReference)
-    ? `${safeReference} : ${safeTitle}`
-    : `REF - ${safeReference} : ${safeTitle}`;
+  if (!safeReference) return "";
+  return /^ref\b/i.test(safeReference) ? safeReference : `REF-${safeReference}`;
 };
 
 export function PropertyCard({ property, searchParams }: PropertyCardProps) {
@@ -123,7 +120,8 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     Number(property.bedrooms || 0)
   );
   const typeWidgetLabel = subTypeLabel ? `${mainTypeLabel} ${subTypeLabel}` : mainTypeLabel;
-  const displayTitle = buildDisplayTitle(property.reference, property.title);
+  const titleText = String(property.title || "").trim();
+  const referenceLabel = buildReferenceLabel(property.reference);
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
   const residenceBadgeLabel = String(property.residenceName || "").trim();
 
@@ -175,6 +173,28 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     
   return (
     <div className={`dwira-property-card group overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_20px_48px_rgba(15,23,42,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_62px_rgba(15,23,42,0.16)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'} ${hasInstantReservation ? 'dwira-instant-card' : ''}`}>
+      {hasInstantReservation ? (
+        <span aria-hidden="true" className="dwira-electric-frame">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M2.6 9 V2.8 H10.5 L7.3 5.1 H12.6" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M79.5 2.8 H97.4 V10.6 L94.5 7.6 V13.2" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M97.4 77.2 V90.8 L94.2 87.3 V93.8" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M17.8 97.2 H7.2 V86.6 L10.7 90.1 H5.4" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M3 69.5 V80.6 L5.1 77.8 V84.5" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M97.2 24.2 V35.4 L95.1 32.6 V39.1" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M86.5 97.2 H97.2 V86.8 L93.9 90.2 V84.9" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M9.8 97.2 H17.1 L13.8 95.1 H18.9" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M2.6 9 V2.8 H10.5 L7.3 5.1 H12.6" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M79.5 2.8 H97.4 V10.6 L94.5 7.6 V13.2" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M97.4 77.2 V90.8 L94.2 87.3 V93.8" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M17.8 97.2 H7.2 V86.6 L10.7 90.1 H5.4" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M3 69.5 V80.6 L5.1 77.8 V84.5" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M97.2 24.2 V35.4 L95.1 32.6 V39.1" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M86.5 97.2 H97.2 V86.8 L93.9 90.2 V84.9" />
+            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M9.8 97.2 H17.1 L13.8 95.1 H18.9" />
+          </svg>
+        </span>
+      ) : null}
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <SmartImage
@@ -229,11 +249,16 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
         <div className="space-y-4 p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="relative min-w-0 flex-1 overflow-hidden">
-              <span
-                className="line-clamp-3 block text-[1.45rem] font-semibold leading-[1.2] tracking-[-0.005em] text-slate-900 transition-colors group-hover:text-emerald-700 sm:text-[1.5rem] md:text-[1.55rem] lg:text-[1.65rem]"
+              {referenceLabel ? (
+                <p className="mb-1 text-[0.95rem] font-semibold uppercase tracking-[0.02em] text-slate-700 sm:text-[1rem]">
+                  {referenceLabel} :
+                </p>
+              ) : null}
+              <p
+                className="dwira-property-title line-clamp-4 text-[1.42rem] font-semibold leading-[1.12] tracking-[-0.03em] text-slate-900 transition-colors group-hover:text-emerald-700 sm:text-[1.5rem] md:text-[1.56rem] lg:text-[1.62rem]"
               >
-                {displayTitle}
-              </span>
+                {titleText}
+              </p>
             </div>
             {property.isFeatured && (
               <span className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
