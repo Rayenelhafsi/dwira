@@ -374,8 +374,8 @@ function classifyNotification(notification: Notification): {
   if (normalized.includes('contrat')) category = 'contrat';
   else if (normalized.includes('paiement') || normalized.includes('clicktopay') || normalized.includes('flouci') || normalized.includes('recu')) category = 'paiement';
   else if (normalized.includes('demande') || normalized.includes('reservation') || normalized.includes('rd_chatbot')) category = 'demande';
+  else if (normalized.includes('calendrier') || normalized.includes('mise a jour calendrier') || normalized.includes('relance calendrier')) category = 'calendrier';
   else if (normalized.includes('proprietaire')) category = 'proprietaire';
-  else if (normalized.includes('calendrier')) category = 'calendrier';
 
   let importance: NotificationImportance = 'normal';
   if (
@@ -466,7 +466,7 @@ function getDemandClientName(demand?: ReservationDemand | null) {
   if (clientName) return clientName;
   const email = String(demand?.client_email || '').trim();
   if (email) return email;
-  return 'Client non renseigne';
+  return 'Client web non identifie';
 }
 
 function getDemandSourceLabel(demand?: ReservationDemand | null, message?: string | null) {
@@ -486,8 +486,14 @@ function getDemandActionTitle(category: NotificationCategory, message?: string |
     if (normalizedMessage.includes('clicktopay')) return 'Paiement ClicToPay';
     return 'Paiement client';
   }
-  if (category === 'proprietaire') return 'Message proprietaire';
-  if (category === 'calendrier') return 'Alerte calendrier';
+  if (category === 'proprietaire') return normalizedMessage.includes('reponse') ? 'Reponse proprietaire' : 'Message proprietaire';
+  if (category === 'calendrier') {
+    if (normalizedMessage.includes('est a jour')) return 'Calendrier confirme';
+    if (normalizedMessage.includes('ne sont pas a jour')) return 'Mise a jour demandee';
+    if (normalizedMessage.includes('quotidienne envoyee')) return 'Relance quotidienne';
+    if (normalizedMessage.includes('individuellement')) return 'Relance individuelle';
+    return 'Alerte calendrier';
+  }
   return 'Demande de reservation';
 }
 
@@ -499,6 +505,120 @@ function summarizeNotificationDetail(message?: string | null) {
     .replace(/\s{2,}/g, ' ')
     .trim();
   return normalized || 'Action en attente de verification.';
+}
+
+function extractOwnerNameFromNotificationMessage(message?: string | null) {
+  const value = String(message || '').trim();
+  if (!value) return '';
+  const patterns = [
+    /Calendrier du proprietaire\s+(.+?)\s+est a jour/i,
+    /Le proprietaire\s+(.+?)\s+a indique/i,
+    /Relance calendrier envoyee individuellement a\s+(.+?)\s+pour/i,
+    /nouveau message proprietaire\s*\(([^)]+)\)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (match?.[1]) return String(match[1]).trim();
+  }
+  return '';
+}
+
+function extractPropertyTitleFromNotificationMessage(message?: string | null) {
+  const value = String(message || '').trim();
+  if (!value) return '';
+  const patterns = [
+    /Mise a jour envoyee le .*?\(([^)]+)\)/i,
+    /pour\s+([^.,]+?)\.\s*Date de reponse/i,
+    /pour\s+([^.,]+?)\s*$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (match?.[1]) return String(match[1]).trim();
+  }
+  return '';
+}
+
+function getNotificationDisplayTitle(args: {
+  category: NotificationCategory;
+  message: string;
+  demand: ReservationDemand | null;
+  bien: Bien | null;
+  ownerName: string;
+}) {
+  const { category, message, demand, bien, ownerName } = args;
+  const normalized = String(message || '').toLowerCase();
+  if (demand) return getDemandClientName(demand);
+  if (category === 'calendrier') {
+    if (normalized.includes('quotidienne envoyee')) return 'Relance calendrier quotidienne';
+    if (normalized.includes('individuellement')) return ownerName ? `Relance a ${ownerName}` : 'Relance calendrier individuelle';
+    if (ownerName) return ownerName;
+    return 'Suivi calendrier proprietaire';
+  }
+  if (category === 'proprietaire') {
+    if (ownerName) return ownerName;
+    return 'Message proprietaire';
+  }
+  if (category === 'paiement') return bien?.titre || bien?.reference || 'Paiement client';
+  if (category === 'contrat') return bien?.titre || bien?.reference || 'Contrat client';
+  if (category === 'demande') return bien?.titre || bien?.reference || 'Demande de reservation';
+  return bien?.titre || bien?.reference || 'Notification systeme';
+}
+
+function getNotificationSecondaryLabel(args: {
+  category: NotificationCategory;
+  demand: ReservationDemand | null;
+  ownerName: string;
+  modeLabel: string;
+  propertyTitle: string;
+}) {
+  const { category, demand, ownerName, modeLabel, propertyTitle } = args;
+  if (demand) return `${getDemandClientName(demand)} • ${modeLabel}`;
+  if (category === 'calendrier') {
+    if (propertyTitle) return `${modeLabel} • Calendrier • ${propertyTitle}`;
+    if (ownerName) return `${modeLabel} • Calendrier • ${ownerName}`;
+    return `${modeLabel} • Calendrier`;
+  }
+  if (category === 'proprietaire') {
+    if (propertyTitle) return `${modeLabel} • Proprietaire • ${propertyTitle}`;
+    if (ownerName) return `${modeLabel} • Proprietaire`;
+  }
+  return `${modeLabel} • ${category === 'systeme' ? 'Systeme' : 'Notification'}`;
+}
+
+function getNotificationDetailLabel(args: {
+  category: NotificationCategory;
+  message: string;
+  ownerName: string;
+  propertyTitle: string;
+}) {
+  const { category, message, ownerName, propertyTitle } = args;
+  const normalized = String(message || '').toLowerCase();
+  if (category === 'calendrier') {
+    if (normalized.includes('est a jour')) {
+      return ownerName
+        ? `${ownerName} a confirme que ses calendriers sont a jour.`
+        : 'Le proprietaire a confirme que ses calendriers sont a jour.';
+    }
+    if (normalized.includes('ne sont pas a jour')) {
+      return propertyTitle
+        ? `Le proprietaire demande une mise a jour du calendrier pour ${propertyTitle}.`
+        : 'Le proprietaire a signale que ses calendriers doivent etre mis a jour.';
+    }
+    if (normalized.includes('quotidienne envoyee')) {
+      const match = message.match(/\((\d+)\/(\d+)\)\s+pour\s+(\d{4}-\d{2}-\d{2})/i);
+      if (match) return `Relance quotidienne envoyee a ${match[1]} proprietaires sur ${match[2]} pour le ${match[3]}.`;
+      return 'Relance quotidienne envoyee aux proprietaires concernes.';
+    }
+    if (normalized.includes('individuellement')) {
+      return ownerName
+        ? `Relance individuelle envoyee a ${ownerName} pour verification de son calendrier.`
+        : 'Relance individuelle envoyee au proprietaire.';
+    }
+  }
+  if (category === 'proprietaire' && ownerName) {
+    return `Nouvelle information recue de ${ownerName}.`;
+  }
+  return summarizeNotificationDetail(message);
 }
 
 function formatElapsedDuration(from?: string | null, nowMs = Date.now()) {
@@ -798,6 +918,16 @@ export default function NotificationsPage() {
     return byReference;
   }, [biens]);
 
+  const ownerLookup = useMemo(() => {
+    const byId = new Map<string, Proprietaire>();
+    owners.forEach((owner) => {
+      const ownerId = String(owner.id || '').trim();
+      if (!ownerId) return;
+      byId.set(ownerId, owner);
+    });
+    return byId;
+  }, [owners]);
+
   const notificationInsights = useMemo<NotificationInsight[]>(
     () =>
       notifications.map((notification) => ({
@@ -840,23 +970,53 @@ export default function NotificationsPage() {
       const linkedBien = linkedDemand
         ? (biensById.get(String(linkedDemand.bien_id || '').trim()) || biensByReference.get(String(linkedDemand.bien_reference || '').trim().toLowerCase()) || null)
         : null;
+      const ownerId = String(
+        linkedDemand?.proprietaire_id || extractOwnerIdFromNotificationMessage(message)
+      ).trim();
+      const ownerName = String(
+        linkedDemand?.proprietaire_nom
+        || ownerLookup.get(ownerId)?.nom
+        || extractOwnerNameFromNotificationMessage(message)
+      ).trim();
+      const propertyTitle = String(
+        linkedBien?.titre
+        || linkedBien?.nom_bien_mobile
+        || linkedBien?.reference
+        || extractPropertyTitleFromNotificationMessage(message)
+      ).trim();
       const modeLabel = formatModeLabel(linkedBien?.mode || (normalizedMessage.includes('hotel') ? 'hotellerie' : 'location_saisonniere'));
+      const displayTitle = getNotificationDisplayTitle({
+        category: item.category,
+        message,
+        demand: linkedDemand,
+        bien: linkedBien,
+        ownerName,
+      });
       return {
         ...item,
         demand: linkedDemand,
         bien: linkedBien,
-        clientName: getDemandClientName(linkedDemand),
+        clientName: displayTitle,
         sourceLabel: getDemandSourceLabel(linkedDemand, message),
         paymentMethodLabel: formatPaymentMethodLabel(linkedDemand, message),
         modeLabel,
         primaryLabel: getDemandActionTitle(item.category, message),
-        secondaryLabel: linkedDemand
-          ? `${getDemandClientName(linkedDemand)} • ${modeLabel}`
-          : `${modeLabel} • ${item.title}`,
-        detailLabel: summarizeNotificationDetail(message),
+        secondaryLabel: getNotificationSecondaryLabel({
+          category: item.category,
+          demand: linkedDemand,
+          ownerName,
+          modeLabel,
+          propertyTitle,
+        }),
+        detailLabel: getNotificationDetailLabel({
+          category: item.category,
+          message,
+          ownerName,
+          propertyTitle,
+        }),
       };
     });
-  }, [notificationInsights, demands, biensById, biensByReference]);
+  }, [notificationInsights, demands, biensById, biensByReference, ownerLookup]);
 
   const notificationCategoryCounters = useMemo(() => {
     const counters: Record<NotificationCategory, number> = {
@@ -982,16 +1142,6 @@ export default function NotificationsPage() {
     });
     return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   }, [demands, owners]);
-
-  const ownerLookup = useMemo(() => {
-    const byId = new Map<string, Proprietaire>();
-    owners.forEach((owner) => {
-      const ownerId = String(owner.id || '').trim();
-      if (!ownerId) return;
-      byId.set(ownerId, owner);
-    });
-    return byId;
-  }, [owners]);
 
   const ownerDemandsByOwnerId = useMemo(() => {
     const byOwner = new Map<string, ReservationDemand[]>();
