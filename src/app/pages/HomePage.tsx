@@ -1,6 +1,7 @@
 ﻿import { useState, useRef, useMemo, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { Suspense, lazy } from "react";
 import { useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
@@ -11,8 +12,7 @@ import logo from "../../../logo dwira.jpg";
 import titaTravelLogo from "../../../logo Tita travel.jpg";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
-import { createHotelReservationDemand, getHotelConfig, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
-import { completeSocialProfile, getAuthProviders, loginWithPasskey, registerWithPasskey, startSocialLogin } from "../services/auth";
+import type { HotelCity, HotelSummary } from "../services/hotels";
 import { extractHotelMinPrice, flattenHotelRoomOffers, formatHotelStarLabel, getHotelCardDescription, pickHotelDisplayedPrice } from "../utils/hotelHelpers";
 import { buildApiUrl } from "../utils/api";
 import { clearAuthPendingLogin, isAuthPendingLogin, markAuthPendingLogin, saveAuthReturnTo } from "../utils/pendingReservation";
@@ -36,7 +36,6 @@ import {
 import { fr } from "date-fns/locale";
 import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
 import { resolveMediaUrl } from "../utils/media";
-import WebsiteChatbotWidget from "../components/WebsiteChatbotWidget";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -112,6 +111,9 @@ const HERO_IMAGE_URL_MOBILE =
 const HOTEL_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
 const HOTEL_PENDING_HOME_RESERVE_KEY = "dwira_pending_home_hotel_reserve";
+const LazyWebsiteChatbotWidget = lazy(() => import("../components/WebsiteChatbotWidget"));
+const loadHotelsService = () => import("../services/hotels");
+const loadAuthService = () => import("../services/auth");
 
 const normalizeLocationMatchToken = (value?: string | null) =>
   String(value || "")
@@ -842,6 +844,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
+  const [showChatbotWidget, setShowChatbotWidget] = useState(false);
   const [locationPays, setLocationPays] = useState("Tunisie");
   const [locationGouvernerat, setLocationGouvernerat] = useState("");
   const [locationRegion, setLocationRegion] = useState("");
@@ -963,6 +966,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       document.body.style.overflow = previousOverflow;
     };
   }, [hotelDestinationOpen, hotelTravellersOpen, hotelCalendarOpen, showLoginPrompt, hotelReserveModal, hotelSearchLoadingModal]);
+  useEffect(() => {
+    if (showChatbotWidget) return;
+    const idleCallback = window.requestIdleCallback?.(() => setShowChatbotWidget(true), { timeout: 1800 });
+    const timeoutId = window.setTimeout(() => setShowChatbotWidget(true), 2200);
+    return () => {
+      if (typeof idleCallback === "number") {
+        window.cancelIdleCallback?.(idleCallback);
+      }
+      window.clearTimeout(timeoutId);
+    };
+  }, [showChatbotWidget]);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
   const applyAmicaleParam = (params: URLSearchParams) => {
     if (activeAmicaleId) {
@@ -1835,10 +1849,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, []);
 
   useEffect(() => {
+    if (!isHotelMode) return;
     let cancelled = false;
     setLoadingHotelsByCity(true);
     void (async () => {
       try {
+        const { listHotels } = await loadHotelsService();
         const rows = await listHotels(Number(hotelCityId) > 0 ? hotelCityId : undefined);
         if (!cancelled) setHotelsByCity(Array.isArray(rows) ? rows : []);
       } catch {
@@ -1850,7 +1866,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [hotelCityId]);
+  }, [hotelCityId, isHotelMode]);
   useEffect(() => {
     if (selectedLocations.length === 0) {
       setLocation("");
@@ -1881,9 +1897,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [activeAmicaleId, loading, orderedModeTabs, searchParams, setSearchParams]);
 
   useEffect(() => {
+    if (!isHotelMode) return;
     let cancelled = false;
     void (async () => {
       try {
+        const { getHotelConfig } = await loadHotelsService();
         const config = await getHotelConfig();
         if (!cancelled) setHotelConfigReady(config.configured);
       } catch (error) {
@@ -1896,13 +1914,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isHotelMode]);
 
   useEffect(() => {
+    if (!isHotelMode) return;
     let cancelled = false;
     setLoadingHotelCities(true);
     void (async () => {
       try {
+        const { listHotelCities } = await loadHotelsService();
         const nextCities = await listHotelCities();
         if (!cancelled) {
           setHotelCities(nextCities);
@@ -1920,7 +1940,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isHotelMode]);
 
   useEffect(() => {
     if (!isHotelMode || loadingHotelCities || hotelInitialSearchDoneRef.current) return;
@@ -2183,6 +2203,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setHotelSearchFallbackNotice("");
 
     try {
+      const { listHotels, searchHotels } = await loadHotelsService();
       if (!hotelCityId || !hasValidDates || !hasValidTravellers) {
         const fallbackHotels = await listHotels(hotelCityId || undefined);
         const filteredFallback = Array.isArray(fallbackHotels)
@@ -2481,7 +2502,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setIsAwaitingLogin(true);
     setShowLoginPrompt(false);
     // Keep auth in the same tab/page flow (no popup window).
-    startSocialLogin(provider, returnTo);
+    void loadAuthService().then(({ startSocialLogin }) => {
+      startSocialLogin(provider, returnTo);
+    });
   };
 
   const handlePromptPasskeyLogin = async () => {
@@ -2489,6 +2512,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     if (!window.PublicKeyCredential || !navigator.credentials) return toast.error("Passkey non supporte sur ce navigateur/appareil");
     setIsPasskeyPromptLoading(true);
     try {
+      const { loginWithPasskey } = await loadAuthService();
       const loggedUser = await loginWithPasskey();
       applyLoggedUser(loggedUser);
       if (!loggedUser.profileCompleted) {
@@ -2516,6 +2540,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast.error("Entrez un email valide.");
     setIsPasskeyCreateLoading(true);
     try {
+      const { registerWithPasskey } = await loadAuthService();
       const loggedUser = await registerWithPasskey(email, passkeyPromptName.trim());
       applyLoggedUser(loggedUser);
       if (!loggedUser.profileCompleted) {
@@ -2543,6 +2568,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     }
     setIsProfilePromptSaving(true);
     try {
+      const { completeSocialProfile } = await loadAuthService();
       const savedUser = await completeSocialProfile({
         id: user.id,
         firstName: profilePromptForm.firstName.trim(),
@@ -2591,6 +2617,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
     setSubmittingHotelReserve(true);
     try {
+      const { createHotelReservationDemand } = await loadHotelsService();
       const created = await createHotelReservationDemand({
         hotelId: hotelReserveModal.hotel.Id,
         hotelName: hotelReserveModal.hotel.Name,
@@ -2684,9 +2711,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   useEffect(() => {
     let cancelled = false;
     if (!showLoginPrompt) return;
-    void getAuthProviders().then((availableProviders) => {
-      if (!cancelled) setProviders(availableProviders);
-    });
+    void loadAuthService().then(({ getAuthProviders }) =>
+      getAuthProviders().then((availableProviders) => {
+        if (!cancelled) setProviders(availableProviders);
+      })
+    );
     return () => {
       cancelled = true;
     };
@@ -5371,7 +5400,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         </>,
         document.body
       )}
-      <WebsiteChatbotWidget />
+      {showChatbotWidget ? (
+        <Suspense fallback={null}>
+          <LazyWebsiteChatbotWidget />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
