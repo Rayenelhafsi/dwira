@@ -47,9 +47,14 @@ export function SmartImage({
     ).sort((left, right) => left - right);
 
     if (candidateWidths.length < 2) return undefined;
-    return candidateWidths
-      .map((width) => `${getOptimizedMediaUrl(originalSrc, { width, quality })} ${width}w`)
-      .join(", ");
+    const candidates = candidateWidths.map((width) => ({
+      width,
+      url: getOptimizedMediaUrl(originalSrc, { width, quality }),
+    }));
+    const uniqueUrls = new Set(candidates.map((candidate) => candidate.url).filter(Boolean));
+
+    if (uniqueUrls.size < 2) return undefined;
+    return candidates.map((candidate) => `${candidate.url} ${candidate.width}w`).join(", ");
   }, [originalSrc, quality, targetWidth]);
 
   const [currentSrc, setCurrentSrc] = useState(() => getNextImageSource(optimizedSrc, originalSrc));
