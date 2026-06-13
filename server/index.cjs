@@ -19672,16 +19672,25 @@ async function pushToOwnerDevices(ownerId, payload) {
   );
   const kind = String(dataPayload.kind || '').trim();
   const isAvailabilityRequest = kind === 'reservation_availability_request';
+  const isOwnerAppUpdate = kind === 'owner_app_update';
+  const notificationTitle = String(payload?.title || 'Dwira');
+  const notificationBody = String(payload?.body || '');
+  if (isOwnerAppUpdate) {
+    if (!dataPayload.title) dataPayload.title = notificationTitle;
+    if (!dataPayload.body) dataPayload.body = notificationBody;
+    if (!dataPayload.url && dataPayload.targetUrl) dataPayload.url = dataPayload.targetUrl;
+    if (!dataPayload.link && dataPayload.targetUrl) dataPayload.link = dataPayload.targetUrl;
+  }
 
   let sent = 0;
   for (const token of tokens) {
     try {
-      const title = String(payload?.title || 'Dwira');
-      const body = String(payload?.body || '');
+      const title = notificationTitle;
+      const body = notificationBody;
       const message = {
         token,
         data: dataPayload,
-        android: isAvailabilityRequest
+        android: (isAvailabilityRequest || isOwnerAppUpdate)
           ? {
               priority: 'high',
               ttl: 86400000,
@@ -19701,7 +19710,7 @@ async function pushToOwnerDevices(ownerId, payload) {
           },
           payload: {
             aps: {
-              alert: isAvailabilityRequest ? undefined : { title, body },
+              alert: (isAvailabilityRequest || isOwnerAppUpdate) ? undefined : { title, body },
               sound: isAvailabilityRequest
                 ? 'availability_request.wav'
                 : 'default',
@@ -19711,7 +19720,7 @@ async function pushToOwnerDevices(ownerId, payload) {
         },
       };
 
-      if (!isAvailabilityRequest) {
+      if (!isAvailabilityRequest && !isOwnerAppUpdate) {
         message.notification = { title, body };
       }
 
