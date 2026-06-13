@@ -23,6 +23,7 @@ import { calculateAccommodationPricing, getPeriodMinStayForDate, getReservationM
 import { computeGuestLimits } from "../utils/guestLimits";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";

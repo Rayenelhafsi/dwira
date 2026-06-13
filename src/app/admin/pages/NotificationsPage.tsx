@@ -10,6 +10,38 @@ import { getServiceDisplayPrice } from '../../utils/servicePayants';
 import { resolveMediaUrl } from '../../utils/media';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const NOTIFICATIONS_CACHE_KEY = 'dwira_admin_notifications_cache_v1';
+
+type NotificationsCachePayload = {
+  notifications: Notification[];
+  demands: ReservationDemand[];
+  owners: Proprietaire[];
+  calendarPromptSchedule: CalendarPromptSchedule | null;
+  ownerCalendarStatuses: Record<string, OwnerCalendarPromptStatus>;
+  pendingCalendarRequests: AdminCalendarRequest[];
+  calendarRequestHistory: AdminCalendarRequest[];
+};
+
+function readNotificationsCache(): NotificationsCachePayload | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(NOTIFICATIONS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as NotificationsCachePayload : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeNotificationsCache(payload: NotificationsCachePayload) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(NOTIFICATIONS_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore cache errors
+  }
+}
 
 type CalendarPromptSchedule = {
   enabled: boolean;
@@ -541,10 +573,11 @@ function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, n
 }
 
 export default function NotificationsPage() {
+  const initialCache = readNotificationsCache();
   const location = useLocation();
   const { biens } = useProperties();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [demands, setDemands] = useState<ReservationDemand[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>(initialCache?.notifications || []);
+  const [demands, setDemands] = useState<ReservationDemand[]>(initialCache?.demands || []);
   const [historyRows, setHistoryRows] = useState<ReservationDemandHistory[]>([]);
   const [historyDemandId, setHistoryDemandId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'demands' | 'chat' | 'calendars' | 'system'>('demands');
@@ -570,11 +603,11 @@ export default function NotificationsPage() {
   const [isDesktopChatLayout, setIsDesktopChatLayout] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
-  const [owners, setOwners] = useState<Proprietaire[]>([]);
-  const [calendarPromptSchedule, setCalendarPromptSchedule] = useState<CalendarPromptSchedule | null>(null);
-  const [ownerCalendarStatuses, setOwnerCalendarStatuses] = useState<Record<string, OwnerCalendarPromptStatus>>({});
-  const [pendingCalendarRequests, setPendingCalendarRequests] = useState<AdminCalendarRequest[]>([]);
-  const [calendarRequestHistory, setCalendarRequestHistory] = useState<AdminCalendarRequest[]>([]);
+  const [owners, setOwners] = useState<Proprietaire[]>(initialCache?.owners || []);
+  const [calendarPromptSchedule, setCalendarPromptSchedule] = useState<CalendarPromptSchedule | null>(initialCache?.calendarPromptSchedule || null);
+  const [ownerCalendarStatuses, setOwnerCalendarStatuses] = useState<Record<string, OwnerCalendarPromptStatus>>(initialCache?.ownerCalendarStatuses || {});
+  const [pendingCalendarRequests, setPendingCalendarRequests] = useState<AdminCalendarRequest[]>(initialCache?.pendingCalendarRequests || []);
+  const [calendarRequestHistory, setCalendarRequestHistory] = useState<AdminCalendarRequest[]>(initialCache?.calendarRequestHistory || []);
   const [calendarReviewRequest, setCalendarReviewRequest] = useState<AdminCalendarRequest | null>(null);
   const [calendarReviewDiff, setCalendarReviewDiff] = useState<CalendarDiffPayload | null>(null);
   const [selectedClientDemand, setSelectedClientDemand] = useState<ReservationDemand | null>(null);
@@ -583,14 +616,14 @@ export default function NotificationsPage() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [dispatchingCalendarPrompt, setDispatchingCalendarPrompt] = useState(false);
   const [dispatchingCalendarPromptOwnerId, setDispatchingCalendarPromptOwnerId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialCache);
   const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [generatingContractDemandId, setGeneratingContractDemandId] = useState<string | null>(null);
   const [sendingContractDemandId, setSendingContractDemandId] = useState<string | null>(null);
   const [serviceQuoteDrafts, setServiceQuoteDrafts] = useState<Record<string, Record<string, number>>>({});
   const [expandedDemandIds, setExpandedDemandIds] = useState<Record<string, boolean>>({});
-  const hasLoadedOnceRef = useRef(false);
+  const hasLoadedOnceRef = useRef(Boolean(initialCache));
   const isFetchingRef = useRef(false);
   const isChatFetchingRef = useRef<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -653,6 +686,15 @@ export default function NotificationsPage() {
       setOwnerCalendarStatuses(mappedOwnerStatuses);
       setPendingCalendarRequests(Array.isArray(pendingCalendarRows) ? pendingCalendarRows : []);
       setCalendarRequestHistory(Array.isArray(historyCalendarRows) ? historyCalendarRows : []);
+      writeNotificationsCache({
+        notifications: Array.isArray(notificationRows) ? notificationRows : [],
+        demands: Array.isArray(demandRows) ? demandRows : [],
+        owners: Array.isArray(ownerRows) ? ownerRows : [],
+        calendarPromptSchedule: scheduleRow || null,
+        ownerCalendarStatuses: mappedOwnerStatuses,
+        pendingCalendarRequests: Array.isArray(pendingCalendarRows) ? pendingCalendarRows : [],
+        calendarRequestHistory: Array.isArray(historyCalendarRows) ? historyCalendarRows : [],
+      });
       hasLoadedOnceRef.current = true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Impossible de charger les notifications');

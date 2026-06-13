@@ -1,5 +1,4 @@
 import { buildApiUrl, fetchJsonWithApiFallback } from '../utils/api';
-import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 
 export interface AuthUser {
   id?: string;
@@ -84,6 +83,10 @@ function readSessionCache(): AuthUser | undefined {
   return sessionCache.value;
 }
 
+async function loadPasskeyBrowser() {
+  return import('@simplewebauthn/browser');
+}
+
 export function invalidateAuthClientCaches() {
   providersCache = null;
   providersInFlight = null;
@@ -164,6 +167,7 @@ function toFriendlyPasskeyError(error: unknown, action: 'register' | 'login'): E
 
 export async function registerWithPasskey(email: string, name?: string): Promise<AuthUser> {
   try {
+    const { startRegistration } = await loadPasskeyBrowser();
     const bootstrap = await fetchJsonWithApiFallback<PasskeyOptionsResponse>('/auth/passkey/register/options', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -183,6 +187,7 @@ export async function registerWithPasskey(email: string, name?: string): Promise
 
 export async function loginWithPasskey(email?: string): Promise<AuthUser> {
   try {
+    const { startAuthentication } = await loadPasskeyBrowser();
     const bootstrap = await fetchJsonWithApiFallback<PasskeyOptionsResponse>('/auth/passkey/login/options', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

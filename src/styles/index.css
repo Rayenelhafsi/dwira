@@ -19,6 +19,21 @@ body {
   text-wrap: balance;
 }
 
+@keyframes dwira-admin-progress {
+  0% {
+    transform: scaleX(0.08);
+    opacity: 0.42;
+  }
+  50% {
+    transform: scaleX(0.72);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0.38;
+  }
+}
+
 @keyframes dwira-electric-trace {
   0% {
     stroke-dasharray: 180 820;

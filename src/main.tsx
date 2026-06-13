@@ -1,6 +1,5 @@
 import { createRoot } from "react-dom/client";
 import App from "./app/App.tsx";
-import "leaflet/dist/leaflet.css";
 import "./styles/index.css";
 import { initMetaPixel, trackMetaPageViewOncePerPath } from "./app/utils/metaConversions.ts";
 

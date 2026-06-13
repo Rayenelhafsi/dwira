@@ -21,6 +21,7 @@ import {
   Hotel,
 } from 'lucide-react';
 import logo from '../../../../logo dwira.jpg';
+import { preloadAdminRoute } from '../utils/routePreload';
 
 interface AdminSidebarProps {
   onClose?: () => void;
@@ -73,6 +74,10 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     if (onClose) {
       onClose();
     }
+  };
+
+  const handleNavIntent = (path: string) => {
+    preloadAdminRoute(path);
   };
 
   const openUrgentAlerts = () => {
@@ -197,6 +202,9 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
             key={item.path}
             to={item.path}
             onClick={handleNavClick}
+            onMouseEnter={() => handleNavIntent(item.path)}
+            onFocus={() => handleNavIntent(item.path)}
+            onTouchStart={() => handleNavIntent(item.path)}
             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
               isActive(item.path)
                 ? 'bg-emerald-800 text-white shadow-sm'

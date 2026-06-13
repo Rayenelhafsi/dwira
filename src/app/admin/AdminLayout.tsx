@@ -1,13 +1,15 @@
-import { Outlet, useNavigate } from 'react-router';
+import { Outlet, useNavigate, useNavigation } from 'react-router';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { AdminSidebar } from './components/AdminSidebar';
 import { Menu, X } from 'lucide-react';
 import logo from '../../../logo dwira.jpg';
+import { preloadImportantAdminRoutes } from './utils/routePreload';
 
 export function AdminLayout() {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
+  const navigation = useNavigation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -20,6 +22,18 @@ export function AdminLayout() {
     }
   }, [user, isLoading, navigate]);
 
+  useEffect(() => {
+    if (isLoading || !user || user.role !== 'admin') return;
+    const idleId = window.requestIdleCallback?.(() => preloadImportantAdminRoutes(), { timeout: 2000 });
+    const timeoutId = window.setTimeout(() => preloadImportantAdminRoutes(), 2500);
+    return () => {
+      if (typeof idleId === 'number') {
+        window.cancelIdleCallback?.(idleId);
+      }
+      window.clearTimeout(timeoutId);
+    };
+  }, [isLoading, user]);
+
 
   if (isLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center text-emerald-600 font-medium">
@@ -31,6 +45,11 @@ export function AdminLayout() {
 
   return (
     <div className="flex min-h-screen bg-gray-50 font-sans text-gray-900">
+      {navigation.state !== 'idle' && (
+        <div className="pointer-events-none fixed left-0 right-0 top-0 z-[70] h-1 overflow-hidden bg-transparent">
+          <div className="h-full w-full origin-left animate-[dwira-admin-progress_1.15s_ease-in-out_infinite] bg-gradient-to-r from-emerald-400 via-emerald-600 to-emerald-400" />
+        </div>
+      )}
       {/* Mobile header with hamburger */}
       <div className="fixed top-0 left-0 right-0 bg-emerald-950 text-white h-16 px-4 flex items-center justify-between lg:hidden z-50">
         <div className="flex items-center gap-2">

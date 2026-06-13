@@ -5,15 +5,14 @@ import { PartnersLogoMarquee } from "./components/PartnersLogoMarquee";
 import { ScrollToTop } from "./components/ScrollToTop";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
 import { SiteMaintenancePage } from "./components/SiteMaintenancePage";
-import { getSiteMaintenanceStatus, type SiteMaintenanceStatus } from "./services/siteMaintenance";
+import { getSiteMaintenanceStatus, readCachedSiteMaintenanceStatus, type SiteMaintenanceStatus } from "./services/siteMaintenance";
 import { useAuth } from "./context/AuthContext";
 import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
 
 export function Layout() {
   const location = useLocation();
   const { user, isLoading: authLoading } = useAuth();
-  const [maintenance, setMaintenance] = useState<SiteMaintenanceStatus | null>(null);
-  const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(true);
+  const [maintenance, setMaintenance] = useState<SiteMaintenanceStatus | null>(() => readCachedSiteMaintenanceStatus());
 
   useEffect(() => {
     let cancelled = false;
@@ -28,9 +27,7 @@ export function Layout() {
           setMaintenance(null);
         }
       } finally {
-        if (!cancelled) {
-          setIsLoadingMaintenance(false);
-        }
+        // no blocking loader for public pages
       }
     };
 
@@ -88,12 +85,12 @@ export function Layout() {
     };
   }, []);
 
-  if (isLoadingMaintenance || authLoading) {
-    return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-gray-500">Chargement...</div>;
-  }
-
   const isMaintenanceBypassPath = location.pathname === MAINTENANCE_ACCESS_PATH;
   const canBypassMaintenance = user?.role === "admin" || isMaintenanceBypassPath;
+
+  if (maintenance?.isActive && authLoading && !canBypassMaintenance) {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-gray-500">Chargement...</div>;
+  }
 
   if (maintenance?.isActive && !canBypassMaintenance) {
     return <SiteMaintenancePage status={maintenance} />;

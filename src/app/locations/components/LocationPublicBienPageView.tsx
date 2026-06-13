@@ -6,6 +6,7 @@ import { canRenderVideoInIframe, isFacebookReelUrl, isFacebookVideoUrl, isVertic
 import { SmartImage } from '../../components/SmartImage';
 import { resolveMediaUrl as resolveMediaAssetUrl } from '../../utils/media';
 import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import logo from '../../../../logo dwira.jpg';
 
