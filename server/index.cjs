@@ -5469,7 +5469,7 @@ const dbConfig = {
   database: isSiteDbSource ? siteDbName : (process.env.DB_NAME || 'dwira'),
   waitForConnections: true,
   connectionLimit: 10,
-  dateStrings: ['DATE'],
+  dateStrings: ['DATE', 'DATETIME', 'TIMESTAMP'],
 };
 console.log(
   `[DB] source=${isSiteDbSource ? 'site' : 'local'} host=${dbConfig.host} db=${dbConfig.database} user=${dbConfig.user}`
@@ -5651,7 +5651,7 @@ function createSiteMirrorPool() {
     database: siteDbName,
     waitForConnections: true,
     connectionLimit: 2,
-    dateStrings: ['DATE'],
+    dateStrings: ['DATE', 'DATETIME', 'TIMESTAMP'],
   });
 }
 
@@ -6670,7 +6670,7 @@ async function ensureAuthSchema() {
   const seedPassword = process.env.ADMIN_SEED_PASSWORD;
   if (seedEmail && seedPassword) {
     const hashedPassword = await bcrypt.hash(seedPassword, 10);
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = getAgencySqlDateTime();
     await pool.query(
       `INSERT INTO administrateurs (id, nom, email, mot_de_passe_hash, actif, created_at, updated_at)
        VALUES (?, ?, ?, ?, 1, ?, ?)
@@ -7657,7 +7657,7 @@ async function ensureMessengerSchema() {
 
 async function upsertSocialUser({ email, name, avatar, provider, providerUserId }) {
   const userId = `u${Date.now()}`;
-  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const now = getAgencySqlDateTime();
   const safeAvatar = resolveSocialAvatarUrl({ provider, providerUserId, avatar });
 
   await pool.query(
@@ -8307,7 +8307,7 @@ async function resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, pro
 
 function isMandatValidForMode(profile, mode) {
   if (!profile) return false;
-  const now = new Date().toISOString().split('T')[0];
+  const now = getAgencyLocalDate();
   const start = profile.proprietaireMandatStart || null;
   const end = profile.proprietaireMandatEnd || null;
   const mandatType = profile.proprietaireMandatType || null;
@@ -13437,7 +13437,7 @@ app.post('/api/locataires', requireAdminSession, async (req, res) => {
   try {
     const { nom, telephone, email, cin, score_fiabilite } = req.body;
     const id = 'l' + Date.now();
-    const created_at = new Date().toISOString().split('T')[0];
+    const created_at = getAgencyLocalDate();
     await pool.query(
       'INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [id, nom, telephone, email, cin, score_fiabilite || 5, created_at]
@@ -13902,7 +13902,7 @@ app.post('/api/contrats', requireAdminSession, async (req, res) => {
       return res.status(400).json({ error: 'Creation impossible: ce locataire est blackliste' });
     }
     const id = 'c' + Date.now();
-    const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const created_at = getAgencySqlDateTime();
     const contractOrigin = String(origine || 'manuel').trim().toLowerCase() === 'automatique' ? 'automatique' : 'manuel';
     await pool.query(
       'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -18007,7 +18007,7 @@ app.post('/api/reservation-demands/:id/submit-identity', requireAuthenticatedSes
     }
     if (!locataireId) {
       locataireId = `l${Date.now()}`;
-      const locataireCreatedAt = new Date().toISOString().split('T')[0];
+      const locataireCreatedAt = getAgencyLocalDate();
       await pool.query(
         `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -23198,7 +23198,7 @@ app.post('/api/utilisateurs', requireAdminSession, async (req, res) => {
       return res.status(409).json({ error: 'Cet email/utilisateur existe deja', existingId: emailRows[0].id });
     }
     const newId = id || 'u' + Date.now();
-    const created_at = new Date().toISOString().split('T')[0];
+    const created_at = getAgencyLocalDate();
     await pool.query(
       `INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -23228,7 +23228,7 @@ app.put('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
         client_type || null,
         cin || null,
         cin_image_url || null,
-        new Date().toISOString().slice(0, 19).replace('T', ' '),
+        getAgencySqlDateTime(),
         req.params.id,
       ]
     );
