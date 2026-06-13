@@ -14980,12 +14980,13 @@ app.post('/api/mobile/admin/owners/:ownerId/chat', requireAdminSession, async (r
     });
 
     const now = getAgencySqlDateTime();
+    const messagePreview = text.length > 140 ? `${text.slice(0, 137)}...` : text;
     await createOwnerMobileNotification({
       ownerId,
       type: 'info',
       message: propertyTitle
-        ? `Nouveau message admin pour ${propertyTitle}`
-        : 'Nouveau message admin',
+        ? `Nouveau message admin pour ${propertyTitle}: ${messagePreview}`
+        : `Nouveau message admin: ${messagePreview}`,
       metadata: {
         kind: 'admin_owner_chat',
         ownerId,
@@ -14999,8 +15000,8 @@ app.post('/api/mobile/admin/owners/:ownerId/chat', requireAdminSession, async (r
     await pushToOwnerDevices(ownerId, {
       title: 'Proprietaires Dwira',
       body: propertyTitle
-        ? `Nouveau message admin pour ${propertyTitle}`
-        : 'Nouveau message admin',
+        ? `${propertyTitle}: ${messagePreview}`
+        : messagePreview,
       data: {
         kind: 'admin_owner_chat',
         ownerId,

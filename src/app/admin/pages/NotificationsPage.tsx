@@ -565,6 +565,8 @@ export default function NotificationsPage() {
   const [calendarOwnerSearch, setCalendarOwnerSearch] = useState('');
   const [calendarNowMs, setCalendarNowMs] = useState(() => Date.now());
   const [showOwnerProfilePanel, setShowOwnerProfilePanel] = useState(false);
+  const [selectedOwnerBienCalendarId, setSelectedOwnerBienCalendarId] = useState<string | null>(null);
+  const [selectedCalendarBienCalendarId, setSelectedCalendarBienCalendarId] = useState<string | null>(null);
   const [isDesktopChatLayout, setIsDesktopChatLayout] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
@@ -593,6 +595,8 @@ export default function NotificationsPage() {
   const isChatFetchingRef = useRef<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const adminAlertsPanelRef = useRef<HTMLDivElement | null>(null);
+  const ownerBienCalendarRef = useRef<HTMLDivElement | null>(null);
+  const calendarBienCalendarRef = useRef<HTMLDivElement | null>(null);
 
   const fetchData = useCallback(async (options?: { background?: boolean }) => {
     if (isFetchingRef.current) return;
@@ -1033,6 +1037,10 @@ export default function NotificationsPage() {
     );
     return biens.filter((bien) => references.has(String(bien.reference || '').trim().toLowerCase()));
   }, [selectedChatOwner, biensByOwnerId, selectedOwnerDemands, biens]);
+  const selectedOwnerBienForCalendar = useMemo(
+    () => selectedOwnerBiens.find((bien) => String(bien.id) === String(selectedOwnerBienCalendarId || '')) || null,
+    [selectedOwnerBiens, selectedOwnerBienCalendarId]
+  );
   const isChatMobileConversationOpen = Boolean(selectedChatOwner);
 
   const formatChatPreview = (ownerId: string) => {
@@ -1073,6 +1081,13 @@ export default function NotificationsPage() {
       `Sous-type: ${String(bien.residence_unit_sub_type || bien.configuration || '-').replace(/_/g, ' ')}`,
       `Confort: ${comfort || 'A preciser'}`,
     ].join('\n');
+  };
+
+  const getBienCalendarDates = (bien?: Bien | null) => {
+    const rawDates = (bien as (Bien & { unavailable_dates?: DateStatus[] }) | null)?.unavailableDates
+      || (bien as (Bien & { unavailable_dates?: DateStatus[] }) | null)?.unavailable_dates
+      || [];
+    return Array.isArray(rawDates) ? rawDates : [];
   };
 
   const calendarOwners = useMemo(() => {
@@ -1181,6 +1196,10 @@ export default function NotificationsPage() {
     );
     return biens.filter((bien) => titles.has(String(bien.titre || '').trim().toLowerCase()));
   }, [selectedCalendarOwner, biensByOwnerId, selectedCalendarPendingRequest, selectedCalendarHistory, biens]);
+  const selectedCalendarBienForCalendar = useMemo(
+    () => selectedCalendarBiens.find((bien) => String(bien.id) === String(selectedCalendarBienCalendarId || '')) || null,
+    [selectedCalendarBiens, selectedCalendarBienCalendarId]
+  );
   const isCalendarMobileConversationOpen = Boolean(selectedCalendarOwner);
   const overdueCalendarOwners = useMemo(
     () =>
@@ -1286,6 +1305,10 @@ export default function NotificationsPage() {
   }, [activeView, chatOwners, selectedChatOwner, loadOwnerChat, isDesktopChatLayout]);
 
   useEffect(() => {
+    setSelectedOwnerBienCalendarId(null);
+  }, [selectedChatOwner?.id, showOwnerProfilePanel]);
+
+  useEffect(() => {
     if (activeView !== 'calendars') return;
     if (!isDesktopChatLayout) return;
     if (selectedCalendarOwner && calendarOwners.some((owner) => owner.id === selectedCalendarOwner.id)) return;
@@ -1295,6 +1318,20 @@ export default function NotificationsPage() {
     }
     setSelectedCalendarOwner(calendarOwners[0]);
   }, [activeView, calendarOwners, selectedCalendarOwner, isDesktopChatLayout]);
+
+  useEffect(() => {
+    setSelectedCalendarBienCalendarId(null);
+  }, [selectedCalendarOwner?.id]);
+
+  useEffect(() => {
+    if (!selectedOwnerBienForCalendar || !ownerBienCalendarRef.current) return;
+    ownerBienCalendarRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [selectedOwnerBienForCalendar]);
+
+  useEffect(() => {
+    if (!selectedCalendarBienForCalendar || !calendarBienCalendarRef.current) return;
+    calendarBienCalendarRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [selectedCalendarBienForCalendar]);
 
   useEffect(() => {
     if (!chatScrollRef.current) return;
@@ -2564,7 +2601,16 @@ export default function NotificationsPage() {
                     ) : (
                       <div className="mt-4 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
                         {selectedOwnerBiens.map((bien) => (
-                          <article key={`owner-bien-card-${bien.id}`} className="w-[280px] shrink-0 snap-start overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.08)]">
+                          <button
+                            key={`owner-bien-card-${bien.id}`}
+                            type="button"
+                            onClick={() => setSelectedOwnerBienCalendarId((current) => current === String(bien.id) ? null : String(bien.id))}
+                            className={`w-[280px] shrink-0 snap-start overflow-hidden rounded-[24px] border bg-white text-left shadow-[0_16px_34px_rgba(15,23,42,0.08)] transition-all ${
+                              selectedOwnerBienCalendarId === String(bien.id)
+                                ? 'border-emerald-300 ring-2 ring-emerald-200'
+                                : 'border-slate-200 hover:border-emerald-200'
+                            }`}
+                          >
                             <div className="relative h-40 overflow-hidden">
                               <img src={getBienCoverImage(bien)} alt={bien.titre} className="h-full w-full object-cover" />
                               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/60 via-slate-950/20 to-transparent p-4">
@@ -2587,10 +2633,36 @@ export default function NotificationsPage() {
                                 {bien.prix_nuitee > 0 ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{bien.prix_nuitee} DT / nuit</span> : null}
                               </div>
                             </div>
-                          </article>
+                          </button>
                         ))}
                       </div>
                     )}
+                    {selectedOwnerBienForCalendar ? (
+                      <div ref={ownerBienCalendarRef} className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50/30 p-4">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <h5 className="text-base font-semibold text-slate-900">Calendrier du bien</h5>
+                            <p className="mt-1 text-sm text-slate-500">
+                              {selectedOwnerBienForCalendar.titre || 'Bien'}
+                              {String(selectedOwnerBienForCalendar.reference || '').trim() ? ` • ${String(selectedOwnerBienForCalendar.reference).trim()}` : ''}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedOwnerBienCalendarId(null)}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                          >
+                            Fermer calendrier
+                          </button>
+                        </div>
+                        <AvailabilityCalendar
+                          unavailableDates={getBienCalendarDates(selectedOwnerBienForCalendar)}
+                          onDateRangeSelect={() => {}}
+                          selectedStart={null}
+                          selectedEnd={null}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <h4 className="text-base font-semibold text-slate-900">Demandes associees</h4>
@@ -3039,7 +3111,16 @@ export default function NotificationsPage() {
                               ) : (
                                 <div className="mt-4 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
                                   {selectedCalendarBiens.map((bien) => (
-                                    <article key={`calendar-owner-bien-${bien.id}`} className="w-[280px] shrink-0 snap-start overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.08)]">
+                                    <button
+                                      key={`calendar-owner-bien-${bien.id}`}
+                                      type="button"
+                                      onClick={() => setSelectedCalendarBienCalendarId((current) => current === String(bien.id) ? null : String(bien.id))}
+                                      className={`w-[280px] shrink-0 snap-start overflow-hidden rounded-[24px] border bg-white text-left shadow-[0_16px_34px_rgba(15,23,42,0.08)] transition-all ${
+                                        selectedCalendarBienCalendarId === String(bien.id)
+                                          ? 'border-emerald-300 ring-2 ring-emerald-200'
+                                          : 'border-slate-200 hover:border-emerald-200'
+                                      }`}
+                                    >
                                       <div className="relative h-40 overflow-hidden">
                                         <img src={getBienCoverImage(bien)} alt={bien.titre} className="h-full w-full object-cover" />
                                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/60 via-slate-950/20 to-transparent p-4">
@@ -3058,10 +3139,36 @@ export default function NotificationsPage() {
                                           {bien.prix_semaine > 0 ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{bien.prix_semaine} DT / semaine</span> : null}
                                         </div>
                                       </div>
-                                    </article>
+                                    </button>
                                   ))}
                                 </div>
                               )}
+                              {selectedCalendarBienForCalendar ? (
+                                <div ref={calendarBienCalendarRef} className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50/30 p-4">
+                                  <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div>
+                                      <h5 className="text-base font-semibold text-slate-900">Calendrier du bien</h5>
+                                      <p className="mt-1 text-sm text-slate-500">
+                                        {selectedCalendarBienForCalendar.titre || 'Bien'}
+                                        {String(selectedCalendarBienForCalendar.reference || '').trim() ? ` • ${String(selectedCalendarBienForCalendar.reference).trim()}` : ''}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedCalendarBienCalendarId(null)}
+                                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                                    >
+                                      Fermer calendrier
+                                    </button>
+                                  </div>
+                                  <AvailabilityCalendar
+                                    unavailableDates={getBienCalendarDates(selectedCalendarBienForCalendar)}
+                                    onDateRangeSelect={() => {}}
+                                    selectedStart={null}
+                                    selectedEnd={null}
+                                  />
+                                </div>
+                              ) : null}
                             </div>
 
                             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
