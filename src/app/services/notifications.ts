@@ -23,7 +23,7 @@ export interface UpdateNotificationInput {
  * Get all notifications
  */
 export async function getAllNotifications(): Promise<Notification[]> {
-  const sql = 'SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications ORDER BY created_at DESC';
+  const sql = "SELECT id, NULL AS utilisateur_id, type, message, lu, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at FROM admin_notifications ORDER BY created_at DESC";
   const rows = await getAll<NotificationRow>(sql);
   return rows as unknown as Notification[];
 }
@@ -32,7 +32,7 @@ export async function getAllNotifications(): Promise<Notification[]> {
  * Get notification by ID
  */
 export async function getNotificationById(id: string): Promise<Notification | undefined> {
-  const sql = 'SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications WHERE id = ?';
+  const sql = "SELECT id, NULL AS utilisateur_id, type, message, lu, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at FROM admin_notifications WHERE id = ?";
   const row = await getOne<NotificationRow>(sql, [id]);
   return row as unknown as Notification | undefined;
 }
@@ -41,7 +41,7 @@ export async function getNotificationById(id: string): Promise<Notification | un
  * Get notifications by utilisateur
  */
 export async function getNotificationsByUtilisateur(utilisateurId: string): Promise<Notification[]> {
-  const sql = 'SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications ORDER BY created_at DESC';
+  const sql = "SELECT id, NULL AS utilisateur_id, type, message, lu, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at FROM admin_notifications ORDER BY created_at DESC";
   const rows = await getAll<NotificationRow>(sql);
   return rows as unknown as Notification[];
 }
@@ -50,7 +50,7 @@ export async function getNotificationsByUtilisateur(utilisateurId: string): Prom
  * Get unread notifications
  */
 export async function getUnreadNotifications(utilisateurId: string): Promise<Notification[]> {
-  const sql = 'SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications WHERE lu = FALSE ORDER BY created_at DESC';
+  const sql = "SELECT id, NULL AS utilisateur_id, type, message, lu, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at FROM admin_notifications WHERE lu = FALSE ORDER BY created_at DESC";
   const rows = await getAll<NotificationRow>(sql);
   return rows as unknown as Notification[];
 }

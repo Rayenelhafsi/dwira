@@ -14177,7 +14177,13 @@ app.put('/api/maintenance/:id', requireAdminSession, async (req, res) => {
 app.get('/api/notifications', requireAdminSession, async (req, res) => {
   try {
     await ensureAdminNotificationsSchema();
-    const [rows] = await pool.query('SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications ORDER BY created_at DESC LIMIT 50');
+    const [rows] = await pool.query(
+      `SELECT id, NULL AS utilisateur_id, type, message, lu,
+              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM admin_notifications
+       ORDER BY created_at DESC
+       LIMIT 50`
+    );
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch notifications' });
@@ -14187,10 +14193,16 @@ app.get('/api/notifications', requireAdminSession, async (req, res) => {
 app.post('/api/notifications', requireAdminSession, async (req, res) => {
   try {
     const { type, message } = req.body;
-    const created_at = new Date().toISOString();
+    const created_at = getAgencySqlDateTime();
     await ensureAdminNotificationsSchema();
     const id = await createAdminNotification(type || 'info', message, created_at);
-    const [newNotif] = await pool.query('SELECT id, NULL AS utilisateur_id, type, message, lu, created_at FROM admin_notifications WHERE id = ?', [id]);
+    const [newNotif] = await pool.query(
+      `SELECT id, NULL AS utilisateur_id, type, message, lu,
+              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM admin_notifications
+       WHERE id = ?`,
+      [id]
+    );
     res.status(201).json(newNotif[0]);
   } catch (error) {
     console.error('Error creating notification:', error);
