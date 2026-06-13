@@ -33,9 +33,12 @@ export function preloadAdminRoute(path: string) {
 
 export function preloadImportantAdminRoutes() {
   [
+    "/admin",
     "/admin/biens",
+    "/admin/clienteles",
     "/admin/notifications",
     "/admin/contrats",
     "/admin/paiements",
+    "/admin/comptabilite",
   ].forEach(preloadAdminRoute);
 }

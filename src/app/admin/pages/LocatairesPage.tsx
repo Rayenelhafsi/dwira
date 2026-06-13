@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CalendarDays, Edit2, FileText, Mail, Phone, Plus, QrCode, Search, Trash2, Upload, UserSquare2, Users, X } from 'lucide-react';
 import { Bien, ClienteleProfile, ClienteleTask, Contrat, Locataire, Maintenance, Paiement, Proprietaire, Utilisateur } from '../types';
 import { toast } from 'sonner';
@@ -355,6 +355,17 @@ const isClientInteraction = (value: unknown): value is ClientInteraction => {
 
 export default function ClientelesPage() {
   const initialCache = readClientelesCache();
+  const hasCachedData = Boolean(
+    initialCache
+    && (
+      initialCache.locataires.length > 0
+      || initialCache.proprietaires.length > 0
+      || initialCache.utilisateurs.length > 0
+      || initialCache.contrats.length > 0
+      || initialCache.biens.length > 0
+      || initialCache.profiles.length > 0
+    )
+  );
   const [activeCategory, setActiveCategory] = useState<ClientCategory>('locataires');
   const [locataires, setLocataires] = useState<Locataire[]>(initialCache?.locataires || []);
   const [proprietaires, setProprietaires] = useState<Proprietaire[]>(initialCache?.proprietaires || []);
@@ -368,7 +379,8 @@ export default function ClientelesPage() {
   const [dossiers, setDossiers] = useState<DossierStore>({});
   const [publicInteractions, setPublicInteractions] = useState<ClientInteraction[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(!initialCache);
+  const [isLoading, setIsLoading] = useState(!hasCachedData);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
   const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string }>>(initialCache?.amicaleOptions || []);
   const [agentAmicaleProfiles, setAgentAmicaleProfiles] = useState<Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }>>(initialCache?.agentAmicaleProfiles || {});
@@ -473,10 +485,12 @@ export default function ClientelesPage() {
     localStorage.setItem(DOSSIERS_STORAGE_KEY, JSON.stringify(dossiers));
   }, [dossiers]);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!initialCache) {
+  const fetchData = useCallback(async (options?: { background?: boolean }) => {
+      const shouldShowBlockingLoader = !hasCachedData && !options?.background;
+      if (shouldShowBlockingLoader) {
         setIsLoading(true);
+      } else {
+        setIsRefreshing(true);
       }
       const authFetchOptions: RequestInit = { credentials: 'include' };
       const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult, paiementsResult, maintenancesResult, profilesResult, amicalesResult, agentsAmicaleResult] = await Promise.allSettled([
@@ -609,10 +623,22 @@ export default function ClientelesPage() {
       });
 
       setIsLoading(false);
-    };
+      setIsRefreshing(false);
+  }, [hasCachedData]);
 
-    void fetchData();
-  }, []);
+  useEffect(() => {
+    void fetchData({ background: hasCachedData });
+  }, [fetchData, hasCachedData]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchData({ background: true });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [fetchData]);
 
   const clientTypeByEmail = useMemo(() => {
     return new Map(
@@ -1703,6 +1729,7 @@ export default function ClientelesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Clienteles</h1>
           <p className="text-sm text-gray-500">Locataires, acheteurs, proprietaires et agents amicale avec dossier client, CIN et historique.</p>
         </div>
+        {isRefreshing ? <span className="text-xs font-medium text-emerald-600">Actualisation...</span> : null}
         <button
           type="button"
           onClick={openCreateClientModal}
