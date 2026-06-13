@@ -2619,6 +2619,7 @@ function normalizeCalendarPromptScheduleRow(row) {
     timezoneName: String(row?.timezone_name || AGENCY_TIME_ZONE).trim() || AGENCY_TIME_ZONE,
     timezoneOffsetLabel: 'UTC+01:00',
     lastDispatchedLocalDate: String(row?.last_dispatched_local_date || '').trim() || null,
+    lastDispatchedAt: String(row?.last_dispatched_at || '').trim() || null,
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
   };
@@ -15253,11 +15254,6 @@ app.post('/api/mobile/admin/owners/:ownerId/chat', requireAdminSession, async (r
         text,
       },
     });
-    await createAdminNotification(
-      'info',
-      `Message admin envoyÃ© au proprietaire ${ownerId}${bienId ? ` (bien ${bienId})` : ''}`
-    );
-
     res.status(201).json(created);
   } catch (error) {
     console.error('Error creating admin->owner chat message:', error);
@@ -15392,10 +15388,6 @@ app.put('/api/mobile/admin/calendar-prompt-schedule', requireAdminSession, async
       dispatchHour,
       dispatchMinute,
     });
-    await createAdminNotification(
-      'info',
-      `Programmation relance calendrier mise a jour: ${schedule.enabled ? 'active' : 'inactive'} - ${schedule.startDate || '-'} ${schedule.dailyTime} ${schedule.timezoneOffsetLabel}`
-    );
     res.json(schedule);
   } catch (error) {
     console.error('Error updating owner calendar prompt schedule:', error);
@@ -15406,15 +15398,13 @@ app.put('/api/mobile/admin/calendar-prompt-schedule', requireAdminSession, async
 app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-now', requireAdminSession, async (req, res) => {
   try {
     const promptDate = String(req.body?.promptDate || '').trim() || getAgencyLocalDate();
+    const dispatchedAt = getAgencySqlDateTime();
     const result = await dispatchOwnerCalendarPromptBatch({
       promptDate,
       source: 'manual_test',
       forceRedispatch: true,
     });
-    await createAdminNotification(
-      'info',
-      `Test relance calendrier envoye (${result.sentOwners}/${result.totalOwners}) pour ${result.promptDate}`
-    );
+    await markOwnerCalendarPromptScheduleDispatched(promptDate, dispatchedAt);
     res.json({ ok: true, ...result });
   } catch (error) {
     console.error('Error dispatching owner calendar prompt batch manually:', error);
@@ -15439,10 +15429,6 @@ app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-owner/:ownerId', r
       return res.status(404).json({ error: 'Proprietaire introuvable' });
     }
     const ownerIdentity = await fetchOwnerIdentity(ownerId);
-    await createAdminNotification(
-      'info',
-      `Relance calendrier envoyee individuellement a ${ownerIdentity.ownerName} pour ${result.promptDate}`
-    );
     res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, ...result });
   } catch (error) {
     console.error('Error dispatching owner calendar prompt individually:', error);
@@ -15520,11 +15506,6 @@ app.post('/api/mobile/admin/owner-app-update-notification', requireAdminSession,
       });
       pushesSent += Number(pushResult?.sent || 0);
     }
-
-    await createAdminNotification(
-      'info',
-      `Notification mise a jour application envoyee a ${owners.length} proprietaire(s) - ${pushesSent} push envoye(s)`
-    );
 
     res.status(201).json({
       ok: true,
@@ -16146,12 +16127,6 @@ app.post('/api/mobile/admin/calendar-requests/:id/approve', requireAdminSession,
       ]
     );
 
-    await createAdminNotification(
-      'success',
-      requestType === 'close'
-        ? `Fermeture calendrier approuvee pour proprietaire ${ownerId}`
-        : `Reouverture calendrier approuvee pour proprietaire ${ownerId}`
-    );
     const nextMetadata = {
       ...metadata,
       status: 'approved',
@@ -16274,7 +16249,6 @@ app.post('/api/mobile/admin/calendar-requests/:id/reject', requireAdminSession, 
       [interactionId, ownerId, String(metadata.bienId || '').trim(), startDate, endDate, requestType]
     );
 
-    await createAdminNotification('warning', `Calendrier rejete pour proprietaire ${ownerId}`);
     res.json({ ok: true, interactionId });
   } catch (error) {
     console.error('Error rejecting mobile calendar request:', error);
@@ -17360,12 +17334,6 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
 	        endDate: String(current.end_date || '').trim(),
 	      },
 	    });
-
-    await createAdminNotification(
-      'info',
-      `Notification disponibilite envoyee au proprietaire ${ownerId}${pushResult?.sent ? ` (push envoye: ${pushResult.sent})` : ''}`,
-      now
-    );
 
     const [updatedRows] = await pool.query(
       `SELECT
@@ -19543,10 +19511,15 @@ async function ensureOwnerCalendarPromptSchema() {
       dispatch_minute INT NOT NULL DEFAULT 0,
       timezone_name VARCHAR(80) NOT NULL DEFAULT 'Africa/Tunis',
       last_dispatched_local_date DATE NULL,
+      last_dispatched_at DATETIME NULL,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL
     )
   `);
+  await pool.query(`
+    ALTER TABLE owner_calendar_prompt_schedule
+    ADD COLUMN last_dispatched_at DATETIME NULL AFTER last_dispatched_local_date
+  `).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS owner_calendar_prompts (
       id VARCHAR(100) PRIMARY KEY,
@@ -19569,7 +19542,9 @@ async function getOwnerCalendarPromptSchedule() {
   await ensureOwnerCalendarPromptSchema();
   const [rows] = await pool.query(
     `SELECT id, enabled, start_date, dispatch_hour, dispatch_minute, timezone_name,
-            last_dispatched_local_date, created_at, updated_at
+            last_dispatched_local_date,
+            DATE_FORMAT(last_dispatched_at, '%Y-%m-%d %H:%i:%s') AS last_dispatched_at,
+            created_at, updated_at
      FROM owner_calendar_prompt_schedule
      WHERE id = 'default'
      LIMIT 1`
@@ -19582,8 +19557,8 @@ async function getOwnerCalendarPromptSchedule() {
   const startDate = getAgencyLocalDate();
   await pool.query(
     `INSERT INTO owner_calendar_prompt_schedule
-     (id, enabled, start_date, dispatch_hour, dispatch_minute, timezone_name, last_dispatched_local_date, created_at, updated_at)
-     VALUES ('default', 0, ?, 20, 0, ?, NULL, ?, ?)`,
+     (id, enabled, start_date, dispatch_hour, dispatch_minute, timezone_name, last_dispatched_local_date, last_dispatched_at, created_at, updated_at)
+     VALUES ('default', 0, ?, 20, 0, ?, NULL, NULL, ?, ?)`,
     [startDate, AGENCY_TIME_ZONE, now, now]
   );
   return normalizeCalendarPromptScheduleRow({
@@ -19594,6 +19569,7 @@ async function getOwnerCalendarPromptSchedule() {
     dispatch_minute: 0,
     timezone_name: AGENCY_TIME_ZONE,
     last_dispatched_local_date: null,
+    last_dispatched_at: null,
     created_at: now,
     updated_at: now,
   });
@@ -19613,8 +19589,8 @@ async function updateOwnerCalendarPromptSchedule({
   const normalizedMinute = clampCalendarPromptMinute(dispatchMinute, 0);
   await pool.query(
     `INSERT INTO owner_calendar_prompt_schedule
-     (id, enabled, start_date, dispatch_hour, dispatch_minute, timezone_name, last_dispatched_local_date, created_at, updated_at)
-     VALUES ('default', ?, ?, ?, ?, ?, NULL, ?, ?)
+     (id, enabled, start_date, dispatch_hour, dispatch_minute, timezone_name, last_dispatched_local_date, last_dispatched_at, created_at, updated_at)
+     VALUES ('default', ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
      ON DUPLICATE KEY UPDATE
        enabled = VALUES(enabled),
        start_date = VALUES(start_date),
@@ -19633,6 +19609,17 @@ async function updateOwnerCalendarPromptSchedule({
     ]
   );
   return getOwnerCalendarPromptSchedule();
+}
+
+async function markOwnerCalendarPromptScheduleDispatched(promptDate, dispatchedAt = getAgencySqlDateTime()) {
+  await getOwnerCalendarPromptSchedule();
+  const localDate = String(promptDate || '').trim() || getAgencyLocalDate();
+  await pool.query(
+    `UPDATE owner_calendar_prompt_schedule
+     SET last_dispatched_local_date = ?, last_dispatched_at = ?, updated_at = ?
+     WHERE id = 'default'`,
+    [localDate, dispatchedAt, dispatchedAt]
+  );
 }
 
 async function fetchOwnerIdentity(ownerId) {
@@ -19843,12 +19830,7 @@ async function runOwnerCalendarPromptSchedulerTick() {
       source: 'scheduled',
     });
     const now = getAgencySqlDateTime();
-    await pool.query(
-      `UPDATE owner_calendar_prompt_schedule
-       SET last_dispatched_local_date = ?, updated_at = ?
-       WHERE id = 'default'`,
-      [localDate, now]
-    );
+    await markOwnerCalendarPromptScheduleDispatched(localDate, now);
     await createAdminNotification(
       'info',
       `Relance calendrier quotidienne envoyee (${dispatchResult.sentOwners}/${dispatchResult.totalOwners}) pour ${localDate}`

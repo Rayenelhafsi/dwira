@@ -53,6 +53,7 @@ type CalendarPromptSchedule = {
   dispatchMinute: number;
   timezoneOffsetLabel: string;
   lastDispatchedLocalDate?: string | null;
+  lastDispatchedAt?: string | null;
 };
 
 type OwnerCalendarPromptStatus = {
@@ -370,9 +371,7 @@ function appendCacheBuster(url: string, version?: string | null) {
 }
 
 type NotificationCategory =
-  | 'contrat'
-  | 'paiement'
-  | 'demande'
+  | 'dossier'
   | 'proprietaire'
   | 'calendrier'
   | 'systeme';
@@ -398,6 +397,17 @@ type EnrichedNotificationInsight = NotificationInsight & {
   detailLabel: string;
 };
 
+function isOwnerConversationNotification(message?: string | null) {
+  const normalized = String(message || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('nouveau message recu du proprietaire')
+    || normalized.includes('nouveau message proprietaire')
+    || normalized.includes('[owner:')
+    || normalized.includes('reponse proprietaire')
+  );
+}
+
 function classifyNotification(notification: Notification): {
   category: NotificationCategory;
   importance: NotificationImportance;
@@ -407,11 +417,18 @@ function classifyNotification(notification: Notification): {
   const normalized = message.toLowerCase();
 
   let category: NotificationCategory = 'systeme';
-  if (normalized.includes('contrat')) category = 'contrat';
-  else if (normalized.includes('paiement') || normalized.includes('clicktopay') || normalized.includes('flouci') || normalized.includes('recu')) category = 'paiement';
-  else if (normalized.includes('demande') || normalized.includes('reservation') || normalized.includes('rd_chatbot')) category = 'demande';
+  if (isOwnerConversationNotification(message) || normalized.includes('proprietaire')) category = 'proprietaire';
+  else if (
+    normalized.includes('contrat')
+    || normalized.includes('paiement')
+    || normalized.includes('clicktopay')
+    || normalized.includes('flouci')
+    || normalized.includes('recu')
+    || normalized.includes('demande')
+    || normalized.includes('reservation')
+    || normalized.includes('rd_chatbot')
+  ) category = 'dossier';
   else if (normalized.includes('calendrier') || normalized.includes('mise a jour calendrier') || normalized.includes('relance calendrier')) category = 'calendrier';
-  else if (normalized.includes('proprietaire')) category = 'proprietaire';
 
   let importance: NotificationImportance = 'normal';
   if (
@@ -440,9 +457,7 @@ function classifyNotification(notification: Notification): {
   }
 
   const titleByCategory: Record<NotificationCategory, string> = {
-    contrat: 'Contrat',
-    paiement: 'Paiement',
-    demande: 'Demande',
+    dossier: 'Dossier client',
     proprietaire: 'Proprietaire',
     calendrier: 'Calendrier',
     systeme: 'Systeme',
@@ -516,11 +531,12 @@ function getDemandSourceLabel(demand?: ReservationDemand | null, message?: strin
 
 function getDemandActionTitle(category: NotificationCategory, message?: string | null) {
   const normalizedMessage = String(message || '').toLowerCase();
-  if (category === 'contrat') return 'Contrat genere';
-  if (category === 'paiement') {
+  if (category === 'dossier') {
+    if (normalizedMessage.includes('contrat')) return 'Contrat genere';
     if (normalizedMessage.includes('recu')) return 'Paiement recu';
     if (normalizedMessage.includes('clicktopay')) return 'Paiement ClicToPay';
-    return 'Paiement client';
+    if (normalizedMessage.includes('paiement') || normalizedMessage.includes('flouci')) return 'Paiement client';
+    return 'Suivi dossier client';
   }
   if (category === 'proprietaire') return normalizedMessage.includes('reponse') ? 'Reponse proprietaire' : 'Message proprietaire';
   if (category === 'calendrier') {
@@ -594,9 +610,7 @@ function getNotificationDisplayTitle(args: {
     if (ownerName) return ownerName;
     return 'Message proprietaire';
   }
-  if (category === 'paiement') return bien?.titre || bien?.reference || 'Paiement client';
-  if (category === 'contrat') return bien?.titre || bien?.reference || 'Contrat client';
-  if (category === 'demande') return bien?.titre || bien?.reference || 'Demande de reservation';
+  if (category === 'dossier') return bien?.titre || bien?.reference || 'Dossier client';
   return bien?.titre || bien?.reference || 'Notification systeme';
 }
 
@@ -618,6 +632,7 @@ function getNotificationSecondaryLabel(args: {
     if (propertyTitle) return `${modeLabel} • Proprietaire • ${propertyTitle}`;
     if (ownerName) return `${modeLabel} • Proprietaire`;
   }
+  if (category === 'dossier') return `${modeLabel} • Dossier client`;
   return `${modeLabel} • ${category === 'systeme' ? 'Systeme' : 'Notification'}`;
 }
 
@@ -655,6 +670,24 @@ function getNotificationDetailLabel(args: {
     return `Nouvelle information recue de ${ownerName}.`;
   }
   return summarizeNotificationDetail(message);
+}
+
+function shouldHideSystemNotification(item: EnrichedNotificationInsight) {
+  const title = String(item.clientName || '').trim().toLowerCase();
+  const detail = String(item.detailLabel || '').trim().toLowerCase();
+  const message = String(item.notification.message || '').trim().toLowerCase();
+  if (title === 'suivi calendrier proprietaire') return true;
+  if (detail.includes('fermeture calendrier approuvee pour proprietaire')) return true;
+  if (message.includes('fermeture calendrier approuvee pour proprietaire')) return true;
+  if (message.includes('reouverture calendrier approuvee pour proprietaire')) return true;
+  if (message.includes('calendrier rejete pour proprietaire')) return true;
+  if (message.includes('programmation relance calendrier mise a jour')) return true;
+  if (message.includes('test relance calendrier envoye')) return true;
+  if (message.includes('relance calendrier envoyee individuellement a')) return true;
+  if (message.includes('notification disponibilite envoyee au proprietaire')) return true;
+  if (message.includes('message admin envoy')) return true;
+  if (message.includes('notification mise a jour application envoyee')) return true;
+  return false;
 }
 
 function formatElapsedDuration(from?: string | null, nowMs = Date.now()) {
@@ -737,6 +770,7 @@ export default function NotificationsPage() {
   const [historyRows, setHistoryRows] = useState<ReservationDemandHistory[]>([]);
   const [historyDemandId, setHistoryDemandId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'demands' | 'chat' | 'calendars' | 'system'>('demands');
+  const [systemNotificationTab, setSystemNotificationTab] = useState<'active' | 'archive'>('active');
   const [notificationCategoryFilter, setNotificationCategoryFilter] = useState<'all' | NotificationCategory>('all');
   const [notificationImportanceFilter, setNotificationImportanceFilter] = useState<'all' | NotificationImportance>('all');
   const [showUrgentNotificationsOnly, setShowUrgentNotificationsOnly] = useState(false);
@@ -922,10 +956,6 @@ export default function NotificationsPage() {
     }
     return pendingDemands;
   }, [demandTab, cancelledSubTab, pendingDemands, finishedSuccessDemands, cancelledByClientDemands, cancelledByDeadlineDemands]);
-  const unreadNotificationsCount = useMemo(
-    () => notifications.filter((item) => !item.lu).length,
-    [notifications]
-  );
   const demandCounters = useMemo(() => {
     const awaitingOwner = pendingDemands.filter((d) => resolveDisplayStatus(d) === 'en_attente_reponse_proprietaire').length;
     const awaitingClient = pendingDemands.filter((d) => resolveDisplayStatus(d) === 'reponse_positive_attente_confirmation_client').length;
@@ -1054,16 +1084,32 @@ export default function NotificationsPage() {
     });
   }, [notificationInsights, demands, biensById, biensByReference, ownerLookup]);
 
+  const visibleNotificationInsights = useMemo(
+    () => enrichedNotificationInsights.filter((item) => !shouldHideSystemNotification(item)),
+    [enrichedNotificationInsights]
+  );
+
+  const unreadNotificationsCount = useMemo(
+    () => visibleNotificationInsights.filter((item) => !item.notification.lu).length,
+    [visibleNotificationInsights]
+  );
+
+  const systemShelfNotificationInsights = useMemo(
+    () =>
+      visibleNotificationInsights.filter((item) =>
+        systemNotificationTab === 'archive' ? item.notification.lu : !item.notification.lu
+      ),
+    [visibleNotificationInsights, systemNotificationTab]
+  );
+
   const notificationCategoryCounters = useMemo(() => {
     const counters: Record<NotificationCategory, number> = {
-      contrat: 0,
-      paiement: 0,
-      demande: 0,
+      dossier: 0,
       proprietaire: 0,
       calendrier: 0,
       systeme: 0,
     };
-    enrichedNotificationInsights
+    systemShelfNotificationInsights
       .filter((item) => {
         if (showUrgentNotificationsOnly && item.importance !== 'urgent') return false;
         if (notificationImportanceFilter !== 'all' && item.importance !== notificationImportanceFilter) return false;
@@ -1073,7 +1119,7 @@ export default function NotificationsPage() {
       counters[item.category] += 1;
       });
     return counters;
-  }, [enrichedNotificationInsights, notificationImportanceFilter, showUrgentNotificationsOnly]);
+  }, [systemShelfNotificationInsights, notificationImportanceFilter, showUrgentNotificationsOnly]);
 
   const notificationImportanceCounters = useMemo(() => {
     const counters: Record<NotificationImportance, number> = {
@@ -1081,7 +1127,7 @@ export default function NotificationsPage() {
       modere: 0,
       normal: 0,
     };
-    enrichedNotificationInsights
+    systemShelfNotificationInsights
       .filter((item) => {
         if (showUrgentNotificationsOnly && item.importance !== 'urgent') return false;
         if (notificationCategoryFilter !== 'all' && item.category !== notificationCategoryFilter) return false;
@@ -1091,7 +1137,7 @@ export default function NotificationsPage() {
         counters[item.importance] += 1;
       });
     return counters;
-  }, [enrichedNotificationInsights, notificationCategoryFilter, showUrgentNotificationsOnly]);
+  }, [systemShelfNotificationInsights, notificationCategoryFilter, showUrgentNotificationsOnly]);
 
   const urgentNotificationCount = useMemo(
     () => notificationImportanceCounters.urgent,
@@ -1099,20 +1145,27 @@ export default function NotificationsPage() {
   );
 
   const filteredNotificationInsights = useMemo(() => {
-    return enrichedNotificationInsights.filter((item) => {
+    return systemShelfNotificationInsights.filter((item) => {
       if (showUrgentNotificationsOnly && item.importance !== 'urgent') return false;
       if (notificationCategoryFilter !== 'all' && item.category !== notificationCategoryFilter) return false;
       if (notificationImportanceFilter !== 'all' && item.importance !== notificationImportanceFilter) return false;
       return true;
     });
-  }, [enrichedNotificationInsights, showUrgentNotificationsOnly, notificationCategoryFilter, notificationImportanceFilter]);
+  }, [systemShelfNotificationInsights, showUrgentNotificationsOnly, notificationCategoryFilter, notificationImportanceFilter]);
 
-  const groupedNotificationsByImportance = useMemo(() => {
-    return {
-      urgent: filteredNotificationInsights.filter((item) => item.importance === 'urgent'),
-      modere: filteredNotificationInsights.filter((item) => item.importance === 'modere'),
-      normal: filteredNotificationInsights.filter((item) => item.importance === 'normal'),
+  const sortedNotificationInsights = useMemo(() => {
+    const importanceScore: Record<NotificationImportance, number> = {
+      urgent: 0,
+      modere: 1,
+      normal: 2,
     };
+    return filteredNotificationInsights
+      .slice()
+      .sort((left, right) => {
+        const scoreGap = importanceScore[left.importance] - importanceScore[right.importance];
+        if (scoreGap !== 0) return scoreGap;
+        return String(right.notification.created_at || '').localeCompare(String(left.notification.created_at || ''));
+      });
   }, [filteredNotificationInsights]);
 
   const adminAlertPreviewItems = useMemo(() => {
@@ -1121,7 +1174,7 @@ export default function NotificationsPage() {
       modere: 1,
       normal: 2,
     };
-    return enrichedNotificationInsights
+    return visibleNotificationInsights
       .filter((item) => !item.notification.lu)
       .slice()
       .sort((left, right) => {
@@ -1130,16 +1183,21 @@ export default function NotificationsPage() {
         return String(right.notification.created_at || '').localeCompare(String(left.notification.created_at || ''));
       })
       .slice(0, 6);
-  }, [enrichedNotificationInsights]);
+  }, [visibleNotificationInsights]);
 
   const visibleAdminAlertPreviewItems = useMemo(
     () => (adminAlertsUrgentOnly ? adminAlertPreviewItems.filter((item) => item.importance === 'urgent') : adminAlertPreviewItems),
     [adminAlertPreviewItems, adminAlertsUrgentOnly]
   );
 
+  const archivedNotificationsCount = useMemo(
+    () => visibleNotificationInsights.filter((item) => item.notification.lu).length,
+    [visibleNotificationInsights]
+  );
+
   const unreadOwnerNotificationByOwnerId = useMemo(() => {
     const byOwnerId = new Map<string, EnrichedNotificationInsight>();
-    enrichedNotificationInsights
+    visibleNotificationInsights
       .filter((item) => !item.notification.lu && item.category === 'proprietaire')
       .forEach((item) => {
         const ownerId = String(
@@ -1152,7 +1210,7 @@ export default function NotificationsPage() {
         }
       });
     return byOwnerId;
-  }, [enrichedNotificationInsights]);
+  }, [visibleNotificationInsights]);
 
   const chatOwners = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; demandId?: string }>();
@@ -1289,6 +1347,12 @@ export default function NotificationsPage() {
       .map((part) => part.charAt(0).toUpperCase())
       .join('') || 'PR';
 
+  const isLikelyNoiseOwnerId = (value?: string | null) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return false;
+    return /^p\d{8,}$/i.test(normalized);
+  };
+
   const getBienCoverImage = (bien: typeof biens[number]) => {
     const firstImage = (bien.media || []).find((media) => media.type === 'image' && String(media.url || '').trim());
     return firstImage ? resolveMediaUrl(firstImage.url) : 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520"%3E%3Crect width="800" height="520" fill="%23ecfdf5"/%3E%3Cpath d="M0 360L180 230l110 84 120-96 180 142H0z" fill="%23a7f3d0"/%3E%3Ccircle cx="620" cy="140" r="44" fill="%236ee7b7"/%3E%3C/svg%3E';
@@ -1336,8 +1400,16 @@ export default function NotificationsPage() {
         name: String(status.ownerName || ownerId).trim() || ownerId,
       });
     });
-    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-  }, [owners, ownerCalendarStatuses]);
+    return Array.from(byId.values())
+      .filter((owner) => {
+        const hasProfile = ownerLookup.has(owner.id);
+        const hasDemand = (ownerDemandsByOwnerId.get(owner.id) || []).length > 0;
+        const hasBien = (biensByOwnerId.get(owner.id) || []).length > 0;
+        if (hasProfile || hasDemand || hasBien) return true;
+        return !isLikelyNoiseOwnerId(owner.id);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  }, [owners, ownerCalendarStatuses, ownerLookup, ownerDemandsByOwnerId, biensByOwnerId]);
 
   const pendingCalendarRequestByOwner = useMemo(() => {
     const byOwner = new Map<string, AdminCalendarRequest>();
@@ -2547,7 +2619,7 @@ export default function NotificationsPage() {
               </button>
             </div>
           </div>
-          <div className="grid min-h-[720px] bg-white lg:min-h-[78vh] lg:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="grid min-h-[720px] bg-white lg:h-[78vh] lg:grid-cols-[380px_minmax(0,1fr)]">
             <aside className={`${isChatMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 lg:flex`}>
               <div className="flex w-full flex-col">
                 <div className="border-b border-slate-200 px-4 py-4">
@@ -2724,7 +2796,7 @@ export default function NotificationsPage() {
                         </div>
                       )}
                     </div>
-                    <div className="border-t border-slate-200 bg-white px-4 py-4 md:px-6">
+                    <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 px-4 py-4 backdrop-blur md:px-6">
                       <div className="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-end">
                         <div className="min-w-0 flex-1 rounded-[24px] border border-slate-300 bg-white shadow-[0_8px_25px_rgba(15,23,42,0.06)]">
                           <textarea
@@ -2978,7 +3050,7 @@ export default function NotificationsPage() {
               </button>
             </div>
           </div>
-          <div className="grid min-h-[720px] bg-white lg:min-h-[78vh] lg:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="grid min-h-[720px] bg-white lg:h-[78vh] lg:grid-cols-[380px_minmax(0,1fr)]">
             <aside className={`${isCalendarMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 lg:flex`}>
               <div className="flex w-full flex-col">
                 <div className="border-b border-slate-200 px-4 py-4">
@@ -3072,7 +3144,11 @@ export default function NotificationsPage() {
                         <div className="space-y-1 text-sm">
                           <span className="font-medium text-slate-700">Dernier envoi</span>
                           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700">
-                            {calendarPromptSchedule.lastDispatchedLocalDate || 'Aucun'}
+                            {calendarPromptSchedule.lastDispatchedAt
+                              ? formatDateTime(calendarPromptSchedule.lastDispatchedAt)
+                              : (calendarPromptSchedule.lastDispatchedLocalDate
+                                  ? formatStayDate(calendarPromptSchedule.lastDispatchedLocalDate)
+                                  : 'Aucun')}
                           </div>
                         </div>
                       </div>
@@ -3546,13 +3622,35 @@ export default function NotificationsPage() {
 
         <div className="mt-4 grid gap-3 xl:grid-cols-[1.4fr,1fr]">
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">Categories</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSystemNotificationTab('active')}
+                className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                  systemNotificationTab === 'active'
+                    ? 'bg-emerald-600 text-white'
+                    : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Notifications actives ({unreadNotificationsCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSystemNotificationTab('archive')}
+                className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                  systemNotificationTab === 'archive'
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Archive notifications ({archivedNotificationsCount})
+              </button>
+            </div>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-gray-600">Categories</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {([
                 ['all', 'Toutes'],
-                ['contrat', `Contrat (${notificationCategoryCounters.contrat})`],
-                ['paiement', `Paiement (${notificationCategoryCounters.paiement})`],
-                ['demande', `Demande (${notificationCategoryCounters.demande})`],
+                ['dossier', `Dossier client (${notificationCategoryCounters.dossier})`],
                 ['proprietaire', `Proprietaire (${notificationCategoryCounters.proprietaire})`],
                 ['calendrier', `Calendrier (${notificationCategoryCounters.calendrier})`],
                 ['systeme', `Systeme (${notificationCategoryCounters.systeme})`],
@@ -3602,143 +3700,141 @@ export default function NotificationsPage() {
         </div>
 
         <div className="mt-5 space-y-4">
-          {filteredNotificationInsights.length === 0 && <p className="text-sm text-gray-500">Aucune notification pour ces filtres.</p>}
-          {([
-            ['urgent', 'Urgent', 'border-rose-200 bg-rose-50', 'text-rose-700', AlertTriangle],
-            ['modere', 'Modere', 'border-amber-200 bg-amber-50', 'text-amber-700', BellRing],
-            ['normal', 'Normal', 'border-slate-200 bg-slate-50', 'text-slate-600', CircleDot],
-          ] as const).map(([importanceKey, title, containerTone, textTone, Icon]) => {
-            const rows = groupedNotificationsByImportance[importanceKey];
-            if (rows.length === 0) return null;
-            return (
-              <div key={`notif-group-${importanceKey}`} className={`rounded-2xl border p-4 ${containerTone}`}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Icon className={`h-4 w-4 ${textTone}`} />
-                    <h3 className={`text-sm font-semibold ${textTone}`}>{title}</h3>
-                  </div>
-                  <span className={`rounded-full bg-white px-2.5 py-1 text-xs font-semibold ${textTone}`}>{rows.length}</span>
-                </div>
-                <div className="space-y-3">
-                  {rows.map(({ notification, title: categoryTitle, demand, bien, clientName, sourceLabel, paymentMethodLabel, modeLabel, primaryLabel, secondaryLabel, detailLabel }) => {
-                    const hasReceipt = Boolean(String(demand?.payment_receipt_image_url || '').trim());
-                    const receiptUrl = hasReceipt ? resolveAssetUrl(demand?.payment_receipt_image_url) : '';
-                    const propertyTooltip = getPropertyPreviewText(bien);
-                    const propertyName = String(bien?.nom_bien_mobile || bien?.titre || demand?.bien_titre || '').trim();
-                    return (
-                      <div
-                        key={notification.id}
-                        title={propertyTooltip || undefined}
-                        className={`rounded-[28px] border bg-white p-5 shadow-sm transition-shadow hover:shadow-[0_20px_45px_rgba(15,23,42,0.08)] ${notification.lu ? 'border-gray-200' : 'border-emerald-200 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]'}`}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-4">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700">{categoryTitle}</span>
-                              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${modeLabel === 'Hotellerie' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                                {modeLabel}
-                              </span>
-                              <span className="rounded-full bg-cyan-50 px-3 py-1 text-[11px] font-semibold text-cyan-700">
-                                Source: {sourceLabel}
-                              </span>
-                              <span className="rounded-full bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700">
-                                {paymentMethodLabel}
-                              </span>
-                              {!notification.lu && <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">Non lue</span>}
-                            </div>
-                            <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">{primaryLabel}</p>
-                                <h4 className="mt-2 text-xl font-semibold leading-tight text-slate-900">{clientName}</h4>
-                                <p className="mt-1 text-sm font-medium text-slate-600">{secondaryLabel}</p>
-                                {propertyName ? <p className="mt-2 text-sm text-slate-500">{propertyName}</p> : null}
-                                <p className="mt-3 text-sm leading-6 text-slate-700">{detailLabel}</p>
-                              </div>
-                              <div className="min-w-[190px] rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Notification</p>
-                                <p className="mt-2 text-lg font-bold text-slate-900">{formatStayDate(notification.created_at)}</p>
-                                <p className="text-sm font-medium text-slate-600">{formatDateTime(notification.created_at).split(' ').slice(1).join(' ')}</p>
-                              </div>
-                            </div>
-                            {demand && (
-                              <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr,1fr]">
-                                <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
-                                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Sejour reserve</p>
-                                  <div className="mt-3 grid grid-cols-2 gap-3">
-                                    <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
-                                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Arrivee</p>
-                                      <p className="mt-1 text-lg font-bold text-slate-900">{formatStayDate(demand.start_date)}</p>
-                                    </div>
-                                    <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
-                                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Depart</p>
-                                      <p className="mt-1 text-lg font-bold text-slate-900">{formatStayDate(demand.end_date)}</p>
-                                    </div>
-                                  </div>
-                                  <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-600">
-                                    <span>{Number(demand.guests || 0)} voyageur{Number(demand.guests || 0) > 1 ? 's' : ''}</span>
-                                    {(Number(demand.adult_guests || 0) || Number(demand.child_guests || 0)) ? (
-                                      <span>Adultes {Number(demand.adult_guests || demand.guests || 0)} • Enfants {Number(demand.child_guests || 0)}</span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                                <div className="rounded-3xl border border-slate-200 bg-white px-4 py-4">
-                                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Paiement et contrat</p>
-                                  <div className="mt-3 space-y-2 text-sm text-slate-700">
-                                    <p>Montant client: <span className="font-semibold text-slate-900">{formatMoney(demand.total_amount)}</span></p>
-                                    <p>A regler maintenant: <span className="font-semibold text-slate-900">{formatMoney(demand.amount_due_now)}</span></p>
-                                    <p>Contrat: <span className="font-semibold text-slate-900">{demand.contract_generated_at ? 'Disponible' : 'En attente'}</span></p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:max-w-[220px] lg:flex-col">
-                            {demand?.contract_id ? (
-                              <button
-                                type="button"
-                                onClick={() => void viewContractForDemand(demand)}
-                                className="inline-flex items-center justify-center rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 hover:bg-sky-100"
-                              >
-                                Voir contrat
-                              </button>
-                            ) : null}
-                            {hasReceipt ? (
-                              <a
-                                href={receiptUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center justify-center rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-800 hover:bg-cyan-100"
-                              >
-                                Voir recu
-                              </a>
-                            ) : null}
-                            {demand ? (
-                              <button
-                                type="button"
-                                onClick={() => setSelectedClientDemand(demand)}
-                                className="inline-flex items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
-                              >
-                                Ouvrir dossier client
-                              </button>
-                            ) : null}
-                            {!notification.lu && (
-                              <button
-                                type="button"
-                                onClick={() => void markNotificationAsRead(notification.id)}
-                                className="inline-flex items-center justify-center rounded-xl border border-emerald-200 px-4 py-2.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                              >
-                                Marquer lu
-                              </button>
-                            )}
-                          </div>
+          {filteredNotificationInsights.length === 0 && (
+            <p className="text-sm text-gray-500">
+              {systemNotificationTab === 'archive'
+                ? 'Aucune notification archivee pour ces filtres.'
+                : 'Aucune notification active pour ces filtres.'}
+            </p>
+          )}
+          <div className="space-y-3">
+            {sortedNotificationInsights.map(({ notification, category, title: categoryTitle, demand, bien, clientName, sourceLabel, paymentMethodLabel, modeLabel, primaryLabel, secondaryLabel, detailLabel, importance }) => {
+              const hasReceipt = Boolean(String(demand?.payment_receipt_image_url || '').trim());
+              const receiptUrl = hasReceipt ? resolveAssetUrl(demand?.payment_receipt_image_url) : '';
+              const propertyTooltip = getPropertyPreviewText(bien);
+              const propertyName = String(bien?.nom_bien_mobile || bien?.titre || demand?.bien_titre || '').trim();
+              const ownerId = String(demand?.proprietaire_id || extractOwnerIdFromNotificationMessage(notification.message)).trim();
+              const isOwnerMessageNotification = category === 'proprietaire' && Boolean(ownerId);
+              const importanceTone =
+                importance === 'urgent'
+                  ? 'border-l-rose-500 bg-rose-50/40'
+                  : importance === 'modere'
+                    ? 'border-l-amber-500 bg-amber-50/40'
+                    : 'border-l-slate-300 bg-white';
+              return (
+                <div
+                  key={notification.id}
+                  title={propertyTooltip || undefined}
+                  onClick={() => {
+                    if (!isOwnerMessageNotification) return;
+                    openOwnerChatByOwnerId(ownerId);
+                  }}
+                  className={`rounded-2xl border border-slate-200 border-l-4 p-4 shadow-sm ${importanceTone} ${notification.lu ? '' : 'shadow-[0_0_0_1px_rgba(16,185,129,0.08)]'} ${isOwnerMessageNotification ? 'cursor-pointer transition-colors hover:border-emerald-300 hover:bg-emerald-50/40' : ''}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{categoryTitle}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${modeLabel === 'Hotellerie' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                          {modeLabel}
+                        </span>
+                        {categoryTitle === 'Dossier client' ? (
+                          <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+                            {paymentMethodLabel}
+                          </span>
+                        ) : null}
+                        {!notification.lu && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Non lue</span>}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{primaryLabel}</p>
+                          <h4 className="mt-1 text-lg font-semibold leading-tight text-slate-900">{clientName}</h4>
+                          <p className="mt-1 text-sm text-slate-600">{secondaryLabel}</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-700">{detailLabel}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-right">
+                          <p className="text-sm font-semibold text-slate-900">{formatStayDate(notification.created_at)}</p>
+                          <p className="text-xs font-medium text-slate-500">{formatDateTime(notification.created_at).split(' ').slice(1).join(' ')}</p>
                         </div>
                       </div>
-                    );
-                  })}
+
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                        {propertyName ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{propertyName}</span> : null}
+                        <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-cyan-700">Source: {sourceLabel}</span>
+                        {demand?.start_date ? <span className="rounded-full bg-slate-100 px-2.5 py-1">Arrivee {formatStayDate(demand.start_date)}</span> : null}
+                        {demand?.end_date ? <span className="rounded-full bg-slate-100 px-2.5 py-1">Depart {formatStayDate(demand.end_date)}</span> : null}
+                        {demand?.guests ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{Number(demand.guests)} voyageur{Number(demand.guests) > 1 ? 's' : ''}</span> : null}
+                        {demand?.total_amount ? <span className="rounded-full bg-slate-100 px-2.5 py-1">Montant {formatMoney(demand.total_amount)}</span> : null}
+                      </div>
+                    </div>
+
+                    <div className="flex w-full flex-wrap gap-2 lg:w-auto">
+                      {isOwnerMessageNotification ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openOwnerChatByOwnerId(ownerId);
+                          }}
+                          className="inline-flex items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+                        >
+                          Ouvrir discussion
+                        </button>
+                      ) : null}
+                      {demand?.contract_id ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void viewContractForDemand(demand);
+                          }}
+                          className="inline-flex items-center justify-center rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
+                        >
+                          Voir contrat
+                        </button>
+                      ) : null}
+                      {hasReceipt ? (
+                        <a
+                          href={receiptUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex items-center justify-center rounded-xl border border-cyan-300 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800 hover:bg-cyan-100"
+                        >
+                          Voir recu
+                        </a>
+                      ) : null}
+                      {demand ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedClientDemand(demand);
+                          }}
+                          className="inline-flex items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+                        >
+                          Ouvrir dossier
+                        </button>
+                      ) : null}
+                      {!notification.lu && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void markNotificationAsRead(notification.id);
+                          }}
+                          className="inline-flex items-center justify-center rounded-xl border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                        >
+                          Marquer lu
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </section>
       )}
