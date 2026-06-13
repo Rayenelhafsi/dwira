@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { ChevronLeft, Facebook, KeyRound, Mail, FileText, Upload, Phone, User } from 'lucide-react';
 import { toast } from 'sonner';
 import logo from '../../../logo dwira.jpg';
+import cinUploadIllustration from '../assets/cin-upload.png';
 import { completeSocialProfile, getAuthProviders, getSocialSession, loginWithPasskey, registerWithPasskey, startSocialLogin, AuthUser } from '../services/auth';
 import { fetchWithApiFallback } from '../utils/api';
 import { clearAuthReturnTo, readAuthReturnTo, readPendingReservationDraft, saveAuthReturnTo } from '../utils/pendingReservation';
@@ -543,6 +544,19 @@ export default function LoginPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700">Image carte d'identite *</label>
+                <div className="mt-1 overflow-hidden rounded-md border border-emerald-100 bg-white">
+                  <img
+                    src={cinUploadIllustration}
+                    alt="Illustration upload CIN"
+                    className="h-auto w-full object-cover"
+                  />
+                  <div className="border-t border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                    <p className="text-sm font-semibold text-emerald-900">Telechargez votre CIN</p>
+                    <p className="mt-1 text-xs text-emerald-800">
+                      Ajoutez une photo ou un scan clair de votre carte d&apos;identite avant de continuer.
+                    </p>
+                  </div>
+                </div>
                 <label className="mt-1 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                   <Upload className="h-4 w-4" />
                   {isUploadingCin ? 'Upload en cours...' : "Uploader l'image obligatoire"}
