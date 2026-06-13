@@ -7,6 +7,7 @@ import type { ReservationDemand } from "../admin/types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const PARTNERS_CDN_BASE = String(import.meta.env.VITE_PARTNERS_CDN_BASE_URL || "").trim().replace(/\/+$/, "");
+const paymentBrandLogos = ["clicktopay.png", "visa.png", "mastercard.png"];
 
 function parseDateOnly(value?: string | null) {
   if (!value) return null;
@@ -157,6 +158,7 @@ export default function ContractIdentityPage() {
   const hasServicesQuote = servicesQuoteAmount > 0;
   const globalAmount = reservationAmount + servicesQuoteAmount;
   const isPaymentFlowLocked = String(demand?.status || "") === "client_procede_vers_paiement_en_cours";
+  const paymentBrandLogoLoop = [...paymentBrandLogos, ...paymentBrandLogos, ...paymentBrandLogos];
 
   const openContractDirectly = useCallback(async () => {
     if (!demand?.contract_id) {
@@ -274,46 +276,42 @@ export default function ContractIdentityPage() {
 
           {canProceedToPayment && (
             <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <div className="relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 p-5">
+              <div className="relative overflow-hidden rounded-2xl border border-emerald-300/70 bg-[linear-gradient(135deg,#0a6b46_0%,#118454_52%,#0e6f49_100%)] p-5 shadow-[0_18px_40px_rgba(6,78,59,0.16)]">
                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                  <img
-                    src={resolvePartnerLogoUrl("clicktopay.png")}
-                    alt=""
-                    aria-hidden="true"
-                    className="absolute -right-3 top-4 h-14 w-auto rounded-2xl border border-amber-200/60 bg-white/88 p-2 shadow-sm opacity-95"
-                    onError={(event) => {
-                      event.currentTarget.src = "/partners/clicktopay.png";
-                    }}
-                  />
-                  <img
-                    src={resolvePartnerLogoUrl("visa.png")}
-                    alt=""
-                    aria-hidden="true"
-                    className="absolute right-5 top-20 h-12 w-auto rounded-2xl border border-sky-100/80 bg-white/88 p-2 shadow-sm opacity-90"
-                    onError={(event) => {
-                      event.currentTarget.src = "/partners/visa.png";
-                    }}
-                  />
-                  <img
-                    src={resolvePartnerLogoUrl("mastercard.png")}
-                    alt=""
-                    aria-hidden="true"
-                    className="absolute bottom-5 right-5 h-12 w-auto rounded-2xl border border-rose-100/80 bg-white/88 p-2 shadow-sm opacity-90"
-                    onError={(event) => {
-                      event.currentTarget.src = "/partners/mastercard.png";
-                    }}
-                  />
+                  <div className="absolute inset-y-0 right-[-12%] flex w-[70%] items-center">
+                    <div className="contract-payment-logo-marquee">
+                      <div className="contract-payment-logo-track">
+                        {paymentBrandLogoLoop.map((path, index) => (
+                          <div key={`payment-brand-${path}-${index}`} className="contract-payment-logo-chip">
+                            <img
+                              src={resolvePartnerLogoUrl(path)}
+                              alt=""
+                              aria-hidden="true"
+                              className="h-10 w-auto object-contain"
+                              onError={(event) => {
+                                event.currentTarget.src = `/partners/${path}`;
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute inset-y-0 right-0 w-40 bg-gradient-to-l from-emerald-900/10 to-transparent" />
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(255,255,255,0.16),transparent_34%),radial-gradient(circle_at_100%_100%,rgba(255,255,255,0.08),transparent_32%)]" />
                 </div>
-                <div className="relative z-10 flex items-center gap-2 text-amber-800">
-                  <CreditCard className="h-5 w-5" />
+                <div className="relative z-10 flex items-center gap-2 text-emerald-50">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/20 bg-white/10 backdrop-blur-sm">
+                    <CreditCard className="h-5 w-5" />
+                  </span>
                   <p className="text-sm font-semibold uppercase tracking-wide">Paiement avec carte bancaire</p>
                 </div>
-                <p className="relative z-10 mt-2 max-w-[260px] text-sm text-amber-900">
+                <p className="relative z-10 mt-2 max-w-[250px] text-sm leading-6 text-emerald-50/92">
                   Paiement en ligne immediat via Click to Pay.
                 </p>
                 <Link
                   to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement?method=clicktopay`}
-                  className="relative z-10 mt-4 inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
+                  className="relative z-10 mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-50"
                 >
                   Payer avec Click to Pay
                   <ArrowRight className="h-4 w-4" />
@@ -358,6 +356,46 @@ export default function ContractIdentityPage() {
           ) : null}
         </div>
       </div>
+      <style>{`
+        @keyframes contractPaymentBrandScroll {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(-33.333%);
+          }
+        }
+
+        .contract-payment-logo-marquee {
+          width: 100%;
+          overflow: hidden;
+          mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+          -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+        }
+
+        .contract-payment-logo-track {
+          display: flex;
+          align-items: center;
+          gap: 0.9rem;
+          width: max-content;
+          animation: contractPaymentBrandScroll 20s linear infinite;
+        }
+
+        .contract-payment-logo-chip {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 9.5rem;
+          height: 4rem;
+          padding: 0.7rem 1rem;
+          border-radius: 1.35rem;
+          background: rgba(255, 255, 255, 0.14);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          box-shadow: 0 12px 24px rgba(4, 47, 35, 0.12);
+          backdrop-filter: blur(2px);
+          opacity: 0.28;
+        }
+      `}</style>
     </div>
   );
 }
