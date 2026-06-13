@@ -271,16 +271,16 @@ export default function ContractIdentityPage() {
               <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 p-5">
                 <div className="flex items-center gap-2 text-amber-800">
                   <CreditCard className="h-5 w-5" />
-                  <p className="text-sm font-semibold uppercase tracking-wide">Paiement Flouci</p>
+                  <p className="text-sm font-semibold uppercase tracking-wide">Paiement Click to Pay</p>
                 </div>
                 <p className="mt-2 text-sm text-amber-900">
-                  Paiement en ligne immediate via Flouci.
+                  Paiement en ligne immediat via Click to Pay.
                 </p>
                 <Link
-                  to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement?method=flouci`}
+                  to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement?method=clicktopay`}
                   className="mt-4 inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
                 >
-                  Payer avec Flouci
+                  Payer avec Click to Pay
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>

@@ -1446,7 +1446,26 @@ export default function PropertiesPage() {
   const handleShareSearch = async () => {
     const params = buildManagedSearchParams();
     const queryString = params.toString();
-    const shareUrl = `${window.location.origin}${window.location.pathname}${queryString ? `?${queryString}` : ""}`;
+    const relativeUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ""}`;
+    let shareUrl = `${window.location.origin}${relativeUrl}`;
+
+    try {
+      const base = String(API_URL || "").replace(/\/+$/, "");
+      const response = await fetch(`${base}/search-share-links`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ relativeUrl }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.shortUrl) {
+        shareUrl = String(payload.shortUrl).trim();
+      }
+    } catch {
+      // Fall back to the full URL if the short-link service is unavailable.
+    }
 
     if (navigator.share) {
       try {

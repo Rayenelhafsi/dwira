@@ -13,6 +13,14 @@ const API_URL = import.meta.env.VITE_API_URL || "/api";
 type PaymentScope = "reservation" | "services" | "combined";
 type PaymentMethod = "carte" | "virement";
 
+function normalizePaymentMethodParam(value?: string | null): "clicktopay" | "receipt" | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "clicktopay" || normalized === "click_to_pay" || normalized === "click-to-pay" || normalized === "flouci") return "clicktopay";
+  if (normalized === "receipt" || normalized === "recu" || normalized === "upload" || normalized === "virement") return "receipt";
+  return null;
+}
+
 function openExternalCheckout(url: string) {
   const target = String(url || "").trim();
   if (!target) return;
@@ -79,8 +87,9 @@ export default function ReservationPaymentPage() {
     tone: "success",
   });
   const [statusPopupShown, setStatusPopupShown] = useState(false);
-  const showClickToPayBlock = true;
-  const showReceiptBlock = true;
+  const selectedMethod = useMemo(() => normalizePaymentMethodParam(searchParams.get("method")), [searchParams]);
+  const showClickToPayBlock = selectedMethod === "clicktopay";
+  const showReceiptBlock = selectedMethod === "receipt";
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -538,6 +547,10 @@ export default function ReservationPaymentPage() {
 
   const summary = paymentSummary;
 
+  if (!selectedMethod) {
+    return <Navigate to={`/mes-reservations/${encodeURIComponent(demand.id)}/coordonnees`} replace />;
+  }
+
   return (
     <>
       <CenterStatusPopup
@@ -568,7 +581,9 @@ export default function ReservationPaymentPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Paiement client</p>
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Finaliser votre demande</h1>
             <p className="mt-2 text-sm text-gray-500">
-              Le paiement est valide manuellement par l'administration apres verification de votre recu.
+              {selectedMethod === "receipt"
+                ? "Envoyez votre recu pour verification manuelle par l'administration."
+                : "Lancez le paiement en ligne puis revenez automatiquement sur votre dossier apres verification."}
             </p>
             {!!String(demand.contract_url || "").trim() && (
               <div className="mt-3">
@@ -592,7 +607,7 @@ export default function ReservationPaymentPage() {
 
             {showClickToPayBlock ? (
               <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
-                <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Click to Pay (Sandbox)</p>
+                <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Click to Pay</p>
                 <p className="mt-1 text-sm text-emerald-700">
                   Lancez le checkout Click to Pay. Au retour, la confirmation se fait automatiquement apres verification du statut.
                 </p>
@@ -665,7 +680,9 @@ export default function ReservationPaymentPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900">Resume de paiement</p>
-                  <p className="text-xs text-gray-500">Choisissez le mode qui vous convient.</p>
+                  <p className="text-xs text-gray-500">
+                    {selectedMethod === "receipt" ? "Verification du recu en cours de traitement manuel." : "Paiement en ligne en attente de validation automatique."}
+                  </p>
                 </div>
               </div>
               <div className="mt-5 space-y-3 text-sm">

@@ -145,6 +145,70 @@ function safeParseJson(value, fallbackValue = null) {
   }
 }
 
+function getPublicFrontendBaseUrl(req) {
+  const configured = String(CANONICAL_FRONTEND_URL || FRONTEND_URL || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
+  const requestOrigin = `${req.protocol}://${req.get('host')}`.replace(/\/+$/, '');
+  return requestOrigin;
+}
+
+function normalizeSearchShareRelativeUrl(rawValue) {
+  const input = String(rawValue || '').trim();
+  if (!input) return null;
+  const base = String(CANONICAL_FRONTEND_URL || FRONTEND_URL || 'https://www.dwiraimmobilier.com').trim();
+  let parsed;
+  try {
+    parsed = new URL(input, base);
+  } catch {
+    return null;
+  }
+
+  const allowedOrigins = new Set(
+    [base, CANONICAL_FRONTEND_URL, FRONTEND_URL]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .map((value) => {
+        try {
+          return new URL(value).origin;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+  );
+  if (allowedOrigins.size > 0 && !allowedOrigins.has(parsed.origin)) return null;
+
+  const pathname = String(parsed.pathname || '').trim();
+  if (!pathname || !pathname.startsWith('/')) return null;
+  if (pathname.startsWith('/api') || pathname.startsWith('/admin')) return null;
+  if (pathname !== '/logements') return null;
+
+  const queryString = parsed.search ? parsed.search.slice(1) : '';
+  if (queryString.length > 3500) return null;
+
+  return {
+    pathname,
+    queryString,
+    hash: crypto.createHash('sha256').update(`${pathname}?${queryString}`).digest('hex'),
+  };
+}
+
+function generateSearchShareCode() {
+  return crypto.randomBytes(5).toString('base64url').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 8);
+}
+
+function buildPublicSearchShareUrl(req, shortCode) {
+  const publicBase = getPublicFrontendBaseUrl(req);
+  const normalizedCode = String(shortCode || '').trim();
+  return {
+    shortCode: normalizedCode,
+    shortPath: `/api/s/${normalizedCode}`,
+    shortUrl: `${publicBase}/api/s/${normalizedCode}`,
+    legacyShortPath: `/s/${normalizedCode}`,
+    legacyShortUrl: `${publicBase}/s/${normalizedCode}`,
+  };
+}
+
 function resolveBienOwnerDisplayName(bien) {
   if (!bien || typeof bien !== 'object') return 'Bien';
   const saisonCfg = safeParseJson(
@@ -4059,6 +4123,102 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Backward compatibility: some media URLs in DB still use /api/uploads/*
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/contracts', express.static(path.join(__dirname, 'contracts')));
+
+app.post('/api/search-share-links', async (req, res) => {
+  try {
+    await ensureSearchShareLinksSchema();
+    const target = normalizeSearchShareRelativeUrl(req.body?.relativeUrl);
+    if (!target) {
+      return res.status(400).json({ error: 'Lien de recherche invalide' });
+    }
+
+    const [existingRows] = await pool.query(
+      `SELECT short_code
+       FROM search_share_links
+       WHERE target_hash = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [target.hash]
+    );
+    const existingCode = String(existingRows?.[0]?.short_code || '').trim();
+    if (existingCode) {
+      return res.json(buildPublicSearchShareUrl(req, existingCode));
+    }
+
+    const now = getAgencySqlDateTime();
+    let shortCode = '';
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const candidate = generateSearchShareCode();
+      if (!candidate) continue;
+      const [duplicateRows] = await pool.query(
+        'SELECT 1 FROM search_share_links WHERE short_code = ? LIMIT 1',
+        [candidate]
+      );
+      if (!duplicateRows?.length) {
+        shortCode = candidate;
+        break;
+      }
+    }
+    if (!shortCode) {
+      return res.status(500).json({ error: 'Impossible de generer un lien court' });
+    }
+
+    const id = `ssl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO search_share_links
+       (id, short_code, target_path, target_query, target_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, shortCode, target.pathname, target.queryString || null, target.hash, now]
+    );
+
+    return res.status(201).json(buildPublicSearchShareUrl(req, shortCode));
+  } catch (error) {
+    console.error('Error creating search share link:', error);
+    return res.status(500).json({ error: 'Impossible de creer le lien court' });
+  }
+});
+
+async function handleSearchShareRedirect(req, res) {
+  try {
+    await ensureSearchShareLinksSchema();
+    const shortCode = String(req.params?.code || '').trim();
+    if (!/^[a-zA-Z0-9_-]{6,16}$/.test(shortCode)) {
+      return res.status(404).send('Lien introuvable');
+    }
+
+    const [rows] = await pool.query(
+      `SELECT target_path, target_query
+       FROM search_share_links
+       WHERE short_code = ?
+       LIMIT 1`,
+      [shortCode]
+    );
+    const row = rows?.[0];
+    if (!row) {
+      return res.status(404).send('Lien introuvable');
+    }
+
+    const redirectTarget = new URL(
+      `${String(row.target_path || '/logements').trim()}${row.target_query ? `?${String(row.target_query).trim()}` : ''}`,
+      getPublicFrontendBaseUrl(req)
+    ).toString();
+
+    await pool.query(
+      `UPDATE search_share_links
+       SET visit_count = visit_count + 1, last_used_at = ?
+       WHERE short_code = ?`,
+      [getAgencySqlDateTime(), shortCode]
+    ).catch(() => {});
+
+    return res.redirect(302, redirectTarget);
+  } catch (error) {
+    console.error('Error resolving search share link:', error);
+    return res.status(500).send('Erreur serveur');
+  }
+}
+
+app.get('/api/s/:code', handleSearchShareRedirect);
+app.get('/s/:code', handleSearchShareRedirect);
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -19770,6 +19930,24 @@ async function ensureAdminDataExportsSchema() {
       created_at DATETIME NOT NULL,
       KEY idx_admin_data_exports_dataset_created (dataset, created_at),
       KEY idx_admin_data_exports_created (created_at)
+    )
+  `);
+}
+
+async function ensureSearchShareLinksSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS search_share_links (
+      id VARCHAR(100) PRIMARY KEY,
+      short_code VARCHAR(16) NOT NULL,
+      target_path VARCHAR(255) NOT NULL,
+      target_query TEXT NULL,
+      target_hash CHAR(64) NOT NULL,
+      visit_count INT NOT NULL DEFAULT 0,
+      last_used_at DATETIME NULL,
+      created_at DATETIME NOT NULL,
+      UNIQUE KEY uniq_search_share_short_code (short_code),
+      KEY idx_search_share_target_hash (target_hash),
+      KEY idx_search_share_created (created_at)
     )
   `);
 }

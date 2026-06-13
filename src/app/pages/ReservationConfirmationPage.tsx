@@ -21,6 +21,78 @@ type LocationState = {
   draft?: PendingReservationDraft;
 };
 
+type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
+
+function getMainTypeFromCategory(category: string): PropertyMainType {
+  const normalized = String(category || "").trim().toLowerCase();
+  if (normalized.includes("residence")) return "residence";
+  if (normalized.includes("appartement") || normalized.includes("s+")) return "appartement";
+  if (normalized.includes("villa") || normalized.includes("maison") || normalized.includes("bungalow")) return "villa_maison";
+  if (normalized.includes("studio")) return "studio";
+  if (normalized.includes("immeuble")) return "immeuble";
+  return "autre";
+}
+
+function getResolvedPropertyCategoryLabel(property: any): string {
+  const rawMainType = String(property?.filterProfile?.mainType || "").trim();
+  const rawSubType = String(property?.filterProfile?.subType || "").trim();
+  const rawDisplayCategory = String(property?.filterProfile?.displayCategory || "").trim();
+  const mainLabelByType: Record<PropertyMainType, string> = {
+    appartement: "Appartement",
+    residence: "Residence",
+    villa_maison: "Villa / Maison",
+    studio: "Studio",
+    immeuble: "Immeuble",
+    autre: "Autre",
+  };
+
+  if (rawMainType) {
+    const resolvedMainType = getMainTypeFromCategory(rawMainType);
+    const mainLabel = mainLabelByType[resolvedMainType];
+    if (rawSubType) {
+      return /appartement|residence|villa|maison|studio|immeuble/i.test(rawSubType) ? rawSubType : `${mainLabel} ${rawSubType}`.trim();
+    }
+    if (rawDisplayCategory) return rawDisplayCategory;
+    return mainLabel;
+  }
+
+  const rawCategory = String(rawDisplayCategory || property?.category || "").trim();
+  const title = String(property?.title || "").trim();
+  const titleSPlus = title.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
+  const rawSPlus = rawSubType.match(/s\+\d+/i)?.[0]?.toUpperCase() || rawCategory.match(/s\+\d+/i)?.[0]?.toUpperCase() || "";
+  const resolvedSPlus = rawSPlus || titleSPlus;
+  const bedrooms = Number(property?.bedrooms || 0);
+  const normalizedCategory = rawCategory.toLowerCase().replace(/\s+/g, " ");
+  const hasUnknownSPlus = /\bs\+\s*\?/i.test(rawCategory) || normalizedCategory.includes("s+?");
+  const inferredMainType = getMainTypeFromCategory(rawCategory || title);
+  const normalizedPlainCategory = rawCategory
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const isGenericMainCategory = ["appartement", "residence", "villa", "maison", "villa maison", "bungalow"].includes(normalizedPlainCategory);
+  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "residence" || inferredMainType === "villa_maison";
+  const mainLabel = {
+    appartement: "Appartement",
+    residence: "Residence",
+    villa_maison: normalizedPlainCategory.includes("maison") && !normalizedPlainCategory.includes("villa") ? "Maison" : "Villa",
+    studio: "Studio",
+    immeuble: "Immeuble",
+    autre: "Autre",
+  }[inferredMainType];
+
+  if ((hasUnknownSPlus || isGenericMainCategory) && shouldInferSPlusSubtype) {
+    if (resolvedSPlus) return `${mainLabel} ${resolvedSPlus}`;
+    if (Number.isFinite(bedrooms) && bedrooms > 0) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
+  }
+  if (rawCategory) return rawCategory;
+  if (resolvedSPlus && shouldInferSPlusSubtype) return `${mainLabel} ${resolvedSPlus}`;
+  if (Number.isFinite(bedrooms) && bedrooms > 0 && shouldInferSPlusSubtype) return `${mainLabel} S+${Math.max(1, Math.floor(bedrooms))}`;
+  return "";
+}
+
 function buildClientNote(
   draft: PendingReservationDraft,
   guestBreakdown: { guests: number; adultGuests: number; childGuests: number },
@@ -57,6 +129,7 @@ export default function ReservationConfirmationPage() {
   const draft = draftFromState || draftFromStorage || null;
   const pricingAmicaleId = String(draft?.pricingAmicaleId || draft?.amicaleSelectionId || "").trim() || null;
   const property = properties.find((item) => propertyMatchesRouteToken(item, slug));
+  const propertyCategoryLabel = useMemo(() => (property ? getResolvedPropertyCategoryLabel(property) : ""), [property]);
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
   const isVisitRequest = requestType === 'visite';
   const isInstantReservation = !isVisitRequest && Boolean((property as any)?.seasonalConfig?.reservationInstantanee);
@@ -652,7 +725,7 @@ export default function ReservationConfirmationPage() {
                   </div>
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     <SummaryItem label="Reference" value={property.reference || property.id} />
-                    <SummaryItem label="Categorie" value={property.category} />
+                    <SummaryItem label="Categorie" value={propertyCategoryLabel || property.category} />
                     <SummaryItem label={isVisitRequest ? "Date souhaitee" : "Arrivee"} value={format(new Date(draft.startDate), "dd/MM/yyyy")} />
                     <SummaryItem label={isVisitRequest ? "Date alternative" : "Depart"} value={format(new Date(draft.endDate), "dd/MM/yyyy")} />
                     <SummaryItem label={isVisitRequest ? "Visiteurs" : "Voyageurs"} value={`${summary?.guests || draft.guests}`} icon={<Users className="h-4 w-4" />} />
