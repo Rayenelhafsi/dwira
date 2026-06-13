@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
+const PARTNERS_CDN_BASE = String(import.meta.env.VITE_PARTNERS_CDN_BASE_URL || "").trim().replace(/\/+$/, "");
 
 function parseDateOnly(value?: string | null) {
   if (!value) return null;
@@ -39,6 +40,11 @@ function resolveAssetUrl(url?: string | null) {
   return `${window.location.origin}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
+function resolvePartnerLogoUrl(path: string) {
+  if (PARTNERS_CDN_BASE) return `${PARTNERS_CDN_BASE}/${path}`;
+  return `/partners/${path}`;
+}
+
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -60,34 +66,6 @@ function splitHumanName(fullName?: string | null) {
     firstName: parts.slice(0, -1).join(" "),
     lastName: parts.slice(-1).join(""),
   };
-}
-
-function ClickToPayLogo() {
-  return (
-    <div className="inline-flex h-10 items-center rounded-2xl border border-amber-200/70 bg-white/90 px-3 text-[11px] font-bold uppercase tracking-[0.2em] text-amber-700 shadow-sm">
-      Click to Pay
-    </div>
-  );
-}
-
-function VisaLogo() {
-  return (
-    <div className="inline-flex h-9 items-center rounded-2xl border border-sky-200/70 bg-white/85 px-3 text-sm font-black italic text-sky-700 shadow-sm">
-      VISA
-    </div>
-  );
-}
-
-function MastercardLogo() {
-  return (
-    <div className="inline-flex items-center rounded-2xl border border-rose-200/70 bg-white/85 px-3 py-2 shadow-sm">
-      <span className="relative flex items-center">
-        <span className="h-5 w-5 rounded-full bg-orange-500/90" />
-        <span className="-ml-2 h-5 w-5 rounded-full bg-rose-500/85" />
-      </span>
-      <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-700">Mastercard</span>
-    </div>
-  );
 }
 
 export default function ContractIdentityPage() {
@@ -298,15 +276,33 @@ export default function ContractIdentityPage() {
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <div className="relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 p-5">
                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                  <div className="absolute -right-4 top-4 opacity-90">
-                    <ClickToPayLogo />
-                  </div>
-                  <div className="absolute right-5 top-20 opacity-80">
-                    <VisaLogo />
-                  </div>
-                  <div className="absolute bottom-5 right-5 opacity-80">
-                    <MastercardLogo />
-                  </div>
+                  <img
+                    src={resolvePartnerLogoUrl("clicktopay.png")}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute -right-3 top-4 h-14 w-auto rounded-2xl border border-amber-200/60 bg-white/88 p-2 shadow-sm opacity-95"
+                    onError={(event) => {
+                      event.currentTarget.src = "/partners/clicktopay.png";
+                    }}
+                  />
+                  <img
+                    src={resolvePartnerLogoUrl("visa.png")}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute right-5 top-20 h-12 w-auto rounded-2xl border border-sky-100/80 bg-white/88 p-2 shadow-sm opacity-90"
+                    onError={(event) => {
+                      event.currentTarget.src = "/partners/visa.png";
+                    }}
+                  />
+                  <img
+                    src={resolvePartnerLogoUrl("mastercard.png")}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute bottom-5 right-5 h-12 w-auto rounded-2xl border border-rose-100/80 bg-white/88 p-2 shadow-sm opacity-90"
+                    onError={(event) => {
+                      event.currentTarget.src = "/partners/mastercard.png";
+                    }}
+                  />
                 </div>
                 <div className="relative z-10 flex items-center gap-2 text-amber-800">
                   <CreditCard className="h-5 w-5" />
