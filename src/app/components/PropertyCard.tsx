@@ -176,22 +176,27 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
       {hasInstantReservation ? (
         <span aria-hidden="true" className="dwira-electric-frame">
           <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M2.6 9 V2.8 H10.5 L7.3 5.1 H12.6" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M79.5 2.8 H97.4 V10.6 L94.5 7.6 V13.2" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M97.4 77.2 V90.8 L94.2 87.3 V93.8" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M17.8 97.2 H7.2 V86.6 L10.7 90.1 H5.4" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M3 69.5 V80.6 L5.1 77.8 V84.5" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M97.2 24.2 V35.4 L95.1 32.6 V39.1" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M86.5 97.2 H97.2 V86.8 L93.9 90.2 V84.9" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--glow" d="M9.8 97.2 H17.1 L13.8 95.1 H18.9" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M2.6 9 V2.8 H10.5 L7.3 5.1 H12.6" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M79.5 2.8 H97.4 V10.6 L94.5 7.6 V13.2" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M97.4 77.2 V90.8 L94.2 87.3 V93.8" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M17.8 97.2 H7.2 V86.6 L10.7 90.1 H5.4" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M3 69.5 V80.6 L5.1 77.8 V84.5" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M97.2 24.2 V35.4 L95.1 32.6 V39.1" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M86.5 97.2 H97.2 V86.8 L93.9 90.2 V84.9" />
-            <path className="dwira-electric-stroke dwira-electric-stroke--core" d="M9.8 97.2 H17.1 L13.8 95.1 H18.9" />
+            <defs>
+              <filter id="dwira-electric-jitter" x="-40%" y="-40%" width="180%" height="180%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.018 0.35" numOctaves="2" seed="3" result="noise">
+                  <animate attributeName="baseFrequency" values="0.018 0.35;0.024 0.42;0.015 0.31;0.018 0.35" dur="0.38s" repeatCount="indefinite" />
+                </feTurbulence>
+                <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.8" xChannelSelector="R" yChannelSelector="G" />
+              </filter>
+              <filter id="dwira-electric-glow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="2.2" result="blur1" />
+                <feGaussianBlur stdDeviation="5.4" result="blur2" />
+                <feGaussianBlur stdDeviation="8.2" result="blur3" />
+                <feMerge>
+                  <feMergeNode in="blur3" />
+                  <feMergeNode in="blur2" />
+                  <feMergeNode in="blur1" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <rect className="dwira-electric-path dwira-electric-path--glow" x="1.8" y="1.8" width="96.4" height="96.4" rx="9.5" ry="9.5" pathLength="1000" />
+            <rect className="dwira-electric-path dwira-electric-path--core" x="1.8" y="1.8" width="96.4" height="96.4" rx="9.5" ry="9.5" pathLength="1000" />
           </svg>
         </span>
       ) : null}

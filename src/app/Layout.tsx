@@ -68,6 +68,26 @@ export function Layout() {
     return () => window.clearTimeout(timeoutId);
   }, [maintenance?.isActive, maintenance?.resumeAt]);
 
+  useEffect(() => {
+    let scrollIdleTimer = 0;
+
+    const markScrolling = () => {
+      document.body.classList.add("dwira-scroll-active");
+      window.clearTimeout(scrollIdleTimer);
+      scrollIdleTimer = window.setTimeout(() => {
+        document.body.classList.remove("dwira-scroll-active");
+      }, 140);
+    };
+
+    window.addEventListener("scroll", markScrolling, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", markScrolling);
+      window.clearTimeout(scrollIdleTimer);
+      document.body.classList.remove("dwira-scroll-active");
+    };
+  }, []);
+
   if (isLoadingMaintenance || authLoading) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-gray-500">Chargement...</div>;
   }

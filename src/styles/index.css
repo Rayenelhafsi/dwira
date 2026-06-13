@@ -15,18 +15,28 @@ body {
   contain-intrinsic-size: 560px;
 }
 
-@keyframes dwira-electric-presence {
-  0%,
-  100% {
-    opacity: 0.82;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 .dwira-property-title {
   text-wrap: balance;
+}
+
+@keyframes dwira-electric-trace {
+  0% {
+    stroke-dasharray: 180 820;
+    stroke-dashoffset: 1000;
+  }
+  18% {
+    stroke-dasharray: 250 750;
+  }
+  48% {
+    stroke-dasharray: 185 815;
+  }
+  74% {
+    stroke-dasharray: 260 740;
+  }
+  100% {
+    stroke-dasharray: 190 810;
+    stroke-dashoffset: 0;
+  }
 }
 
 .dwira-instant-card {
@@ -43,11 +53,9 @@ body {
 
 .dwira-electric-frame {
   position: absolute;
-  inset: 0;
+  inset: -3px;
   z-index: 3;
   pointer-events: none;
-  border-radius: inherit;
-  animation: dwira-electric-presence 5.8s ease-in-out infinite;
 }
 
 .dwira-electric-frame svg {
@@ -56,20 +64,25 @@ body {
   overflow: visible;
 }
 
-.dwira-electric-stroke {
+.dwira-electric-path {
   fill: none;
+  vector-effect: non-scaling-stroke;
   stroke-linecap: round;
   stroke-linejoin: round;
+  animation: dwira-electric-trace 1.25s linear infinite;
 }
 
-.dwira-electric-stroke--glow {
-  stroke: rgba(250, 204, 21, 0.95);
-  stroke-width: 1.1;
+.dwira-electric-path--glow {
+  stroke: rgba(251, 191, 36, 0.9);
+  stroke-width: 2.7;
+  filter: url(#dwira-electric-glow) url(#dwira-electric-jitter);
+  opacity: 1;
 }
 
-.dwira-electric-stroke--core {
-  stroke: rgba(255, 251, 214, 0.98);
-  stroke-width: 0.52;
+.dwira-electric-path--core {
+  stroke: #fff7c6;
+  stroke-width: 1.35;
+  filter: url(#dwira-electric-jitter);
 }
 
 .dwira-instant-card::after {
@@ -88,6 +101,19 @@ body {
   filter: none;
 }
 
+body.dwira-scroll-active .dwira-electric-path {
+  animation-play-state: paused;
+}
+
+body.dwira-scroll-active .dwira-electric-path--glow {
+  filter: none;
+  opacity: 0.92;
+}
+
+body.dwira-scroll-active .dwira-electric-path--core {
+  filter: none;
+}
+
 @media (max-width: 767px) {
   .dwira-property-card {
     contain-intrinsic-size: 520px;
@@ -98,8 +124,12 @@ body {
     box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
   }
 
-  .dwira-electric-frame {
-    animation-duration: 6.2s;
+  .dwira-electric-path--glow {
+    stroke-width: 2.35;
+  }
+
+  .dwira-electric-path--core {
+    stroke-width: 1.15;
   }
 
   .dwira-instant-badge {
@@ -225,8 +255,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dwira-electric-frame {
-    animation: none;
+  .dwira-electric-path {
+    animation: none !important;
   }
 
   .dwira-soft-aurora::before,
