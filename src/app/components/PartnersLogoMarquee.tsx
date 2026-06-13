@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { SmartImage } from "./SmartImage";
 
 const PARTNERS_CDN_BASE = String(import.meta.env.VITE_PARTNERS_CDN_BASE_URL || "").trim().replace(/\/+$/, "");
 
@@ -32,6 +33,9 @@ export function PartnersLogoMarquee() {
   const loopItems = [...partnerLogos, ...partnerLogos];
 
   useEffect(() => {
+    const disableGlow = typeof window !== "undefined" && (window.innerWidth < 1024 || window.matchMedia("(pointer: coarse)").matches);
+    if (disableGlow) return;
+
     let intervalId: number | null = null;
     let items: HTMLElement[] = [];
 
@@ -73,12 +77,15 @@ export function PartnersLogoMarquee() {
         <div className="partners-marquee-track">
           {loopItems.map((logo, idx) => (
             <div key={`${logo.path}-${idx}`} className="partners-marquee-item">
-              <img
+              <SmartImage
                 src={resolvePartnerLogoUrl(logo.path)}
                 alt={logo.alt}
-                loading={idx < 6 ? "eager" : "lazy"}
+                loading="lazy"
                 decoding="async"
-                {...({ fetchpriority: idx < 6 ? "high" : "auto" } as Record<string, string>)}
+                fetchPriority="low"
+                targetWidth={220}
+                quality={54}
+                sizes="160px"
                 onError={(event) => {
                   const img = event.currentTarget;
                   const fallback = `/partners/${logo.path}`;

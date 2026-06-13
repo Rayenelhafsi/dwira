@@ -5,6 +5,11 @@ type MediaVariantOptions = {
   quality?: number;
 };
 
+const REMOTE_TRANSFORM_ALLOWED_HOSTS = [
+  "r2.dev",
+  "images.unsplash.com",
+];
+
 const USE_SERVER_MEDIA_TRANSFORM = String(import.meta.env.VITE_USE_MEDIA_TRANSFORM || "").trim().toLowerCase() === "true";
 const CLOUDINARY_CLOUD_NAME = String(import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || "").trim();
 const CLOUDINARY_FETCH_BASE_URL = String(import.meta.env.VITE_CLOUDINARY_FETCH_BASE_URL || "").trim();
@@ -53,6 +58,15 @@ function parseUrl(value: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function isRemoteTransformAllowed(url: URL): boolean {
+  const host = String(url.hostname || "").toLowerCase();
+  return REMOTE_TRANSFORM_ALLOWED_HOSTS.some((allowedHost) => host === allowedHost || host.endsWith(`.${allowedHost}`));
+}
+
+function isTransformablePublicAssetPath(value: string): boolean {
+  return value.startsWith("/partners/");
 }
 
 function extractCloudinaryUploadPath(url: URL): string | null {
@@ -198,14 +212,18 @@ export function getOptimizedMediaUrl(url?: string | null, options: MediaVariantO
   const uploadPath = extractUploadPath(value);
 
   if (uploadPath) {
-    const cloudinaryUrl = buildCloudinaryFetchUrl(uploadPath, { width, quality });
-    if (cloudinaryUrl) return cloudinaryUrl;
     const runtimeUploadPath = toRuntimeUploadPath(uploadPath);
-    if (!USE_SERVER_MEDIA_TRANSFORM) {
-      return runtimeUploadPath;
-    }
     const query = new URLSearchParams({
       src: runtimeUploadPath,
+      w: String(width),
+      q: String(quality),
+    });
+    return buildApiUrl(`/media?${query.toString()}`);
+  }
+
+  if (isTransformablePublicAssetPath(value)) {
+    const query = new URLSearchParams({
+      src: value,
       w: String(width),
       q: String(quality),
     });
@@ -218,6 +236,16 @@ export function getOptimizedMediaUrl(url?: string | null, options: MediaVariantO
 
   if (/images\.unsplash\.com/i.test(value)) {
     return optimizeUnsplashUrl(value, width, quality);
+  }
+
+  const parsed = parseUrl(value);
+  if (parsed && isRemoteTransformAllowed(parsed)) {
+    const query = new URLSearchParams({
+      src: parsed.toString(),
+      w: String(width),
+      q: String(quality),
+    });
+    return buildApiUrl(`/media?${query.toString()}`);
   }
 
   return value;

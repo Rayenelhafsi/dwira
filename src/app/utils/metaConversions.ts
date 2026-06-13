@@ -40,6 +40,44 @@ export function initMetaPixel() {
   window.fbq?.("init", META_PIXEL_ID);
 }
 
+export function startMetaTracking() {
+  if (typeof window === "undefined" || !META_PIXEL_ID) return;
+
+  let started = false;
+  const boot = () => {
+    if (started) return;
+    started = true;
+    initMetaPixel();
+    trackMetaPageViewOncePerPath();
+    window.removeEventListener("pointerdown", boot);
+    window.removeEventListener("keydown", boot);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      boot();
+    }
+  };
+
+  const idleId = window.requestIdleCallback?.(() => boot(), { timeout: 3500 });
+  const timeoutId = window.setTimeout(() => boot(), 4500);
+
+  window.addEventListener("pointerdown", boot, { once: true, passive: true });
+  window.addEventListener("keydown", boot, { once: true });
+  document.addEventListener("visibilitychange", onVisibilityChange);
+
+  return () => {
+    if (typeof idleId === "number") {
+      window.cancelIdleCallback?.(idleId);
+    }
+    window.clearTimeout(timeoutId);
+    window.removeEventListener("pointerdown", boot);
+    window.removeEventListener("keydown", boot);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+}
+
 export async function trackMetaEvent({
   eventName,
   eventId,

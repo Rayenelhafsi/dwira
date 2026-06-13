@@ -209,8 +209,9 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             loading="lazy"
             decoding="async"
             fetchPriority="low"
-            targetWidth={720}
-            quality={62}
+            targetWidth={640}
+            quality={56}
+            sizes="(max-width: 767px) 92vw, (max-width: 1279px) 44vw, 31vw"
           />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
           <div className="absolute left-4 top-4 inline-flex rounded-full border border-white/25 bg-black/35 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 backdrop-blur-md">

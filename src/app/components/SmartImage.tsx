@@ -7,6 +7,7 @@ type SmartImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
   quality?: number;
   targetWidth?: number;
   fetchPriority?: "high" | "low" | "auto";
+  sizes?: string;
 };
 
 const FALLBACK_IMAGE_DATA_URI =
@@ -23,6 +24,7 @@ export function SmartImage({
   quality = 72,
   targetWidth,
   fetchPriority,
+  sizes,
   onError,
   onLoad,
   ...rest
@@ -32,6 +34,22 @@ export function SmartImage({
     if (!originalSrc) return "";
     if (!targetWidth) return originalSrc;
     return getOptimizedMediaUrl(originalSrc, { width: targetWidth, quality });
+  }, [originalSrc, quality, targetWidth]);
+
+  const srcSet = useMemo(() => {
+    if (!originalSrc || !targetWidth) return undefined;
+    const candidateWidths = Array.from(
+      new Set(
+        [Math.round(targetWidth * 0.5), Math.round(targetWidth * 0.75), targetWidth, Math.round(targetWidth * 1.25)]
+          .map((width) => Math.max(120, width))
+          .filter((width) => width <= Math.max(2400, targetWidth))
+      )
+    ).sort((left, right) => left - right);
+
+    if (candidateWidths.length < 2) return undefined;
+    return candidateWidths
+      .map((width) => `${getOptimizedMediaUrl(originalSrc, { width, quality })} ${width}w`)
+      .join(", ");
   }, [originalSrc, quality, targetWidth]);
 
   const [currentSrc, setCurrentSrc] = useState(() => getNextImageSource(optimizedSrc, originalSrc));
@@ -45,6 +63,8 @@ export function SmartImage({
       {...rest}
       {...(fetchPriority ? ({ fetchpriority: fetchPriority } as Record<string, string>) : {})}
       src={currentSrc || FALLBACK_IMAGE_DATA_URI}
+      srcSet={currentSrc === FALLBACK_IMAGE_DATA_URI ? undefined : srcSet}
+      sizes={currentSrc === FALLBACK_IMAGE_DATA_URI ? undefined : sizes}
       onLoad={(event) => {
         clearFailedImageSource(currentSrc);
         onLoad?.(event);

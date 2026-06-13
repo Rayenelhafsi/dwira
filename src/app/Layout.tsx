@@ -1,7 +1,6 @@
 import { Outlet, useLocation } from "react-router";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Header, Footer } from "./components/HeaderFooter";
-import { PartnersLogoMarquee } from "./components/PartnersLogoMarquee";
 import { ScrollToTop } from "./components/ScrollToTop";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
 import { SiteMaintenancePage } from "./components/SiteMaintenancePage";
@@ -9,10 +8,15 @@ import { getSiteMaintenanceStatus, readCachedSiteMaintenanceStatus, type SiteMai
 import { useAuth } from "./context/AuthContext";
 import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
 
+const LazyPartnersLogoMarquee = lazy(() =>
+  import("./components/PartnersLogoMarquee").then((module) => ({ default: module.PartnersLogoMarquee }))
+);
+
 export function Layout() {
   const location = useLocation();
   const { user, isLoading: authLoading } = useAuth();
   const [maintenance, setMaintenance] = useState<SiteMaintenanceStatus | null>(() => readCachedSiteMaintenanceStatus());
+  const [showPartnersLogoMarquee, setShowPartnersLogoMarquee] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +89,23 @@ export function Layout() {
     };
   }, []);
 
+  useEffect(() => {
+    if (showPartnersLogoMarquee) return;
+
+    const reveal = () => setShowPartnersLogoMarquee(true);
+    const idleId = window.requestIdleCallback?.(reveal, { timeout: 2600 });
+    const timeoutId = window.setTimeout(reveal, 3200);
+    window.addEventListener("scroll", reveal, { once: true, passive: true });
+
+    return () => {
+      if (typeof idleId === "number") {
+        window.cancelIdleCallback?.(idleId);
+      }
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("scroll", reveal);
+    };
+  }, [showPartnersLogoMarquee]);
+
   const isMaintenanceBypassPath = location.pathname === MAINTENANCE_ACCESS_PATH;
   const canBypassMaintenance = user?.role === "admin" || isMaintenanceBypassPath;
 
@@ -103,7 +124,11 @@ export function Layout() {
       <main className="flex-grow">
         <Outlet />
       </main>
-      <PartnersLogoMarquee />
+      {showPartnersLogoMarquee ? (
+        <Suspense fallback={null}>
+          <LazyPartnersLogoMarquee />
+        </Suspense>
+      ) : null}
       <Footer />
       <CookieConsentBanner />
     </div>

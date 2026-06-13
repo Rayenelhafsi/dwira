@@ -4019,6 +4019,38 @@ function resolveUploadedMediaPath(rawSrc) {
   return absolutePath;
 }
 
+function resolvePublicMediaPath(rawSrc) {
+  const src = String(rawSrc || '').trim();
+  if (!src.startsWith('/partners/')) return null;
+
+  const publicDir = path.resolve(__dirname, '..', 'public');
+  const relativePath = src.replace(/^\//, '');
+  const normalizedPath = path.normalize(relativePath);
+  const absolutePath = path.resolve(publicDir, normalizedPath);
+
+  if (!absolutePath.startsWith(publicDir)) return null;
+  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) return null;
+  return absolutePath;
+}
+
+function resolveTransformableLocalMediaPath(rawSrc) {
+  return resolveUploadedMediaPath(rawSrc) || resolvePublicMediaPath(rawSrc);
+}
+
+function resolveRemoteMediaUrl(rawSrc) {
+  const src = String(rawSrc || '').trim();
+  if (!/^https?:\/\//i.test(src)) return null;
+  try {
+    const parsed = new URL(src);
+    const hostname = String(parsed.hostname || '').toLowerCase();
+    const allowedHosts = ['r2.dev', 'images.unsplash.com'];
+    const isAllowed = allowedHosts.some((allowedHost) => hostname === allowedHost || hostname.endsWith(`.${allowedHost}`));
+    return isAllowed ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 const MEDIA_TRANSFORM_CACHE_LIMIT = 220;
 const mediaTransformCache = new Map();
 
@@ -4058,20 +4090,60 @@ function rememberTransformedMedia(cacheKey, payload) {
   if (oldest) mediaTransformCache.delete(oldest);
 }
 
+async function loadTransformableMediaSource(rawSrc) {
+  const localPath = resolveTransformableLocalMediaPath(rawSrc);
+  if (localPath) {
+    const sourceStat = fs.statSync(localPath);
+    return {
+      kind: 'local',
+      cacheSource: localPath,
+      cacheVersion: `${sourceStat.mtimeMs}|${sourceStat.size}`,
+      input: localPath,
+      ext: path.extname(localPath).toLowerCase(),
+    };
+  }
+
+  const remoteUrl = resolveRemoteMediaUrl(rawSrc);
+  if (!remoteUrl) return null;
+
+  const response = await fetch(remoteUrl, {
+    headers: {
+      Accept: 'image/avif,image/webp,image/*;q=0.8,*/*;q=0.5',
+    },
+  });
+  if (!response.ok) return null;
+  const arrayBuffer = await response.arrayBuffer();
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.startsWith('image/')) return null;
+  const buffer = Buffer.from(arrayBuffer);
+  return {
+    kind: 'remote',
+    cacheSource: remoteUrl,
+    cacheVersion: String(buffer.length),
+    input: buffer,
+    ext: contentType.includes('svg') ? '.svg' : contentType.includes('gif') ? '.gif' : '',
+  };
+}
+
 app.get('/api/media', async (req, res) => {
   try {
-    const sourcePath = resolveUploadedMediaPath(req.query.src);
-    if (!sourcePath) {
+    const mediaSource = await loadTransformableMediaSource(req.query.src);
+    if (!mediaSource) {
       return res.status(404).json({ error: 'Media not found' });
     }
 
     const width = Math.max(120, Math.min(2200, Number(req.query.w) || 1600));
     const quality = Math.max(35, Math.min(90, Number(req.query.q) || 72));
-    const fileExt = path.extname(sourcePath).toLowerCase();
+    const fileExt = String(mediaSource.ext || '').toLowerCase();
     const format = getAcceptedImageFormat(req.headers.accept);
     const contentType = getMediaContentType(format);
-    const sourceStat = fs.statSync(sourcePath);
-    const cacheKey = getMediaCacheKey(sourcePath, sourceStat, width, quality, format);
+    const cacheKey = [
+      mediaSource.cacheSource,
+      mediaSource.cacheVersion,
+      String(width),
+      String(quality),
+      format,
+    ].join('|');
     const etag = getMediaEtag(cacheKey);
 
     // Keep unsupported formats on the original file path instead of failing the gallery.
@@ -4095,7 +4167,7 @@ app.get('/api/media', async (req, res) => {
       return res.send(cached.buffer);
     }
 
-    const transformer = sharp(sourcePath)
+    const transformer = sharp(mediaSource.input)
       .rotate()
       .resize({ width, withoutEnlargement: true });
 
@@ -4112,7 +4184,7 @@ app.get('/api/media', async (req, res) => {
   } catch (error) {
     console.error('Error transforming media:', error);
     const fallbackSrc = String(req.query.src || '').trim();
-    if (fallbackSrc.startsWith('/uploads/')) {
+    if (fallbackSrc.startsWith('/uploads/') || fallbackSrc.startsWith('/partners/')) {
       return res.redirect(fallbackSrc);
     }
     return res.status(500).json({ error: 'Failed to transform media' });

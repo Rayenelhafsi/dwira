@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./app/App.tsx";
 import "./styles/index.css";
-import { initMetaPixel, trackMetaPageViewOncePerPath } from "./app/utils/metaConversions.ts";
+import { startMetaTracking } from "./app/utils/metaConversions.ts";
 
 function installApiCredentialsFetchPatch() {
   if (typeof window === "undefined") return;
@@ -54,7 +54,6 @@ function installApiCredentialsFetchPatch() {
 }
 
 installApiCredentialsFetchPatch();
-initMetaPixel();
-trackMetaPageViewOncePerPath();
+startMetaTracking();
 
 createRoot(document.getElementById("root")!).render(<App />);
