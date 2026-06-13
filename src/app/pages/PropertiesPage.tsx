@@ -2118,6 +2118,7 @@ export default function PropertiesPage() {
           property,
           score: normalizedScore,
           strictTypeMatch: strictMainTypeMatch && strictSubTypeMatch,
+          exactLocationMatch: selectedLocations.length === 0 || hasExactLocationMatch,
           exactSeasideMatch: selectedSeasideOptions.length === 0 || matchSeaside,
           exactDateAvailable,
           stayDateAlternative,
@@ -2154,6 +2155,7 @@ export default function PropertiesPage() {
     let primary = rows.filter(
       (row) =>
         row.strictTypeMatch
+        && row.exactLocationMatch
         && row.score >= threshold
         && row.exactSeasideMatch
         && row.exactComfortMatch
@@ -2192,6 +2194,7 @@ export default function PropertiesPage() {
       primary = rows.filter(
         (row) =>
           row.strictTypeMatch
+          && row.exactLocationMatch
           && row.exactSeasideMatch
           && row.exactComfortMatch
           && (!hasDateFilter || row.exactDateAvailable)
