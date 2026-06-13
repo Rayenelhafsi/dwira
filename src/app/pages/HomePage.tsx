@@ -2722,6 +2722,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     params.delete("locations");
     params.delete("mainType");
     params.delete("mainTypes");
+    params.delete("categories");
+    params.delete("seaside");
+    params.delete("comfort");
     params.delete("checkIn");
     params.delete("checkOut");
     params.delete("stayRanges");
@@ -2831,6 +2834,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     params.delete("locations");
     params.delete("mainType");
     params.delete("mainTypes");
+    params.delete("categories");
+    params.delete("seaside");
+    params.delete("comfort");
     params.delete("checkIn");
     params.delete("checkOut");
     params.delete("stayRanges");
@@ -4741,6 +4747,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     params.delete("locations");
                     params.delete("mainType");
                     params.delete("mainTypes");
+                    params.delete("categories");
+                    params.delete("seaside");
+                    params.delete("comfort");
                     params.delete("stayRanges");
                     if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
                     if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
