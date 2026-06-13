@@ -62,6 +62,34 @@ function splitHumanName(fullName?: string | null) {
   };
 }
 
+function ClickToPayLogo() {
+  return (
+    <div className="inline-flex h-10 items-center rounded-2xl border border-amber-200/70 bg-white/90 px-3 text-[11px] font-bold uppercase tracking-[0.2em] text-amber-700 shadow-sm">
+      Click to Pay
+    </div>
+  );
+}
+
+function VisaLogo() {
+  return (
+    <div className="inline-flex h-9 items-center rounded-2xl border border-sky-200/70 bg-white/85 px-3 text-sm font-black italic text-sky-700 shadow-sm">
+      VISA
+    </div>
+  );
+}
+
+function MastercardLogo() {
+  return (
+    <div className="inline-flex items-center rounded-2xl border border-rose-200/70 bg-white/85 px-3 py-2 shadow-sm">
+      <span className="relative flex items-center">
+        <span className="h-5 w-5 rounded-full bg-orange-500/90" />
+        <span className="-ml-2 h-5 w-5 rounded-full bg-rose-500/85" />
+      </span>
+      <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-700">Mastercard</span>
+    </div>
+  );
+}
+
 export default function ContractIdentityPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -268,34 +296,49 @@ export default function ContractIdentityPage() {
 
           {canProceedToPayment && (
             <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 p-5">
-                <div className="flex items-center gap-2 text-amber-800">
-                  <CreditCard className="h-5 w-5" />
-                  <p className="text-sm font-semibold uppercase tracking-wide">Paiement Click to Pay</p>
+              <div className="relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 p-5">
+                <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                  <div className="absolute -right-4 top-4 opacity-90">
+                    <ClickToPayLogo />
+                  </div>
+                  <div className="absolute right-5 top-20 opacity-80">
+                    <VisaLogo />
+                  </div>
+                  <div className="absolute bottom-5 right-5 opacity-80">
+                    <MastercardLogo />
+                  </div>
                 </div>
-                <p className="mt-2 text-sm text-amber-900">
+                <div className="relative z-10 flex items-center gap-2 text-amber-800">
+                  <CreditCard className="h-5 w-5" />
+                  <p className="text-sm font-semibold uppercase tracking-wide">Paiement avec carte bancaire</p>
+                </div>
+                <p className="relative z-10 mt-2 max-w-[260px] text-sm text-amber-900">
                   Paiement en ligne immediat via Click to Pay.
                 </p>
                 <Link
                   to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement?method=clicktopay`}
-                  className="mt-4 inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
+                  className="relative z-10 mt-4 inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
                 >
                   Payer avec Click to Pay
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
 
-              <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-cyan-50 to-sky-100 p-5">
-                <div className="flex items-center gap-2 text-sky-800">
-                  <Receipt className="h-5 w-5" />
-                  <p className="text-sm font-semibold uppercase tracking-wide">Upload recu</p>
+              <div className="relative overflow-hidden rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-cyan-50 to-sky-100 p-5">
+                <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                  <Receipt className="absolute -right-2 top-2 h-32 w-32 text-sky-200/60" strokeWidth={1.2} />
+                  <FileText className="absolute bottom-3 right-6 h-20 w-20 text-sky-300/50" strokeWidth={1.2} />
                 </div>
-                <p className="mt-2 text-sm text-sky-900">
+                <div className="relative z-10 flex items-center gap-2 text-sky-800">
+                  <Receipt className="h-5 w-5" />
+                  <p className="text-sm font-semibold uppercase tracking-wide">Paiement par virement et envoi de recu</p>
+                </div>
+                <p className="relative z-10 mt-2 max-w-[280px] text-sm text-sky-900">
                   Importez le recu de paiement pour verification par l'agence.
                 </p>
                 <Link
                   to={`/mes-reservations/${encodeURIComponent(demand.id)}/paiement?method=receipt`}
-                  className="mt-4 inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
+                  className="relative z-10 mt-4 inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
                 >
                   Uploader mon recu
                   <ArrowRight className="h-4 w-4" />
