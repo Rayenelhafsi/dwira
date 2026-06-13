@@ -1522,6 +1522,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     selected
       ? "border-emerald-300 ring-2 ring-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.75),0_0_22px_rgba(52,211,153,0.65)]"
       : "border-gray-200";
+  const renderSelectionCheckbox = (selected: boolean) => (
+    <span
+      className={`absolute right-3 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[10px] border backdrop-blur-md transition-all duration-200 ${
+        selected
+          ? "border-emerald-300 bg-emerald-500/95 text-white shadow-[0_10px_25px_rgba(16,185,129,0.35)]"
+          : "border-white/75 bg-white/92 text-transparent shadow-[0_10px_24px_rgba(15,23,42,0.18)]"
+      }`}
+      aria-hidden="true"
+    >
+      <Check size={16} strokeWidth={3} />
+    </span>
+  );
+  const renderSelectionLabel = (label: string) => (
+    <span className="flex min-h-[3rem] max-w-[calc(100%-3.75rem)] min-w-[7rem] items-center rounded-xl border border-white/20 bg-black/30 px-4 py-2 text-left text-sm font-semibold leading-snug text-white shadow-[0_10px_25px_rgba(15,23,42,0.22)] backdrop-blur-md [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
+      {label}
+    </span>
+  );
   const locationStepMeta = {
     gouvernerat: {
       title: "Gouvernorat",
@@ -3376,10 +3393,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                   }}
                                   className={`group relative h-28 overflow-hidden rounded-2xl border text-left transition-all duration-200 ${locationCardSelectionClass(selected)}`}
                                 >
+                                  {renderSelectionCheckbox(selected)}
                                   <img src={getLocationOptionImage(level, item)} alt={item} className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
                                   <div className={`pointer-events-none absolute inset-0 ${selected ? "bg-emerald-950/25" : "bg-black/40"}`} />
-                                  <div className="relative z-10 flex h-full items-end p-4">
-                                    <span className="text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{item}</span>
+                                  <div className="relative z-10 flex h-full items-center p-4">
+                                    {renderSelectionLabel(item)}
                                   </div>
                                 </button>
                               );
@@ -3565,9 +3583,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 onClick={() => toggleDraftMainTypeSelection(group.mainType)}
                                 className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftSelectedMainTypes.includes(group.mainType) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
+                                {renderSelectionCheckbox(draftSelectedMainTypes.includes(group.mainType))}
                                 <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 px-4 text-lg font-bold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                                    <span className="relative z-10 px-4">{renderSelectionLabel(group.label)}</span>
                               </button>
                             ))}
                             </div>
@@ -3588,14 +3607,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 onClick={() => toggleDraftCategory(cat.label)}
                                 className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
+                                {renderSelectionCheckbox(draftCategories.includes(cat.label))}
                                 <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 px-3 text-base font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                                {draftCategories.includes(cat.label) && (
-                                  <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
-                                    <Check size={12} />
-                                  </span>
-                                )}
+                                    <span className="relative z-10 px-3">{renderSelectionLabel(cat.label)}</span>
                               </button>
                             ))}
                             </div>
@@ -3658,10 +3673,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             onClick={() => toggleDraftSeasideOption(key)}
                             className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : "hover:bg-gray-50"}`}
                           >
+                            {renderSelectionCheckbox(selected)}
                             <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={SEASIDE_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                             <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                            <span className="relative z-10 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{SEASIDE_OPTION_LABELS[key]}</span>
-                            {selected && <Check size={14} className="relative z-10 text-white" />}
+                            <span className="relative z-10">{renderSelectionLabel(SEASIDE_OPTION_LABELS[key])}</span>
                           </button>
                         );
                       })}
@@ -3676,10 +3691,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             onClick={() => toggleDraftComfortOption(key)}
                             className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : "hover:bg-gray-50"}`}
                           >
+                            {renderSelectionCheckbox(selected)}
                             <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={COMFORT_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                             <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                            <span className="relative z-10 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{COMFORT_OPTION_LABELS[key]}</span>
-                            {selected && <Check size={14} className="relative z-10 text-white" />}
+                            <span className="relative z-10">{renderSelectionLabel(COMFORT_OPTION_LABELS[key])}</span>
                           </button>
                         );
                       })}
@@ -3875,10 +3890,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         }}
                         className={`group relative h-28 overflow-hidden rounded-2xl border ${locationCardSelectionClass(selected)}`}
                       >
+                        {renderSelectionCheckbox(selected)}
                         <img src={getLocationOptionImage(level, item)} alt={item} className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
                         <div className={`pointer-events-none absolute inset-0 ${selected ? "bg-emerald-950/25" : "bg-black/40"}`} />
-                        <div className="relative z-10 flex h-full items-end p-4 text-left">
-                          <span className="text-sm font-semibold text-white">{item}</span>
+                        <div className="relative z-10 flex h-full items-center p-4 text-left">
+                          {renderSelectionLabel(item)}
                         </div>
                       </button>
                     );
@@ -3977,9 +3993,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       onClick={() => toggleDraftMainTypeSelection(group.mainType)}
                       className={`relative h-36 overflow-hidden rounded-xl border text-left ${draftSelectedMainTypes.includes(group.mainType) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
+                      {renderSelectionCheckbox(draftSelectedMainTypes.includes(group.mainType))}
                       <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                      <span className="relative z-10 px-4 text-lg font-bold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
+                      <span className="relative z-10 px-4">{renderSelectionLabel(group.label)}</span>
                     </button>
                   ))}
                   </div>
@@ -4000,14 +4017,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       onClick={() => toggleDraftCategory(cat.label)}
                       className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                     >
+                      {renderSelectionCheckbox(draftCategories.includes(cat.label))}
                       <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                       <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                      <span className="relative z-10 px-3 text-base font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                      {draftCategories.includes(cat.label) && (
-                        <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
-                          <Check size={12} />
-                        </span>
-                      )}
+                      <span className="relative z-10 px-3">{renderSelectionLabel(cat.label)}</span>
                     </button>
                   ))}
                   </div>
@@ -4041,10 +4054,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     onClick={() => toggleDraftSeasideOption(key)}
                     className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : ""}`}
                   >
+                    {renderSelectionCheckbox(selected)}
                     <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={SEASIDE_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                     <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                    <span className="relative z-10 text-sm font-semibold text-white">{SEASIDE_OPTION_LABELS[key]}</span>
-                    {selected && <Check size={14} className="relative z-10 text-white" />}
+                    <span className="relative z-10">{renderSelectionLabel(SEASIDE_OPTION_LABELS[key])}</span>
                   </button>
                 );
               })}
@@ -4059,10 +4072,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     onClick={() => toggleDraftComfortOption(key)}
                     className={`relative w-full h-24 rounded-xl overflow-hidden text-left px-4 flex items-center justify-between ${selected ? "ring-2 ring-emerald-400" : ""}`}
                   >
+                    {renderSelectionCheckbox(selected)}
                     <img src={resolveTypeImageUrl(image || TYPE_FALLBACK_IMAGE)} alt={COMFORT_OPTION_LABELS[key]} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                     <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                    <span className="relative z-10 text-sm font-semibold text-white">{COMFORT_OPTION_LABELS[key]}</span>
-                    {selected && <Check size={14} className="relative z-10 text-white" />}
+                    <span className="relative z-10">{renderSelectionLabel(COMFORT_OPTION_LABELS[key])}</span>
                   </button>
                 );
               })}

@@ -24,6 +24,7 @@ import { computeGuestLimits } from "../utils/guestLimits";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import logo from "../../../logo dwira.jpg";
+import cinUploadIllustration from "../assets/cin-upload.png";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 import {
@@ -4818,6 +4819,19 @@ out body 40;
                       placeholder="CIN *"
                       className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
                     />
+                    <div className="mt-3 overflow-hidden rounded-2xl border border-emerald-100 bg-white">
+                      <img
+                        src={cinUploadIllustration}
+                        alt="Illustration upload CIN"
+                        className="h-auto w-full object-cover"
+                      />
+                      <div className="border-t border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                        <p className="text-sm font-semibold text-emerald-900">Telechargez votre CIN</p>
+                        <p className="mt-1 text-xs text-emerald-800">
+                          Ajoutez une photo ou un scan clair de votre carte d&apos;identite avant de continuer.
+                        </p>
+                      </div>
+                    </div>
                     <label className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
                       <Upload className="h-4 w-4" />
                       {isProfileCinUploading ? "Upload photo CIN..." : "Uploader photo CIN *"}
