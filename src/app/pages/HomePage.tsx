@@ -3345,11 +3345,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 }
                                 confirmLocationSelection();
                               }}
-                              disabled={
-                                (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
-                                || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
-                              }
-                              className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
                             >
                               {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
                             </button>
@@ -3849,11 +3845,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       }
                       confirmLocationSelection();
                     }}
-                    disabled={
-                      (locationSelectionStep === "gouvernerat" && draftSelectedGouvernerats.length === 0)
-                      || (locationSelectionStep === "region" && draftSelectedRegions.length === 0)
-                    }
-                    className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
                   >
                     {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
                   </button>
