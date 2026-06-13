@@ -14934,7 +14934,11 @@ app.post('/api/mobile/owners/:ownerId/chat', async (req, res) => {
       },
     });
 
-    await createAdminNotification('info', `Nouveau message proprietaire (${ownerId})`);
+    const messagePreview = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+    await createAdminNotification(
+      'info',
+      `Nouveau message proprietaire [owner:${ownerId}]${propertyTitle ? ` [bien:${propertyTitle}]` : ''}: ${messagePreview}`
+    );
     res.status(201).json(created);
   } catch (error) {
     console.error('Error creating mobile owner chat message:', error);
@@ -14975,28 +14979,37 @@ app.post('/api/mobile/admin/owners/:ownerId/chat', requireAdminSession, async (r
       },
     });
 
-    await ensureOwnerMobileNotificationsSchema();
-    const notifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    await pool.query(
-      `INSERT INTO owner_mobile_notifications
-       (id, owner_id, type, message, lu, metadata_json, created_at)
-       VALUES (?, ?, ?, ?, 0, ?, ?)`,
-      [
-        notifId,
+    const now = getAgencySqlDateTime();
+    await createOwnerMobileNotification({
+      ownerId,
+      type: 'info',
+      message: propertyTitle
+        ? `Nouveau message admin pour ${propertyTitle}`
+        : 'Nouveau message admin',
+      metadata: {
+        kind: 'admin_owner_chat',
         ownerId,
-        'info',
-        'Nouveau message de l admin',
-        JSON.stringify({
-          kind: 'admin_owner_chat',
-          ownerId,
-          bienId: bienId || null,
-          propertyTitle: propertyTitle || null,
-          interactionId: created?.id || null,
-          text,
-        }),
-        getAgencySqlDateTime(),
-      ]
-    );
+        bienId: bienId || null,
+        propertyTitle: propertyTitle || null,
+        interactionId: created?.id || null,
+        text,
+      },
+      createdAt: now,
+    });
+    await pushToOwnerDevices(ownerId, {
+      title: 'Proprietaires Dwira',
+      body: propertyTitle
+        ? `Nouveau message admin pour ${propertyTitle}`
+        : 'Nouveau message admin',
+      data: {
+        kind: 'admin_owner_chat',
+        ownerId,
+        bienId: bienId || '',
+        propertyTitle: propertyTitle || '',
+        interactionId: created?.id || '',
+        text,
+      },
+    });
     await createAdminNotification(
       'info',
       `Message admin envoyÃ© au proprietaire ${ownerId}${bienId ? ` (bien ${bienId})` : ''}`

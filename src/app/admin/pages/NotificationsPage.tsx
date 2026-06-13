@@ -387,6 +387,16 @@ function classifyNotification(notification: Notification): {
   };
 }
 
+function extractOwnerIdFromNotificationMessage(message: string): string {
+  const normalized = String(message || '').trim();
+  if (!normalized) return '';
+  const taggedMatch = normalized.match(/\[owner:([^\]]+)\]/i);
+  if (taggedMatch?.[1]) return String(taggedMatch[1]).trim();
+  const legacyMatch = normalized.match(/nouveau message proprietaire\s*\(([^)]+)\)/i);
+  if (legacyMatch?.[1]) return String(legacyMatch[1]).trim();
+  return '';
+}
+
 function formatMoney(value?: number | null) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return '-';
@@ -890,7 +900,9 @@ export default function NotificationsPage() {
     enrichedNotificationInsights
       .filter((item) => !item.notification.lu && item.category === 'proprietaire')
       .forEach((item) => {
-        const ownerId = String(item.demand?.proprietaire_id || '').trim();
+        const ownerId = String(
+          item.demand?.proprietaire_id || extractOwnerIdFromNotificationMessage(item.notification.message)
+        ).trim();
         if (!ownerId) return;
         const current = byOwnerId.get(ownerId);
         if (!current || String(item.notification.created_at || '') > String(current.notification.created_at || '')) {
@@ -2657,6 +2669,85 @@ export default function NotificationsPage() {
                       className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
                     />
                   </label>
+                  <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Pilotage relance</p>
+                        <h4 className="mt-1 text-lg font-semibold text-slate-900">Programmation quotidienne</h4>
+                        <p className="mt-1 text-sm text-slate-500">Horaires globaux d envoi et relance immediate depuis ce panneau.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void dispatchCalendarPromptNow()}
+                          disabled={dispatchingCalendarPrompt}
+                          className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                        >
+                          {dispatchingCalendarPrompt ? 'Envoi...' : 'Envoyer maintenant'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void saveCalendarPromptSchedule()}
+                          disabled={scheduleSaving || !calendarPromptSchedule}
+                          className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                        >
+                          {scheduleSaving ? 'Enregistrement...' : 'Enregistrer horaire'}
+                        </button>
+                      </div>
+                    </div>
+                    {calendarPromptSchedule && (
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium text-slate-700">Date de debut</span>
+                          <input
+                            type="date"
+                            value={calendarPromptSchedule.startDate || ''}
+                            onChange={(event) => setCalendarPromptSchedule((prev) => prev ? { ...prev, startDate: event.target.value || null } : prev)}
+                            className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium text-slate-700">Heure quotidienne</span>
+                          <input
+                            type="time"
+                            value={calendarPromptSchedule.dailyTime}
+                            onChange={(event) => {
+                              const [hourRaw, minuteRaw] = String(event.target.value || '').split(':');
+                              const hour = Number(hourRaw || 0);
+                              const minute = Number(minuteRaw || 0);
+                              setCalendarPromptSchedule((prev) => prev ? {
+                                ...prev,
+                                dispatchHour: hour,
+                                dispatchMinute: minute,
+                                dailyTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+                              } : prev);
+                            }}
+                            className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium text-slate-700">Etat</span>
+                          <select
+                            value={calendarPromptSchedule.enabled ? 'enabled' : 'disabled'}
+                            onChange={(event) => setCalendarPromptSchedule((prev) => prev ? {
+                              ...prev,
+                              enabled: event.target.value === 'enabled',
+                            } : prev)}
+                            className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+                          >
+                            <option value="enabled">Active</option>
+                            <option value="disabled">Inactive</option>
+                          </select>
+                        </label>
+                        <div className="space-y-1 text-sm">
+                          <span className="font-medium text-slate-700">Dernier envoi</span>
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700">
+                            {calendarPromptSchedule.lastDispatchedLocalDate || 'Aucun'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto px-3 py-3">
                   {filteredCalendarOwners.length === 0 && (
@@ -2832,86 +2923,6 @@ export default function NotificationsPage() {
                   <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef8f3_100%)]">
                     <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
                       <div className="mx-auto flex max-w-6xl flex-col gap-4">
-                        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Pilotage relance</p>
-                              <h4 className="mt-1 text-lg font-semibold text-slate-900">Programmation quotidienne</h4>
-                              <p className="mt-1 text-sm text-slate-500">Horaires globaux d envoi et relance immediate depuis ce panneau.</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => void dispatchCalendarPromptNow()}
-                                disabled={dispatchingCalendarPrompt}
-                                className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
-                              >
-                                {dispatchingCalendarPrompt ? 'Envoi...' : 'Envoyer maintenant'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void saveCalendarPromptSchedule()}
-                                disabled={scheduleSaving || !calendarPromptSchedule}
-                                className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-                              >
-                                {scheduleSaving ? 'Enregistrement...' : 'Enregistrer horaire'}
-                              </button>
-                            </div>
-                          </div>
-                          {calendarPromptSchedule && (
-                            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                              <label className="space-y-1 text-sm">
-                                <span className="font-medium text-slate-700">Date de debut</span>
-                                <input
-                                  type="date"
-                                  value={calendarPromptSchedule.startDate || ''}
-                                  onChange={(event) => setCalendarPromptSchedule((prev) => prev ? { ...prev, startDate: event.target.value || null } : prev)}
-                                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
-                                />
-                              </label>
-                              <label className="space-y-1 text-sm">
-                                <span className="font-medium text-slate-700">Heure quotidienne</span>
-                                <input
-                                  type="time"
-                                  value={calendarPromptSchedule.dailyTime}
-                                  onChange={(event) => {
-                                    const [hourRaw, minuteRaw] = String(event.target.value || '').split(':');
-                                    const hour = Number(hourRaw || 0);
-                                    const minute = Number(minuteRaw || 0);
-                                    setCalendarPromptSchedule((prev) => prev ? {
-                                      ...prev,
-                                      dispatchHour: hour,
-                                      dispatchMinute: minute,
-                                      dailyTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-                                    } : prev);
-                                  }}
-                                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
-                                />
-                              </label>
-                              <label className="space-y-1 text-sm">
-                                <span className="font-medium text-slate-700">Etat</span>
-                                <select
-                                  value={calendarPromptSchedule.enabled ? 'enabled' : 'disabled'}
-                                  onChange={(event) => setCalendarPromptSchedule((prev) => prev ? {
-                                    ...prev,
-                                    enabled: event.target.value === 'enabled',
-                                  } : prev)}
-                                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
-                                >
-                                  <option value="enabled">Active</option>
-                                  <option value="disabled">Inactive</option>
-                                </select>
-                              </label>
-                              <div className="space-y-1 text-sm">
-                                <span className="font-medium text-slate-700">Dernier envoi</span>
-                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700">
-                                  {calendarPromptSchedule.lastDispatchedLocalDate || 'Aucun'}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
                         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
                           <div className="space-y-4">
                             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
