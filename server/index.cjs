@@ -15720,6 +15720,69 @@ app.get('/api/mobile/owners/:ownerId/availability-requests', async (req, res) =>
   }
 });
 
+app.get('/api/mobile/owners/:ownerId/reservation-statuses', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const bienId = String(req.query?.bien_id || '').trim();
+    await ensureReservationDemandSchema();
+    const trackedStatuses = [
+      'reponse_positive_attente_confirmation_client',
+      'client_procede_vers_paiement_en_cours',
+      'demande_recu_paiement',
+      'recu_paiement_envoye',
+      'succes_paiement',
+      'contrat_realise',
+    ];
+    const placeholders = trackedStatuses.map(() => '?').join(',');
+    const params = [ownerId, ...trackedStatuses];
+    let bienFilterSql = '';
+    if (bienId) {
+      bienFilterSql = ' AND d.bien_id = ?';
+      params.push(bienId);
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         d.*,
+         b.titre AS bien_titre,
+         b.reference AS bien_reference,
+         b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
+         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+         DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+         DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+         DATE_FORMAT(d.services_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS services_payment_paid_at,
+         DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       WHERE d.proprietaire_id = ?
+         AND d.status IN (${placeholders})
+         ${bienFilterSql}
+       ORDER BY d.updated_at DESC, d.created_at DESC
+       LIMIT 20`,
+      params
+    );
+    const mapped = (rows || []).map((row) => ({
+      ...formatReservationDemandRow(row),
+      propertyTitle: resolveBienOwnerDisplayName({
+        titre: row.bien_titre,
+        reference: row.bien_reference,
+        location_saisonniere_config_json: row.bien_location_saisonniere_config_json,
+      }),
+    }));
+    res.json(mapped);
+  } catch (error) {
+    console.error('Error fetching owner reservation statuses:', error);
+    res.status(500).json({ error: 'Failed to fetch owner reservation statuses' });
+  }
+});
+
 app.post('/api/mobile/owners/:ownerId/availability-requests/:demandId/respond', async (req, res) => {
   try {
     const ownerId = String(req.params.ownerId || '').trim();
