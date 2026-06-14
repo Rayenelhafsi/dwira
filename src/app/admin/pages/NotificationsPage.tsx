@@ -76,6 +76,10 @@ type OwnerCalendarPromptStatus = {
   updatedAt?: string | null;
 };
 
+function isOwnerWithoutAppStatus(status?: OwnerCalendarPromptStatus | null) {
+  return String(status?.status || '').trim() === 'no_app';
+}
+
 type AdminCalendarRequest = {
   id: string;
   ownerId: string;
@@ -561,6 +565,39 @@ function summarizeNotificationDetail(message?: string | null) {
   return normalized || 'Action en attente de verification.';
 }
 
+function extractOwnerMessagePreview(message?: string | null, ownerName?: string | null) {
+  const raw = String(message || '').trim();
+  if (!raw) return '';
+
+  const patterns = [
+    /nouveau message (?:recu du |reçu du )?proprietaire\s*\([^)]+\)\s*[:\-]\s*(.+)$/i,
+    /nouveau message (?:recu du |reçu du )?proprietaire\s*[:\-]\s*(.+)$/i,
+    /reponse proprietaire\s*\([^)]+\)\s*[:\-]\s*(.+)$/i,
+    /reponse proprietaire\s*[:\-]\s*(.+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) return String(match[1]).trim();
+  }
+
+  let cleaned = raw
+    .replace(/^\s*nouveau message (?:recu du |reçu du )?proprietaire\s*\([^)]+\)\s*/i, '')
+    .replace(/^\s*nouveau message (?:recu du |reçu du )?proprietaire\s*/i, '')
+    .replace(/^\s*reponse proprietaire\s*\([^)]+\)\s*/i, '')
+    .replace(/^\s*reponse proprietaire\s*/i, '')
+    .replace(/^[:\-\s]+/, '')
+    .trim();
+
+  const normalizedOwner = String(ownerName || '').trim();
+  if (normalizedOwner) {
+    const lowerOwner = normalizedOwner.toLowerCase();
+    if (cleaned.toLowerCase() === lowerOwner) cleaned = '';
+  }
+
+  if (cleaned && cleaned.toLowerCase() !== raw.toLowerCase()) return cleaned;
+  return '';
+}
+
 function extractOwnerNameFromNotificationMessage(message?: string | null) {
   const value = String(message || '').trim();
   if (!value) return '';
@@ -669,7 +706,9 @@ function getNotificationDetailLabel(args: {
     }
   }
   if (category === 'proprietaire' && ownerName) {
-    return `Nouvelle information recue de ${ownerName}.`;
+    const preview = extractOwnerMessagePreview(message, ownerName);
+    if (preview) return preview;
+    return `Nouveau message recu de ${ownerName}. Ouvrez la discussion pour voir le detail.`;
   }
   return summarizeNotificationDetail(message);
 }
@@ -705,6 +744,19 @@ function formatElapsedDuration(from?: string | null, nowMs = Date.now()) {
 
 function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, nowMs = Date.now()) {
   const value = String(status?.status || '').trim();
+  if (value === 'no_app') {
+    const flaggedAt = status?.updatedAt || status?.createdAt || null;
+    return {
+      label: "N'a pas encore l'application",
+      tone: 'border-indigo-200 bg-indigo-50 text-indigo-800',
+      detail: flaggedAt ? `Classe sans application le ${formatDateTime(flaggedAt)}` : "Proprietaire marque sans application",
+      helper: 'Non compte dans les retards tant que ce statut reste actif.',
+      sentAt: flaggedAt,
+      respondedAt: null,
+      waitingDurationLabel: '',
+      isOverdue: false,
+    };
+  }
   const sentAt = value === 'pending'
     ? status?.updatedAt || status?.createdAt || null
     : status?.createdAt || status?.updatedAt || null;
@@ -803,6 +855,7 @@ export default function NotificationsPage() {
   const [pendingCalendarRequests, setPendingCalendarRequests] = useState<AdminCalendarRequest[]>(initialCache?.pendingCalendarRequests || []);
   const [calendarRequestHistory, setCalendarRequestHistory] = useState<AdminCalendarRequest[]>(initialCache?.calendarRequestHistory || []);
   const [calendarReviewRequest, setCalendarReviewRequest] = useState<AdminCalendarRequest | null>(null);
+  const [calendarOwnerStatusLoadingId, setCalendarOwnerStatusLoadingId] = useState<string | null>(null);
   const [calendarReviewDiff, setCalendarReviewDiff] = useState<CalendarDiffPayload | null>(null);
   const [selectedClientDemand, setSelectedClientDemand] = useState<ReservationDemand | null>(null);
   const [calendarReviewLoading, setCalendarReviewLoading] = useState(false);
@@ -1373,6 +1426,15 @@ export default function NotificationsPage() {
     if (title) return title;
     return statusLabels[resolveDisplayStatus(latestDemand)] || 'Conversation proprietaire';
   };
+  const selectedUnreadOwnerBannerText = useMemo(() => {
+    if (!selectedChatOwner) return '';
+    const latestOwnerMessage = [...chatMessages]
+      .filter((message) => message.kind !== 'admin_owner_chat')
+      .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))[0];
+    const preview = String(latestOwnerMessage?.text || '').trim();
+    if (preview) return preview;
+    return unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id)?.detailLabel || '';
+  }, [selectedChatOwner, chatMessages, unreadOwnerNotificationByOwnerId]);
 
   const getOwnerInitials = (name: string) =>
     String(name || '')
@@ -1520,6 +1582,7 @@ export default function NotificationsPage() {
   const selectedCalendarOwnerProfile = selectedCalendarOwner ? ownerLookup.get(selectedCalendarOwner.id) || null : null;
   const selectedCalendarStatus = selectedCalendarOwner ? ownerCalendarStatuses[selectedCalendarOwner.id] || null : null;
   const selectedCalendarStatusMeta = getOwnerCalendarStatusMeta(selectedCalendarStatus, calendarNowMs);
+  const selectedCalendarOwnerWithoutApp = isOwnerWithoutAppStatus(selectedCalendarStatus);
   const selectedCalendarPendingRequest = selectedCalendarOwner ? pendingCalendarRequestByOwner.get(selectedCalendarOwner.id) || null : null;
   const selectedCalendarHistory = useMemo(
     () => (selectedCalendarOwner ? calendarRequestHistoryByOwner.get(selectedCalendarOwner.id) || [] : []),
@@ -1543,30 +1606,46 @@ export default function NotificationsPage() {
   const isCalendarMobileConversationOpen = Boolean(selectedCalendarOwner);
   const overdueCalendarOwners = useMemo(
     () =>
-      filteredCalendarOwners.filter((owner) => getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs).isOverdue),
+      filteredCalendarOwners.filter((owner) => {
+        const status = ownerCalendarStatuses[owner.id] || null;
+        if (isOwnerWithoutAppStatus(status)) return false;
+        return getOwnerCalendarStatusMeta(status, calendarNowMs).isOverdue;
+      }),
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
   const pendingCalendarOwnersCount = useMemo(
     () =>
       filteredCalendarOwners.filter((owner) => {
+        const status = ownerCalendarStatuses[owner.id] || null;
+        if (isOwnerWithoutAppStatus(status)) return false;
         const statusMeta = getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs);
-        return !statusMeta.isOverdue && String(ownerCalendarStatuses[owner.id]?.status || '').trim() === 'pending';
+        return !statusMeta.isOverdue && String(status?.status || '').trim() === 'pending';
       }).length,
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
+  const noAppCalendarOwners = useMemo(
+    () => filteredCalendarOwners.filter((owner) => isOwnerWithoutAppStatus(ownerCalendarStatuses[owner.id] || null)),
+    [filteredCalendarOwners, ownerCalendarStatuses]
+  );
+  const noAppCalendarOwnersCount = noAppCalendarOwners.length;
   const pendingCalendarUpdateOwnersCount = useMemo(
     () => filteredCalendarOwners.filter((owner) => pendingCalendarRequestByOwner.has(owner.id)).length,
     [filteredCalendarOwners, pendingCalendarRequestByOwner]
   );
   const nonOverdueCalendarOwners = useMemo(
     () =>
-      filteredCalendarOwners.filter((owner) => !getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs).isOverdue),
+      filteredCalendarOwners.filter((owner) => {
+        const status = ownerCalendarStatuses[owner.id] || null;
+        if (isOwnerWithoutAppStatus(status)) return false;
+        return !getOwnerCalendarStatusMeta(status, calendarNowMs).isOverdue;
+      }),
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
   const upToDateCalendarOwnersCount = useMemo(
     () =>
       filteredCalendarOwners.filter((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
+        if (isOwnerWithoutAppStatus(status)) return false;
         return String(status?.status || '').trim() === 'confirmed_up_to_date';
       }).length,
     [filteredCalendarOwners, ownerCalendarStatuses]
@@ -1574,7 +1653,7 @@ export default function NotificationsPage() {
 
   const demandAttentionCount = pendingDemands.length;
   const chatAttentionCount = unreadOwnerMessagesCount;
-  const calendarAttentionCount = overdueCalendarOwners.length + pendingCalendarOwnersCount + pendingCalendarUpdateOwnersCount;
+  const calendarAttentionCount = overdueCalendarOwners.length + pendingCalendarOwnersCount + pendingCalendarUpdateOwnersCount + noAppCalendarOwnersCount;
   const systemAttentionCount = visibleNotificationInsights.filter(
     (item) => !item.notification.lu && item.category !== 'proprietaire'
   ).length;
@@ -1927,6 +2006,50 @@ export default function NotificationsPage() {
       toast.error(error instanceof Error ? error.message : 'Impossible d envoyer la relance calendrier a ce proprietaire');
     } finally {
       setDispatchingCalendarPromptOwnerId(null);
+    }
+  };
+
+  const markCalendarOwnerWithoutApp = async (owner: { id: string; name: string }) => {
+    const ownerId = String(owner.id || '').trim();
+    if (!ownerId) return;
+    setCalendarOwnerStatusLoadingId(ownerId);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses/${encodeURIComponent(ownerId)}/no-app`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, "Impossible de marquer ce proprietaire comme n ayant pas encore l application"));
+      }
+      toast.success(`${owner.name} deplace vers la liste sans application`);
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de marquer ce proprietaire comme n ayant pas encore l application");
+    } finally {
+      setCalendarOwnerStatusLoadingId(null);
+    }
+  };
+
+  const admitCalendarOwnerHasApp = async (owner: { id: string; name: string }) => {
+    const ownerId = String(owner.id || '').trim();
+    if (!ownerId) return;
+    setCalendarOwnerStatusLoadingId(ownerId);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses/${encodeURIComponent(ownerId)}/no-app`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, "Impossible de remettre ce proprietaire dans la liste avec application"));
+      }
+      toast.success(`${owner.name} est de nouveau compte avec application`);
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de remettre ce proprietaire dans la liste avec application");
+    } finally {
+      setCalendarOwnerStatusLoadingId(null);
     }
   };
 
@@ -3012,7 +3135,7 @@ export default function NotificationsPage() {
                             <div className="min-w-0 flex-1">
                               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Message non lu</p>
                               <p className="mt-2 text-sm font-medium text-slate-900">
-                                {unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id)?.detailLabel}
+                                {selectedUnreadOwnerBannerText || unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id)?.detailLabel}
                               </p>
                             </div>
                             <button
@@ -3330,7 +3453,7 @@ export default function NotificationsPage() {
                     </div>
                     <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Suivi</div>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
+                  <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-5">
                     <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">En retard</p>
                       <p className="mt-1 text-lg font-bold text-rose-900">{overdueCalendarOwners.length}</p>
@@ -3342,6 +3465,10 @@ export default function NotificationsPage() {
                     <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">MAJ calendrier en attente</p>
                       <p className="mt-1 text-lg font-bold text-sky-900">{pendingCalendarUpdateOwnersCount}</p>
+                    </div>
+                    <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">Sans application</p>
+                      <p className="mt-1 text-lg font-bold text-indigo-900">{noAppCalendarOwnersCount}</p>
                     </div>
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">A jour</p>
@@ -3421,6 +3548,58 @@ export default function NotificationsPage() {
                         </div>
                       </div>
                     )}
+                    {noAppCalendarOwners.length > 0 && (
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-700">Proprietaires sans application</p>
+                          <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">{noAppCalendarOwners.length}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {noAppCalendarOwners.map((owner) => {
+                            const isActive = selectedCalendarOwner?.id === owner.id;
+                            const status = ownerCalendarStatuses[owner.id] || null;
+                            const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
+                            const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
+                            return (
+                              <button
+                                key={`calendar-owner-no-app-${owner.id}`}
+                                type="button"
+                                onClick={() => setSelectedCalendarOwner(owner)}
+                                className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
+                                  isActive
+                                    ? 'border-indigo-400 bg-indigo-50 shadow-[0_0_0_1px_rgba(129,140,248,0.28),0_14px_30px_rgba(79,70,229,0.08)]'
+                                    : 'border-indigo-200 bg-white hover:bg-indigo-50 shadow-sm'
+                                }`}
+                              >
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-indigo-700 text-sm font-bold text-white shadow-lg">
+                                  {getOwnerInitials(owner.name)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                                      <span className="mt-1 inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                                        {statusMeta.label}
+                                      </span>
+                                    </div>
+                                    {(status?.updatedAt || status?.createdAt) ? (
+                                      <span className="shrink-0 text-[11px] text-indigo-500">
+                                        {formatRelativeDelay(status?.updatedAt || status?.createdAt).replace(/^il y a /, '')}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-2 line-clamp-2 text-sm text-slate-600">{statusMeta.detail}</p>
+                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-indigo-600">
+                                    <span>{statusMeta.helper}</span>
+                                    <span>{historyCount} historique</span>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <div className="mb-2 flex items-center justify-between gap-3 px-1">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Autres proprietaires</p>
@@ -3469,7 +3648,7 @@ export default function NotificationsPage() {
                             </div>
                             <p className={`mt-2 line-clamp-2 text-sm ${pendingRequest ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>
                               {pendingRequest
-                                ? `${pendingRequest.propertyTitle || 'Bien'} - ${pendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'}`
+                                ? `${pendingRequest.propertyTitle || 'Bien'} - ${pendingRequest.status === 'cancel_pending' ? 'Annulation de reouverture demandee' : pendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'}`
                                 : statusMeta.detail}
                             </p>
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
@@ -3524,15 +3703,38 @@ export default function NotificationsPage() {
                           {selectedCalendarStatusMeta.respondedAt ? <span>Reponse {formatRelativeDelay(selectedCalendarStatusMeta.respondedAt)}</span> : null}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void dispatchCalendarPromptToOwner(selectedCalendarOwner)}
-                        disabled={dispatchingCalendarPromptOwnerId === selectedCalendarOwner.id}
-                        className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-60 sm:ml-0"
-                      >
-                        <SendHorizontal className="h-4 w-4" />
-                        {dispatchingCalendarPromptOwnerId === selectedCalendarOwner.id ? 'Envoi...' : 'Relancer'}
-                      </button>
+                      <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 sm:ml-0">
+                        {selectedCalendarOwnerWithoutApp ? (
+                          <button
+                            type="button"
+                            onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
+                            disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60"
+                          >
+                            {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Admet application'}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void markCalendarOwnerWithoutApp(selectedCalendarOwner)}
+                              disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                              className="inline-flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 transition-colors hover:bg-indigo-100 disabled:opacity-60"
+                            >
+                              {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Sans app'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void dispatchCalendarPromptToOwner(selectedCalendarOwner)}
+                              disabled={dispatchingCalendarPromptOwnerId === selectedCalendarOwner.id}
+                              className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-60"
+                            >
+                              <SendHorizontal className="h-4 w-4" />
+                              {dispatchingCalendarPromptOwnerId === selectedCalendarOwner.id ? 'Envoi...' : 'Relancer'}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef8f3_100%)]">
@@ -3571,6 +3773,27 @@ export default function NotificationsPage() {
                                   </p>
                                 </div>
                               </div>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                {selectedCalendarOwnerWithoutApp ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
+                                    disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                    className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                  >
+                                    {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Admet application'}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => void markCalendarOwnerWithoutApp(selectedCalendarOwner)}
+                                    disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                    className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+                                  >
+                                    {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Sans app'}
+                                  </button>
+                                )}
+                              </div>
                               {selectedCalendarPendingRequest ? (
                                 <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
                                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3578,7 +3801,11 @@ export default function NotificationsPage() {
                                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Demande en attente</p>
                                       <h5 className="mt-1 text-base font-semibold text-slate-900">{selectedCalendarPendingRequest.propertyTitle || 'Bien sans titre'}</h5>
                                       <p className="mt-2 text-sm text-slate-600">
-                                        {selectedCalendarPendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} pour la periode du {formatStayDate(selectedCalendarPendingRequest.startDate)} au {formatStayDate(selectedCalendarPendingRequest.endDate)}.
+                                        {selectedCalendarPendingRequest.status === 'cancel_pending'
+                                          ? 'Annulation de reouverture demandee'
+                                          : selectedCalendarPendingRequest.requestType === 'open'
+                                            ? 'Reouverture demandee'
+                                            : 'Fermeture demandee'} pour la periode du {formatStayDate(selectedCalendarPendingRequest.startDate)} au {formatStayDate(selectedCalendarPendingRequest.endDate)}.
                                       </p>
                                       <p className="mt-1 text-xs text-slate-500">Envoyee le {formatDateTime(selectedCalendarPendingRequest.submittedAt || selectedCalendarPendingRequest.startDate)}</p>
                                       {selectedCalendarPendingRequest.note ? <p className="mt-2 text-sm text-slate-700">Note: {selectedCalendarPendingRequest.note}</p> : null}

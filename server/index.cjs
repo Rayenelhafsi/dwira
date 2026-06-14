@@ -15419,6 +15419,13 @@ app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-owner/:ownerId', r
     if (!ownerId) {
       return res.status(400).json({ error: 'ownerId requis' });
     }
+    const [flagRows] = await pool.query(
+      `SELECT status FROM owner_calendar_status_flags WHERE owner_id = ? LIMIT 1`,
+      [ownerId]
+    );
+    if (String(flagRows?.[0]?.status || '').trim() === 'no_app') {
+      return res.status(400).json({ error: 'Ce proprietaire est marque comme n ayant pas encore l application' });
+    }
     const result = await dispatchOwnerCalendarPromptBatch({
       ownerId,
       promptDate,
@@ -15531,6 +15538,61 @@ app.get('/api/mobile/admin/owner-calendar-prompt-statuses', requireAdminSession,
   } catch (error) {
     console.error('Error fetching owner calendar prompt statuses:', error);
     res.status(500).json({ error: 'Failed to fetch owner calendar prompt statuses' });
+  }
+});
+
+app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/no-app', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    if (!ownerIdentity.ownerId) {
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+    const currentStatuses = await getOwnerCalendarPromptStatuses();
+    const currentStatus = currentStatuses.find((row) => String(row.ownerId || '').trim() === ownerId) || null;
+    const metadata = {
+      source: 'admin_manual',
+      ownerName: ownerIdentity.ownerName,
+      promptId: currentStatus?.promptId || null,
+      promptDate: currentStatus?.promptDate || null,
+      previousStatus: currentStatus?.status || null,
+      previousRespondedAt: currentStatus?.respondedAt || null,
+      previousNotificationId: currentStatus?.notificationId || null,
+      previousUpdatedAt: currentStatus?.updatedAt || null,
+      previousCreatedAt: currentStatus?.createdAt || null,
+      markedAt: getAgencySqlDateTime(),
+      markedBy: req.authUser?.id || 'admin',
+    };
+    const result = await setOwnerCalendarStatusFlag({
+      ownerId,
+      status: 'no_app',
+      metadata,
+    });
+    res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, status: 'no_app', updatedAt: result?.updatedAt || null });
+  } catch (error) {
+    console.error('Error marking owner as no-app:', error);
+    res.status(500).json({ error: 'Failed to mark owner as no-app' });
+  }
+});
+
+app.delete('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/no-app', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    if (!ownerIdentity.ownerId) {
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+    await setOwnerCalendarStatusFlag({ ownerId, status: '' });
+    res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, status: 'with_app' });
+  } catch (error) {
+    console.error('Error restoring owner app status:', error);
+    res.status(500).json({ error: 'Failed to restore owner app status' });
   }
 });
 
@@ -15874,6 +15936,11 @@ function normalizeCalendarRequestStatusValue(metadata) {
   return String(metadata?.status || 'pending').trim().toLowerCase() || 'pending';
 }
 
+function isPendingCalendarRequestStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'pending' || normalized === 'cancel_pending';
+}
+
 function buildCalendarRequestDedupKey(metadata) {
   const ownerId = String(metadata?.ownerId || '').trim();
   const bienId = String(metadata?.bienId || '').trim();
@@ -15961,9 +16028,10 @@ async function fetchAdminCalendarRequests({ statuses = null } = {}) {
   }
 
   let filtered = enriched.filter((row) => {
-    if (row.status === 'pending' && hasFinalByKey.get(row.key)) return false;
+    if (isPendingCalendarRequestStatus(row.status) && hasFinalByKey.get(row.key)) return false;
     if (!normalizedStatuses || normalizedStatuses.length === 0) return true;
-    return normalizedStatuses.includes(row.status);
+    if (normalizedStatuses.includes(row.status)) return true;
+    return normalizedStatuses.includes('pending') && row.status === 'cancel_pending';
   });
 
   if (normalizedStatuses && normalizedStatuses.length === 1 && normalizedStatuses[0] === 'pending') {
@@ -16119,6 +16187,93 @@ app.get('/api/mobile/owners/:ownerId/calendar-requests', async (req, res) => {
   }
 });
 
+app.post('/api/mobile/owners/:ownerId/calendar-requests/:id/cancel', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    const interactionId = String(req.params.id || '').trim();
+    if (!ownerId || !interactionId) {
+      return res.status(400).json({ error: 'ownerId et id demande requis' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT id, client_user_id, bien_id, property_title, metadata_json,
+              DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at
+       FROM client_interactions
+       WHERE id = ?
+       LIMIT 1`,
+      [interactionId]
+    );
+    const row = rows?.[0] || null;
+    if (!row || !row.metadata_json) {
+      return res.status(404).json({ error: 'Demande calendrier introuvable' });
+    }
+
+    let metadata = null;
+    try {
+      metadata = JSON.parse(String(row.metadata_json));
+    } catch {
+      metadata = null;
+    }
+    if (!metadata || metadata.kind !== 'calendar_update_request') {
+      return res.status(400).json({ error: 'Interaction non compatible annulation calendrier' });
+    }
+
+    const metadataOwnerId = String(metadata.ownerId || row.client_user_id || '').trim();
+    if (!metadataOwnerId || metadataOwnerId !== ownerId) {
+      return res.status(403).json({ error: 'Demande calendrier non autorisee pour ce proprietaire' });
+    }
+
+    const status = normalizeCalendarRequestStatusValue(metadata);
+    const requestType = String(metadata.requestType || 'close').trim().toLowerCase() === 'open' ? 'open' : 'close';
+    const bienId = String(metadata.bienId || row.bien_id || '').trim();
+    const propertyTitle = String(metadata.propertyTitle || row.property_title || '').trim();
+    const startDate = String(metadata.startDate || '').trim();
+    const endDate = String(metadata.endDate || '').trim();
+    const now = getAgencySqlDateTime();
+    if (!isPendingCalendarRequestStatus(status) || !startDate || !endDate) {
+      return res.status(400).json({ error: 'Cette demande ne peut plus etre annulee' });
+    }
+
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    const ownerName = ownerIdentity.ownerName || ownerId;
+    const propertySuffix = propertyTitle ? ` pour ${propertyTitle}` : '';
+
+    if (requestType === 'close') {
+      await pool.query('DELETE FROM client_interactions WHERE id = ?', [interactionId]);
+      await createAdminNotification(
+        'info',
+        `Le proprietaire ${ownerName} a annule une demande de fermeture du ${startDate} au ${endDate}${propertySuffix}.`,
+        now
+      );
+      return res.json({ ok: true, mode: 'cancelled_direct', interactionId });
+    }
+
+    if (status === 'cancel_pending') {
+      return res.json({ ok: true, mode: 'cancel_pending', interactionId });
+    }
+
+    const nextMetadata = {
+      ...metadata,
+      status: 'cancel_pending',
+      cancelRequestedAt: now,
+      cancelRequestedBy: ownerId,
+    };
+    await pool.query(
+      'UPDATE client_interactions SET metadata_json = ? WHERE id = ?',
+      [JSON.stringify(nextMetadata), interactionId]
+    );
+    await createAdminNotification(
+      'warning',
+      `Le proprietaire ${ownerName} demande l annulation d une demande de reouverture du ${startDate} au ${endDate}${propertySuffix}.`,
+      now
+    );
+    return res.json({ ok: true, mode: 'cancel_pending', interactionId });
+  } catch (error) {
+    console.error('Error cancelling owner calendar request:', error);
+    res.status(500).json({ error: 'Failed to cancel owner calendar request' });
+  }
+});
+
 app.get('/api/mobile/admin/calendar-requests/:id/diff', requireAdminSession, async (req, res) => {
   try {
     const interactionId = String(req.params.id || '').trim();
@@ -16172,8 +16327,37 @@ app.post('/api/mobile/admin/calendar-requests/:id/approve', requireAdminSession,
     const startDate = String(metadata.startDate || '').trim();
     const endDate = String(metadata.endDate || '').trim();
     const requestType = String(metadata.requestType || 'close').trim().toLowerCase() === 'open' ? 'open' : 'close';
+    const currentStatus = normalizeCalendarRequestStatusValue(metadata);
     if (!ownerId || !bienId || !startDate || !endDate) {
       return res.status(400).json({ error: 'Demande calendrier incomplete' });
+    }
+
+    if (requestType === 'open' && currentStatus === 'cancel_pending') {
+      await ensureOwnerMobileNotificationsSchema();
+      const ownerNotifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await pool.query(
+        `INSERT INTO owner_mobile_notifications
+         (id, owner_id, type, message, lu, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?)`,
+        [
+          ownerNotifId,
+          ownerId,
+          'success',
+          `Annulation de la demande de reouverture approuvee (${startDate} -> ${endDate})`,
+          JSON.stringify({
+            kind: 'calendar_update_cancel_approved',
+            ownerId,
+            bienId,
+            startDate,
+            endDate,
+            requestType,
+            interactionId,
+          }),
+          getAgencySqlDateTime(),
+        ]
+      );
+      await pool.query('DELETE FROM client_interactions WHERE id = ?', [interactionId]);
+      return res.json({ ok: true, interactionId, requestType, cancelledRequest: true });
     }
 
     let unavailableDateId = null;
@@ -16289,7 +16473,47 @@ app.post('/api/mobile/admin/calendar-requests/:id/reject', requireAdminSession, 
     const startDate = String(metadata.startDate || '').trim();
     const endDate = String(metadata.endDate || '').trim();
     const requestType = String(metadata.requestType || 'close').trim().toLowerCase() === 'open' ? 'open' : 'close';
+    const currentStatus = normalizeCalendarRequestStatusValue(metadata);
     const rejectReason = String(req.body?.reason || '').trim() || null;
+
+    if (requestType === 'open' && currentStatus === 'cancel_pending') {
+      await ensureOwnerMobileNotificationsSchema();
+      const ownerNotifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await pool.query(
+        `INSERT INTO owner_mobile_notifications
+         (id, owner_id, type, message, lu, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?)`,
+        [
+          ownerNotifId,
+          ownerId,
+          'warning',
+          `Annulation de la demande de reouverture rejetee (${startDate} -> ${endDate})`,
+          JSON.stringify({
+            kind: 'calendar_update_cancel_rejected',
+            ownerId,
+            startDate,
+            endDate,
+            requestType,
+            interactionId,
+            reason: rejectReason,
+          }),
+          getAgencySqlDateTime(),
+        ]
+      );
+      const nextMetadata = {
+        ...metadata,
+        status: 'pending',
+        cancelReviewedAt: getAgencySqlDateTime(),
+        cancelReviewedBy: req.authUser?.id || 'admin',
+        cancelDecision: 'rejected',
+        cancelRejectReason: rejectReason,
+      };
+      await pool.query(
+        'UPDATE client_interactions SET metadata_json = ? WHERE id = ?',
+        [JSON.stringify(nextMetadata), interactionId]
+      );
+      return res.json({ ok: true, interactionId, restoredPending: true });
+    }
 
     await ensureOwnerMobileNotificationsSchema();
     const ownerNotifId = `omn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -19641,6 +19865,16 @@ async function ensureOwnerCalendarPromptSchema() {
     ALTER TABLE owner_calendar_prompts
     ADD COLUMN overdue_notified_at DATETIME NULL AFTER overdue_notification_id
   `).catch(() => {});
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owner_calendar_status_flags (
+      owner_id VARCHAR(100) PRIMARY KEY,
+      status VARCHAR(40) NOT NULL,
+      metadata_json LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_owner_calendar_status_flags_status (status, updated_at)
+    )
+  `);
 }
 
 async function getOwnerCalendarPromptSchedule() {
@@ -19783,6 +20017,39 @@ async function getOwnerCalendarPromptStatuses() {
       updatedAt: row.updated_at || null,
     });
   }
+  const [flagRows] = await pool.query(
+    `SELECT owner_id, status, metadata_json,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM owner_calendar_status_flags
+     WHERE status = 'no_app'
+     ORDER BY updated_at DESC, created_at DESC`
+  );
+  for (const row of flagRows || []) {
+    const ownerId = String(row.owner_id || '').trim();
+    if (!ownerId) continue;
+    let responseMetadata = null;
+    try {
+      responseMetadata = row.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
+    } catch {
+      responseMetadata = null;
+    }
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    byOwner.set(ownerId, {
+      promptId: responseMetadata?.promptId || `no_app_${ownerId}`,
+      ownerId,
+      ownerName: ownerIdentity.ownerName || ownerId,
+      promptDate: responseMetadata?.promptDate || null,
+      status: 'no_app',
+      notificationId: null,
+      overdueNotificationId: null,
+      overdueNotifiedAt: null,
+      respondedAt: null,
+      responseMetadata,
+      createdAt: row.created_at || null,
+      updatedAt: row.updated_at || null,
+    });
+  }
   return Array.from(byOwner.values());
 }
 
@@ -19883,6 +20150,14 @@ async function dispatchOwnerCalendarPromptBatch({
   for (const owner of owners || []) {
     const ownerId = String(owner.id || '').trim();
     if (!ownerId) continue;
+    const [flagRows] = await pool.query(
+      `SELECT status FROM owner_calendar_status_flags WHERE owner_id = ? LIMIT 1`,
+      [ownerId]
+    );
+    if (String(flagRows?.[0]?.status || '').trim() === 'no_app') {
+      skippedOwners += 1;
+      continue;
+    }
     const [existingRows] = await pool.query(
       `SELECT id, status, notification_id
        FROM owner_calendar_prompts
@@ -19954,6 +20229,44 @@ async function dispatchOwnerCalendarPromptBatch({
     sentOwners,
     skippedOwners,
     totalOwners: Array.isArray(owners) ? owners.length : 0,
+  };
+}
+
+async function setOwnerCalendarStatusFlag({
+  ownerId,
+  status,
+  metadata = null,
+}) {
+  await ensureOwnerCalendarPromptSchema();
+  const normalizedOwnerId = String(ownerId || '').trim();
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+  if (!normalizedOwnerId) return null;
+  const now = getAgencySqlDateTime();
+  if (!normalizedStatus) {
+    await pool.query('DELETE FROM owner_calendar_status_flags WHERE owner_id = ?', [normalizedOwnerId]);
+    return null;
+  }
+  await pool.query(
+    `INSERT INTO owner_calendar_status_flags
+     (owner_id, status, metadata_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       status = VALUES(status),
+       metadata_json = VALUES(metadata_json),
+       updated_at = VALUES(updated_at)`,
+    [
+      normalizedOwnerId,
+      normalizedStatus,
+      metadata ? JSON.stringify(metadata) : null,
+      now,
+      now,
+    ]
+  );
+  return {
+    ownerId: normalizedOwnerId,
+    status: normalizedStatus,
+    metadata: metadata || null,
+    updatedAt: now,
   };
 }
 
