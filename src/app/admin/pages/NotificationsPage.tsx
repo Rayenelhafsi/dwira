@@ -741,7 +741,7 @@ function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, n
     const answeredAt = status?.respondedAt || status?.responseMetadata?.respondedAt || null;
     const propertyTitle = String(status?.responseMetadata?.propertyTitle || '').trim();
     return {
-      label: 'Demande d approbation de modification calendrier',
+      label: 'MAJ calendrier en attente',
       tone: 'border-sky-200 bg-sky-50 text-sky-800',
       detail: sentAt ? `Envoyee le ${formatDateTime(sentAt)}` : 'Ouverture calendrier demandee',
       helper: propertyTitle ? `Bien: ${propertyTitle}` : 'Ouverture calendrier demandee',
@@ -1538,6 +1538,18 @@ export default function NotificationsPage() {
       filteredCalendarOwners.filter((owner) => getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs).isOverdue),
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
+  const pendingCalendarOwnersCount = useMemo(
+    () =>
+      filteredCalendarOwners.filter((owner) => {
+        const statusMeta = getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs);
+        return !statusMeta.isOverdue && String(ownerCalendarStatuses[owner.id]?.status || '').trim() === 'pending';
+      }).length,
+    [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
+  );
+  const pendingCalendarUpdateOwnersCount = useMemo(
+    () => filteredCalendarOwners.filter((owner) => pendingCalendarRequestByOwner.has(owner.id)).length,
+    [filteredCalendarOwners, pendingCalendarRequestByOwner]
+  );
   const nonOverdueCalendarOwners = useMemo(
     () =>
       filteredCalendarOwners.filter((owner) => !getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs).isOverdue),
@@ -1554,7 +1566,7 @@ export default function NotificationsPage() {
 
   const demandAttentionCount = pendingDemands.length;
   const chatAttentionCount = unreadOwnerMessagesCount;
-  const calendarAttentionCount = overdueCalendarOwners.length + pendingCalendarRequests.length;
+  const calendarAttentionCount = overdueCalendarOwners.length + pendingCalendarOwnersCount + pendingCalendarUpdateOwnersCount;
   const systemAttentionCount = visibleNotificationInsights.filter(
     (item) => !item.notification.lu && item.category !== 'proprietaire'
   ).length;
@@ -3260,14 +3272,18 @@ export default function NotificationsPage() {
                     </div>
                     <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Suivi</div>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
+                  <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
                     <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">En retard</p>
                       <p className="mt-1 text-lg font-bold text-rose-900">{overdueCalendarOwners.length}</p>
                     </div>
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">En attente</p>
-                      <p className="mt-1 text-lg font-bold text-amber-900">{pendingCalendarRequests.length}</p>
+                      <p className="mt-1 text-lg font-bold text-amber-900">{pendingCalendarOwnersCount}</p>
+                    </div>
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">MAJ calendrier en attente</p>
+                      <p className="mt-1 text-lg font-bold text-sky-900">{pendingCalendarUpdateOwnersCount}</p>
                     </div>
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">A jour</p>
@@ -3378,8 +3394,8 @@ export default function NotificationsPage() {
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
                                 {pendingRequest ? (
-                                  <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-                                    Demande d'approbation de modification calendrier
+                                  <span className="mt-1 inline-flex rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-800">
+                                    MAJ calendrier en attente
                                   </span>
                                 ) : (
                                   <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusMeta.tone}`}>
@@ -3849,6 +3865,12 @@ export default function NotificationsPage() {
               const propertyName = String(bien?.nom_bien_mobile || bien?.titre || demand?.bien_titre || '').trim();
               const ownerId = String(demand?.proprietaire_id || extractOwnerIdFromNotificationMessage(notification.message)).trim();
               const isOwnerMessageNotification = category === 'proprietaire' && Boolean(ownerId);
+              const actionTone =
+                importance === 'urgent'
+                  ? 'bg-rose-100 text-rose-800'
+                  : importance === 'modere'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-slate-900 text-white';
               const importanceTone =
                 importance === 'urgent'
                   ? 'border-l-rose-500 bg-rose-50/40'
@@ -3869,6 +3891,9 @@ export default function NotificationsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{categoryTitle}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${actionTone}`}>
+                          {primaryLabel}
+                        </span>
                         <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${modeLabel === 'Hotellerie' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
                           {modeLabel}
                         </span>
@@ -3882,7 +3907,7 @@ export default function NotificationsPage() {
 
                       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{primaryLabel}</p>
+                          <p className="text-sm font-bold text-slate-900">{primaryLabel}</p>
                           <h4 className="mt-1 text-lg font-semibold leading-tight text-slate-900">{clientName}</h4>
                           <p className="mt-1 text-sm text-slate-600">{secondaryLabel}</p>
                           <p className="mt-2 text-sm leading-6 text-slate-700">{detailLabel}</p>
