@@ -1908,12 +1908,6 @@ export default function NotificationsPage() {
   }, [activeView, calendarOwners, selectedCalendarOwner, isDesktopChatLayout]);
 
   useEffect(() => {
-    if (activeView !== 'calendars') return;
-    if (!selectedCalendarOwnerWithoutApp) return;
-    setSelectedCalendarOwner(null);
-  }, [activeView, selectedCalendarOwnerWithoutApp]);
-
-  useEffect(() => {
     setSelectedCalendarBienCalendarId(null);
   }, [selectedCalendarOwner?.id]);
 
@@ -3771,8 +3765,10 @@ export default function NotificationsPage() {
                             const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
                             const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
                             return (
-                              <div
+                              <button
+                                type="button"
                                 key={`calendar-owner-no-app-${owner.id}`}
+                                onClick={() => setSelectedCalendarOwner(owner)}
                                 className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
                                   isActive
                                     ? 'border-indigo-400 bg-indigo-50 shadow-[0_0_0_1px_rgba(129,140,248,0.28),0_14px_30px_rgba(79,70,229,0.08)]'
@@ -3815,7 +3811,7 @@ export default function NotificationsPage() {
                                     </button>
                                   </div>
                                 </div>
-                              </div>
+                              </button>
                             );
                           })}
                           </div>
