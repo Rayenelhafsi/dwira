@@ -20,7 +20,9 @@ export interface StayAvailabilityResolution {
   status: "exact" | "alternative" | "unavailable";
 }
 
-const BLOCKING_STATUSES = new Set(["booked", "pending", "blocked"]);
+// Public booking flow allows "pending" stays as waiting-list reservations,
+// so only fully unavailable statuses should block exact matches and search results.
+const BLOCKING_STATUSES = new Set(["booked", "blocked"]);
 
 function formatDateOnlyLocal(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
