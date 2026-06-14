@@ -656,11 +656,22 @@ function getNotificationDisplayTitle(args: {
 function getNotificationSecondaryLabel(args: {
   category: NotificationCategory;
   demand: ReservationDemand | null;
+  bien: Bien | null;
   ownerName: string;
   modeLabel: string;
   propertyTitle: string;
 }) {
-  const { category, demand, ownerName, modeLabel, propertyTitle } = args;
+  const { category, demand, bien, ownerName, modeLabel, propertyTitle } = args;
+  const appName = String(bien?.nom_bien_mobile || '').trim();
+  const bienReference = String(bien?.reference || demand?.bien_reference || '').trim();
+  const bienTitle = String(propertyTitle || bien?.titre || demand?.bien_titre || '').trim();
+  const ownerPropertyLabel = appName && bienReference
+    ? `${appName} - ${bienReference}`
+    : appName
+      ? appName
+      : bienTitle && bienReference
+        ? `${bienTitle} - ${bienReference}`
+        : bienTitle || bienReference;
   if (demand) return `${getDemandClientName(demand)} • ${modeLabel}`;
   if (category === 'calendrier') {
     if (propertyTitle) return `${modeLabel} • Calendrier • ${propertyTitle}`;
@@ -668,7 +679,7 @@ function getNotificationSecondaryLabel(args: {
     return `${modeLabel} • Calendrier`;
   }
   if (category === 'proprietaire') {
-    if (propertyTitle) return `${modeLabel} • Proprietaire • ${propertyTitle}`;
+    if (ownerPropertyLabel) return ownerPropertyLabel;
     if (ownerName) return `${modeLabel} • Proprietaire`;
   }
   if (category === 'dossier') return `${modeLabel} • Dossier client`;
@@ -843,6 +854,9 @@ export default function NotificationsPage() {
   const [chatOwnerSearch, setChatOwnerSearch] = useState('');
   const [calendarOwnerSearch, setCalendarOwnerSearch] = useState('');
   const [calendarNowMs, setCalendarNowMs] = useState(() => Date.now());
+  const [isOverdueCalendarListOpen, setIsOverdueCalendarListOpen] = useState(true);
+  const [isOtherCalendarListOpen, setIsOtherCalendarListOpen] = useState(true);
+  const [isNoAppCalendarListOpen, setIsNoAppCalendarListOpen] = useState(true);
   const [showOwnerProfilePanel, setShowOwnerProfilePanel] = useState(false);
   const [selectedOwnerBienCalendarId, setSelectedOwnerBienCalendarId] = useState<string | null>(null);
   const [selectedCalendarBienCalendarId, setSelectedCalendarBienCalendarId] = useState<string | null>(null);
@@ -877,6 +891,9 @@ export default function NotificationsPage() {
   const adminAlertsPanelRef = useRef<HTMLDivElement | null>(null);
   const ownerBienCalendarRef = useRef<HTMLDivElement | null>(null);
   const calendarBienCalendarRef = useRef<HTMLDivElement | null>(null);
+  const overdueCalendarSectionRef = useRef<HTMLDivElement | null>(null);
+  const otherCalendarSectionRef = useRef<HTMLDivElement | null>(null);
+  const noAppCalendarSectionRef = useRef<HTMLDivElement | null>(null);
 
   const fetchData = useCallback(async (options?: { background?: boolean }) => {
     if (isFetchingRef.current) return;
@@ -1127,6 +1144,7 @@ export default function NotificationsPage() {
         secondaryLabel: getNotificationSecondaryLabel({
           category: item.category,
           demand: linkedDemand,
+          bien: linkedBien,
           ownerName,
           modeLabel,
           propertyTitle,
@@ -1285,10 +1303,11 @@ export default function NotificationsPage() {
     const counts = new Map<string, number>();
     unreadOwnerNotificationsByOwnerId.forEach((items, ownerId) => {
       if (!ownerId) return;
+      if (isOwnerWithoutAppStatus(ownerCalendarStatuses[ownerId] || null)) return;
       counts.set(ownerId, items.length);
     });
     return counts;
-  }, [unreadOwnerNotificationsByOwnerId]);
+  }, [unreadOwnerNotificationsByOwnerId, ownerCalendarStatuses]);
 
   const unreadOwnerMessagesCount = useMemo(
     () => Array.from(unreadOwnerNotificationCountByOwnerId.values()).reduce((sum, count) => sum + count, 0),
@@ -1300,6 +1319,7 @@ export default function NotificationsPage() {
     owners.forEach((owner) => {
       const ownerId = String(owner.id || '').trim();
       if (!ownerId) return;
+      if (isOwnerWithoutAppStatus(ownerCalendarStatuses[ownerId] || null)) return;
       byId.set(ownerId, {
         id: ownerId,
         name: String(owner.nom || ownerId),
@@ -1309,6 +1329,7 @@ export default function NotificationsPage() {
       if (isAmicaleDemand(demand)) return;
       const ownerId = String(demand.proprietaire_id || '').trim();
       if (!ownerId) return;
+      if (isOwnerWithoutAppStatus(ownerCalendarStatuses[ownerId] || null)) return;
       if (!byId.has(ownerId)) {
         byId.set(ownerId, {
           id: ownerId,
@@ -1318,7 +1339,7 @@ export default function NotificationsPage() {
       }
     });
     return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-  }, [demands, owners]);
+  }, [demands, owners, ownerCalendarStatuses]);
 
   const ownerDemandsByOwnerId = useMemo(() => {
     const byOwner = new Map<string, ReservationDemand[]>();
@@ -1421,15 +1442,34 @@ export default function NotificationsPage() {
     const latestDemand = (ownerDemandsByOwnerId.get(ownerId) || [])[0];
     if (!latestDemand) return 'Aucune demande recente';
     const reference = String(latestDemand.bien_reference || '').trim();
-    const title = String(latestDemand.bien_titre || '').trim();
-    if (reference && title) return `${reference} - ${title}`;
-    if (title) return title;
+    const linkedBien =
+      biensById.get(String(latestDemand.bien_id || '').trim())
+      || biensByReference.get(reference.toLowerCase())
+      || null;
+    const appName = String(linkedBien?.nom_bien_mobile || linkedBien?.titre || latestDemand.bien_titre || '').trim();
+    if (reference && appName) return `${reference} - ${appName}`;
+    if (appName) return appName;
+    if (reference) return reference;
     return statusLabels[resolveDisplayStatus(latestDemand)] || 'Conversation proprietaire';
   };
+  const getLatestConversationMessage = useCallback(
+    (messages: Array<{ id: string; text: string; kind?: string; createdAt?: string }>) =>
+      [...messages]
+        .filter((message) => message.kind === 'owner_admin_chat' || message.kind === 'admin_owner_chat')
+        .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))[0] || null,
+    []
+  );
+  const selectedConversationHasUnread = useMemo(() => {
+    if (!selectedChatOwner) return false;
+    if (!unreadOwnerNotificationByOwnerId.has(selectedChatOwner.id)) return false;
+    const latestConversationMessage = getLatestConversationMessage(chatMessages);
+    if (!latestConversationMessage) return true;
+    return latestConversationMessage.kind !== 'admin_owner_chat';
+  }, [selectedChatOwner, unreadOwnerNotificationByOwnerId, chatMessages, getLatestConversationMessage]);
   const selectedUnreadOwnerBannerText = useMemo(() => {
     if (!selectedChatOwner) return '';
     const latestOwnerMessage = [...chatMessages]
-      .filter((message) => message.kind !== 'admin_owner_chat')
+      .filter((message) => message.kind === 'owner_admin_chat')
       .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))[0];
     const preview = String(latestOwnerMessage?.text || '').trim();
     if (preview) return preview;
@@ -1672,6 +1712,14 @@ export default function NotificationsPage() {
     if (!owner) return;
     setSelectedCalendarOwner(owner);
   }, []);
+  const scrollToCalendarSection = useCallback((section: 'overdue' | 'other' | 'no_app') => {
+    const target = section === 'overdue'
+      ? overdueCalendarSectionRef.current
+      : section === 'other'
+        ? otherCalendarSectionRef.current
+        : noAppCalendarSectionRef.current;
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const demandAttentionCount = pendingDemands.length;
   const chatAttentionCount = unreadOwnerMessagesCount;
@@ -1860,6 +1908,12 @@ export default function NotificationsPage() {
   }, [activeView, calendarOwners, selectedCalendarOwner, isDesktopChatLayout]);
 
   useEffect(() => {
+    if (activeView !== 'calendars') return;
+    if (!selectedCalendarOwnerWithoutApp) return;
+    setSelectedCalendarOwner(null);
+  }, [activeView, selectedCalendarOwnerWithoutApp]);
+
+  useEffect(() => {
     setSelectedCalendarBienCalendarId(null);
   }, [selectedCalendarOwner?.id]);
 
@@ -1914,6 +1968,9 @@ export default function NotificationsPage() {
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Envoi message proprietaire impossible'));
       setChatDraft('');
       await loadOwnerChat(selectedChatOwner.id);
+      if (unreadOwnerNotificationByOwnerId.has(selectedChatOwner.id)) {
+        await markOwnerChatNotificationsAsRead(selectedChatOwner.id);
+      }
       if (selectedChatOwner.demandId) {
         const demand = demands.find((item) => item.id === selectedChatOwner.demandId);
         if (demand) {
@@ -2283,6 +2340,22 @@ export default function NotificationsPage() {
       setChatMarkingReadOwnerId(null);
     }
   };
+
+  useEffect(() => {
+    if (!selectedChatOwner?.id) return;
+    if (chatLoading || chatMarkingReadOwnerId) return;
+    if (!unreadOwnerNotificationByOwnerId.has(selectedChatOwner.id)) return;
+    const latestConversationMessage = getLatestConversationMessage(chatMessages);
+    if (!latestConversationMessage || latestConversationMessage.kind !== 'admin_owner_chat') return;
+    void markOwnerChatNotificationsAsRead(selectedChatOwner.id);
+  }, [
+    selectedChatOwner?.id,
+    chatMessages,
+    chatLoading,
+    chatMarkingReadOwnerId,
+    unreadOwnerNotificationByOwnerId,
+    getLatestConversationMessage,
+  ]);
 
   const viewContractForDemand = async (demand: ReservationDemand) => {
     const contractId = String(demand.contract_id || '').trim();
@@ -3125,7 +3198,7 @@ export default function NotificationsPage() {
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 sm:gap-x-3 sm:text-xs">
                           {selectedOwnerProfile?.telephone ? <span>{selectedOwnerProfile.telephone}</span> : null}
                           {selectedOwnerLatestDemand?.updated_at ? <span>Derniere activite {formatRelativeDelay(selectedOwnerLatestDemand.updated_at)}</span> : null}
-                          {unreadOwnerNotificationByOwnerId.has(selectedChatOwner.id) ? <span className="font-semibold text-emerald-700">Message non lu a traiter</span> : null}
+                                {selectedConversationHasUnread ? <span className="font-semibold text-emerald-700">Message non lu a traiter</span> : null}
                         </div>
                       </div>
                       <button
@@ -3136,7 +3209,7 @@ export default function NotificationsPage() {
                         <ExternalLink className="h-4 w-4" />
                         Ouvrir dossier
                       </button>
-                      {unreadOwnerNotificationByOwnerId.has(selectedChatOwner.id) ? (
+                      {selectedConversationHasUnread ? (
                         <button
                           type="button"
                           onClick={() => void markOwnerChatNotificationsAsRead(selectedChatOwner.id)}
@@ -3151,7 +3224,7 @@ export default function NotificationsPage() {
                   </div>
                    <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]">
                      <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
-                       {selectedChatOwner && unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id) && (
+                        {selectedChatOwner && selectedConversationHasUnread && unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id) && (
                          <div className="mx-auto mb-4 max-w-4xl rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
@@ -3505,7 +3578,10 @@ export default function NotificationsPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => focusCalendarOwner(noAppCalendarOwners[0] || null)}
+                      onClick={() => {
+                        setIsNoAppCalendarListOpen(true);
+                        scrollToCalendarSection('no_app');
+                      }}
                       disabled={noAppCalendarOwners.length === 0}
                       className="rounded-2xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-left transition-colors hover:bg-indigo-100 disabled:cursor-default disabled:opacity-70"
                     >
@@ -3541,13 +3617,21 @@ export default function NotificationsPage() {
                   )}
                   <div className="space-y-4">
                     {overdueCalendarOwners.length > 0 && (
-                      <div>
-                        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                      <div ref={overdueCalendarSectionRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsOverdueCalendarListOpen((current) => !current)}
+                          className="mb-2 flex w-full items-center justify-between gap-3 px-1 text-left"
+                        >
                           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">Proprietaires en retard</p>
-                          <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700">{overdueCalendarOwners.length}</span>
-                        </div>
-                        <div className="space-y-2">
-                          {overdueCalendarOwners.map((owner) => {
+                          <span className="flex items-center gap-2">
+                            <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700">{overdueCalendarOwners.length}</span>
+                            {isOverdueCalendarListOpen ? <ChevronUp className="h-4 w-4 text-rose-500" /> : <ChevronDown className="h-4 w-4 text-rose-500" />}
+                          </span>
+                        </button>
+                        {isOverdueCalendarListOpen ? (
+                          <div className="space-y-2">
+                            {overdueCalendarOwners.map((owner) => {
                             const isActive = selectedCalendarOwner?.id === owner.id;
                             const status = ownerCalendarStatuses[owner.id] || null;
                             const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
@@ -3592,15 +3676,24 @@ export default function NotificationsPage() {
                               </button>
                             );
                           })}
-                        </div>
+                          </div>
+                        ) : null}
                       </div>
                     )}
-                    <div>
-                      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                    <div ref={otherCalendarSectionRef}>
+                      <button
+                        type="button"
+                        onClick={() => setIsOtherCalendarListOpen((current) => !current)}
+                        className="mb-2 flex w-full items-center justify-between gap-3 px-1 text-left"
+                      >
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Autres proprietaires</p>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{nonOverdueCalendarOwners.length}</span>
-                      </div>
-                      <div className="space-y-2">
+                        <span className="flex items-center gap-2">
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{nonOverdueCalendarOwners.length}</span>
+                          {isOtherCalendarListOpen ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                        </span>
+                      </button>
+                      {isOtherCalendarListOpen ? (
+                        <div className="space-y-2">
                     {nonOverdueCalendarOwners.map((owner) => {
                       const isActive = selectedCalendarOwner?.id === owner.id;
                       const status = ownerCalendarStatuses[owner.id] || null;
@@ -3654,8 +3747,81 @@ export default function NotificationsPage() {
                         </button>
                       );
                     })}
-                      </div>
+                        </div>
+                      ) : null}
                     </div>
+                    {noAppCalendarOwners.length > 0 && (
+                      <div ref={noAppCalendarSectionRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsNoAppCalendarListOpen((current) => !current)}
+                          className="mb-2 flex w-full items-center justify-between gap-3 px-1 text-left"
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-700">Proprietaires sans application</p>
+                          <span className="flex items-center gap-2">
+                            <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">{noAppCalendarOwners.length}</span>
+                            {isNoAppCalendarListOpen ? <ChevronUp className="h-4 w-4 text-indigo-500" /> : <ChevronDown className="h-4 w-4 text-indigo-500" />}
+                          </span>
+                        </button>
+                        {isNoAppCalendarListOpen ? (
+                          <div className="space-y-2">
+                            {noAppCalendarOwners.map((owner) => {
+                            const isActive = selectedCalendarOwner?.id === owner.id;
+                            const status = ownerCalendarStatuses[owner.id] || null;
+                            const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
+                            const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
+                            return (
+                              <div
+                                key={`calendar-owner-no-app-${owner.id}`}
+                                className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
+                                  isActive
+                                    ? 'border-indigo-400 bg-indigo-50 shadow-[0_0_0_1px_rgba(129,140,248,0.28),0_14px_30px_rgba(79,70,229,0.08)]'
+                                    : 'border-indigo-200 bg-white shadow-sm'
+                                }`}
+                              >
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-indigo-700 text-sm font-bold text-white shadow-lg">
+                                  {getOwnerInitials(owner.name)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                                      <span className="mt-1 inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                                        {statusMeta.label}
+                                      </span>
+                                    </div>
+                                    {(status?.updatedAt || status?.createdAt) ? (
+                                      <span className="shrink-0 text-[11px] text-indigo-500">
+                                        {formatRelativeDelay(status?.updatedAt || status?.createdAt).replace(/^il y a /, '')}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-2 line-clamp-2 text-sm text-slate-600">{statusMeta.detail}</p>
+                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-indigo-600">
+                                    <span>{statusMeta.helper}</span>
+                                    <span>{historyCount} historique</span>
+                                  </div>
+                                  <div className="mt-3">
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void admitCalendarOwnerHasApp(owner);
+                                      }}
+                                      disabled={calendarOwnerStatusLoadingId === owner.id}
+                                      className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                    >
+                                      {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Admet application'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3979,64 +4145,12 @@ export default function NotificationsPage() {
                                     Aucune demande calendrier en attente pour le moment.
                                   </div>
                                 )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    {noAppCalendarOwners.length > 0 && (
-                      <div>
-                        <div className="mb-2 flex items-center justify-between gap-3 px-1">
-                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-700">Proprietaires sans application</p>
-                          <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">{noAppCalendarOwners.length}</span>
-                        </div>
-                        <div className="space-y-2">
-                          {noAppCalendarOwners.map((owner) => {
-                            const isActive = selectedCalendarOwner?.id === owner.id;
-                            const status = ownerCalendarStatuses[owner.id] || null;
-                            const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
-                            const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
-                            return (
-                              <button
-                                key={`calendar-owner-no-app-${owner.id}`}
-                                type="button"
-                                onClick={() => setSelectedCalendarOwner(owner)}
-                                className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
-                                  isActive
-                                    ? 'border-indigo-400 bg-indigo-50 shadow-[0_0_0_1px_rgba(129,140,248,0.28),0_14px_30px_rgba(79,70,229,0.08)]'
-                                    : 'border-indigo-200 bg-white hover:bg-indigo-50 shadow-sm'
-                                }`}
-                              >
-                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-indigo-700 text-sm font-bold text-white shadow-lg">
-                                  {getOwnerInitials(owner.name)}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
-                                      <span className="mt-1 inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
-                                        {statusMeta.label}
-                                      </span>
-                                    </div>
-                                    {(status?.updatedAt || status?.createdAt) ? (
-                                      <span className="shrink-0 text-[11px] text-indigo-500">
-                                        {formatRelativeDelay(status?.updatedAt || status?.createdAt).replace(/^il y a /, '')}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  <p className="mt-2 line-clamp-2 text-sm text-slate-600">{statusMeta.detail}</p>
-                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-indigo-600">
-                                    <span>{statusMeta.helper}</span>
-                                    <span>{historyCount} historique</span>
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
                   </div>
                 </>
               )}
