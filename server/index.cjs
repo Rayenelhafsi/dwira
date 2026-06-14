@@ -15928,6 +15928,18 @@ async function fetchAdminCalendarRequests({ statuses = null } = {}) {
   return filtered.map(({ key, ...row }) => row);
 }
 
+async function fetchOwnerCalendarRequests({ ownerId, bienId = null, statuses = null } = {}) {
+  const normalizedOwnerId = String(ownerId || '').trim();
+  if (!normalizedOwnerId) return [];
+  const normalizedBienId = String(bienId || '').trim();
+  const rows = await fetchAdminCalendarRequests({ statuses });
+  return rows.filter((row) => {
+    if (String(row.ownerId || '').trim() !== normalizedOwnerId) return false;
+    if (normalizedBienId && String(row.bienId || '').trim() !== normalizedBienId) return false;
+    return true;
+  });
+}
+
 async function buildAdminCalendarRequestDiff(interactionId) {
   const [rows] = await pool.query(
     `SELECT id, client_user_id, bien_id, property_title, metadata_json,
@@ -16022,6 +16034,25 @@ app.get('/api/mobile/admin/calendar-requests', requireAdminSession, async (req, 
   } catch (error) {
     console.error('Error fetching admin calendar requests:', error);
     res.status(500).json({ error: 'Failed to fetch admin calendar requests' });
+  }
+});
+
+app.get('/api/mobile/owners/:ownerId/calendar-requests', async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const bienId = String(req.query?.bien_id || '').trim();
+    const rawStatuses = String(req.query?.statuses || '').trim();
+    const statuses = rawStatuses
+      ? rawStatuses.split(',').map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+      : ['pending'];
+    const rows = await fetchOwnerCalendarRequests({ ownerId, bienId, statuses });
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching owner calendar requests:', error);
+    res.status(500).json({ error: 'Failed to fetch owner calendar requests' });
   }
 });
 

@@ -786,6 +786,7 @@ export default function NotificationsPage() {
   const [chatDraft, setChatDraft] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [chatMarkingReadOwnerId, setChatMarkingReadOwnerId] = useState<string | null>(null);
   const [quickChatOpen, setQuickChatOpen] = useState(false);
   const [chatOwnerSearch, setChatOwnerSearch] = useState('');
   const [calendarOwnerSearch, setCalendarOwnerSearch] = useState('');
@@ -1198,8 +1199,8 @@ export default function NotificationsPage() {
     [visibleNotificationInsights]
   );
 
-  const unreadOwnerNotificationByOwnerId = useMemo(() => {
-    const byOwnerId = new Map<string, EnrichedNotificationInsight>();
+  const unreadOwnerNotificationsByOwnerId = useMemo(() => {
+    const byOwnerId = new Map<string, EnrichedNotificationInsight[]>();
     visibleNotificationInsights
       .filter((item) => !item.notification.lu && item.category === 'proprietaire')
       .forEach((item) => {
@@ -1207,27 +1208,34 @@ export default function NotificationsPage() {
           item.demand?.proprietaire_id || extractOwnerIdFromNotificationMessage(item.notification.message)
         ).trim();
         if (!ownerId) return;
-        const current = byOwnerId.get(ownerId);
-        if (!current || String(item.notification.created_at || '') > String(current.notification.created_at || '')) {
-          byOwnerId.set(ownerId, item);
-        }
+        const current = byOwnerId.get(ownerId) || [];
+        current.push(item);
+        byOwnerId.set(ownerId, current);
       });
     return byOwnerId;
   }, [visibleNotificationInsights]);
 
+  const unreadOwnerNotificationByOwnerId = useMemo(() => {
+    const byOwnerId = new Map<string, EnrichedNotificationInsight>();
+    unreadOwnerNotificationsByOwnerId.forEach((items, ownerId) => {
+      const latest = [...items].sort((left, right) =>
+        String(right.notification.created_at || '').localeCompare(String(left.notification.created_at || ''))
+      )[0];
+      if (latest) {
+        byOwnerId.set(ownerId, latest);
+      }
+    });
+    return byOwnerId;
+  }, [unreadOwnerNotificationsByOwnerId]);
+
   const unreadOwnerNotificationCountByOwnerId = useMemo(() => {
     const counts = new Map<string, number>();
-    visibleNotificationInsights
-      .filter((item) => !item.notification.lu && item.category === 'proprietaire')
-      .forEach((item) => {
-        const ownerId = String(
-          item.demand?.proprietaire_id || extractOwnerIdFromNotificationMessage(item.notification.message)
-        ).trim();
-        if (!ownerId) return;
-        counts.set(ownerId, (counts.get(ownerId) || 0) + 1);
-      });
+    unreadOwnerNotificationsByOwnerId.forEach((items, ownerId) => {
+      if (!ownerId) return;
+      counts.set(ownerId, items.length);
+    });
     return counts;
-  }, [visibleNotificationInsights]);
+  }, [unreadOwnerNotificationsByOwnerId]);
 
   const unreadOwnerMessagesCount = useMemo(
     () => Array.from(unreadOwnerNotificationCountByOwnerId.values()).reduce((sum, count) => sum + count, 0),
@@ -2105,6 +2113,32 @@ export default function NotificationsPage() {
     }
   };
 
+  const markOwnerChatNotificationsAsRead = async (ownerId: string) => {
+    const normalizedOwnerId = String(ownerId || '').trim();
+    if (!normalizedOwnerId) return;
+    const unreadItems = unreadOwnerNotificationsByOwnerId.get(normalizedOwnerId) || [];
+    if (unreadItems.length === 0) return;
+    setChatMarkingReadOwnerId(normalizedOwnerId);
+    try {
+      for (const item of unreadItems) {
+        const response = await fetch(`${API_URL}/notifications/${encodeURIComponent(item.notification.id)}/lu`, {
+          method: 'PUT',
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          throw new Error(await getApiErrorMessage(response, 'Impossible de marquer les messages comme lus'));
+        }
+      }
+      const readIds = new Set(unreadItems.map((item) => item.notification.id));
+      setNotifications((prev) => prev.map((item) => readIds.has(item.id) ? { ...item, lu: true } : item));
+      toast.success(unreadItems.length > 1 ? 'Messages proprietaire marques comme lus' : 'Message proprietaire marque comme lu');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de marquer les messages comme lus');
+    } finally {
+      setChatMarkingReadOwnerId(null);
+    }
+  };
+
   const viewContractForDemand = async (demand: ReservationDemand) => {
     const contractId = String(demand.contract_id || '').trim();
     if (!contractId) {
@@ -2957,16 +2991,40 @@ export default function NotificationsPage() {
                         <ExternalLink className="h-4 w-4" />
                         Ouvrir dossier
                       </button>
+                      {unreadOwnerNotificationByOwnerId.has(selectedChatOwner.id) ? (
+                        <button
+                          type="button"
+                          onClick={() => void markOwnerChatNotificationsAsRead(selectedChatOwner.id)}
+                          disabled={chatMarkingReadOwnerId === selectedChatOwner.id}
+                          className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {chatMarkingReadOwnerId === selectedChatOwner.id ? 'Marquage...' : 'Marquer lu'}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                    <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]">
                      <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
                        {selectedChatOwner && unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id) && (
                          <div className="mx-auto mb-4 max-w-4xl rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
-                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Message non lu</p>
-                           <p className="mt-2 text-sm font-medium text-slate-900">
-                             {unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id)?.detailLabel}
-                           </p>
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Message non lu</p>
+                              <p className="mt-2 text-sm font-medium text-slate-900">
+                                {unreadOwnerNotificationByOwnerId.get(selectedChatOwner.id)?.detailLabel}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void markOwnerChatNotificationsAsRead(selectedChatOwner.id)}
+                              disabled={chatMarkingReadOwnerId === selectedChatOwner.id}
+                              className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              {chatMarkingReadOwnerId === selectedChatOwner.id ? 'Marquage...' : 'Marquer lu'}
+                            </button>
+                          </div>
                          </div>
                        )}
                        {chatLoading && (
