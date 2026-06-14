@@ -63,6 +63,8 @@ type OwnerCalendarPromptStatus = {
   promptDate?: string | null;
   status: string;
   notificationId?: string | null;
+  overdueNotificationId?: string | null;
+  overdueNotifiedAt?: string | null;
   respondedAt?: string | null;
   responseMetadata?: {
     response?: string | null;
@@ -784,6 +786,7 @@ export default function NotificationsPage() {
   const [chatDraft, setChatDraft] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [quickChatOpen, setQuickChatOpen] = useState(false);
   const [chatOwnerSearch, setChatOwnerSearch] = useState('');
   const [calendarOwnerSearch, setCalendarOwnerSearch] = useState('');
   const [calendarNowMs, setCalendarNowMs] = useState(() => Date.now());
@@ -1212,6 +1215,25 @@ export default function NotificationsPage() {
     return byOwnerId;
   }, [visibleNotificationInsights]);
 
+  const unreadOwnerNotificationCountByOwnerId = useMemo(() => {
+    const counts = new Map<string, number>();
+    visibleNotificationInsights
+      .filter((item) => !item.notification.lu && item.category === 'proprietaire')
+      .forEach((item) => {
+        const ownerId = String(
+          item.demand?.proprietaire_id || extractOwnerIdFromNotificationMessage(item.notification.message)
+        ).trim();
+        if (!ownerId) return;
+        counts.set(ownerId, (counts.get(ownerId) || 0) + 1);
+      });
+    return counts;
+  }, [visibleNotificationInsights]);
+
+  const unreadOwnerMessagesCount = useMemo(
+    () => Array.from(unreadOwnerNotificationCountByOwnerId.values()).reduce((sum, count) => sum + count, 0),
+    [unreadOwnerNotificationCountByOwnerId]
+  );
+
   const chatOwners = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; demandId?: string }>();
     owners.forEach((owner) => {
@@ -1295,6 +1317,11 @@ export default function NotificationsPage() {
     });
   }, [chatOwnerSearch, chatOwners, ownerLookup, ownerDemandsByOwnerId, biensByOwnerId, unreadOwnerNotificationByOwnerId]);
 
+  const quickChatOwners = useMemo(() => {
+    const ownersWithUnread = filteredChatOwners.filter((owner) => unreadOwnerNotificationCountByOwnerId.has(owner.id));
+    return (ownersWithUnread.length > 0 ? ownersWithUnread : filteredChatOwners).slice(0, 6);
+  }, [filteredChatOwners, unreadOwnerNotificationCountByOwnerId]);
+
   const selectedOwnerProfile = selectedChatOwner ? ownerLookup.get(selectedChatOwner.id) || null : null;
   const selectedOwnerDemands = useMemo(
     () => (selectedChatOwner ? ownerDemandsByOwnerId.get(selectedChatOwner.id) || [] : []),
@@ -1346,6 +1373,11 @@ export default function NotificationsPage() {
       .slice(0, 2)
       .map((part) => part.charAt(0).toUpperCase())
       .join('') || 'PR';
+
+  const formatAttentionCount = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return '';
+    return value > 99 ? '99+' : String(value);
+  };
 
   const isLikelyNoiseOwnerId = (value?: string | null) => {
     const normalized = String(value || '').trim();
@@ -1520,6 +1552,13 @@ export default function NotificationsPage() {
     [filteredCalendarOwners, ownerCalendarStatuses]
   );
 
+  const demandAttentionCount = pendingDemands.length;
+  const chatAttentionCount = unreadOwnerMessagesCount;
+  const calendarAttentionCount = overdueCalendarOwners.length + pendingCalendarRequests.length;
+  const systemAttentionCount = visibleNotificationInsights.filter(
+    (item) => !item.notification.lu && item.category !== 'proprietaire'
+  ).length;
+
   const loadOwnerChat = useCallback(async (ownerId: string, options?: { background?: boolean }) => {
     const normalizedOwnerId = String(ownerId || '').trim();
     if (!normalizedOwnerId) return;
@@ -1556,6 +1595,16 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  const focusOwnerChatThread = useCallback((owner: { id: string; name: string; demandId?: string }, options?: { openQuickChat?: boolean }) => {
+    setShowOwnerProfilePanel(false);
+    setChatDraft('');
+    setSelectedChatOwner(owner);
+    if (options?.openQuickChat) {
+      setQuickChatOpen(true);
+    }
+    void loadOwnerChat(owner.id);
+  }, [loadOwnerChat]);
+
   const openOwnerChat = useCallback((demand: ReservationDemand) => {
     const ownerId = String(demand.proprietaire_id || '').trim();
     if (!ownerId) {
@@ -1570,12 +1619,10 @@ export default function NotificationsPage() {
     if (selectedChatOwner?.id === owner.id && activeView === 'chat') {
       return;
     }
-    setSelectedChatOwner(owner);
-    setShowOwnerProfilePanel(false);
-    setChatDraft('');
     setActiveView('chat');
-    void loadOwnerChat(owner.id);
-  }, [loadOwnerChat, activeView, selectedChatOwner?.id]);
+    setQuickChatOpen(false);
+    focusOwnerChatThread(owner);
+  }, [focusOwnerChatThread, activeView, selectedChatOwner?.id]);
 
   const openOwnerChatByOwnerId = useCallback((ownerId: string) => {
     const normalizedOwnerId = String(ownerId || '').trim();
@@ -1592,15 +1639,32 @@ export default function NotificationsPage() {
       demandId: latestDemand?.id,
     };
     setIsAdminAlertsOpen(false);
-    setShowOwnerProfilePanel(false);
-    setChatDraft('');
     setActiveView('chat');
+    setQuickChatOpen(false);
     if (selectedChatOwner?.id === normalizedOwnerId && activeView === 'chat') {
       return;
     }
-    setSelectedChatOwner(nextOwner);
-    void loadOwnerChat(normalizedOwnerId);
-  }, [activeView, chatOwners, loadOwnerChat, ownerDemandsByOwnerId, ownerLookup, selectedChatOwner?.id]);
+    focusOwnerChatThread(nextOwner);
+  }, [activeView, chatOwners, focusOwnerChatThread, ownerDemandsByOwnerId, ownerLookup, selectedChatOwner?.id]);
+
+  const openQuickChatForOwner = useCallback((ownerId: string) => {
+    const normalizedOwnerId = String(ownerId || '').trim();
+    if (!normalizedOwnerId) return;
+    const latestDemand = (ownerDemandsByOwnerId.get(normalizedOwnerId) || [])[0];
+    const ownerName =
+      chatOwners.find((item) => item.id === normalizedOwnerId)?.name
+      || String(ownerLookup.get(normalizedOwnerId)?.nom || '').trim()
+      || String(latestDemand?.proprietaire_nom || '').trim()
+      || normalizedOwnerId;
+    focusOwnerChatThread(
+      {
+        id: normalizedOwnerId,
+        name: ownerName,
+        demandId: latestDemand?.id,
+      },
+      { openQuickChat: true }
+    );
+  }, [chatOwners, focusOwnerChatThread, ownerDemandsByOwnerId, ownerLookup]);
 
   useEffect(() => {
     if (activeView !== 'chat' || !selectedChatOwner?.id) return;
@@ -1609,6 +1673,28 @@ export default function NotificationsPage() {
     }, 10000);
     return () => window.clearInterval(intervalId);
   }, [activeView, selectedChatOwner?.id, loadOwnerChat]);
+
+  useEffect(() => {
+    if (!quickChatOpen || activeView === 'chat' || !selectedChatOwner?.id) return;
+    const intervalId = window.setInterval(() => {
+      void loadOwnerChat(selectedChatOwner.id, { background: true });
+    }, 10000);
+    return () => window.clearInterval(intervalId);
+  }, [quickChatOpen, activeView, selectedChatOwner?.id, loadOwnerChat]);
+
+  useEffect(() => {
+    if (!quickChatOpen || activeView === 'chat' || selectedChatOwner?.id) return;
+    const fallbackOwner =
+      filteredChatOwners.find((owner) => unreadOwnerNotificationCountByOwnerId.has(owner.id))
+      || filteredChatOwners[0];
+    if (!fallbackOwner) return;
+    focusOwnerChatThread(fallbackOwner, { openQuickChat: true });
+  }, [quickChatOpen, activeView, selectedChatOwner?.id, filteredChatOwners, unreadOwnerNotificationCountByOwnerId, focusOwnerChatThread]);
+
+  useEffect(() => {
+    if (activeView !== 'chat') return;
+    setQuickChatOpen(false);
+  }, [activeView]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2202,34 +2288,54 @@ export default function NotificationsPage() {
         </div>
       </section>
 
-      <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+      <div className="flex flex-wrap gap-2 rounded-lg border border-gray-200 bg-white p-1">
         <button
           type="button"
           onClick={() => setActiveView('demands')}
-          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'demands' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          className={`relative inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${activeView === 'demands' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'} ${demandAttentionCount > 0 ? 'dwira-attention-tab' : ''}`}
         >
           Demandes
+          {demandAttentionCount > 0 && (
+            <span className="dwira-attention-badge inline-flex min-w-[1.7rem] items-center justify-center rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-white">
+              +{formatAttentionCount(demandAttentionCount)}
+            </span>
+          )}
         </button>
         <button
           type="button"
           onClick={() => setActiveView('chat')}
-          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'chat' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          className={`relative inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${activeView === 'chat' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'} ${chatAttentionCount > 0 ? 'dwira-attention-tab' : ''}`}
         >
           Chat proprietaires
+          {chatAttentionCount > 0 && (
+            <span className="dwira-attention-badge inline-flex min-w-[1.7rem] items-center justify-center rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-bold text-white">
+              +{formatAttentionCount(chatAttentionCount)}
+            </span>
+          )}
         </button>
         <button
           type="button"
           onClick={() => setActiveView('calendars')}
-          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'calendars' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          className={`relative inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${activeView === 'calendars' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'} ${calendarAttentionCount > 0 ? 'dwira-attention-tab' : ''}`}
         >
           Calendriers
+          {calendarAttentionCount > 0 && (
+            <span className="dwira-attention-badge inline-flex min-w-[1.7rem] items-center justify-center rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-bold text-white">
+              +{formatAttentionCount(calendarAttentionCount)}
+            </span>
+          )}
         </button>
         <button
           type="button"
           onClick={() => setActiveView('system')}
-          className={`rounded-md px-3 py-2 text-sm font-medium ${activeView === 'system' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          className={`relative inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${activeView === 'system' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'} ${systemAttentionCount > 0 ? 'dwira-attention-tab' : ''}`}
         >
           Notifications systeme
+          {systemAttentionCount > 0 && (
+            <span className="dwira-attention-badge inline-flex min-w-[1.7rem] items-center justify-center rounded-full bg-sky-500 px-2 py-0.5 text-[11px] font-bold text-white">
+              +{formatAttentionCount(systemAttentionCount)}
+            </span>
+          )}
         </button>
       </div>
 
@@ -2745,6 +2851,7 @@ export default function NotificationsPage() {
                       const ownerDemandCount = (ownerDemandsByOwnerId.get(owner.id) || []).length;
                       const latestDemand = (ownerDemandsByOwnerId.get(owner.id) || [])[0];
                       const unreadOwnerNotification = unreadOwnerNotificationByOwnerId.get(owner.id) || null;
+                      const unreadOwnerNotificationCount = unreadOwnerNotificationCountByOwnerId.get(owner.id) || 0;
                       return (
                         <button
                           key={owner.id}
@@ -2772,7 +2879,7 @@ export default function NotificationsPage() {
                                 <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
                                 {unreadOwnerNotification ? (
                                   <span className="mt-1 inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                                    Message non lu
+                                    {unreadOwnerNotificationCount > 1 ? `${unreadOwnerNotificationCount} messages non lus` : 'Message non lu'}
                                   </span>
                                 ) : null}
                               </div>
@@ -3864,6 +3971,141 @@ export default function NotificationsPage() {
           </div>
         </div>
       </section>
+      )}
+
+      {activeView !== 'chat' && (chatAttentionCount > 0 || quickChatOpen) && (
+        <div className="pointer-events-none fixed bottom-5 right-5 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3">
+          {quickChatOpen && (
+            <div className="pointer-events-auto w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-[26px] border border-emerald-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.22)]">
+              <div className="flex items-center justify-between gap-3 border-b border-emerald-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_100%)] px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Reponse rapide</p>
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {selectedChatOwner ? selectedChatOwner.name : `${chatAttentionCount} message(s) recent(s)`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {chatAttentionCount > 0 ? (
+                    <span className="dwira-attention-badge inline-flex min-w-[1.8rem] items-center justify-center rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-bold text-white">
+                      +{formatAttentionCount(chatAttentionCount)}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setQuickChatOpen(false)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {quickChatOwners.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto border-b border-slate-100 px-3 py-3">
+                  {quickChatOwners.map((owner) => {
+                    const unreadCount = unreadOwnerNotificationCountByOwnerId.get(owner.id) || 0;
+                    const isActive = selectedChatOwner?.id === owner.id;
+                    return (
+                      <button
+                        key={`quick-chat-owner-${owner.id}`}
+                        type="button"
+                        onClick={() => openQuickChatForOwner(owner.id)}
+                        className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-left text-xs font-semibold ${isActive ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                      >
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-700 text-[10px] font-bold text-white">
+                          {getOwnerInitials(owner.name)}
+                        </span>
+                        <span className="max-w-[120px] truncate">{owner.name}</span>
+                        {unreadCount > 0 ? (
+                          <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] text-white">+{formatAttentionCount(unreadCount)}</span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="max-h-[360px] min-h-[220px] overflow-y-auto bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] px-4 py-4">
+                {!selectedChatOwner ? (
+                  <div className="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                    Selectionnez un proprietaire pour repondre rapidement.
+                  </div>
+                ) : chatLoading ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                    Chargement de la conversation...
+                  </div>
+                ) : chatMessages.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                    Aucun message pour ce proprietaire.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {chatMessages.slice(-12).map((message) => {
+                      const fromAdmin = message.kind === 'admin_owner_chat';
+                      return (
+                        <div key={`quick-chat-message-${message.id}`} className={`flex ${fromAdmin ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[85%] rounded-[18px] px-3 py-2 text-sm shadow-sm ${fromAdmin ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-800'}`}>
+                            <p className="whitespace-pre-wrap break-words">{message.text || '(message vide)'}</p>
+                            <p className={`mt-1 text-[10px] ${fromAdmin ? 'text-emerald-50/80' : 'text-slate-400'}`}>{formatDateTime(message.createdAt)}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-200 bg-white px-3 py-3">
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={chatDraft}
+                    onChange={(event) => setChatDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        if (!chatSending && chatDraft.trim()) {
+                          void sendChatMessage();
+                        }
+                      }
+                    }}
+                    placeholder="Repondre rapidement..."
+                    rows={1}
+                    className="min-h-[52px] flex-1 resize-y rounded-[20px] border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void sendChatMessage()}
+                    disabled={chatSending || !chatDraft.trim() || !selectedChatOwner}
+                    className="inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(5,150,105,0.22)] hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <SendHorizontal className="h-4 w-4" />
+                    {chatSending ? 'Envoi...' : 'Envoyer'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              if (quickChatOpen) {
+                setQuickChatOpen(false);
+                return;
+              }
+              setQuickChatOpen(true);
+            }}
+            className="dwira-fab-bubble pointer-events-auto inline-flex items-center gap-3 rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_16px_32px_rgba(5,150,105,0.3)]"
+          >
+            <MessageSquareShare className="h-5 w-5" />
+            <span>Messages proprietaires</span>
+            {chatAttentionCount > 0 ? (
+              <span className="dwira-attention-badge inline-flex min-w-[1.8rem] items-center justify-center rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                +{formatAttentionCount(chatAttentionCount)}
+              </span>
+            ) : null}
+          </button>
+        </div>
       )}
 
       {calendarReviewRequest && (

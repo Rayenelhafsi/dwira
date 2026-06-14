@@ -10,6 +10,68 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+@keyframes dwira-attention-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.18);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes dwira-attention-nudge {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-1px);
+  }
+  40% {
+    transform: translateX(1px);
+  }
+  60% {
+    transform: translateX(-1px);
+  }
+  80% {
+    transform: translateX(1px);
+  }
+}
+
+@keyframes dwira-fab-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.dwira-attention-tab {
+  animation: dwira-attention-pulse 1.8s ease-in-out infinite;
+}
+
+.dwira-attention-badge {
+  animation:
+    dwira-attention-pulse 1.8s ease-in-out infinite,
+    dwira-attention-nudge 2.6s ease-in-out infinite;
+}
+
+.dwira-fab-bubble {
+  animation:
+    dwira-fab-float 2.8s ease-in-out infinite,
+    dwira-attention-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dwira-attention-tab,
+  .dwira-attention-badge,
+  .dwira-fab-bubble {
+    animation: none;
+  }
+}
+
 .dwira-property-card {
   content-visibility: auto;
   contain-intrinsic-size: 560px;

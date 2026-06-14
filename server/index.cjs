@@ -15525,6 +15525,7 @@ app.post('/api/mobile/admin/owner-app-update-notification', requireAdminSession,
 
 app.get('/api/mobile/admin/owner-calendar-prompt-statuses', requireAdminSession, async (req, res) => {
   try {
+    await notifyOverdueOwnerCalendarPrompts();
     const rows = await getOwnerCalendarPromptStatuses();
     res.json(rows);
   } catch (error) {
@@ -19527,6 +19528,8 @@ async function ensureOwnerCalendarPromptSchema() {
       prompt_date DATE NOT NULL,
       status VARCHAR(40) NOT NULL DEFAULT 'pending',
       notification_id VARCHAR(100) NULL,
+      overdue_notification_id VARCHAR(100) NULL,
+      overdue_notified_at DATETIME NULL,
       responded_at DATETIME NULL,
       response_metadata_json LONGTEXT NULL,
       created_at DATETIME NOT NULL,
@@ -19536,6 +19539,14 @@ async function ensureOwnerCalendarPromptSchema() {
       KEY idx_owner_calendar_prompt_date (prompt_date, status)
     )
   `);
+  await pool.query(`
+    ALTER TABLE owner_calendar_prompts
+    ADD COLUMN overdue_notification_id VARCHAR(100) NULL AFTER notification_id
+  `).catch(() => {});
+  await pool.query(`
+    ALTER TABLE owner_calendar_prompts
+    ADD COLUMN overdue_notified_at DATETIME NULL AFTER overdue_notification_id
+  `).catch(() => {});
 }
 
 async function getOwnerCalendarPromptSchedule() {
@@ -19642,6 +19653,8 @@ async function getOwnerCalendarPromptStatuses() {
   await ensureOwnerCalendarPromptSchema();
   const [rows] = await pool.query(
     `SELECT p.id, p.owner_id, p.prompt_date, p.status, p.notification_id,
+            p.overdue_notification_id,
+            DATE_FORMAT(p.overdue_notified_at, '%Y-%m-%d %H:%i:%s') AS overdue_notified_at,
             DATE_FORMAT(p.responded_at, '%Y-%m-%d %H:%i:%s') AS responded_at,
             p.response_metadata_json,
             DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
@@ -19668,6 +19681,8 @@ async function getOwnerCalendarPromptStatuses() {
       promptDate: row.prompt_date || null,
       status: String(row.status || '').trim() || 'pending',
       notificationId: row.notification_id || null,
+      overdueNotificationId: row.overdue_notification_id || null,
+      overdueNotifiedAt: row.overdue_notified_at || null,
       respondedAt: row.responded_at || null,
       responseMetadata,
       createdAt: row.created_at || null,
@@ -19675,6 +19690,42 @@ async function getOwnerCalendarPromptStatuses() {
     });
   }
   return Array.from(byOwner.values());
+}
+
+async function notifyOverdueOwnerCalendarPrompts() {
+  await ensureOwnerCalendarPromptSchema();
+  const now = getAgencySqlDateTime();
+  const [rows] = await pool.query(
+    `SELECT p.id, p.owner_id, p.prompt_date,
+            DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+            DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+            o.nom AS owner_name
+     FROM owner_calendar_prompts p
+     LEFT JOIN proprietaires o ON o.id = p.owner_id
+     WHERE p.status = 'pending'
+       AND p.overdue_notified_at IS NULL
+       AND COALESCE(p.updated_at, p.created_at) <= DATE_SUB(?, INTERVAL 3 HOUR)
+     ORDER BY COALESCE(p.updated_at, p.created_at) ASC`,
+    [now]
+  );
+  for (const row of rows || []) {
+    const ownerId = String(row.owner_id || '').trim();
+    if (!ownerId) continue;
+    const ownerName = String(row.owner_name || ownerId).trim() || ownerId;
+    const promptDate = String(row.prompt_date || '').trim();
+    const sentAt = String(row.updated_at || row.created_at || '').trim();
+    const notificationId = await createAdminNotification(
+      'warning',
+      `Calendrier proprietaire en retard: ${ownerName} n a pas repondu a la relance du ${promptDate || 'jour en cours'} depuis plus de 3 heures${sentAt ? ` (envoyee le ${sentAt})` : ''}.`,
+      now
+    );
+    await pool.query(
+      `UPDATE owner_calendar_prompts
+       SET overdue_notification_id = ?, overdue_notified_at = ?
+       WHERE id = ?`,
+      [notificationId, now, row.id]
+    );
+  }
 }
 
 async function appendOwnerSystemChatMessage({
@@ -19774,6 +19825,8 @@ async function dispatchOwnerCalendarPromptBatch({
         `UPDATE owner_calendar_prompts
          SET status = 'pending',
              notification_id = ?,
+             overdue_notification_id = NULL,
+             overdue_notified_at = NULL,
              responded_at = NULL,
              response_metadata_json = NULL,
              updated_at = ?
@@ -19816,6 +19869,7 @@ async function runOwnerCalendarPromptSchedulerTick() {
   if (ownerCalendarPromptSchedulerRunning) return;
   ownerCalendarPromptSchedulerRunning = true;
   try {
+    await notifyOverdueOwnerCalendarPrompts();
     const schedule = await getOwnerCalendarPromptSchedule();
     if (!schedule.enabled) return;
     const localDate = getAgencyLocalDate();
