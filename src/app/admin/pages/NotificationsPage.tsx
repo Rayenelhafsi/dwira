@@ -1650,6 +1650,28 @@ export default function NotificationsPage() {
       }).length,
     [filteredCalendarOwners, ownerCalendarStatuses]
   );
+  const firstPendingCalendarOwner = pendingCalendarOwnersCount > 0
+    ? filteredCalendarOwners.find((owner) => {
+        const status = ownerCalendarStatuses[owner.id] || null;
+        if (isOwnerWithoutAppStatus(status)) return false;
+        const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
+        return !statusMeta.isOverdue && String(status?.status || '').trim() === 'pending';
+      }) || null
+    : null;
+  const firstPendingCalendarUpdateOwner = pendingCalendarUpdateOwnersCount > 0
+    ? filteredCalendarOwners.find((owner) => pendingCalendarRequestByOwner.has(owner.id)) || null
+    : null;
+  const firstUpToDateCalendarOwner = upToDateCalendarOwnersCount > 0
+    ? filteredCalendarOwners.find((owner) => {
+        const status = ownerCalendarStatuses[owner.id] || null;
+        if (isOwnerWithoutAppStatus(status)) return false;
+        return String(status?.status || '').trim() === 'confirmed_up_to_date';
+      }) || null
+    : null;
+  const focusCalendarOwner = useCallback((owner: { id: string; name: string } | null) => {
+    if (!owner) return;
+    setSelectedCalendarOwner(owner);
+  }, []);
 
   const demandAttentionCount = pendingDemands.length;
   const chatAttentionCount = unreadOwnerMessagesCount;
@@ -3454,26 +3476,51 @@ export default function NotificationsPage() {
                     <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Suivi</div>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-5">
-                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3">
+                    <button
+                      type="button"
+                      onClick={() => focusCalendarOwner(overdueCalendarOwners[0] || null)}
+                      disabled={overdueCalendarOwners.length === 0}
+                      className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-left transition-colors hover:bg-rose-100 disabled:cursor-default disabled:opacity-70"
+                    >
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">En retard</p>
                       <p className="mt-1 text-lg font-bold text-rose-900">{overdueCalendarOwners.length}</p>
-                    </div>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => focusCalendarOwner(firstPendingCalendarOwner)}
+                      disabled={!firstPendingCalendarOwner}
+                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-left transition-colors hover:bg-amber-100 disabled:cursor-default disabled:opacity-70"
+                    >
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">En attente</p>
                       <p className="mt-1 text-lg font-bold text-amber-900">{pendingCalendarOwnersCount}</p>
-                    </div>
-                    <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => focusCalendarOwner(firstPendingCalendarUpdateOwner)}
+                      disabled={!firstPendingCalendarUpdateOwner}
+                      className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-left transition-colors hover:bg-sky-100 disabled:cursor-default disabled:opacity-70"
+                    >
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">MAJ calendrier en attente</p>
                       <p className="mt-1 text-lg font-bold text-sky-900">{pendingCalendarUpdateOwnersCount}</p>
-                    </div>
-                    <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-3 py-3">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => focusCalendarOwner(noAppCalendarOwners[0] || null)}
+                      disabled={noAppCalendarOwners.length === 0}
+                      className="rounded-2xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-left transition-colors hover:bg-indigo-100 disabled:cursor-default disabled:opacity-70"
+                    >
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">Sans application</p>
                       <p className="mt-1 text-lg font-bold text-indigo-900">{noAppCalendarOwnersCount}</p>
-                    </div>
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => focusCalendarOwner(firstUpToDateCalendarOwner)}
+                      disabled={!firstUpToDateCalendarOwner}
+                      className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-left transition-colors hover:bg-emerald-100 disabled:cursor-default disabled:opacity-70"
+                    >
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">A jour</p>
                       <p className="mt-1 text-lg font-bold text-emerald-900">{upToDateCalendarOwnersCount}</p>
-                    </div>
+                    </button>
                   </div>
                   <label className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-500 shadow-sm">
                     <Search className="h-4 w-4 text-slate-400" />
@@ -3539,58 +3586,6 @@ export default function NotificationsPage() {
                                   </p>
                                   <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-rose-600">
                                     <span>Sans reponse depuis {statusMeta.waitingDurationLabel}</span>
-                                    <span>{historyCount} historique</span>
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {noAppCalendarOwners.length > 0 && (
-                      <div>
-                        <div className="mb-2 flex items-center justify-between gap-3 px-1">
-                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-700">Proprietaires sans application</p>
-                          <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">{noAppCalendarOwners.length}</span>
-                        </div>
-                        <div className="space-y-2">
-                          {noAppCalendarOwners.map((owner) => {
-                            const isActive = selectedCalendarOwner?.id === owner.id;
-                            const status = ownerCalendarStatuses[owner.id] || null;
-                            const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
-                            const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
-                            return (
-                              <button
-                                key={`calendar-owner-no-app-${owner.id}`}
-                                type="button"
-                                onClick={() => setSelectedCalendarOwner(owner)}
-                                className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
-                                  isActive
-                                    ? 'border-indigo-400 bg-indigo-50 shadow-[0_0_0_1px_rgba(129,140,248,0.28),0_14px_30px_rgba(79,70,229,0.08)]'
-                                    : 'border-indigo-200 bg-white hover:bg-indigo-50 shadow-sm'
-                                }`}
-                              >
-                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-indigo-700 text-sm font-bold text-white shadow-lg">
-                                  {getOwnerInitials(owner.name)}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
-                                      <span className="mt-1 inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
-                                        {statusMeta.label}
-                                      </span>
-                                    </div>
-                                    {(status?.updatedAt || status?.createdAt) ? (
-                                      <span className="shrink-0 text-[11px] text-indigo-500">
-                                        {formatRelativeDelay(status?.updatedAt || status?.createdAt).replace(/^il y a /, '')}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  <p className="mt-2 line-clamp-2 text-sm text-slate-600">{statusMeta.detail}</p>
-                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-indigo-600">
-                                    <span>{statusMeta.helper}</span>
                                     <span>{historyCount} historique</span>
                                   </div>
                                 </div>
@@ -3984,12 +3979,64 @@ export default function NotificationsPage() {
                                     Aucune demande calendrier en attente pour le moment.
                                   </div>
                                 )}
-                              </div>
-                            </div>
-                          </div>
                         </div>
                       </div>
                     </div>
+                    {noAppCalendarOwners.length > 0 && (
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-700">Proprietaires sans application</p>
+                          <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">{noAppCalendarOwners.length}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {noAppCalendarOwners.map((owner) => {
+                            const isActive = selectedCalendarOwner?.id === owner.id;
+                            const status = ownerCalendarStatuses[owner.id] || null;
+                            const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
+                            const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
+                            return (
+                              <button
+                                key={`calendar-owner-no-app-${owner.id}`}
+                                type="button"
+                                onClick={() => setSelectedCalendarOwner(owner)}
+                                className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
+                                  isActive
+                                    ? 'border-indigo-400 bg-indigo-50 shadow-[0_0_0_1px_rgba(129,140,248,0.28),0_14px_30px_rgba(79,70,229,0.08)]'
+                                    : 'border-indigo-200 bg-white hover:bg-indigo-50 shadow-sm'
+                                }`}
+                              >
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-indigo-700 text-sm font-bold text-white shadow-lg">
+                                  {getOwnerInitials(owner.name)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                                      <span className="mt-1 inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                                        {statusMeta.label}
+                                      </span>
+                                    </div>
+                                    {(status?.updatedAt || status?.createdAt) ? (
+                                      <span className="shrink-0 text-[11px] text-indigo-500">
+                                        {formatRelativeDelay(status?.updatedAt || status?.createdAt).replace(/^il y a /, '')}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-2 line-clamp-2 text-sm text-slate-600">{statusMeta.detail}</p>
+                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-indigo-600">
+                                    <span>{statusMeta.helper}</span>
+                                    <span>{historyCount} historique</span>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
                   </div>
                 </>
               )}
