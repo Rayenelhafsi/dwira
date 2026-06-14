@@ -1511,6 +1511,14 @@ export default function NotificationsPage() {
       filteredCalendarOwners.filter((owner) => !getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs).isOverdue),
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
+  const upToDateCalendarOwnersCount = useMemo(
+    () =>
+      filteredCalendarOwners.filter((owner) => {
+        const status = ownerCalendarStatuses[owner.id] || null;
+        return String(status?.status || '').trim() === 'confirmed_up_to_date';
+      }).length,
+    [filteredCalendarOwners, ownerCalendarStatuses]
+  );
 
   const loadOwnerChat = useCallback(async (ownerId: string, options?: { background?: boolean }) => {
     const normalizedOwnerId = String(ownerId || '').trim();
@@ -2224,6 +2232,90 @@ export default function NotificationsPage() {
           Notifications systeme
         </button>
       </div>
+
+      {activeView === 'calendars' && calendarPromptSchedule && (
+        <section className="mt-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Pilotage relance</p>
+              <h3 className="mt-1 text-xl font-semibold text-slate-900">Programmation quotidienne</h3>
+              <p className="mt-1 text-sm text-slate-500">Horaires globaux d envoi et relance immediate depuis ce panneau.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void dispatchCalendarPromptNow()}
+                disabled={dispatchingCalendarPrompt}
+                className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+              >
+                {dispatchingCalendarPrompt ? 'Envoi...' : 'Envoyer maintenant'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveCalendarPromptSchedule()}
+                disabled={scheduleSaving || !calendarPromptSchedule}
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {scheduleSaving ? 'Enregistrement...' : 'Enregistrer horaire'}
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Date de debut</span>
+              <input
+                type="date"
+                value={calendarPromptSchedule.startDate || ''}
+                onChange={(event) => setCalendarPromptSchedule((prev) => prev ? { ...prev, startDate: event.target.value || null } : prev)}
+                className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Heure quotidienne</span>
+              <input
+                type="time"
+                value={calendarPromptSchedule.dailyTime}
+                onChange={(event) => {
+                  const [hourRaw, minuteRaw] = String(event.target.value || '').split(':');
+                  const hour = Number(hourRaw || 0);
+                  const minute = Number(minuteRaw || 0);
+                  setCalendarPromptSchedule((prev) => prev ? {
+                    ...prev,
+                    dispatchHour: hour,
+                    dispatchMinute: minute,
+                    dailyTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+                  } : prev);
+                }}
+                className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Etat</span>
+              <select
+                value={calendarPromptSchedule.enabled ? 'enabled' : 'disabled'}
+                onChange={(event) => setCalendarPromptSchedule((prev) => prev ? {
+                  ...prev,
+                  enabled: event.target.value === 'enabled',
+                } : prev)}
+                className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
+              >
+                <option value="enabled">Active</option>
+                <option value="disabled">Inactive</option>
+              </select>
+            </label>
+            <div className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Dernier envoi</span>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700">
+                {calendarPromptSchedule.lastDispatchedAt
+                  ? formatDateTime(calendarPromptSchedule.lastDispatchedAt)
+                  : (calendarPromptSchedule.lastDispatchedLocalDate
+                      ? formatStayDate(calendarPromptSchedule.lastDispatchedLocalDate)
+                      : 'Aucun')}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {activeView === 'demands' && (
       <section className="rounded-xl border border-gray-200 bg-white p-4">
@@ -3050,16 +3142,30 @@ export default function NotificationsPage() {
               </button>
             </div>
           </div>
-          <div className="grid min-h-[720px] bg-white lg:h-[78vh] lg:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="grid min-h-[720px] bg-white lg:h-[78vh] lg:grid-cols-[460px_minmax(0,1fr)] xl:grid-cols-[500px_minmax(0,1fr)]">
             <aside className={`${isCalendarMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 lg:flex`}>
               <div className="flex w-full flex-col">
-                <div className="border-b border-slate-200 px-4 py-4">
+                <div className="border-b border-slate-200 px-5 py-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <h3 className="text-2xl font-semibold text-slate-900">Calendriers</h3>
                       <p className="mt-1 text-sm text-slate-500">{filteredCalendarOwners.length} proprietaire{filteredCalendarOwners.length > 1 ? 's' : ''}</p>
                     </div>
                     <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Suivi</div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">En retard</p>
+                      <p className="mt-1 text-lg font-bold text-rose-900">{overdueCalendarOwners.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">En attente</p>
+                      <p className="mt-1 text-lg font-bold text-amber-900">{pendingCalendarRequests.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">A jour</p>
+                      <p className="mt-1 text-lg font-bold text-emerald-900">{upToDateCalendarOwnersCount}</p>
+                    </div>
                   </div>
                   <label className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-500 shadow-sm">
                     <Search className="h-4 w-4 text-slate-400" />
@@ -3071,91 +3177,8 @@ export default function NotificationsPage() {
                       className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
                     />
                   </label>
-                  <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Pilotage relance</p>
-                        <h4 className="mt-1 text-lg font-semibold text-slate-900">Programmation quotidienne</h4>
-                        <p className="mt-1 text-sm text-slate-500">Horaires globaux d envoi et relance immediate depuis ce panneau.</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void dispatchCalendarPromptNow()}
-                          disabled={dispatchingCalendarPrompt}
-                          className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
-                        >
-                          {dispatchingCalendarPrompt ? 'Envoi...' : 'Envoyer maintenant'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void saveCalendarPromptSchedule()}
-                          disabled={scheduleSaving || !calendarPromptSchedule}
-                          className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-                        >
-                          {scheduleSaving ? 'Enregistrement...' : 'Enregistrer horaire'}
-                        </button>
-                      </div>
-                    </div>
-                    {calendarPromptSchedule && (
-                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium text-slate-700">Date de debut</span>
-                          <input
-                            type="date"
-                            value={calendarPromptSchedule.startDate || ''}
-                            onChange={(event) => setCalendarPromptSchedule((prev) => prev ? { ...prev, startDate: event.target.value || null } : prev)}
-                            className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
-                          />
-                        </label>
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium text-slate-700">Heure quotidienne</span>
-                          <input
-                            type="time"
-                            value={calendarPromptSchedule.dailyTime}
-                            onChange={(event) => {
-                              const [hourRaw, minuteRaw] = String(event.target.value || '').split(':');
-                              const hour = Number(hourRaw || 0);
-                              const minute = Number(minuteRaw || 0);
-                              setCalendarPromptSchedule((prev) => prev ? {
-                                ...prev,
-                                dispatchHour: hour,
-                                dispatchMinute: minute,
-                                dailyTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-                              } : prev);
-                            }}
-                            className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
-                          />
-                        </label>
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium text-slate-700">Etat</span>
-                          <select
-                            value={calendarPromptSchedule.enabled ? 'enabled' : 'disabled'}
-                            onChange={(event) => setCalendarPromptSchedule((prev) => prev ? {
-                              ...prev,
-                              enabled: event.target.value === 'enabled',
-                            } : prev)}
-                            className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3"
-                          >
-                            <option value="enabled">Active</option>
-                            <option value="disabled">Inactive</option>
-                          </select>
-                        </label>
-                        <div className="space-y-1 text-sm">
-                          <span className="font-medium text-slate-700">Dernier envoi</span>
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700">
-                            {calendarPromptSchedule.lastDispatchedAt
-                              ? formatDateTime(calendarPromptSchedule.lastDispatchedAt)
-                              : (calendarPromptSchedule.lastDispatchedLocalDate
-                                  ? formatStayDate(calendarPromptSchedule.lastDispatchedLocalDate)
-                                  : 'Aucun')}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
-                <div className="flex-1 overflow-y-auto px-3 py-3">
+                <div className="flex-1 overflow-y-auto px-4 py-4">
                   {filteredCalendarOwners.length === 0 && (
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500">
                       Aucun proprietaire ne correspond a la recherche.
@@ -3180,7 +3203,7 @@ export default function NotificationsPage() {
                                 key={`calendar-owner-overdue-${owner.id}`}
                                 type="button"
                                 onClick={() => setSelectedCalendarOwner(owner)}
-                                className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-all ${
+                              className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
                                   isActive
                                     ? 'border-rose-400 bg-rose-50 shadow-[0_0_0_1px_rgba(251,113,133,0.28),0_14px_30px_rgba(244,63,94,0.08)]'
                                     : 'border-rose-200 bg-white hover:bg-rose-50 shadow-sm'
@@ -3201,7 +3224,7 @@ export default function NotificationsPage() {
                                       {statusMeta.waitingDurationLabel}
                                     </span>
                                   </div>
-                                  <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">
+                                  <p className="mt-2 line-clamp-2 text-sm font-semibold text-slate-900">
                                     {pendingRequest
                                       ? `${pendingRequest.propertyTitle || 'Bien'} - ${pendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'}`
                                       : statusMeta.detail}
@@ -3234,7 +3257,7 @@ export default function NotificationsPage() {
                           key={`calendar-owner-${owner.id}`}
                           type="button"
                           onClick={() => setSelectedCalendarOwner(owner)}
-                          className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-all ${
+                          className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
                             isActive
                               ? 'border-emerald-400 bg-emerald-50 shadow-[0_0_0_1px_rgba(52,211,153,0.28),0_14px_30px_rgba(16,185,129,0.08)]'
                               : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50 shadow-sm'
@@ -3263,7 +3286,7 @@ export default function NotificationsPage() {
                                 </span>
                               ) : null}
                             </div>
-                            <p className={`mt-1 line-clamp-2 text-sm ${pendingRequest ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>
+                            <p className={`mt-2 line-clamp-2 text-sm ${pendingRequest ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>
                               {pendingRequest
                                 ? `${pendingRequest.propertyTitle || 'Bien'} - ${pendingRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'}`
                                 : statusMeta.detail}
@@ -3296,7 +3319,7 @@ export default function NotificationsPage() {
               ) : (
                 <>
                   <div className="border-b border-slate-200 bg-white px-4 py-4 md:px-6">
-                    <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
+                      <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
                       <button
                         type="button"
                         onClick={() => setSelectedCalendarOwner(null)}
@@ -3334,7 +3357,7 @@ export default function NotificationsPage() {
                   <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef8f3_100%)]">
                     <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
                       <div className="mx-auto flex max-w-6xl flex-col gap-4">
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
                           <div className="space-y-4">
                             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3470,7 +3493,11 @@ export default function NotificationsPage() {
                                       </div>
                                       <div className="space-y-3 p-4">
                                         <div>
-                                          <h5 className="line-clamp-2 text-sm font-semibold text-slate-900">{bien.titre || 'Bien'}</h5>
+                                          <h5 className="line-clamp-2 text-sm font-semibold text-slate-900">
+                                            {[String(bien.reference || '').trim(), String(bien.nom_bien_mobile || bien.titre || '').trim()]
+                                              .filter(Boolean)
+                                              .join(' - ') || 'Bien'}
+                                          </h5>
                                           <p className="mt-1 text-xs text-slate-500">{bien.type || 'Bien immobilier'}</p>
                                         </div>
                                         <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
