@@ -13,6 +13,7 @@ const API_URL = import.meta.env.VITE_API_URL || '/api';
 const NOTIFICATIONS_CACHE_KEY = 'dwira_admin_notifications_cache_v1';
 const AGENCY_TIME_ZONE = 'Africa/Tunis';
 const AGENCY_UTC_OFFSET = '+01:00';
+const NOTIFICATIONS_TABLET_LAYOUT_MIN_WIDTH = 900;
 
 type NotificationsCachePayload = {
   notifications: Notification[];
@@ -861,7 +862,7 @@ export default function NotificationsPage() {
   const [selectedOwnerBienCalendarId, setSelectedOwnerBienCalendarId] = useState<string | null>(null);
   const [selectedCalendarBienCalendarId, setSelectedCalendarBienCalendarId] = useState<string | null>(null);
   const [isDesktopChatLayout, setIsDesktopChatLayout] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+    typeof window !== 'undefined' ? window.innerWidth >= NOTIFICATIONS_TABLET_LAYOUT_MIN_WIDTH : true
   );
   const [owners, setOwners] = useState<Proprietaire[]>(initialCache?.owners || []);
   const [calendarPromptSchedule, setCalendarPromptSchedule] = useState<CalendarPromptSchedule | null>(initialCache?.calendarPromptSchedule || null);
@@ -1867,7 +1868,7 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const syncLayout = () => setIsDesktopChatLayout(window.innerWidth >= 1024);
+    const syncLayout = () => setIsDesktopChatLayout(window.innerWidth >= NOTIFICATIONS_TABLET_LAYOUT_MIN_WIDTH);
     syncLayout();
     window.addEventListener('resize', syncLayout);
     return () => window.removeEventListener('resize', syncLayout);
@@ -2546,7 +2547,7 @@ export default function NotificationsPage() {
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-2 rounded-lg border border-gray-200 bg-white p-1">
+      <div className="flex flex-nowrap gap-2 overflow-x-auto rounded-lg border border-gray-200 bg-white p-1 sm:flex-wrap sm:overflow-visible">
         <button
           type="button"
           onClick={() => setActiveView('demands')}
@@ -3075,8 +3076,8 @@ export default function NotificationsPage() {
               </button>
             </div>
           </div>
-          <div className="grid min-h-[720px] bg-white lg:h-[78vh] lg:grid-cols-[380px_minmax(0,1fr)]">
-            <aside className={`${isChatMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 lg:flex`}>
+          <div className="grid min-h-[720px] bg-white min-[900px]:h-[76vh] min-[900px]:grid-cols-[320px_minmax(0,1fr)] xl:h-[78vh] xl:grid-cols-[380px_minmax(0,1fr)]">
+            <aside className={`${isChatMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 min-[900px]:flex`}>
               <div className="flex w-full flex-col">
                 <div className="border-b border-slate-200 px-4 py-4">
                   <div className="flex items-center justify-between gap-3">
@@ -3159,7 +3160,7 @@ export default function NotificationsPage() {
                 </div>
               </div>
             </aside>
-            <div className={`${isChatMobileConversationOpen ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-col bg-white lg:flex`}>
+            <div className={`${isChatMobileConversationOpen ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-col bg-white min-[900px]:flex`}>
               {!selectedChatOwner ? (
                 <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
                   <div className="max-w-md">
@@ -3177,7 +3178,7 @@ export default function NotificationsPage() {
                       <button
                         type="button"
                         onClick={() => setSelectedChatOwner(null)}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 lg:hidden"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 min-[900px]:hidden"
                       >
                         <ChevronLeft className="h-5 w-5" />
                       </button>
@@ -3531,8 +3532,8 @@ export default function NotificationsPage() {
               </button>
             </div>
           </div>
-          <div className="grid min-h-[720px] bg-white lg:h-[78vh] lg:grid-cols-[460px_minmax(0,1fr)] xl:grid-cols-[500px_minmax(0,1fr)]">
-            <aside className={`${isCalendarMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 lg:flex`}>
+          <div className="grid min-h-[720px] bg-white min-[900px]:h-[76vh] min-[900px]:grid-cols-[360px_minmax(0,1fr)] xl:h-[78vh] xl:grid-cols-[500px_minmax(0,1fr)]">
+            <aside className={`${isCalendarMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 min-[900px]:flex`}>
               <div className="flex w-full flex-col">
                 <div className="border-b border-slate-200 px-5 py-5">
                   <div className="flex items-center justify-between gap-3">
@@ -3542,7 +3543,7 @@ export default function NotificationsPage() {
                     </div>
                     <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Suivi</div>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-5">
+                  <div className="mt-4 grid grid-cols-2 gap-2 min-[900px]:grid-cols-3 xl:grid-cols-5">
                     <button
                       type="button"
                       onClick={() => focusCalendarOwner(overdueCalendarOwners[0] || null)}
@@ -3822,7 +3823,7 @@ export default function NotificationsPage() {
                 </div>
               </div>
             </aside>
-            <div className={`${isCalendarMobileConversationOpen ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-col bg-white lg:flex`}>
+            <div className={`${isCalendarMobileConversationOpen ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-col bg-white min-[900px]:flex`}>
               {!selectedCalendarOwner ? (
                 <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
                   <div className="max-w-md">
@@ -3840,7 +3841,7 @@ export default function NotificationsPage() {
                       <button
                         type="button"
                         onClick={() => setSelectedCalendarOwner(null)}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 lg:hidden"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 min-[900px]:hidden"
                       >
                         <ChevronLeft className="h-5 w-5" />
                       </button>
