@@ -902,7 +902,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [localRoomSelectionsByHotel, setLocalRoomSelectionsByHotel] = useState<Record<number, Array<{ boardingKey: string; roomKey: string }>>>({});
   const [sharedHotelRoomTravellers, setSharedHotelRoomTravellers] = useState<HotelRoomTravellerSelection[]>(() => buildDefaultHotelRoomTravellers(1));
   const [hotelAvailabilitySignatureByHotel, setHotelAvailabilitySignatureByHotel] = useState<Record<number, string>>({});
-  const [hotelCriteriaGlowTarget, setHotelCriteriaGlowTarget] = useState<null | "dates" | "chambres" | "voyageurs">(null);
+  const [hotelCriteriaGlowTarget, setHotelCriteriaGlowTarget] = useState<null | "dates" | "chambres" | "voyageurs" | "action">(null);
   const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
   const [hotelCalendarOpen, setHotelCalendarOpen] = useState(false);
   const [hotelCalendarMonth, setHotelCalendarMonth] = useState<Date>(() => {
@@ -2180,7 +2180,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       return normalizeHotelRoomTravellers(seededCurrent, safeRoomCount);
     });
     setHotelAvailabilitySignatureByHotel({});
-    setHotelCriteriaGlowTarget("chambres");
+    setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
   };
 
   useEffect(() => {
@@ -2336,6 +2336,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       setHotelCriteriaGlowTarget("voyageurs");
       return;
     }
+    setHotelCriteriaGlowTarget(null);
     setCheckingAvailabilityHotelId(hotelId);
     try {
       const refreshedHotels = await runHotelSearch({ replace: true, scroll: false });
@@ -4504,6 +4505,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                           return { ...prev, [hotelId]: current };
                                         });
                                         setHotelAvailabilitySignatureByHotel({});
+                                        setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
                                       }}
                                       className="mt-1.5 h-9 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-[11px] text-slate-900"
                                     >
@@ -4524,6 +4526,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                           return { ...prev, [hotelId]: current };
                                         });
                                         setHotelAvailabilitySignatureByHotel({});
+                                        setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
                                       }}
                                       className="mt-1.5 h-9 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-[11px] text-slate-900"
                                     >
@@ -4560,7 +4563,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                                   adults: Math.max(1, current[choice.roomIndex]?.adults - 1 || 1),
                                                 };
                                                 setHotelAvailabilitySignatureByHotel({});
-                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
                                                 return current;
                                               })}
                                               className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
@@ -4579,7 +4582,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                                   adults: Math.min(8, (current[choice.roomIndex]?.adults || 1) + 1),
                                                 };
                                                 setHotelAvailabilitySignatureByHotel({});
-                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
                                                 return current;
                                               })}
                                               className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
@@ -4602,7 +4605,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                                   current[choice.roomIndex]?.children || 0
                                                 );
                                                 setHotelAvailabilitySignatureByHotel({});
-                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
                                                 return current;
                                               })}
                                               className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
@@ -4625,7 +4628,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                                   current[choice.roomIndex]?.children || 0
                                                 );
                                                 setHotelAvailabilitySignatureByHotel({});
-                                                setHotelCriteriaGlowTarget("voyageurs");
+                                                setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
                                                 return current;
                                               })}
                                               className="shrink-0 rounded-md border border-slate-300 bg-white p-1 text-slate-700"
@@ -4660,7 +4663,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                                       childAges: nextChildAges,
                                                     };
                                                     setHotelAvailabilitySignatureByHotel({});
-                                                    setHotelCriteriaGlowTarget("voyageurs");
+                                                    setHotelCriteriaGlowTarget(hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) ? "action" : "dates");
                                                     return current;
                                                   });
                                                 }}
@@ -4736,7 +4739,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                     totalPrice: Number.isFinite(totalClientPrice) && totalClientPrice > 0 ? totalClientPrice : null,
                                   });
                                 }}
-                                className={`inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold text-white transition sm:px-4 sm:text-sm ${
+                                className={`inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border px-3 py-2 text-xs font-semibold text-white transition sm:px-4 sm:text-sm ${
+                                  hotelCriteriaGlowTarget === "action"
+                                    ? "border-amber-300 shadow-[0_0_0_3px_rgba(251,191,36,0.24),0_18px_40px_rgba(245,158,11,0.24)]"
+                                    : "border-transparent"
+                                } ${
                                   isAvailabilityVerified
                                     ? "bg-sky-600 hover:bg-sky-700"
                                     : "bg-amber-500 hover:bg-amber-600"
