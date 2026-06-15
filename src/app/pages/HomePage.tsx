@@ -859,6 +859,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
   const [showAllProperties, setShowAllProperties] = useState(false);
   const hotelInitialSearchDoneRef = useRef(false);
+  const hotelShouldAutoSearchFromUrlRef = useRef(
+    String(searchParams.get("mode") || "").trim() === "hotellerie"
+      && Number(searchParams.get("cityId") || 0) > 0
+      && hasValidHotelSearchDates(
+        String(searchParams.get("checkIn") || "").trim(),
+        String(searchParams.get("checkOut") || "").trim(),
+      )
+  );
   const [hotelConfigReady, setHotelConfigReady] = useState<boolean | null>(null);
 
   const [hotelProviderError, setHotelProviderError] = useState("");
@@ -1943,9 +1951,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [isHotelMode]);
 
   useEffect(() => {
-    if (!isHotelMode || loadingHotelCities || hotelInitialSearchDoneRef.current) return;
+    if (!isHotelMode || loadingHotelCities || hotelInitialSearchDoneRef.current || !hotelShouldAutoSearchFromUrlRef.current) return;
     if (!hotelCityId || !hotelCheckIn || !hotelCheckOut) return;
     hotelInitialSearchDoneRef.current = true;
+    hotelShouldAutoSearchFromUrlRef.current = false;
     void runHotelSearch({ replace: true, scroll: false });
     // Intentionally run once after hotel mode is hydrated from the URL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
