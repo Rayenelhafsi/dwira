@@ -336,12 +336,17 @@ function parseContractCreationHistory(raw: string | null | undefined): Record<st
   }
 }
 
-function parseTemplateVars(raw: string | null | undefined): Record<string, string> {
+function parseTemplateVars(raw: unknown): Record<string, string> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return Object.fromEntries(
+      Object.entries(raw as Record<string, unknown>).map(([key, value]) => [String(key), String(value ?? '').trim()])
+    );
+  }
   const text = String(raw || '').trim();
   if (!text) return {};
   try {
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== 'object') return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     return Object.fromEntries(
       Object.entries(parsed).map(([key, value]) => [String(key), String(value ?? '').trim()])
     );
@@ -929,20 +934,7 @@ export default function ContratsPage() {
   };
 
   const handleEditTemplateVars = (contrat: ContratApi) => {
-    let parsed: Record<string, string> = {};
-    const currentRaw = String(contrat.template_vars_json || '').trim();
-    if (currentRaw) {
-      try {
-        const obj = JSON.parse(currentRaw);
-        if (obj && typeof obj === 'object') {
-          for (const [k, v] of Object.entries(obj)) {
-            parsed[String(k)] = String(v ?? '');
-          }
-        }
-      } catch {
-        parsed = {};
-      }
-    }
+    const parsed = parseTemplateVars(contrat.template_vars_json);
     setTemplateVarsTargetContract(contrat);
     setTemplateVarsDraft(parsed);
     setTemplateVarsEditorOpen(true);
@@ -964,9 +956,12 @@ export default function ContratsPage() {
       });
       if (!saveResponse.ok) throw new Error(await getApiErrorMessage(saveResponse, 'Sauvegarde variables impossible'));
       await handleRegenerateTemplatePdf(templateVarsTargetContract);
-      setTemplateVarsEditorOpen(false);
-      setTemplateVarsTargetContract(null);
-      setTemplateVarsDraft({});
+      setTemplateVarsTargetContract((current) => current ? {
+        ...current,
+        template_vars_json: JSON.stringify(payload),
+      } : current);
+      setTemplateVarsDraft(payload);
+      toast.success('Variables sauvegardees et contrat regenere');
     } catch (error: any) {
       toast.error(error?.message || 'Sauvegarde variables impossible');
     }

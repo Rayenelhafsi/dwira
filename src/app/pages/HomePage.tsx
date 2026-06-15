@@ -4134,17 +4134,25 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               </p>
             </div>
             {!isSelectedModeComingSoon && !isHotelMode && (
-              <Link
-                to={(() => {
-                  if (selectedMode === "vente") return "/ventes";
-                  const params = applyAmicaleParam(new URLSearchParams(searchParams));
-                  params.set("mode", selectedMode);
-                  return `/logements?${params.toString()}`;
-                })()}
-                className="hidden md:flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group"
-              >
-                Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-              </Link>
+              <div className="hidden md:flex items-center gap-3">
+                <Link
+                  to="/packs"
+                  className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-[linear-gradient(135deg,#fff8d6,#facc15)] px-5 py-2.5 text-sm font-bold text-amber-900 shadow-[0_12px_26px_rgba(245,158,11,0.16)] transition-transform hover:-translate-y-0.5"
+                >
+                  Voir nos packs
+                </Link>
+                <Link
+                  to={(() => {
+                    if (selectedMode === "vente") return "/ventes";
+                    const params = applyAmicaleParam(new URLSearchParams(searchParams));
+                    params.set("mode", selectedMode);
+                    return `/logements?${params.toString()}`;
+                  })()}
+                  className="flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors group"
+                >
+                  Voir tout le catalogue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
+              </div>
             )}
             {!isSelectedModeComingSoon && isHotelMode && (
               <div className="hidden md:inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
@@ -4838,13 +4846,21 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   </button>
                 )}
                 {!showAllProperties && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllProperties(true)}
-                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
-                  >
-                    Voir tout le catalogue
-                  </button>
+                  <>
+                    <Link
+                      to="/packs"
+                      className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-[linear-gradient(135deg,#fff8d6,#facc15)] px-5 py-2.5 text-sm font-semibold text-amber-900 shadow-[0_12px_24px_rgba(245,158,11,0.14)] transition-colors hover:brightness-105"
+                    >
+                      Voir nos packs
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllProperties(true)}
+                      className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                    >
+                      Voir tout le catalogue
+                    </button>
+                  </>
                 )}
               </div>
             )}

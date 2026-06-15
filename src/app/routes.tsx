@@ -53,6 +53,16 @@ const ventesRoutes = PUBLIC_COMING_SOON.ventes
       },
     ];
 
+const packsRoutes = PUBLIC_COMING_SOON.packs
+  ? [
+      { path: "packs", lazy: lazyPage(() => import("./pages/PacksComingSoonPage")) },
+      { path: "packs/:packId", lazy: lazyPage(() => import("./pages/PacksComingSoonPage")) },
+    ]
+  : [
+      { path: "packs", lazy: lazyPage(() => import("./pages/PropertyPacksPage")) },
+      { path: "packs/:packId", lazy: lazyPage(() => import("./pages/PropertyPackDetailsPage")) },
+    ];
+
 function HotelsSearchRedirect() {
   const location = useLocation();
   const incoming = new URLSearchParams(location.search);
@@ -74,6 +84,7 @@ export const router = createBrowserRouter([
       { path: "hotels", Component: HotelsSearchRedirect },
       { path: "hotels/:id", lazy: lazyPage(() => import("./pages/HotelDetailsPage")) },
       { path: "logements", lazy: lazyPage(() => import("./pages/PropertiesPage")) },
+      ...packsRoutes,
       { path: "properties/:slug", lazy: lazyPage(() => import("./pages/PropertyDetailsPage")) },
       { path: "reservation/confirmation/:slug", lazy: lazyPage(() => import("./pages/ReservationConfirmationPage")) },
       { path: "mes-reservations", lazy: lazyPage(() => import("./pages/MyReservationsPage")) },
@@ -102,6 +113,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, lazy: lazyPage(() => import("./admin/pages/DashboardHome")) },
       { path: "biens", lazy: lazyPage(() => import("./admin/pages/BiensPage")) },
+      { path: "packs", lazy: lazyPage(() => import("./admin/pages/PropertyPacksAdminPage")) },
       { path: "clienteles", lazy: lazyPage(() => import("./admin/pages/LocatairesPage")) },
       { path: "locataires", lazy: lazyPage(() => import("./admin/pages/LocatairesPage")) },
       { path: "contrats", lazy: lazyPage(() => import("./admin/pages/ContratsPage")) },

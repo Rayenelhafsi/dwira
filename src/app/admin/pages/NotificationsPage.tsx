@@ -81,6 +81,14 @@ function isOwnerWithoutAppStatus(status?: OwnerCalendarPromptStatus | null) {
   return String(status?.status || '').trim() === 'no_app';
 }
 
+function isOwnerPhoneOnlyStatus(status?: OwnerCalendarPromptStatus | null) {
+  return String(status?.status || '').trim() === 'phone_only';
+}
+
+function isOwnerExcludedFromCalendarAppFlow(status?: OwnerCalendarPromptStatus | null) {
+  return isOwnerWithoutAppStatus(status) || isOwnerPhoneOnlyStatus(status);
+}
+
 type AdminCalendarRequest = {
   id: string;
   ownerId: string;
@@ -769,6 +777,19 @@ function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, n
       isOverdue: false,
     };
   }
+  if (value === 'phone_only') {
+    const flaggedAt = status?.updatedAt || status?.createdAt || null;
+    return {
+      label: 'Avec tel seulement',
+      tone: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+      detail: flaggedAt ? `Classe discussion telephone le ${formatDateTime(flaggedAt)}` : 'Proprietaire marque discussion telephone',
+      helper: 'Suivi par telephone uniquement. Non compte dans les retards tant que ce statut reste actif.',
+      sentAt: flaggedAt,
+      respondedAt: null,
+      waitingDurationLabel: '',
+      isOverdue: false,
+    };
+  }
   const sentAt = value === 'pending'
     ? status?.updatedAt || status?.createdAt || null
     : status?.createdAt || status?.updatedAt || null;
@@ -858,6 +879,7 @@ export default function NotificationsPage() {
   const [isOverdueCalendarListOpen, setIsOverdueCalendarListOpen] = useState(true);
   const [isOtherCalendarListOpen, setIsOtherCalendarListOpen] = useState(true);
   const [isNoAppCalendarListOpen, setIsNoAppCalendarListOpen] = useState(true);
+  const [isPhoneOnlyCalendarListOpen, setIsPhoneOnlyCalendarListOpen] = useState(true);
   const [showOwnerProfilePanel, setShowOwnerProfilePanel] = useState(false);
   const [selectedOwnerBienCalendarId, setSelectedOwnerBienCalendarId] = useState<string | null>(null);
   const [selectedCalendarBienCalendarId, setSelectedCalendarBienCalendarId] = useState<string | null>(null);
@@ -895,6 +917,7 @@ export default function NotificationsPage() {
   const overdueCalendarSectionRef = useRef<HTMLDivElement | null>(null);
   const otherCalendarSectionRef = useRef<HTMLDivElement | null>(null);
   const noAppCalendarSectionRef = useRef<HTMLDivElement | null>(null);
+  const phoneOnlyCalendarSectionRef = useRef<HTMLDivElement | null>(null);
 
   const fetchData = useCallback(async (options?: { background?: boolean }) => {
     if (isFetchingRef.current) return;
@@ -1624,6 +1647,7 @@ export default function NotificationsPage() {
   const selectedCalendarStatus = selectedCalendarOwner ? ownerCalendarStatuses[selectedCalendarOwner.id] || null : null;
   const selectedCalendarStatusMeta = getOwnerCalendarStatusMeta(selectedCalendarStatus, calendarNowMs);
   const selectedCalendarOwnerWithoutApp = isOwnerWithoutAppStatus(selectedCalendarStatus);
+  const selectedCalendarOwnerPhoneOnly = isOwnerPhoneOnlyStatus(selectedCalendarStatus);
   const selectedCalendarPendingRequest = selectedCalendarOwner ? pendingCalendarRequestByOwner.get(selectedCalendarOwner.id) || null : null;
   const selectedCalendarHistory = useMemo(
     () => (selectedCalendarOwner ? calendarRequestHistoryByOwner.get(selectedCalendarOwner.id) || [] : []),
@@ -1649,7 +1673,7 @@ export default function NotificationsPage() {
     () =>
       filteredCalendarOwners.filter((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerWithoutAppStatus(status)) return false;
+        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
         return getOwnerCalendarStatusMeta(status, calendarNowMs).isOverdue;
       }),
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
@@ -1658,7 +1682,7 @@ export default function NotificationsPage() {
     () =>
       filteredCalendarOwners.filter((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerWithoutAppStatus(status)) return false;
+        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
         const statusMeta = getOwnerCalendarStatusMeta(ownerCalendarStatuses[owner.id] || null, calendarNowMs);
         return !statusMeta.isOverdue && String(status?.status || '').trim() === 'pending';
       }).length,
@@ -1669,6 +1693,11 @@ export default function NotificationsPage() {
     [filteredCalendarOwners, ownerCalendarStatuses]
   );
   const noAppCalendarOwnersCount = noAppCalendarOwners.length;
+  const phoneOnlyCalendarOwners = useMemo(
+    () => filteredCalendarOwners.filter((owner) => isOwnerPhoneOnlyStatus(ownerCalendarStatuses[owner.id] || null)),
+    [filteredCalendarOwners, ownerCalendarStatuses]
+  );
+  const phoneOnlyCalendarOwnersCount = phoneOnlyCalendarOwners.length;
   const pendingCalendarUpdateOwnersCount = useMemo(
     () => filteredCalendarOwners.filter((owner) => pendingCalendarRequestByOwner.has(owner.id)).length,
     [filteredCalendarOwners, pendingCalendarRequestByOwner]
@@ -1677,7 +1706,7 @@ export default function NotificationsPage() {
     () =>
       filteredCalendarOwners.filter((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerWithoutAppStatus(status)) return false;
+        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
         return !getOwnerCalendarStatusMeta(status, calendarNowMs).isOverdue;
       }),
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
@@ -1686,7 +1715,7 @@ export default function NotificationsPage() {
     () =>
       filteredCalendarOwners.filter((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerWithoutAppStatus(status)) return false;
+        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
         return String(status?.status || '').trim() === 'confirmed_up_to_date';
       }).length,
     [filteredCalendarOwners, ownerCalendarStatuses]
@@ -1694,7 +1723,7 @@ export default function NotificationsPage() {
   const firstPendingCalendarOwner = pendingCalendarOwnersCount > 0
     ? filteredCalendarOwners.find((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerWithoutAppStatus(status)) return false;
+        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
         const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
         return !statusMeta.isOverdue && String(status?.status || '').trim() === 'pending';
       }) || null
@@ -1705,26 +1734,29 @@ export default function NotificationsPage() {
   const firstUpToDateCalendarOwner = upToDateCalendarOwnersCount > 0
     ? filteredCalendarOwners.find((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerWithoutAppStatus(status)) return false;
+        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
         return String(status?.status || '').trim() === 'confirmed_up_to_date';
       }) || null
     : null;
+  const firstPhoneOnlyCalendarOwner = phoneOnlyCalendarOwnersCount > 0 ? phoneOnlyCalendarOwners[0] || null : null;
   const focusCalendarOwner = useCallback((owner: { id: string; name: string } | null) => {
     if (!owner) return;
     setSelectedCalendarOwner(owner);
   }, []);
-  const scrollToCalendarSection = useCallback((section: 'overdue' | 'other' | 'no_app') => {
+  const scrollToCalendarSection = useCallback((section: 'overdue' | 'other' | 'no_app' | 'phone_only') => {
     const target = section === 'overdue'
       ? overdueCalendarSectionRef.current
       : section === 'other'
         ? otherCalendarSectionRef.current
-        : noAppCalendarSectionRef.current;
+        : section === 'no_app'
+          ? noAppCalendarSectionRef.current
+          : phoneOnlyCalendarSectionRef.current;
     target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
   const demandAttentionCount = pendingDemands.length;
   const chatAttentionCount = unreadOwnerMessagesCount;
-  const calendarAttentionCount = overdueCalendarOwners.length + pendingCalendarOwnersCount + pendingCalendarUpdateOwnersCount + noAppCalendarOwnersCount;
+  const calendarAttentionCount = overdueCalendarOwners.length + pendingCalendarOwnersCount + pendingCalendarUpdateOwnersCount + noAppCalendarOwnersCount + phoneOnlyCalendarOwnersCount;
   const systemAttentionCount = visibleNotificationInsights.filter(
     (item) => !item.notification.lu && item.category !== 'proprietaire'
   ).length;
@@ -2092,7 +2124,7 @@ export default function NotificationsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ status: 'no_app' }),
       });
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, "Impossible de marquer ce proprietaire comme n ayant pas encore l application"));
@@ -2106,12 +2138,37 @@ export default function NotificationsPage() {
     }
   };
 
+  const markCalendarOwnerPhoneOnly = async (owner: { id: string; name: string }) => {
+    const ownerId = String(owner.id || '').trim();
+    if (!ownerId) return;
+    setCalendarOwnerStatusLoadingId(ownerId);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses/${encodeURIComponent(ownerId)}/phone-only`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Impossible de marquer ce proprietaire en discussion telephone'));
+      }
+      toast.success(`${owner.name} deplace vers la liste avec telephone`);
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de marquer ce proprietaire en discussion telephone');
+    } finally {
+      setCalendarOwnerStatusLoadingId(null);
+    }
+  };
+
   const admitCalendarOwnerHasApp = async (owner: { id: string; name: string }) => {
     const ownerId = String(owner.id || '').trim();
     if (!ownerId) return;
     setCalendarOwnerStatusLoadingId(ownerId);
     try {
-      const response = await fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses/${encodeURIComponent(ownerId)}/no-app`, {
+      const currentStatus = ownerCalendarStatuses[ownerId] || null;
+      const resetPath = isOwnerPhoneOnlyStatus(currentStatus) ? 'phone-only' : 'no-app';
+      const response = await fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses/${encodeURIComponent(ownerId)}/${resetPath}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -3543,7 +3600,7 @@ export default function NotificationsPage() {
                     </div>
                     <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Suivi</div>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 min-[900px]:grid-cols-3 xl:grid-cols-5">
+                  <div className="mt-4 grid grid-cols-2 gap-2 min-[900px]:grid-cols-3 xl:grid-cols-6">
                     <button
                       type="button"
                       onClick={() => focusCalendarOwner(overdueCalendarOwners[0] || null)}
@@ -3582,6 +3639,19 @@ export default function NotificationsPage() {
                     >
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">Sans application</p>
                       <p className="mt-1 text-lg font-bold text-indigo-900">{noAppCalendarOwnersCount}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPhoneOnlyCalendarListOpen(true);
+                        scrollToCalendarSection('phone_only');
+                        focusCalendarOwner(firstPhoneOnlyCalendarOwner);
+                      }}
+                      disabled={phoneOnlyCalendarOwners.length === 0}
+                      className="rounded-2xl border border-cyan-200 bg-cyan-50 px-3 py-3 text-left transition-colors hover:bg-cyan-100 disabled:cursor-default disabled:opacity-70"
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Avec tel</p>
+                      <p className="mt-1 text-lg font-bold text-cyan-900">{phoneOnlyCalendarOwnersCount}</p>
                     </button>
                     <button
                       type="button"
@@ -3819,6 +3889,80 @@ export default function NotificationsPage() {
                         ) : null}
                       </div>
                     )}
+                    {phoneOnlyCalendarOwners.length > 0 && (
+                      <div ref={phoneOnlyCalendarSectionRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsPhoneOnlyCalendarListOpen((current) => !current)}
+                          className="mb-2 flex w-full items-center justify-between gap-3 px-1 text-left"
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">Proprietaires avec telephone</p>
+                          <span className="flex items-center gap-2">
+                            <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">{phoneOnlyCalendarOwners.length}</span>
+                            {isPhoneOnlyCalendarListOpen ? <ChevronUp className="h-4 w-4 text-cyan-500" /> : <ChevronDown className="h-4 w-4 text-cyan-500" />}
+                          </span>
+                        </button>
+                        {isPhoneOnlyCalendarListOpen ? (
+                          <div className="space-y-2">
+                            {phoneOnlyCalendarOwners.map((owner) => {
+                              const isActive = selectedCalendarOwner?.id === owner.id;
+                              const status = ownerCalendarStatuses[owner.id] || null;
+                              const statusMeta = getOwnerCalendarStatusMeta(status, calendarNowMs);
+                              const historyCount = (calendarRequestHistoryByOwner.get(owner.id) || []).length;
+                              return (
+                                <button
+                                  type="button"
+                                  key={`calendar-owner-phone-only-${owner.id}`}
+                                  onClick={() => setSelectedCalendarOwner(owner)}
+                                  className={`flex w-full items-start gap-4 rounded-[26px] border px-4 py-4 text-left transition-all ${
+                                    isActive
+                                      ? 'border-cyan-400 bg-cyan-50 shadow-[0_0_0_1px_rgba(34,211,238,0.28),0_14px_30px_rgba(8,145,178,0.08)]'
+                                      : 'border-cyan-200 bg-white shadow-sm'
+                                  }`}
+                                >
+                                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-cyan-700 text-sm font-bold text-white shadow-lg">
+                                    {getOwnerInitials(owner.name)}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
+                                        <span className="mt-1 inline-flex rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
+                                          {statusMeta.label}
+                                        </span>
+                                      </div>
+                                      {(status?.updatedAt || status?.createdAt) ? (
+                                        <span className="shrink-0 text-[11px] text-cyan-500">
+                                          {formatRelativeDelay(status?.updatedAt || status?.createdAt).replace(/^il y a /, '')}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-2 line-clamp-2 text-sm text-slate-600">{statusMeta.detail}</p>
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-cyan-700">
+                                      <span>{statusMeta.helper}</span>
+                                      <span>{historyCount} historique</span>
+                                    </div>
+                                    <div className="mt-3">
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void admitCalendarOwnerHasApp(owner);
+                                        }}
+                                        disabled={calendarOwnerStatusLoadingId === owner.id}
+                                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                      >
+                                        {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Admet application'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3862,7 +4006,7 @@ export default function NotificationsPage() {
                         </div>
                       </div>
                       <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 sm:ml-0">
-                        {selectedCalendarOwnerWithoutApp ? (
+                        {selectedCalendarOwnerWithoutApp || selectedCalendarOwnerPhoneOnly ? (
                           <button
                             type="button"
                             onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
@@ -3880,6 +4024,14 @@ export default function NotificationsPage() {
                               className="inline-flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 transition-colors hover:bg-indigo-100 disabled:opacity-60"
                             >
                               {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Sans app'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void markCalendarOwnerPhoneOnly(selectedCalendarOwner)}
+                              disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                              className="inline-flex items-center gap-2 rounded-xl border border-cyan-300 bg-cyan-50 px-3 py-2 text-sm font-medium text-cyan-800 transition-colors hover:bg-cyan-100 disabled:opacity-60"
+                            >
+                              {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Discussion tel'}
                             </button>
                             <button
                               type="button"
@@ -3932,7 +4084,7 @@ export default function NotificationsPage() {
                                 </div>
                               </div>
                               <div className="mt-4 flex flex-wrap gap-2">
-                                {selectedCalendarOwnerWithoutApp ? (
+                                {selectedCalendarOwnerWithoutApp || selectedCalendarOwnerPhoneOnly ? (
                                   <button
                                     type="button"
                                     onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
@@ -3942,14 +4094,24 @@ export default function NotificationsPage() {
                                     {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Admet application'}
                                   </button>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => void markCalendarOwnerWithoutApp(selectedCalendarOwner)}
-                                    disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
-                                    className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
-                                  >
-                                    {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Sans app'}
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => void markCalendarOwnerWithoutApp(selectedCalendarOwner)}
+                                      disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                      className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+                                    >
+                                      {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Sans app'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void markCalendarOwnerPhoneOnly(selectedCalendarOwner)}
+                                      disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                      className="rounded-xl border border-cyan-300 bg-cyan-50 px-3 py-2 text-sm font-medium text-cyan-800 hover:bg-cyan-100 disabled:opacity-60"
+                                    >
+                                      {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Discussion tel'}
+                                    </button>
+                                  </>
                                 )}
                               </div>
                               {selectedCalendarPendingRequest ? (
@@ -4578,7 +4740,7 @@ export default function NotificationsPage() {
 
       {calendarReviewRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[92vh] w-full max-w-7xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+          <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Difference calendrier</h3>
@@ -4589,19 +4751,41 @@ export default function NotificationsPage() {
                   {calendarReviewRequest.requestType === 'open' ? 'Reouverture demandee' : 'Fermeture demandee'} du {formatStayDate(calendarReviewRequest.startDate)} au {formatStayDate(calendarReviewRequest.endDate)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setCalendarReviewRequest(null);
-                  setCalendarReviewDiff(null);
-                }}
-                className="rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100"
-              >
-                Fermer
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {calendarReviewRequest.status === 'pending' && !calendarReviewLoading && calendarReviewDiff ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void rejectCalendarRequest(calendarReviewRequest)}
+                      disabled={calendarActionLoadingId === calendarReviewRequest.id}
+                      className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                    >
+                      {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Rejeter'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void approveCalendarRequest(calendarReviewRequest)}
+                      disabled={calendarActionLoadingId === calendarReviewRequest.id}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Confirmer'}
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalendarReviewRequest(null);
+                    setCalendarReviewDiff(null);
+                  }}
+                  className="rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                >
+                  Fermer
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-4 px-5 py-4">
+            <div className="flex-1 overflow-y-auto px-5 py-4">
               {calendarReviewLoading && (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
                   Chargement de la difference calendrier...
@@ -4609,7 +4793,7 @@ export default function NotificationsPage() {
               )}
 
               {!calendarReviewLoading && calendarReviewDiff && (
-                <>
+                <div className="space-y-4">
                   {calendarReviewDiff.note ? (
                     <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
                       Note proprietaire: {calendarReviewDiff.note}
@@ -4642,30 +4826,30 @@ export default function NotificationsPage() {
                       />
                     </div>
                   </div>
-
-                  {calendarReviewRequest.status === 'pending' && (
-                    <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4">
-                      <button
-                        type="button"
-                        onClick={() => void rejectCalendarRequest(calendarReviewRequest)}
-                        disabled={calendarActionLoadingId === calendarReviewRequest.id}
-                        className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
-                      >
-                        {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Rejeter'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void approveCalendarRequest(calendarReviewRequest)}
-                        disabled={calendarActionLoadingId === calendarReviewRequest.id}
-                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-                      >
-                        {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Confirmer'}
-                      </button>
-                    </div>
-                  )}
-                </>
+                </div>
               )}
             </div>
+
+            {calendarReviewRequest.status === 'pending' && !calendarReviewLoading && calendarReviewDiff && (
+              <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 bg-white px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => void rejectCalendarRequest(calendarReviewRequest)}
+                  disabled={calendarActionLoadingId === calendarReviewRequest.id}
+                  className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                >
+                  {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Rejeter'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void approveCalendarRequest(calendarReviewRequest)}
+                  disabled={calendarActionLoadingId === calendarReviewRequest.id}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {calendarActionLoadingId === calendarReviewRequest.id ? 'Traitement...' : 'Confirmer'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

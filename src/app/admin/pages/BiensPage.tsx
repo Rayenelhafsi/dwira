@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
+import { Link } from 'react-router';
 import { mockZones } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -957,7 +958,6 @@ export default function BiensPage() {
       cancelled = true;
     };
   }, [homeFilterImageMode]);
-
   const handleTypeImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
     setTypeImageFile(file);
@@ -978,7 +978,6 @@ export default function BiensPage() {
     const url = URL.createObjectURL(file);
     setHomeFilterImagePreview(url);
   };
-
   const handleSaveTypeFilterImage = async () => {
     if (!typeImageFile) {
       toast.error("Choisissez une image");
@@ -1541,6 +1540,7 @@ export default function BiensPage() {
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <button onClick={() => { setDuplicateSeedBien(null); setEditingBien(null); setEditorInitialStep(1); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
           <button onClick={() => { setDuplicateSeedBien({ mode: 'location_saisonniere', type: 'residence', residence_units: [], statut: 'disponible', visible_sur_site: true } as Bien); setEditingBien(null); setEditorInitialStep(0); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 border border-emerald-600 text-emerald-700 text-sm font-medium rounded-md hover:bg-emerald-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau residence</button>
+          <Link to="/admin/packs" className="inline-flex items-center justify-center px-4 py-2 border border-amber-400 text-amber-800 text-sm font-medium rounded-md hover:bg-amber-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Packs</Link>
         </div>
       </div>
       <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4">

@@ -3,6 +3,7 @@ import { useLocation } from "react-router";
 
 const DashboardHomePage = lazy(() => import("../pages/DashboardHome"));
 const BiensPage = lazy(() => import("../pages/BiensPage"));
+const PropertyPacksAdminPage = lazy(() => import("../pages/PropertyPacksAdminPage"));
 const ClientelesPage = lazy(() => import("../pages/LocatairesPage"));
 const ContratsPage = lazy(() => import("../pages/ContratsPage"));
 const PaiementsPage = lazy(() => import("../pages/PaiementsPage"));
@@ -12,6 +13,7 @@ const NotificationsPage = lazy(() => import("../pages/NotificationsPage"));
 const KEEP_ALIVE_ROUTES = [
   { path: "/admin", component: DashboardHomePage },
   { path: "/admin/biens", component: BiensPage },
+  { path: "/admin/packs", component: PropertyPacksAdminPage },
   { path: "/admin/clienteles", component: ClientelesPage },
   { path: "/admin/locataires", component: ClientelesPage },
   { path: "/admin/contrats", component: ContratsPage },

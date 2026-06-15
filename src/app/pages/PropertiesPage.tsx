@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw, Share2 } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
@@ -3236,13 +3236,21 @@ export default function PropertiesPage() {
                   </button>
                 )}
                 {!showAllResults && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllResults(true)}
-                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
-                  >
-                    Voir tout le catalogue
-                  </button>
+                  <>
+                    <Link
+                      to="/packs"
+                      className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-[linear-gradient(135deg,#fff8d6,#facc15)] px-5 py-2.5 text-sm font-semibold text-amber-900 shadow-[0_12px_24px_rgba(245,158,11,0.14)] transition-colors hover:brightness-105"
+                    >
+                      Voir nos packs
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllResults(true)}
+                      className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                    >
+                      Voir tout le catalogue
+                    </button>
+                  </>
                 )}
               </div>
             )}

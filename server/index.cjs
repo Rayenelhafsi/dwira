@@ -9088,6 +9088,82 @@ async function ensureHomeFilterOptionImagesSchema() {
   `);
 }
 
+async function ensurePropertyPacksSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS property_packs (
+      id VARCHAR(120) NOT NULL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      description TEXT NULL,
+      bien_ids_json LONGTEXT NOT NULL,
+      highlight_bullets_json LONGTEXT NULL,
+      gallery_images_json LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+  try {
+    await pool.query('ALTER TABLE property_packs ADD COLUMN highlight_bullets_json LONGTEXT NULL AFTER bien_ids_json');
+  } catch {}
+  try {
+    await pool.query('ALTER TABLE property_packs ADD COLUMN gallery_images_json LONGTEXT NULL AFTER highlight_bullets_json');
+  } catch {}
+}
+
+function normalizePropertyPackBienIds(rawValue) {
+  const values = Array.isArray(rawValue)
+    ? rawValue
+    : (typeof rawValue === 'string' && rawValue.trim()
+      ? (() => {
+          try {
+            const parsed = JSON.parse(rawValue);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })()
+      : []);
+  return Array.from(new Set(values.map((item) => String(item || '').trim()).filter(Boolean)));
+}
+
+function normalizeStringArray(rawValue) {
+  const values = Array.isArray(rawValue)
+    ? rawValue
+    : (typeof rawValue === 'string' && rawValue.trim()
+      ? (() => {
+          try {
+            const parsed = JSON.parse(rawValue);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })()
+      : []);
+  return Array.from(new Set(values.map((item) => String(item || '').trim()).filter(Boolean)));
+}
+
+function mapPropertyPackRow(row) {
+  return {
+    id: String(row.id || '').trim(),
+    name: String(row.name || '').trim(),
+    description: String(row.description || '').trim() || null,
+    bienIds: normalizePropertyPackBienIds(row.bien_ids_json),
+    highlightBullets: normalizeStringArray(row.highlight_bullets_json),
+    galleryImages: normalizeStringArray(row.gallery_images_json),
+    createdAt: row.created_at ? toPublicIsoDateTime(row.created_at) : null,
+    updatedAt: row.updated_at ? toPublicIsoDateTime(row.updated_at) : null,
+  };
+}
+
+async function listPropertyPacks() {
+  await ensurePropertyPacksSchema();
+  const [rows] = await pool.query(
+    `SELECT id, name, description, bien_ids_json, highlight_bullets_json, gallery_images_json, created_at, updated_at
+     FROM property_packs
+     ORDER BY updated_at DESC, created_at DESC`
+  );
+  return (rows || []).map(mapPropertyPackRow);
+}
+
 async function listPaidServicesCatalogue() {
   await ensurePaidServicesSchema();
   const [rows] = await pool.query(
@@ -12144,6 +12220,7 @@ async function initializeDatabaseSchema() {
       ['ensureSeasonalPricingSchema', ensureSeasonalPricingSchema],
       ['ensureTypeFilterImagesSchema', ensureTypeFilterImagesSchema],
       ['ensureHomeFilterOptionImagesSchema', ensureHomeFilterOptionImagesSchema],
+      ['ensurePropertyPacksSchema', ensurePropertyPacksSchema],
     ];
 
     for (const [label, step] of steps) {
@@ -12377,6 +12454,106 @@ app.delete('/api/home-filter-option-images/:id', requireAdminSession, async (req
   } catch (error) {
     console.error('Error deleting home filter option image:', error);
     res.status(500).json({ error: "Impossible de supprimer l'image de cette option de filtre" });
+  }
+});
+
+app.get('/api/property-packs', async (_req, res) => {
+  try {
+    res.json(await listPropertyPacks());
+  } catch (error) {
+    console.error('Error fetching property packs:', error);
+    res.status(500).json({ error: 'Impossible de charger les packs de biens' });
+  }
+});
+
+app.post('/api/property-packs', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyPacksSchema();
+    const name = String(req.body?.name || '').trim();
+    const description = String(req.body?.description || '').trim() || null;
+    const bienIds = normalizePropertyPackBienIds(req.body?.bienIds);
+    const highlightBullets = normalizeStringArray(req.body?.highlightBullets);
+    const galleryImages = normalizeStringArray(req.body?.galleryImages);
+    if (!name) return res.status(400).json({ error: 'Nom du pack requis' });
+    if (bienIds.length === 0) return res.status(400).json({ error: 'Ajoutez au moins une reference au pack' });
+    const placeholders = bienIds.map(() => '?').join(', ');
+    const [bienRows] = await pool.query(`SELECT id FROM biens WHERE id IN (${placeholders})`, bienIds);
+    const existingBienIds = new Set((bienRows || []).map((row) => String(row.id || '').trim()).filter(Boolean));
+    const filteredBienIds = bienIds.filter((id) => existingBienIds.has(id));
+    if (filteredBienIds.length === 0) {
+      return res.status(400).json({ error: 'Aucune reference valide dans ce pack' });
+    }
+    const id = `pack_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO property_packs (id, name, description, bien_ids_json, highlight_bullets_json, gallery_images_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, description, JSON.stringify(filteredBienIds), JSON.stringify(highlightBullets), JSON.stringify(galleryImages), now, now]
+    );
+    const packs = await listPropertyPacks();
+    res.status(201).json(
+      packs.find((pack) => pack.id === id)
+      || { id, name, description, bienIds: filteredBienIds, highlightBullets, galleryImages, createdAt: now, updatedAt: now }
+    );
+  } catch (error) {
+    console.error('Error creating property pack:', error);
+    res.status(500).json({ error: 'Impossible de creer le pack de biens' });
+  }
+});
+
+app.put('/api/property-packs/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyPacksSchema();
+    const id = String(req.params.id || '').trim();
+    const name = String(req.body?.name || '').trim();
+    const description = String(req.body?.description || '').trim() || null;
+    const bienIds = normalizePropertyPackBienIds(req.body?.bienIds);
+    const highlightBullets = normalizeStringArray(req.body?.highlightBullets);
+    const galleryImages = normalizeStringArray(req.body?.galleryImages);
+    if (!id) return res.status(400).json({ error: 'Pack introuvable' });
+    if (!name) return res.status(400).json({ error: 'Nom du pack requis' });
+    if (bienIds.length === 0) return res.status(400).json({ error: 'Ajoutez au moins une reference au pack' });
+    const placeholders = bienIds.map(() => '?').join(', ');
+    const [bienRows] = await pool.query(`SELECT id FROM biens WHERE id IN (${placeholders})`, bienIds);
+    const existingBienIds = new Set((bienRows || []).map((row) => String(row.id || '').trim()).filter(Boolean));
+    const filteredBienIds = bienIds.filter((rowId) => existingBienIds.has(rowId));
+    if (filteredBienIds.length === 0) {
+      return res.status(400).json({ error: 'Aucune reference valide dans ce pack' });
+    }
+    const now = getAgencySqlDateTime();
+    const [result] = await pool.query(
+      `UPDATE property_packs
+       SET name = ?, description = ?, bien_ids_json = ?, highlight_bullets_json = ?, gallery_images_json = ?, updated_at = ?
+       WHERE id = ?`,
+      [name, description, JSON.stringify(filteredBienIds), JSON.stringify(highlightBullets), JSON.stringify(galleryImages), now, id]
+    );
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Pack introuvable' });
+    }
+    const packs = await listPropertyPacks();
+    res.json(
+      packs.find((pack) => pack.id === id)
+      || { id, name, description, bienIds: filteredBienIds, highlightBullets, galleryImages, updatedAt: now }
+    );
+  } catch (error) {
+    console.error('Error updating property pack:', error);
+    res.status(500).json({ error: 'Impossible de modifier le pack de biens' });
+  }
+});
+
+app.delete('/api/property-packs/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyPacksSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'Pack introuvable' });
+    const [result] = await pool.query('DELETE FROM property_packs WHERE id = ?', [id]);
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Pack introuvable' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('Error deleting property pack:', error);
+    res.status(500).json({ error: 'Impossible de supprimer le pack de biens' });
   }
 });
 
@@ -15423,7 +15600,7 @@ app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-owner/:ownerId', r
       `SELECT status FROM owner_calendar_status_flags WHERE owner_id = ? LIMIT 1`,
       [ownerId]
     );
-    if (String(flagRows?.[0]?.status || '').trim() === 'no_app') {
+    if (['no_app', 'phone_only'].includes(String(flagRows?.[0]?.status || '').trim())) {
       return res.status(400).json({ error: 'Ce proprietaire est marque comme n ayant pas encore l application' });
     }
     const result = await dispatchOwnerCalendarPromptBatch({
@@ -15547,6 +15724,8 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/no-app', req
     if (!ownerId) {
       return res.status(400).json({ error: 'ownerId requis' });
     }
+    const requestedStatus = String(req.body?.status || 'no_app').trim().toLowerCase();
+    const nextStatus = requestedStatus === 'phone_only' ? 'phone_only' : 'no_app';
     const ownerIdentity = await fetchOwnerIdentity(ownerId);
     if (!ownerIdentity.ownerId) {
       return res.status(404).json({ error: 'Proprietaire introuvable' });
@@ -15568,13 +15747,50 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/no-app', req
     };
     const result = await setOwnerCalendarStatusFlag({
       ownerId,
-      status: 'no_app',
+      status: nextStatus,
       metadata,
     });
-    res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, status: 'no_app', updatedAt: result?.updatedAt || null });
+    res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, status: nextStatus, updatedAt: result?.updatedAt || null });
   } catch (error) {
     console.error('Error marking owner as no-app:', error);
     res.status(500).json({ error: 'Failed to mark owner as no-app' });
+  }
+});
+
+app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/phone-only', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    if (!ownerIdentity.ownerId) {
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+    const currentStatuses = await getOwnerCalendarPromptStatuses();
+    const currentStatus = currentStatuses.find((row) => String(row.ownerId || '').trim() === ownerId) || null;
+    const metadata = {
+      source: 'admin_manual',
+      ownerName: ownerIdentity.ownerName,
+      promptId: currentStatus?.promptId || null,
+      promptDate: currentStatus?.promptDate || null,
+      previousStatus: currentStatus?.status || null,
+      previousRespondedAt: currentStatus?.respondedAt || null,
+      previousNotificationId: currentStatus?.notificationId || null,
+      previousUpdatedAt: currentStatus?.updatedAt || null,
+      previousCreatedAt: currentStatus?.createdAt || null,
+      markedAt: getAgencySqlDateTime(),
+      markedBy: req.authUser?.id || 'admin',
+    };
+    const result = await setOwnerCalendarStatusFlag({
+      ownerId,
+      status: 'phone_only',
+      metadata,
+    });
+    res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, status: 'phone_only', updatedAt: result?.updatedAt || null });
+  } catch (error) {
+    console.error('Error marking owner as phone-only:', error);
+    res.status(500).json({ error: 'Failed to mark owner as phone-only' });
   }
 });
 
@@ -15593,6 +15809,24 @@ app.delete('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/no-app', r
   } catch (error) {
     console.error('Error restoring owner app status:', error);
     res.status(500).json({ error: 'Failed to restore owner app status' });
+  }
+});
+
+app.delete('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/phone-only', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    if (!ownerIdentity.ownerId) {
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+    await setOwnerCalendarStatusFlag({ ownerId, status: '' });
+    res.json({ ok: true, ownerId, ownerName: ownerIdentity.ownerName, status: 'with_app' });
+  } catch (error) {
+    console.error('Error restoring owner phone-only status:', error);
+    res.status(500).json({ error: 'Failed to restore owner phone-only status' });
   }
 });
 
@@ -20022,7 +20256,7 @@ async function getOwnerCalendarPromptStatuses() {
             DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
             DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
      FROM owner_calendar_status_flags
-     WHERE status = 'no_app'
+     WHERE status IN ('no_app', 'phone_only')
      ORDER BY updated_at DESC, created_at DESC`
   );
   for (const row of flagRows || []) {
@@ -20036,11 +20270,11 @@ async function getOwnerCalendarPromptStatuses() {
     }
     const ownerIdentity = await fetchOwnerIdentity(ownerId);
     byOwner.set(ownerId, {
-      promptId: responseMetadata?.promptId || `no_app_${ownerId}`,
+      promptId: responseMetadata?.promptId || `${String(row.status || '').trim() || 'flag'}_${ownerId}`,
       ownerId,
       ownerName: ownerIdentity.ownerName || ownerId,
       promptDate: responseMetadata?.promptDate || null,
-      status: 'no_app',
+      status: String(row.status || '').trim() || 'no_app',
       notificationId: null,
       overdueNotificationId: null,
       overdueNotifiedAt: null,
@@ -20154,7 +20388,7 @@ async function dispatchOwnerCalendarPromptBatch({
       `SELECT status FROM owner_calendar_status_flags WHERE owner_id = ? LIMIT 1`,
       [ownerId]
     );
-    if (String(flagRows?.[0]?.status || '').trim() === 'no_app') {
+    if (['no_app', 'phone_only'].includes(String(flagRows?.[0]?.status || '').trim())) {
       skippedOwners += 1;
       continue;
     }

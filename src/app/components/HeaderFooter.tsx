@@ -383,6 +383,7 @@ export function Header() {
   const navLinks = [
     { name: "Accueil", path: "/" },
     { name: "Locations saisonnieres", path: "/logements?mode=location_saisonniere" },
+    { name: "Packs", path: "/packs" },
     { name: "Hotellerie", path: "/?mode=hotellerie" },
     { name: "Ventes", path: "/ventes" },
     { name: "Apps", path: "/deploy-mobile" },

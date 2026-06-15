@@ -460,6 +460,17 @@ export interface Bien {
   caracteristique_valeurs?: Record<string, string | string[]>;
 }
 
+export interface PropertyPack {
+  id: string;
+  name: string;
+  description?: string | null;
+  bienIds: string[];
+  highlightBullets?: string[];
+  galleryImages?: string[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface Caracteristique {
   id: string;
   nom: string;
