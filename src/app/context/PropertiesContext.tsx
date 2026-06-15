@@ -854,11 +854,10 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
 }
 
 async function fetchBiensResilient(apiUrl: string): Promise<Response> {
-  const isIphone = typeof navigator !== 'undefined' && /iPhone/i.test(String(navigator.userAgent || ''));
-  const endpointPrimary = `${apiUrl}/${isIphone ? 'biens-lite' : 'biens'}`;
+  const endpointPrimary = `${apiUrl}/biens-lite`;
   const endpointFallback = `${apiUrl}/biens`;
   const requestInit: RequestInit = { credentials: 'include', cache: 'no-store' };
-  const primaryTimeoutMs = isIphone ? 7000 : 10000;
+  const primaryTimeoutMs = 10000;
   try {
     return await fetchWithTimeout(endpointPrimary, requestInit, primaryTimeoutMs);
   } catch {

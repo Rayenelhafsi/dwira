@@ -20871,22 +20871,29 @@ async function ensureAdminDataExportsSchema() {
   `);
 }
 
+let ensureSearchShareLinksSchemaPromise = null;
 async function ensureSearchShareLinksSchema() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS search_share_links (
-      id VARCHAR(100) PRIMARY KEY,
-      short_code VARCHAR(16) NOT NULL,
-      target_path VARCHAR(255) NOT NULL,
-      target_query TEXT NULL,
-      target_hash CHAR(64) NOT NULL,
-      visit_count INT NOT NULL DEFAULT 0,
-      last_used_at DATETIME NULL,
-      created_at DATETIME NOT NULL,
-      UNIQUE KEY uniq_search_share_short_code (short_code),
-      KEY idx_search_share_target_hash (target_hash),
-      KEY idx_search_share_created (created_at)
-    )
-  `);
+  if (!ensureSearchShareLinksSchemaPromise) {
+    ensureSearchShareLinksSchemaPromise = pool.query(`
+      CREATE TABLE IF NOT EXISTS search_share_links (
+        id VARCHAR(100) PRIMARY KEY,
+        short_code VARCHAR(16) NOT NULL,
+        target_path VARCHAR(255) NOT NULL,
+        target_query TEXT NULL,
+        target_hash CHAR(64) NOT NULL,
+        visit_count INT NOT NULL DEFAULT 0,
+        last_used_at DATETIME NULL,
+        created_at DATETIME NOT NULL,
+        UNIQUE KEY uniq_search_share_short_code (short_code),
+        KEY idx_search_share_target_hash (target_hash),
+        KEY idx_search_share_created (created_at)
+      )
+    `).catch((error) => {
+      ensureSearchShareLinksSchemaPromise = null;
+      throw error;
+    });
+  }
+  await ensureSearchShareLinksSchemaPromise;
 }
 
 async function recordAdminDataExport({ dataset, format = 'csv', dateFrom = null, dateTo = null, rowCount = 0, req, user = null }) {
@@ -20933,37 +20940,40 @@ async function ensureClientelesTasksSchema() {
   `);
 }
 
+let ensureReservationDemandSchemaPromise = null;
 async function ensureReservationDemandSchema() {
-  const columnExists = async (tableName, columnName) => {
-    const [rows] = await pool.query(
-      `
-      SELECT 1
-      FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND COLUMN_NAME = ?
-      LIMIT 1
-      `,
-      [tableName, columnName]
-    );
-    return rows.length > 0;
-  };
-  const getColumnDataType = async (tableName, columnName) => {
-    const [rows] = await pool.query(
-      `
-      SELECT DATA_TYPE AS data_type
-      FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND COLUMN_NAME = ?
-      LIMIT 1
-      `,
-      [tableName, columnName]
-    );
-    return String(rows?.[0]?.data_type || '').trim().toLowerCase();
-  };
+  if (!ensureReservationDemandSchemaPromise) {
+    ensureReservationDemandSchemaPromise = (async () => {
+      const columnExists = async (tableName, columnName) => {
+        const [rows] = await pool.query(
+          `
+          SELECT 1
+          FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = ?
+          LIMIT 1
+          `,
+          [tableName, columnName]
+        );
+        return rows.length > 0;
+      };
+      const getColumnDataType = async (tableName, columnName) => {
+        const [rows] = await pool.query(
+          `
+          SELECT DATA_TYPE AS data_type
+          FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = ?
+          LIMIT 1
+          `,
+          [tableName, columnName]
+        );
+        return String(rows?.[0]?.data_type || '').trim().toLowerCase();
+      };
 
-  await pool.query(`
+      await pool.query(`
     CREATE TABLE IF NOT EXISTS reservation_demands (
       id VARCHAR(100) PRIMARY KEY,
       bien_id VARCHAR(100) NOT NULL,
@@ -21045,7 +21055,7 @@ async function ensureReservationDemandSchema() {
     )
   `);
 
-  await pool.query(`
+      await pool.query(`
     CREATE TABLE IF NOT EXISTS reservation_demand_history (
       id VARCHAR(100) PRIMARY KEY,
       demand_id VARCHAR(100) NOT NULL,
@@ -21060,14 +21070,14 @@ async function ensureReservationDemandSchema() {
 
   // Backward compatibility: older prod schemas may still have ENUM status values.
   // Convert to VARCHAR so new statuses (e.g. demande_annulee_client) are persisted.
-  const reservationStatusType = await getColumnDataType('reservation_demands', 'status');
-  if (reservationStatusType && reservationStatusType !== 'varchar') {
-    await pool.query('ALTER TABLE reservation_demands MODIFY COLUMN status VARCHAR(80) NOT NULL');
-  }
-  const historyStatusType = await getColumnDataType('reservation_demand_history', 'status');
-  if (historyStatusType && historyStatusType !== 'varchar') {
-    await pool.query('ALTER TABLE reservation_demand_history MODIFY COLUMN status VARCHAR(80) NOT NULL');
-  }
+      const reservationStatusType = await getColumnDataType('reservation_demands', 'status');
+      if (reservationStatusType && reservationStatusType !== 'varchar') {
+        await pool.query('ALTER TABLE reservation_demands MODIFY COLUMN status VARCHAR(80) NOT NULL');
+      }
+      const historyStatusType = await getColumnDataType('reservation_demand_history', 'status');
+      if (historyStatusType && historyStatusType !== 'varchar') {
+        await pool.query('ALTER TABLE reservation_demand_history MODIFY COLUMN status VARCHAR(80) NOT NULL');
+      }
 
   if (!(await columnExists('unavailable_dates', 'reservation_demand_id'))) {
     await pool.query('ALTER TABLE unavailable_dates ADD COLUMN reservation_demand_id VARCHAR(100) NULL AFTER status');
@@ -21264,9 +21274,15 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'created_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER payment_receipt_note');
   }
-  if (!(await columnExists('reservation_demands', 'updated_at'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
+      if (!(await columnExists('reservation_demands', 'updated_at'))) {
+        await pool.query('ALTER TABLE reservation_demands ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
+      }
+    })().catch((error) => {
+      ensureReservationDemandSchemaPromise = null;
+      throw error;
+    });
   }
+  await ensureReservationDemandSchemaPromise;
 }
 
 async function ensureContractsSchema() {

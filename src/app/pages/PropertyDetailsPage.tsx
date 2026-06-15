@@ -572,7 +572,7 @@ const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
 
 export default function PropertyDetailsPage() {
   // Use shared context for properties
-  const { properties, biens, zones } = useProperties();
+  const { properties, biens, zones, loading } = useProperties();
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -580,6 +580,7 @@ export default function PropertyDetailsPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const property = properties.find((p) => propertyMatchesRouteToken(p, slug));
+  const isLoadingInitialProperty = loading && properties.length === 0 && biens.length === 0;
   const propertyRouteToken = property ? getPropertyRouteToken(property) : "";
   const propertyDisplayTitle = buildReferenceTitle(property?.reference, property?.title);
   const propertyVideos = property?.videos || [];
@@ -2939,6 +2940,32 @@ out body 40;
       };
     }
   }, [emblaApi]);
+
+  if (isLoadingInitialProperty) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] w-full max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
+        <div className="h-5 w-56 animate-pulse rounded-full bg-slate-100" />
+        <div className="h-10 w-3/4 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
+          <div className="space-y-4">
+            <div className="h-[24rem] animate-pulse rounded-[2rem] bg-slate-100" />
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={`property-detail-thumb-${index}`} className="h-28 animate-pulse rounded-[1.5rem] bg-slate-100" />
+              ))}
+            </div>
+            <div className="h-8 w-1/2 animate-pulse rounded-2xl bg-slate-100" />
+            <div className="space-y-3">
+              <div className="h-4 w-full animate-pulse rounded-full bg-slate-100" />
+              <div className="h-4 w-11/12 animate-pulse rounded-full bg-slate-100" />
+              <div className="h-4 w-4/5 animate-pulse rounded-full bg-slate-100" />
+            </div>
+          </div>
+          <div className="h-[28rem] animate-pulse rounded-[2rem] bg-slate-100" />
+        </div>
+      </div>
+    );
+  }
 
   if (!property) {
     return (
