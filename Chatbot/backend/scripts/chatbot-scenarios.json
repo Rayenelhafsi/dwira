@@ -1,0 +1,649 @@
+[
+  {
+    "id": "s01_greeting_tn",
+    "title": "Salutation tunisienne simple",
+    "category": "greeting",
+    "steps": [
+      {
+        "type": "user",
+        "message": "sallem",
+        "expect": {
+          "replyContainsAny": ["marhbe bik", "kifech najemou naawnouk"],
+          "stateIn": ["asking_preferences"],
+          "responseModeIn": ["greeting", "asking_dates"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s02_greeting_fr",
+    "title": "Salutation francaise simple",
+    "category": "greeting",
+    "steps": [
+      {
+        "type": "user",
+        "message": "bonjour",
+        "expect": {
+          "replyContainsAny": ["Bonjour", "Indiquez-moi", "assistant reservation"],
+          "stateIn": ["asking_preferences"],
+          "responseModeIn": ["greeting", "asking_dates"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s03_zone_discovery_tn",
+    "title": "Demande des zones S+2 a Kelibia",
+    "category": "search",
+    "steps": [
+      {
+        "type": "user",
+        "message": "win andek des appartement s+2 fi kelibia",
+        "expect": {
+          "replyContainsAny": ["zones", "FATHA", "Petit Paris", "Dar Chabeb"],
+          "responseModeIn": ["zone_summary", "property_list"],
+          "contextLocationContains": "kelibia"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s04_zone_to_property_list",
+    "title": "Passage zones vers liste de biens",
+    "category": "context_switch",
+    "steps": [
+      {
+        "type": "user",
+        "message": "win andek des appartement s+2 fi kelibia"
+      },
+      {
+        "type": "user",
+        "message": "warini les s+2 f petit paris",
+        "expect": {
+          "replyContainsAny": ["REF-25", "Petit paris", "TND/nuit"],
+          "replyNotContainsAny": ["Ken t7eb, 9olli esm zone"],
+          "responseModeIn": ["property_list"],
+          "stateIn": ["showing_options"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s05_price_summary_tn",
+    "title": "Prix S+2 a Kelibia",
+    "category": "pricing",
+    "steps": [
+      {
+        "type": "user",
+        "message": "b9adech s+2 fi kelibia",
+        "expect": {
+          "replyContainsAny": ["yabda men", "TND/nuit", "TND/semaine"],
+          "responseModeIn": ["price_summary", "zone_price_summary"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s06_price_summary_with_dates",
+    "title": "Prix S+2 avec dates precises",
+    "category": "pricing",
+    "steps": [
+      {
+        "type": "user",
+        "message": "b9adech s+2 fi kelibia men 2026-08-12 lel 2026-08-18",
+        "expect": {
+          "replyContainsAny": ["6 nuits", "TND", "dates"],
+          "contextStartDate": "2026-08-12",
+          "contextEndDate": "2026-08-18"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s07_comfort_floor_followup",
+    "title": "Preference etage ou RDC",
+    "category": "comfort",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb haja proche plage mouch pied dans l eau"
+      },
+      {
+        "type": "user",
+        "message": "nheb rdc, ken ma famech 1er etage ok",
+        "expect": {
+          "replyContainsAny": ["rdc", "1", "proche plage", "REF"],
+          "responseModeIn": ["property_list"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s08_pool_private_request",
+    "title": "Villa avec piscine privee",
+    "category": "comfort",
+    "steps": [
+      {
+        "type": "user",
+        "message": "warini villa b piscine privee fi kelibia",
+        "expect": {
+          "replyContainsAny": ["villa", "piscine", "REF"],
+          "responseModeIn": ["property_list"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s09_reference_selection",
+    "title": "Selection d une reference apres liste",
+    "category": "selection",
+    "steps": [
+      {
+        "type": "user",
+        "message": "montre moi vos appartements s+2"
+      },
+      {
+        "type": "user",
+        "message": "nheb ref-234",
+        "expect": {
+          "replyContainsAny": ["Ab3athli dates", "n7sebellek total", "reservation"],
+          "stateIn": ["asking_dates"],
+          "contextSelectedRef": "REF-234"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s10_unavailable_reference_with_alternatives",
+    "title": "Reference indisponible avec alternatives",
+    "category": "alternatives",
+    "steps": [
+      {
+        "type": "user",
+        "message": "sallem nheb nreservi ref 250 min 17 li 24 juillet pour 2 adultes",
+        "expect": {
+          "replyContainsAny": ["ma ynajjemch yet7ajjez", "Nbadlou ken dates", "Ref REF-250"],
+          "stateIn": ["showing_options"],
+          "contextSelectedRef": "REF-250"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s11_accept_date_alternative",
+    "title": "Accepter la proposition 1 de date",
+    "category": "alternatives",
+    "steps": [
+      {
+        "type": "user",
+        "message": "sallem nheb nreservi ref 250 min 17 li 24 juillet pour 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "ok nbadlou date ken haka",
+        "expect": {
+          "replyContainsAny": ["Total sejour", "Bech nkammel", "numero CIN", "photo"],
+          "replyNotContainsAny": ["tkhalles 350 TND baad ma ywaf9 el proprietaire"],
+          "stateIn": ["collecting_identity"],
+          "contextSelectedRef": "REF-250"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s12_choose_other_alternative_property",
+    "title": "Choisir une alternative par reference",
+    "category": "alternatives",
+    "steps": [
+      {
+        "type": "user",
+        "message": "sallem nheb nreservi ref 250 min 17 li 24 juillet pour 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "mela nheb ref 234",
+        "expect": {
+          "replyContainsAny": ["Ab3athli", "dates", "voyageurs", "total"],
+          "contextSelectedRef": "REF-234"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s13_budget_too_low",
+    "title": "Budget trop bas avec alternatives",
+    "category": "budget",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb appartement s+2 fi kelibia men 2026-08-12 lel 2026-08-18, 4 personnes, budget 120 tnd",
+        "expect": {
+          "replyContainsAny": ["badayel", "TND", "REF", "budget"],
+          "responseModeIn": ["property_list", "price_summary"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s14_ask_property_features",
+    "title": "Demander les caracteristiques du bien",
+    "category": "property_details",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb ref-251"
+      },
+      {
+        "type": "user",
+        "message": "chnouwa fih bel comfort? vue mer? proche plage? etage?",
+        "expect": {
+          "replyContainsAny": ["vue", "plage", "etage", "pied dans l'eau", "rdc"],
+          "contextSelectedRef": "REF-251"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s15_ask_property_images",
+    "title": "Demander les images du bien",
+    "category": "property_details",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb ref-251"
+      },
+      {
+        "type": "user",
+        "message": "warini tsawer el bien",
+        "expect": {
+          "replyContainsAny": ["photo", "images", "lien", "http"],
+          "contextSelectedRef": "REF-251"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s16_ask_capacity",
+    "title": "Demander capacite max",
+    "category": "property_details",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb ref-251"
+      },
+      {
+        "type": "user",
+        "message": "ch7al max voyageurs?",
+        "expect": {
+          "replyContainsAny": ["voyageurs", "max", "7"],
+          "contextSelectedRef": "REF-251"
+        }
+      }
+    ]
+  },
+  {
+    "id": "s17_partial_identity_followup",
+    "title": "Informations partielles puis demande du manque",
+    "category": "reservation_profile",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb nreservi ref-203 min 2026-09-01 lel 2026-09-07, 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "Mohamed Ali, tel 24879087",
+        "expect": {
+          "replyContainsAny": ["numero CIN", "photo CIN"],
+          "replyNotContainsAny": ["nom complet", "numero tel"],
+          "stateIn": ["collecting_identity"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s18_identity_attachment_create_demand",
+    "title": "Infos completes puis creation de demande",
+    "category": "reservation_profile",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb nreservi ref-203 min 2026-09-08 lel 2026-09-14, 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "Mohamed Ali, tel 24879087, cin 11155555"
+      },
+      {
+        "type": "user",
+        "message": "photo CIN",
+        "attachments": [
+          {
+            "type": "image",
+            "dataUrl": "__TEST_IMAGE_DATA_URL__",
+            "mimeType": "image/jpeg",
+            "name": "cin-test.jpg"
+          }
+        ],
+        "expect": {
+          "replyContainsAny": ["Marhbe bik", "reservation mteek tsajlet", "nstannaou reponse mel proprietaire"],
+          "stateIn": ["pending_confirmation"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s19_status_followup",
+    "title": "Demander le statut apres creation",
+    "category": "status",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb nreservi ref-234 min 2026-09-01 lel 2026-09-07, 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "Mohamed Ali, tel 24879087, cin 11155555"
+      },
+      {
+        "type": "user",
+        "message": "photo CIN",
+        "attachments": [
+          {
+            "type": "image",
+            "dataUrl": "__TEST_IMAGE_DATA_URL__",
+            "mimeType": "image/jpeg",
+            "name": "cin-test.jpg"
+          }
+        ]
+      },
+      {
+        "type": "user",
+        "message": "chnouwa statut reservation mte3i",
+        "expect": {
+          "replyContainsAny": ["attente", "proprietaire", "reservation"],
+          "responseModeIn": ["reservation_followup", "collecting_identity", "property_list"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s20_owner_accept_contract_payment",
+    "title": "Accord proprietaire puis contrat et choix paiement",
+    "category": "post_reservation",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb nreservi ref-231 min 2026-09-01 lel 2026-09-07, 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "Mohamed Ali, tel 24879087, cin 11155555"
+      },
+      {
+        "type": "user",
+        "message": "photo CIN",
+        "attachments": [
+          {
+            "type": "image",
+            "dataUrl": "__TEST_IMAGE_DATA_URL__",
+            "mimeType": "image/jpeg",
+            "name": "cin-test.jpg"
+          }
+        ]
+      },
+      {
+        "type": "action",
+        "action": "owner_accept",
+        "expect": {
+          "lastBotContainsAny": ["contrat", "clicktopay", "virement"],
+          "demandStatusIn": ["client_procede_vers_paiement_en_cours", "contrat_realise"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s21_clicktopay_choice",
+    "title": "Choix ClickToPay apres contrat",
+    "category": "payment",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb nreservi ref-232 min 2026-09-08 lel 2026-09-14, 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "Mohamed Ali, tel 24879087, cin 11155555"
+      },
+      {
+        "type": "user",
+        "message": "photo CIN",
+        "attachments": [
+          {
+            "type": "image",
+            "dataUrl": "__TEST_IMAGE_DATA_URL__",
+            "mimeType": "image/jpeg",
+            "name": "cin-test.jpg"
+          }
+        ]
+      },
+      {
+        "type": "action",
+        "action": "owner_accept"
+      },
+      {
+        "type": "user",
+        "message": "nheb nkhalles b clicktopay",
+        "expect": {
+          "replyContainsAny": ["clicktopay", "lien", "paiement"],
+          "stateIn": ["pending_confirmation", "collecting_identity", "showing_options"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s22_bank_transfer_receipt",
+    "title": "Choix virement puis envoi recu",
+    "category": "payment",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb nreservi ref-251 min 2026-09-15 lel 2026-09-22, 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "Mohamed Ali, tel 24879087, cin 11155555"
+      },
+      {
+        "type": "user",
+        "message": "photo CIN",
+        "attachments": [
+          {
+            "type": "image",
+            "dataUrl": "__TEST_IMAGE_DATA_URL__",
+            "mimeType": "image/jpeg",
+            "name": "cin-test.jpg"
+          }
+        ]
+      },
+      {
+        "type": "action",
+        "action": "owner_accept"
+      },
+      {
+        "type": "user",
+        "message": "nheb virement"
+      },
+      {
+        "type": "action",
+        "action": "upload_receipt_link",
+        "payload": {
+          "receiptUrl": "https://example.com/recu-virement.jpg",
+          "paymentReference": "VIR-TEST-001",
+          "note": "Recu de test"
+        },
+        "expect": {
+          "lastBotContainsAny": ["Recu paiement tsajjel", "ta2kid succes"],
+          "demandStatusIn": ["recu_paiement_envoye"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s23_payment_success_message",
+    "title": "Paiement confirme avec succes",
+    "category": "payment",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb nreservi ref-252 min 2026-10-01 lel 2026-10-08, 2 adultes"
+      },
+      {
+        "type": "user",
+        "message": "Mohamed Ali, tel 24879087, cin 11155555"
+      },
+      {
+        "type": "user",
+        "message": "photo CIN",
+        "attachments": [
+          {
+            "type": "image",
+            "dataUrl": "__TEST_IMAGE_DATA_URL__",
+            "mimeType": "image/jpeg",
+            "name": "cin-test.jpg"
+          }
+        ]
+      },
+      {
+        "type": "action",
+        "action": "owner_accept"
+      },
+      {
+        "type": "action",
+        "action": "mark_paid",
+        "payload": {
+          "scope": "reservation",
+          "method": "virement"
+        },
+        "expect": {
+          "lastBotContainsAny": ["Paiement reservation mte3ek tsajjel b succes", "Merci pour votre confiance"],
+          "demandStatusIn": ["succes_paiement"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s24_compare_two_refs",
+    "title": "Comparer deux references",
+    "category": "comparison",
+    "steps": [
+      {
+        "type": "user",
+        "message": "chnouwa ahsen bin ref 231 w ref 234",
+        "expect": {
+          "replyContainsAny": ["REF-231", "REF-234", "vue mer", "proche plage"],
+          "responseModeIn": ["comparison", "property_list", "price_summary"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s25_repeat_same_question",
+    "title": "Client repete la meme question",
+    "category": "robustness",
+    "steps": [
+      {
+        "type": "user",
+        "message": "b9adech s+2 fi kelibia"
+      },
+      {
+        "type": "user",
+        "message": "w b9adech zeda s+2 fi kelibia",
+        "expect": {
+          "replyContainsAny": ["TND", "yabda men"],
+          "replyNotContainsAny": ["Brabi ab3athli el ma3loumet enna9sa"],
+          "responseModeIn": ["price_summary", "zone_price_summary"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s26_unavailable_reason_capacity",
+    "title": "Expliquer la raison d indisponibilite ou capacite",
+    "category": "reasoning",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb ala ref 251 min 17 - 24 juin pour 8 adultes",
+        "expect": {
+          "replyContainsAny": ["capacity", "capacite", "personnes", "badayel"],
+          "responseModeIn": ["booking", "property_list"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s27_min_stay_rule",
+    "title": "Expliquer minimum de nuitees",
+    "category": "reasoning",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb ref 250 min 2026-07-19 lel 2026-07-21 pour 2 adultes",
+        "expect": {
+          "replyContainsAny": ["minimum", "nuits", "badil dates", "Ref REF-250"],
+          "responseModeIn": ["booking", "property_list"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s28_checkout_rule",
+    "title": "Expliquer regle checkin checkout",
+    "category": "reasoning",
+    "steps": [
+      {
+        "type": "user",
+        "message": "nheb ref 215 min 2026-08-14 lel 2026-08-21 pour 4 adultes",
+        "expect": {
+          "replyContainsAny": ["check-in", "check-out", "dimanche", "badayel"],
+          "responseModeIn": ["booking", "property_list"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s29_more_options_followup",
+    "title": "Montrer autres choix apres liste initiale",
+    "category": "browsing",
+    "steps": [
+      {
+        "type": "user",
+        "message": "chnw andek des appartement s+2?"
+      },
+      {
+        "type": "user",
+        "message": "chnw andek e5er",
+        "expect": {
+          "replyContainsAny": ["options okhrin", "REF", "TND/nuit"],
+          "stateIn": ["showing_options"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "s30_link_and_reference_request",
+    "title": "Client veut references et liens directs",
+    "category": "details",
+    "steps": [
+      {
+        "type": "user",
+        "message": "warini 3 choix s+2 fi kelibia m3a les references w les liens",
+        "expect": {
+          "replyContainsAny": ["REF-", "http://localhost:5173/properties", "TND/nuit"],
+          "responseModeIn": ["property_list"]
+        }
+      }
+    ]
+  }
+]

@@ -878,6 +878,14 @@ async function fetchBiensResilient(apiUrl: string): Promise<Response> {
 export function PropertiesProvider({ children }: { children: ReactNode }) {
   const isDevMode = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
   const initialCache = readPropertiesCache();
+  const hasUsableInitialCache = Boolean(
+    initialCache
+    && (
+      (Array.isArray(initialCache.biens) && initialCache.biens.length > 0)
+      || (Array.isArray(initialCache.zones) && initialCache.zones.length > 0)
+      || (Array.isArray(initialCache.proprietaires) && initialCache.proprietaires.length > 0)
+    )
+  );
   const [biens, setBiens] = useState<Bien[]>(initialCache?.biens || []);
   const [properties, setProperties] = useState<Property[]>(() => {
     const cachedBiens = initialCache?.biens || [];
@@ -889,7 +897,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   const [zones, setZones] = useState<Zone[]>(initialCache?.zones || []);
   const [proprietaires, setProprietaires] = useState<Proprietaire[]>(initialCache?.proprietaires || []);
   const [modePriorities, setModePriorities] = useState<Record<BienMode, number>>(initialCache?.modePriorities || DEFAULT_MODE_PRIORITIES);
-  const [loading, setLoading] = useState(!initialCache);
+  const [loading, setLoading] = useState(!hasUsableInitialCache);
   const [error, setError] = useState<string | null>(null);
 
   const applyMappedBiens = (

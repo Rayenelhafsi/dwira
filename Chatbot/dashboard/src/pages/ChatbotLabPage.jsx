@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 
+const BREAKPOINTS_STORAGE_KEY = "dwira_chatbot_lab_breakpoints_v1";
+
 const quickPrompts = [
   "bonjour",
   "montre moi vos appartements s+2",
@@ -53,6 +55,103 @@ function formatChatLanguageLabel(code) {
   if (value === "en") return "en";
   if (value === "ar") return "ar";
   return value || "n/a";
+}
+
+function safeLocalStorageRead() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(BREAKPOINTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBreakpointList(list) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BREAKPOINTS_STORAGE_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+  } catch {
+    // ignore local storage failures
+  }
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectBreakpointCandidate({ message, reply, diagnostics, context, options, messages }) {
+  const mode = String(diagnostics?.responseMode || "").trim().toLowerCase();
+  const normalizedMessage = normalizeText(message);
+  const normalizedReply = normalizeText(reply);
+  const selectedLocation = normalizeText(context?.location);
+  const selectedType = normalizeText(context?.type);
+  const selectedSubType = normalizeText(context?.subType);
+  const lastBotMessages = (Array.isArray(messages) ? messages : [])
+    .filter((item) => item?.senderType === "bot")
+    .slice(-3)
+    .map((item) => normalizeText(item?.content));
+  const repeatedReply =
+    lastBotMessages.length >= 2 &&
+    lastBotMessages[lastBotMessages.length - 1] &&
+    lastBotMessages[lastBotMessages.length - 1] === lastBotMessages[lastBotMessages.length - 2];
+
+  if (
+    mode === "zone_summary" &&
+    /(warini|warri|options?|montre|chnw andek|chnowa andek)/.test(normalizedMessage)
+  ) {
+    return {
+      severity: "high",
+      kind: "intent_transition",
+      title: "Le bot reste en zone_summary alors que le client demande une liste",
+      reason: "Le message demande explicitement des biens, pas des zones.",
+    };
+  }
+
+  if (
+    /(dates|voyageurs|budget|zone)/.test(normalizedReply) &&
+    (selectedLocation || selectedType || selectedSubType) &&
+    /(options?|warini|montre|chnw andek|chnowa andek)/.test(normalizedMessage)
+  ) {
+    return {
+      severity: "medium",
+      kind: "unnecessary_clarification",
+      title: "Le bot redemande des infos alors que le contexte suffit pour montrer des options",
+      reason: "La demande devrait déclencher une liste partielle avant clarification.",
+    };
+  }
+
+  if (repeatedReply) {
+    return {
+      severity: "medium",
+      kind: "loop",
+      title: "Le bot semble répéter la même réponse",
+      reason: "Deux réponses bot identiques consécutives détectées.",
+    };
+  }
+
+  if (
+    mode === "property_list" &&
+    /(zone|zones)/.test(normalizedReply) &&
+    Array.isArray(options) &&
+    options.length > 0
+  ) {
+    return {
+      severity: "low",
+      kind: "mixed_answer",
+      title: "La réponse mélange zones et biens",
+      reason: "Le mode effectif est property_list mais le texte reste ambigu.",
+    };
+  }
+
+  return null;
 }
 
 function formatDemandStatusLabel(status) {
@@ -117,6 +216,29 @@ export default function ChatbotLabPage() {
   const [receiptNote, setReceiptNote] = useState("Recu test envoye depuis le chatbot lab");
   const [paymentReference, setPaymentReference] = useState("VIR-TEST-001");
   const [attachmentFile, setAttachmentFile] = useState(null);
+  const [breakpoints, setBreakpoints] = useState([]);
+  const [breakpointNote, setBreakpointNote] = useState("");
+  const [selectedBreakpointId, setSelectedBreakpointId] = useState("");
+
+  async function evaluateChatTurn({ sessionId, message, reset = false, attachments = [] }) {
+    const response = await fetch("/debug/chat/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        platform: "website",
+        platformUserId: sessionId,
+        message,
+        attachments,
+        reset,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Chat evaluate failed (${response.status}).`);
+    }
+
+    return response.json();
+  }
 
   async function fileToDataUrl(file) {
     return await new Promise((resolve, reject) => {
@@ -154,7 +276,12 @@ export default function ChatbotLabPage() {
   useEffect(() => {
     void fetchHealth().catch((err) => setError(String(err.message || err)));
     void fetchSession().catch(() => {});
+    setBreakpoints(safeLocalStorageRead());
   }, []);
+
+  useEffect(() => {
+    saveBreakpointList(breakpoints);
+  }, [breakpoints]);
 
   async function handleSend(event) {
     event.preventDefault();
@@ -176,23 +303,12 @@ export default function ChatbotLabPage() {
           name: attachmentFile.name || "chatbot-cin.jpg",
         });
       }
-      const response = await fetch("/debug/chat/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: "website",
-          platformUserId: sessionId,
-          message,
-          attachments,
-          reset: resetOnSend,
-        }),
+      const data = await evaluateChatTurn({
+        sessionId,
+        message,
+        attachments,
+        reset: resetOnSend,
       });
-
-      if (!response.ok) {
-        throw new Error(`Chat evaluate failed (${response.status}).`);
-      }
-
-      const data = await response.json();
       setResult(data);
       setSession({
         platform: data.platform,
@@ -235,6 +351,44 @@ export default function ChatbotLabPage() {
     }
   }
 
+  async function handleReplayScenario(messagesToReplay, nextSessionId = platformUserId.trim()) {
+    const scenarioMessages = (Array.isArray(messagesToReplay) ? messagesToReplay : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+    if (!scenarioMessages.length || !nextSessionId) return;
+
+    setLoading(true);
+    setError("");
+    try {
+      let data = null;
+      for (let index = 0; index < scenarioMessages.length; index += 1) {
+        data = await evaluateChatTurn({
+          sessionId: nextSessionId,
+          message: scenarioMessages[index],
+          reset: index === 0,
+          attachments: [],
+        });
+      }
+      if (data) {
+        setResult(data);
+        setSession({
+          platform: data.platform,
+          platformUserId: data.platformUserId,
+          snapshot: data.snapshot,
+        });
+        setReservationDemand(data?.reservationDemand || null);
+        setActionPayload(null);
+        setAttachmentFile(null);
+        setDraft(scenarioMessages[scenarioMessages.length - 1] || "");
+      }
+      await fetchHealth();
+    } catch (err) {
+      setError(String(err.message || err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleDemandAction(action, extra = {}) {
     if (!reservationDemand?.id) return;
     setActionLoading(action);
@@ -259,6 +413,70 @@ export default function ChatbotLabPage() {
     }
   }
 
+  function buildBreakpointDraft(candidate = null) {
+    const conversationId = conversation?.id || null;
+    const latestClientMessage = [...messages].reverse().find((item) => item?.senderType === "client");
+    const latestBotMessage = [...messages].reverse().find((item) => item?.senderType === "bot");
+    const scenarioMessages = messages
+      .filter((item) => item?.senderType === "client")
+      .map((item) => String(item?.content || "").trim())
+      .filter(Boolean);
+    return {
+      id: `bp_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      conversationId,
+      platformUserId,
+      severity: candidate?.severity || "medium",
+      kind: candidate?.kind || "manual",
+      title: candidate?.title || "Breakpoint manuel",
+      reason: candidate?.reason || breakpointNote.trim() || "Observation manuelle",
+      note: breakpointNote.trim() || "",
+      message: String(latestClientMessage?.content || draft || "").trim(),
+      reply: String(latestBotMessage?.content || result?.result?.reply || "").trim(),
+      responseMode: diagnostics?.responseMode || null,
+      parsedIntent: result?.parsedIntent?.intent || null,
+      parsedMode: result?.parsedIntent?.responseMode || null,
+      location: snapshot?.context?.location || null,
+      type: snapshot?.context?.type || null,
+      subType: snapshot?.context?.subType || null,
+      optionsCount: Array.isArray(result?.result?.options) ? result.result.options.length : 0,
+      scenarioMessages,
+    };
+  }
+
+  function handleSaveBreakpoint(candidate = null) {
+    const entry = buildBreakpointDraft(candidate);
+    setBreakpoints((prev) => [entry, ...prev]);
+    setBreakpointNote("");
+    setSelectedBreakpointId(entry.id);
+  }
+
+  function handleDeleteBreakpoint(id) {
+    setBreakpoints((prev) => prev.filter((item) => item.id !== id));
+    if (selectedBreakpointId === id) {
+      setSelectedBreakpointId("");
+    }
+  }
+
+  function handleExportBreakpoints() {
+    const blob = new Blob([JSON.stringify(breakpoints, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `chatbot-breakpoints-${Date.now()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function getReplayMessagesFromBreakpoint(item) {
+    const scenarioMessages = Array.isArray(item?.scenarioMessages)
+      ? item.scenarioMessages.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
+    if (scenarioMessages.length > 0) return scenarioMessages;
+    const fallbackMessage = String(item?.message || "").trim();
+    return fallbackMessage ? [fallbackMessage] : [];
+  }
+
   const snapshot = session?.snapshot || null;
   const conversation = snapshot?.conversation || null;
   const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
@@ -272,6 +490,15 @@ export default function ChatbotLabPage() {
   const canAdvanceOwner = reservationDemand?.status === "en_attente_reponse_proprietaire";
   const canAdvanceContract = reservationDemand?.status === "reponse_positive_attente_confirmation_client";
   const canUsePaymentTools = ["client_procede_vers_paiement_en_cours", "contrat_realise", "recu_paiement_envoye", "succes_paiement"].includes(String(reservationDemand?.status || "").trim());
+  const breakpointCandidate = detectBreakpointCandidate({
+    message: result?.result ? draft : "",
+    reply: result?.result?.reply || "",
+    diagnostics,
+    context: snapshot?.context || null,
+    options,
+    messages,
+  });
+  const selectedBreakpoint = breakpoints.find((item) => item.id === selectedBreakpointId) || null;
 
   return (
     <section style={{ display: "grid", gap: 18 }}>
@@ -455,6 +682,121 @@ export default function ChatbotLabPage() {
         </div>
 
         <div style={{ display: "grid", gap: 18 }}>
+          <div style={{ ...shellCard, padding: 18 }}>
+            <h3 style={{ marginTop: 0, color: "#123728" }}>Breakpoints conversation</h3>
+            <div style={{ display: "grid", gap: 12 }}>
+              {breakpointCandidate ? (
+                <div style={{ borderRadius: 14, padding: 12, background: "#fff7ed", border: "1px solid #fed7aa" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontWeight: 800, color: "#9a3412" }}>{breakpointCandidate.title}</div>
+                      <div style={{ color: "#9a3412", marginTop: 4, fontSize: 13 }}>{breakpointCandidate.reason}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveBreakpoint(breakpointCandidate)}
+                      style={{ background: "#ea580c", color: "white", border: "none", borderRadius: 10, padding: "10px 12px", fontWeight: 800, cursor: "pointer" }}
+                    >
+                      Marquer ce blocage
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ color: "#5a7668" }}>Aucun blocage automatique détecté sur le dernier tour.</div>
+              )}
+
+              <textarea
+                value={breakpointNote}
+                onChange={(event) => setBreakpointNote(event.target.value)}
+                rows={3}
+                placeholder="Note rapide: pourquoi le bot s'est bloqué, ce qu'il aurait dû faire, contexte attendu..."
+                style={{ width: "100%", borderRadius: 12, border: "1px solid #bfdccb", padding: 10, resize: "vertical" }}
+              />
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => handleSaveBreakpoint(null)}
+                  style={{ background: "#0f766e", color: "white", border: "none", borderRadius: 10, padding: "10px 12px", fontWeight: 800, cursor: "pointer" }}
+                >
+                  Ajouter breakpoint manuel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportBreakpoints}
+                  disabled={breakpoints.length === 0}
+                  style={{ background: "white", color: "#174c37", border: "1px solid #bfdccb", borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}
+                >
+                  Exporter JSON
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gap: 10, maxHeight: 320, overflow: "auto", paddingRight: 4 }}>
+                {breakpoints.length === 0 ? (
+                  <div style={{ color: "#5a7668" }}>Aucun breakpoint enregistré.</div>
+                ) : (
+                  breakpoints.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => setSelectedBreakpointId(item.id)}
+                      style={{
+                        border: selectedBreakpointId === item.id ? "2px solid #0f9f6e" : "1px solid #d9efe1",
+                        borderRadius: 14,
+                        padding: 12,
+                        cursor: "pointer",
+                        background: selectedBreakpointId === item.id ? "#f0fdf4" : "white",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "start" }}>
+                        <div>
+                          <div style={{ fontWeight: 800, color: "#143c2e" }}>{item.title}</div>
+                          <div style={{ fontSize: 12, color: "#5a7668", marginTop: 4 }}>
+                            {item.kind} • {item.responseMode || "n/a"} • {formatTimestamp(item.createdAt)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteBreakpoint(item.id);
+                          }}
+                          style={{ background: "#fff1f2", color: "#9f1239", border: "1px solid #fecdd3", borderRadius: 10, padding: "6px 10px", cursor: "pointer" }}
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                      <div style={{ marginTop: 8, color: "#355846", fontSize: 13, whiteSpace: "pre-wrap" }}>
+                        {item.reason}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {selectedBreakpoint ? (
+                <div style={{ borderRadius: 14, background: "#f8fafc", border: "1px solid #dbe5ef", padding: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 800, color: "#143c2e" }}>Détail breakpoint</div>
+                    <button
+                      type="button"
+                      disabled={loading || getReplayMessagesFromBreakpoint(selectedBreakpoint).length === 0}
+                      onClick={() => void handleReplayScenario(getReplayMessagesFromBreakpoint(selectedBreakpoint))}
+                      style={{ background: "#0f9f6e", color: "white", border: "none", borderRadius: 10, padding: "10px 12px", fontWeight: 800, cursor: "pointer" }}
+                    >
+                      {loading ? "Relecture..." : "Rejouer ce scenario"}
+                    </button>
+                  </div>
+                  <div style={{ color: "#4d685b", fontSize: 13, marginBottom: 8 }}>
+                    {getReplayMessagesFromBreakpoint(selectedBreakpoint).length} message(s) client rejoues dans cette session.
+                  </div>
+                  <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12, color: "#15352a" }}>
+                    {prettyJson(selectedBreakpoint)}
+                  </pre>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           <div style={{ ...shellCard, padding: 18 }}>
             <h3 style={{ marginTop: 0, color: "#123728" }}>Intent extrait</h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>

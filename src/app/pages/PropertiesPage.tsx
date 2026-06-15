@@ -2384,6 +2384,7 @@ export default function PropertiesPage() {
     [showAllResults, sortedScoredResults, visibleCount]
   );
   const hasMoreResults = !showAllResults && sortedScoredResults.length > visibleCount;
+  const isLoadingInitialResults = loading && properties.length === 0 && biens.length === 0;
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -3179,22 +3180,47 @@ export default function PropertiesPage() {
           <div ref={resultsAnchorRef}>
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="font-medium text-gray-500">
-                  {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
-                </span>
-                {alternativeScoredResults.length > 0 && <span className="text-sm text-gray-500">{alternativeScoredResults.length} choix alternatives</span>}
+                {isLoadingInitialResults ? (
+                  <span className="font-medium text-gray-500">Chargement des biens...</span>
+                ) : (
+                  <>
+                    <span className="font-medium text-gray-500">
+                      {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
+                    </span>
+                    {alternativeScoredResults.length > 0 && <span className="text-sm text-gray-500">{alternativeScoredResults.length} choix alternatives</span>}
+                  </>
+                )}
               </div>
               <button
                 type="button"
                 onClick={handleShareSearch}
-                className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+                disabled={isLoadingInitialResults}
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Share2 size={16} />
                 <span>Partager la recherche</span>
               </button>
             </div>
 
-            {sortedScoredResults.length > 0 ? (
+            {isLoadingInitialResults ? (
+              <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={`property-loading-${index}`} className="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
+                    <div className="h-64 animate-pulse bg-slate-100" />
+                    <div className="space-y-4 p-6">
+                      <div className="h-4 w-24 animate-pulse rounded-full bg-slate-100" />
+                      <div className="h-8 w-4/5 animate-pulse rounded-2xl bg-slate-100" />
+                      <div className="h-5 w-2/3 animate-pulse rounded-full bg-slate-100" />
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="h-10 animate-pulse rounded-2xl bg-emerald-50" />
+                        <div className="h-10 animate-pulse rounded-2xl bg-emerald-50" />
+                        <div className="h-10 animate-pulse rounded-2xl bg-emerald-50" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : sortedScoredResults.length > 0 ? (
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                 {visibleSortedScoredResults.map((row) => (
                   <div key={row.property.id} className="space-y-2">

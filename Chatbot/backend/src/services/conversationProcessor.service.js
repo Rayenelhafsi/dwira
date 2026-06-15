@@ -67,6 +67,45 @@ function parseDate(value) {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
+const MONTH_NAME_TO_NUMBER = new Map([
+  ["janvier", 1], ["janv", 1], ["january", 1],
+  ["fevrier", 2], ["fevr", 2], ["fvrier", 2], ["february", 2], ["feb", 2],
+  ["mars", 3], ["march", 3],
+  ["avril", 4], ["april", 4], ["avr", 4],
+  ["mai", 5], ["may", 5],
+  ["juin", 6], ["june", 6],
+  ["juillet", 7], ["july", 7], ["juil", 7],
+  ["aout", 8], ["août", 8], ["august", 8], ["aug", 8],
+  ["septembre", 9], ["september", 9], ["sept", 9],
+  ["octobre", 10], ["october", 10], ["oct", 10],
+  ["novembre", 11], ["november", 11], ["nov", 11],
+  ["decembre", 12], ["décembre", 12], ["december", 12], ["dec", 12],
+]);
+
+function inferSameMonthDateRangeFromMessage(rawMessage, fallbackYear = null) {
+  const raw = String(rawMessage || "").trim();
+  if (!raw) return null;
+  const text = normText(raw);
+  const monthPattern = Array.from(MONTH_NAME_TO_NUMBER.keys()).sort((a, b) => b.length - a.length).join("|");
+  const match = text.match(new RegExp(`(?:min\\s+)?(\\d{1,2})\\s*(?:au|a|to|ila|il|li|lel|lil|jusqu'?a|jusqu a|->|-)\\s*(\\d{1,2})\\s+(${monthPattern})(?:\\s+(\\d{4}))?`, "i"));
+  if (!match) return null;
+  const firstDay = Number(match[1]);
+  const secondDay = Number(match[2]);
+  const month = MONTH_NAME_TO_NUMBER.get(String(match[3] || "").toLowerCase());
+  const explicitYear = Number(match[4]);
+  const year = Number.isFinite(explicitYear) && explicitYear >= 2024 && explicitYear <= 2100
+    ? explicitYear
+    : Number(fallbackYear) || new Date().getFullYear();
+  if (!Number.isFinite(firstDay) || !Number.isFinite(secondDay) || !month || firstDay < 1 || firstDay > 31 || secondDay < 1 || secondDay > 31) {
+    return null;
+  }
+  const startDay = Math.min(firstDay, secondDay);
+  const endDay = Math.max(firstDay, secondDay);
+  const start = `${year}-${String(month).padStart(2, "0")}-${String(startDay).padStart(2, "0")}`;
+  const end = `${year}-${String(month).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`;
+  return isValidStayRange(start, end) ? { start, end } : null;
+}
+
 function isMeaningfulValue(value) {
   const text = String(value || "").trim().toLowerCase();
   return Boolean(text && text !== "autre" && text !== "other" && text !== "unknown" && text !== "auto");
@@ -124,8 +163,29 @@ function extractGuestBreakdownFromMessage(message) {
 
 function normalizeConstraints(existing, extracted, rawMessage = "") {
   const base = existing || {};
-  const startDate = parseDate(extracted?.dates?.start) || base.startDate || null;
-  const endDate = parseDate(extracted?.dates?.end) || base.endDate || null;
+  const extractedStartDate = parseDate(extracted?.dates?.start);
+  const extractedEndDate = parseDate(extracted?.dates?.end);
+  const sameMonthRange = inferSameMonthDateRangeFromMessage(rawMessage, extractedStartDate?.slice(0, 4) || extractedEndDate?.slice(0, 4) || base.startDate?.slice(0, 4) || base.endDate?.slice(0, 4) || null);
+  let startDate = extractedStartDate || base.startDate || null;
+  let endDate = extractedEndDate || base.endDate || null;
+  if (sameMonthRange) {
+    const extractedRangeLooksSuspicious =
+      extractedStartDate
+      && extractedEndDate
+      && (
+        !isValidStayRange(extractedStartDate, extractedEndDate)
+        || Math.abs(diffNights(extractedStartDate, extractedEndDate)) > 45
+        || extractedStartDate.slice(0, 7) !== extractedEndDate.slice(0, 7)
+      );
+    if (!extractedStartDate || !extractedEndDate || extractedRangeLooksSuspicious) {
+      startDate = sameMonthRange.start;
+      endDate = sameMonthRange.end;
+    }
+  }
+  if (!sameMonthRange && extractedStartDate && extractedEndDate && !isValidStayRange(extractedStartDate, extractedEndDate) && isValidStayRange(extractedEndDate, extractedStartDate)) {
+    startDate = extractedEndDate;
+    endDate = extractedStartDate;
+  }
   const extractedGuests = Number(extracted?.guests);
   const extractedBudget = Number(extracted?.budget);
   const budget =
@@ -269,7 +329,7 @@ function isDateAlternativeChoiceMessage(message) {
   if (!text) return false;
   if (/^1[\].:-]?$/.test(text)) return true;
   if (/^(option|choix)\s*1$/.test(text)) return true;
-  if (/(nbadd?lou|nbadlou|badel|badelna|change|changer).{0,20}dates?/.test(text)) return true;
+  if (/(nbdalou|nbadalou|nbaddalou|nbadd?lou|nbadlou|badel|badelna|change|changer).{0,20}dates?/.test(text)) return true;
   if (/^dates?$/.test(text)) return true;
   return false;
 }
@@ -298,6 +358,15 @@ function hasMeaningfulSearchConstraints(constraints) {
     || (Array.isArray(constraints.preferences) && constraints.preferences.length > 0)
     || String(constraints.selectedPropertyRef || "").trim()
   );
+}
+
+function resolveDiagnosticsResponseMode(defaultMode, state) {
+  const fallback = String(defaultMode || "").trim().toLowerCase() || "property_list";
+  const currentState = String(state || "").trim();
+  if (currentState === STATES.COLLECTING_IDENTITY) return "collecting_identity";
+  if (currentState === STATES.PENDING_CONFIRMATION) return "reservation_followup";
+  if (currentState === STATES.ASKING_DATES) return "asking_dates";
+  return fallback;
 }
 
 async function getConversationContext(conversationId) {
@@ -1452,6 +1521,13 @@ function buildAlternativeChangeSummary(row, constraints, lang) {
   ].filter(Boolean);
 }
 
+function shouldDisplayAlternativeRowForConstraints(row, constraints, lang) {
+  const hasDateFilter = Boolean(constraints?.startDate && constraints?.endDate);
+  if (!hasDateFilter) return true;
+  if (row?.matchFlags?.exactDateAvailable) return true;
+  return Boolean(renderDateAlternativeLineForChat(row, constraints, lang));
+}
+
 function formatAlternativeOptionWithChanges(row, constraints, lang, index) {
   const label = `${index + 1}. ${formatPropertyLabel(row, lang)}`;
   const changes = buildAlternativeChangeSummary(row, constraints, lang);
@@ -1703,7 +1779,10 @@ function addDays(date, days) {
 }
 
 function diffNights(startDate, endDate) {
-  return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+  const start = parseIsoDateAtMidnight(startDate);
+  const end = parseIsoDateAtMidnight(endDate);
+  if (!start || !end) return 0;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
 }
 
 function formatShortDate(value) {
@@ -2120,15 +2199,13 @@ function buildReservationQuoteLine(lang, property, constraints) {
   if (!property || !constraints?.startDate || !constraints?.endDate) return "";
   const pricing = calculateStayPricing(property, constraints.startDate, constraints.endDate);
   if (!pricing || !Number.isFinite(Number(pricing.total)) || pricing.total <= 0) return "";
-  const nightly = Math.max(0, Number(property?.pricePerNightTnd || 0));
-  const amountDueNow = Math.min(pricing.total, nightly > 0 ? nightly : pricing.total);
   if (lang === "tn") {
-    return `Total séjour ${pricing.nights} nuits: ${pricing.total} TND. Tawa fi demande réservation, a payer taw: ${amountDueNow} TND baad accord propriétaire.`;
+    return `Total séjour ${pricing.nights} nuits: ${pricing.total} TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek.`;
   }
   if (lang === "en") {
-    return `Stay total for ${pricing.nights} nights: ${pricing.total} TND. For the reservation request, due now after owner approval: ${amountDueNow} TND.`;
+    return `Stay total for ${pricing.nights} nights: ${pricing.total} TND. To continue the reservation request, I first need to complete your client details.`;
   }
-  return `Total du sejour pour ${pricing.nights} nuits: ${pricing.total} TND. Montant a payer apres accord proprietaire: ${amountDueNow} TND.`;
+  return `Total du sejour pour ${pricing.nights} nuits: ${pricing.total} TND. Pour continuer la demande de reservation, je dois d'abord completer vos informations client.`;
 }
 
 function buildProfileCompletionReply(lang, constraints, property = null) {
@@ -2479,18 +2556,20 @@ function buildSpecificPropertyBlockedReply(lang, property, evaluation, alternati
   const title = property?.reference ? `Ref ${property.reference}` : String(property?.title || "ce bien");
   const reasons = formatBlockedReservationReasons(lang, Array.isArray(evaluation?.errors) ? evaluation.errors : []);
   const evaluatedProperty = evaluation?.property || property;
-  const altRows = [...(Array.isArray(alternatives) ? alternatives : [])].sort((a, b) => {
+  const altRows = [...(Array.isArray(alternatives) ? alternatives : [])]
+    .filter((row) => shouldDisplayAlternativeRowForConstraints(row, constraints, lang))
+    .sort((a, b) => {
     const score = (row) => {
-      if (row?.matchFlags?.hasDateRuleAlternative || row?.hasDateRuleAlternative) return 0;
-      if (row?.matchFlags?.exactLocationMatch && row?.matchFlags?.strictTypeMatch && row?.matchFlags?.exactDateAvailable) return 1;
-      if (row?.matchFlags?.locationAlternative) return 2;
-      if (row?.matchFlags?.typeAlternative) return 3;
-      if (row?.matchFlags?.hasComfortAlternative) return 4;
+      if (row?.matchFlags?.exactLocationMatch && row?.matchFlags?.strictTypeMatch && row?.matchFlags?.exactDateAvailable) return 0;
+      if (row?.matchFlags?.exactDateAvailable && row?.matchFlags?.locationAlternative) return 1;
+      if (row?.matchFlags?.exactDateAvailable && row?.matchFlags?.typeAlternative) return 2;
+      if (row?.matchFlags?.exactDateAvailable && row?.matchFlags?.hasComfortAlternative) return 3;
+      if (row?.matchFlags?.hasDateRuleAlternative || row?.hasDateRuleAlternative) return 4;
       return 9;
     };
     return score(a) - score(b)
       || Number(b?.matchScore || 0) - Number(a?.matchScore || 0);
-  }).slice(0, 3);
+  }).slice(0, 4);
   const sameRefDateAlternative = evaluatedProperty?.stayDateAlternative
     && !(
       parseDate(evaluatedProperty.stayDateAlternative.start) === parseDate(constraints?.startDate)
@@ -2602,7 +2681,7 @@ function buildProjectDemandCreatedReply(lang, demand) {
   const contractLink = toWebsiteUrl(String(demand?.contract_url || "").trim());
   const clientName = String(demand?.client_name || "").trim();
   if (status === "en_attente_reponse_proprietaire") {
-    if (lang === "tn") return `${clientName ? `Sallem ${clientName}, ` : ""}talbetek tsajlet. Taw nstannaou reponse mel proprietaire 9bal ay paiement. Ki fama update n9olk houni fel conversation.`;
+    if (lang === "tn") return `${clientName ? `Marhbe bik ${clientName}, ` : "Marhbe bik, "}reservation mteek tsajlet bismek w CIN mteek. Taw nstannaou reponse mel proprietaire 9bal ay paiement. Ki fama update n9olk houni fel conversation.`;
     if (lang === "en") return "Your reservation request is created. It is now waiting for the owner response before any payment step. I will update you here in this conversation.";
     return "Votre demande de reservation est creee. Elle attend maintenant la reponse du proprietaire avant toute etape de paiement. Je vous informerai ici dans cette conversation.";
   }
@@ -2920,17 +2999,15 @@ export async function processIncomingMessage(payload) {
     if (quick.paymentMethod) constraints.payment.method = quick.paymentMethod;
     const explicitSelectedReference = normalizePropertyReference(extracted?.propertyReference || extractSelectionReference(payload.message) || constraints.selectedPropertyRef);
     if (explicitSelectedReference) constraints.selectedPropertyRef = explicitSelectedReference;
+    let appliedPendingDateAlternative = false;
     if (parseDate(extracted?.dates?.start) || parseDate(extracted?.dates?.end)) {
       clearPendingDateAlternative(constraints);
     } else if (shouldApplyPendingDateAlternative(payload.message, constraints)) {
       constraints.startDate = constraints.pendingDateAlternative.startDate;
       constraints.endDate = constraints.pendingDateAlternative.endDate;
-      if (!constraints.selectedPropertyId && constraints.pendingDateAlternative.propertyId) {
-        constraints.selectedPropertyId = constraints.pendingDateAlternative.propertyId;
-      }
-      if (!constraints.selectedPropertyRef && constraints.pendingDateAlternative.propertyRef) {
-        constraints.selectedPropertyRef = constraints.pendingDateAlternative.propertyRef;
-      }
+      if (constraints.pendingDateAlternative.propertyId) constraints.selectedPropertyId = constraints.pendingDateAlternative.propertyId;
+      if (constraints.pendingDateAlternative.propertyRef) constraints.selectedPropertyRef = constraints.pendingDateAlternative.propertyRef;
+      appliedPendingDateAlternative = true;
       clearPendingDateAlternative(constraints);
     }
     const incomingIdentityImageUrl =
@@ -2981,7 +3058,9 @@ export async function processIncomingMessage(payload) {
       && !quick.wantsMoreOptions
       && !quick.mentionsAlternative
       && (
-        quick.wantsReserve
+        appliedPendingDateAlternative
+        || isDateAlternativeChoiceMessage(payload.message)
+        || quick.wantsReserve
         || Boolean(prevCtx?.selectedPropertyRef)
         || Boolean(constraints.startDate)
         || Boolean(constraints.endDate)
@@ -3505,7 +3584,7 @@ export async function processIncomingMessage(payload) {
               shouldSearch,
               shouldUseRag,
               optionsCount: Array.isArray(options) ? options.length : 0,
-              responseMode,
+              responseMode: resolveDiagnosticsResponseMode(responseMode, newState),
               exactCount: classified.exact.length,
               alternativeCount: classified.alternatives.length,
               exactZoneSummary: summarizeZones(classified.exact),
@@ -3618,7 +3697,7 @@ export async function processIncomingMessage(payload) {
         shouldSearch,
         shouldUseRag,
         optionsCount: Array.isArray(options) ? options.length : 0,
-        responseMode: effectiveResponseMode,
+        responseMode: resolveDiagnosticsResponseMode(effectiveResponseMode, newState),
         exactCount: classified.exact.length,
         alternativeCount: classified.alternatives.length,
         exactZoneSummary: summarizeZones(classified.exact),

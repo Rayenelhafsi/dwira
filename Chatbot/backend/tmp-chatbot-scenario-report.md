@@ -1,0 +1,210 @@
+# Chatbot scenario report
+
+- baseUrl: http://127.0.0.1:8090
+- executedAt: 2026-06-15T19:57:29.913Z
+- healthOk: yes
+- totalScenarios: 7
+- passed: 7
+- failed: 0
+
+## s17_partial_identity_followup - Informations partielles puis demande du manque
+- category: reservation_profile
+- status: PASS
+- s17_partial_identity_followup#1 [user] PASS
+  - input: nheb nreservi ref-203 min 2026-09-01 lel 2026-09-07, 2 adultes
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Salaam, total 6 nuits b 1500 TND. Bech nkammel demande réservation, ab3athli esmtek kamel, numéro téléphone, numéro CIN w photo mta3ha.
+- s17_partial_identity_followup#2 [user] PASS
+  - input: Mohamed Ali, tel 24879087
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 6 nuits: 1500 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli numero CIN, photo CIN.
+
+## s18_identity_attachment_create_demand - Infos completes puis creation de demande
+- category: reservation_profile
+- status: PASS
+- s18_identity_attachment_create_demand#1 [user] PASS
+  - input: nheb nreservi ref-203 min 2026-09-08 lel 2026-09-14, 2 adultes
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 6 nuits: 1500 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli esmek el kamel, numero tel, numero CIN, photo CIN.
+- s18_identity_attachment_create_demand#2 [user] PASS
+  - input: Mohamed Ali, tel 24879087, cin 11155555
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 6 nuits: 1500 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli photo CIN.
+- s18_identity_attachment_create_demand#3 [user] PASS
+  - input: photo CIN
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: en_attente_reponse_proprietaire
+  - reply: sallem Mohamed Ali, talbetek tsajlet. taw nstannaou reponse mel proprietaire 9bal ay paiement. ki fama update n9olk houni fel conversation.
+
+## s19_status_followup - Demander le statut apres creation
+- category: status
+- status: PASS
+- s19_status_followup#1 [user] PASS
+  - input: nheb nreservi ref-234 min 2026-09-01 lel 2026-09-07, 2 adultes
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 6 nuits: 1010 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli esmek el kamel, numero tel, numero CIN, photo CIN.
+- s19_status_followup#2 [user] PASS
+  - input: Mohamed Ali, tel 24879087, cin 11155555
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 6 nuits: 1010 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli photo CIN.
+- s19_status_followup#3 [user] PASS
+  - input: photo CIN
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: en_attente_reponse_proprietaire
+  - reply: sallem Mohamed Ali, talbetek tsajlet. taw nstannaou reponse mel proprietaire 9bal ay paiement. ki fama update n9olk houni fel conversation.
+- s19_status_followup#4 [user] PASS
+  - input: chnouwa statut reservation mte3i
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: en_attente_reponse_proprietaire
+  - reply: sallem Mohamed Ali, demande mte3ek rd_chatbot_1781553527391_b5k8qw mazelt en_attente_reponse_proprietaire. Tnajjem tchouf el contrat houni: http://localhost:5173/mes-reservations w el paiement houni: http://localhost:5173/mes-reservations/rd_chatbot_1781553527391_b5k8qw/paiement
+
+## s20_owner_accept_contract_payment - Accord proprietaire puis contrat et choix paiement
+- category: post_reservation
+- status: PASS
+- s20_owner_accept_contract_payment#1 [user] PASS
+  - input: nheb nreservi ref-231 min 2026-09-01 lel 2026-09-07, 2 adultes
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Salaam, total 6 nuits bech tkoun 1260 TND. Bech nkammel réservation, ab3athli esmtek el kamel, numéro téléphone, numéro CIN w photo mta3ha.
+- s20_owner_accept_contract_payment#2 [user] PASS
+  - input: Mohamed Ali, tel 24879087, cin 11155555
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 6 nuits: 1260 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli photo CIN.
+- s20_owner_accept_contract_payment#3 [user] PASS
+  - input: photo CIN
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: en_attente_reponse_proprietaire
+  - reply: sallem Mohamed Ali, talbetek tsajlet. taw nstannaou reponse mel proprietaire 9bal ay paiement. ki fama update n9olk houni fel conversation.
+- s20_owner_accept_contract_payment#4 [action] PASS
+  - input: owner_accept
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: contrat_realise
+  - reply: El proprietaire 9bel ettaleb mte3ek. Hedha contratk PDF: http://localhost:5173/contracts/contract-client-c1781553572978.pdf. Bech nkamlou finalisation, 9olli t7eb t5alles b clicktopay wala b virement. Ken clicktopay, nab3athlek lien paiement. Ken virement, ab3athli recu paiement houni.
+
+## s21_clicktopay_choice - Choix ClickToPay apres contrat
+- category: payment
+- status: PASS
+- s21_clicktopay_choice#1 [user] PASS
+  - input: nheb nreservi ref-232 min 2026-09-08 lel 2026-09-14, 2 adultes
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Salaam, total 6 nuits 1200 TND. Bech nkammel réservation, ab3athli esmtek kamel, numéro téléphone, numéro CIN w photo mta3ha.
+- s21_clicktopay_choice#2 [user] PASS
+  - input: Mohamed Ali, tel 24879087, cin 11155555
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 6 nuits: 1200 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli photo CIN.
+- s21_clicktopay_choice#3 [user] PASS
+  - input: photo CIN
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: en_attente_reponse_proprietaire
+  - reply: sallem Mohamed Ali, talbetek tsajlet. taw nstannaou reponse mel proprietaire 9bal ay paiement. ki fama update n9olk houni fel conversation.
+- s21_clicktopay_choice#4 [action] PASS
+  - input: owner_accept
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: contrat_realise
+  - reply: El proprietaire 9bel ettaleb mte3ek. Hedha contratk PDF: http://localhost:5173/contracts/contract-client-c1781553605890.pdf. Bech nkamlou finalisation, 9olli t7eb t5alles b clicktopay wala b virement. Ken clicktopay, nab3athlek lien paiement. Ken virement, ab3athli recu paiement houni.
+- s21_clicktopay_choice#5 [user] PASS
+  - input: nheb nkhalles b clicktopay
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: contrat_realise
+  - reply: Hedha lien paiement carte mte3ek: https://test.clictopay.com/payment/merchants/CLICTOPAY/payment.html?mdOrder=0e29b193-726d-4277-a499-e871a7ee7d5e&language=fr
+
+## s22_bank_transfer_receipt - Choix virement puis envoi recu
+- category: payment
+- status: PASS
+- s22_bank_transfer_receipt#1 [user] PASS
+  - input: nheb nreservi ref-251 min 2026-09-15 lel 2026-09-22, 2 adultes
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Salaam, total 7 nuits b 1350 TND. Bech nkammel réservation, ab3athli esmtek kamel, numero téléphone, numero CIN w photo mta3ha.
+- s22_bank_transfer_receipt#2 [user] PASS
+  - input: Mohamed Ali, tel 24879087, cin 11155555
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Salaam Mohamed Ali, total séjour 7 nuits 1350 TND. Bech nkammel demande réservation, ab3athli photo CIN 3andek.
+- s22_bank_transfer_receipt#3 [user] PASS
+  - input: photo CIN
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: en_attente_reponse_proprietaire
+  - reply: sallem Mohamed Ali, talbetek tsajlet. taw nstannaou reponse mel proprietaire 9bal ay paiement. ki fama update n9olk houni fel conversation.
+- s22_bank_transfer_receipt#4 [action] PASS
+  - input: owner_accept
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: contrat_realise
+  - reply: El proprietaire 9bel ettaleb mte3ek. Hedha contratk PDF: http://localhost:5173/contracts/contract-client-c1781553657432.pdf. Bech nkamlou finalisation, 9olli t7eb t5alles b clicktopay wala b virement. Ken clicktopay, nab3athlek lien paiement. Ken virement, ab3athli recu paiement houni.
+- s22_bank_transfer_receipt#5 [user] PASS
+  - input: nheb virement
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: contrat_realise
+  - reply: Mriguel. Ken bech t5alles b virement, ab3ath recu paiement houni fel chat, soit photo wala lien, w n9aymouh w nstannaw ta2kid mta3 paiement.
+- s22_bank_transfer_receipt#6 [action] PASS
+  - input: upload_receipt_link
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: recu_paiement_envoye
+  - reply: Recu paiement tsajjel. Taw nstannaw ta2kid succes mta3 paiement. Page paiement: http://localhost:5173/mes-reservations/rd_chatbot_1781553651391_uyb79e/paiement
+
+## s23_payment_success_message - Paiement confirme avec succes
+- category: payment
+- status: PASS
+- s23_payment_success_message#1 [user] PASS
+  - input: nheb nreservi ref-252 min 2026-10-01 lel 2026-10-08, 2 adultes
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Total séjour 7 nuits: 1250 TND. Bech nkammel demande réservation, lazim nkammelou d'abord ma3loumetek. Bech nkammel profil client w n3addi demande reservation, ab3athli esmek el kamel, numero tel, numero CIN, photo CIN.
+- s23_payment_success_message#2 [user] PASS
+  - input: Mohamed Ali, tel 24879087, cin 11155555
+  - state: collecting_identity
+  - responseMode: collecting_identity
+  - demandStatus: n/a
+  - reply: Salaam Mohamed Ali, total séjour 7 nuits fil appartement S+2 1er étage fi Petit Paris Kelibia 1250 TND. Bech nkammel demande réservation, ab3athli photo CIN mta3ek.
+- s23_payment_success_message#3 [user] PASS
+  - input: photo CIN
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: en_attente_reponse_proprietaire
+  - reply: sallem Mohamed Ali, talbetek tsajlet. taw nstannaou reponse mel proprietaire 9bal ay paiement. ki fama update n9olk houni fel conversation.
+- s23_payment_success_message#4 [action] PASS
+  - input: owner_accept
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: contrat_realise
+  - reply: El proprietaire 9bel ettaleb mte3ek. Hedha contratk PDF: http://localhost:5173/contracts/contract-client-c1781553702214.pdf. Bech nkamlou finalisation, 9olli t7eb t5alles b clicktopay wala b virement. Ken clicktopay, nab3athlek lien paiement. Ken virement, ab3athli recu paiement houni.
+- s23_payment_success_message#5 [action] PASS
+  - input: mark_paid
+  - state: pending_confirmation
+  - responseMode: reservation_followup
+  - demandStatus: succes_paiement
+  - reply: Paiement reservation mte3ek tsajjel b succes. Merci pour votre confiance. Hedha contratk: http://localhost:5173/contracts/contract-client-c1781553702214.pdf
