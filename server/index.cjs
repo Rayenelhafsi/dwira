@@ -11323,17 +11323,14 @@ function sanitizeContractTemplateVars(rawTemplateVars) {
 }
 
 async function loadContractTemplateContext(contractId) {
+  const hasLocataireAddressColumn = await columnExists('locataires', 'adresse');
   const [contractRows] = await pool.query(
     `SELECT c.*, 
             b.titre AS bien_titre,
             b.reference AS bien_reference,
             b.type AS bien_type,
             b.configuration AS bien_configuration,
-            b.ville AS bien_ville,
-            b.adresse AS bien_adresse,
-            b.caracteristiques AS bien_caracteristiques,
             b.caracteristiques_list AS bien_caracteristiques_list,
-            b.caracteristique_valeurs AS bien_caracteristique_valeurs,
             b.climatisation,
             b.cuisine_equipee,
             b.place_parking,
@@ -11358,8 +11355,8 @@ async function loadContractTemplateContext(contractId) {
             l.nom AS locataire_nom,
             l.email AS locataire_email,
             l.telephone AS locataire_telephone,
-            l.cin AS locataire_cin,
-            l.adresse AS locataire_adresse
+            l.cin AS locataire_cin
+            ${hasLocataireAddressColumn ? ', l.adresse AS locataire_adresse' : ''}
      FROM contrats c
      LEFT JOIN biens b ON b.id = c.bien_id
      LEFT JOIN zones z ON z.id = b.zone_id
@@ -11420,11 +11417,17 @@ async function loadContractTemplateContext(contractId) {
     titre: contract.bien_titre || '',
     type: contract.bien_type || '',
     configuration: contract.bien_configuration || '',
-    ville: contract.bien_ville || '',
-    adresse: contract.bien_adresse || '',
-    caracteristiques: contract.bien_caracteristiques || null,
+    ville: contract.zone_nom || contract.zone_quartier || contract.zone_gouvernerat || contract.zone_region || '',
+    adresse: [
+      contract.zone_nom,
+      contract.zone_quartier,
+      contract.zone_gouvernerat,
+      contract.zone_region,
+      contract.zone_pays,
+    ].filter(Boolean).join(', '),
+    caracteristiques: null,
     caracteristiques_list: contract.bien_caracteristiques_list || null,
-    caracteristique_valeurs: contract.bien_caracteristique_valeurs || null,
+    caracteristique_valeurs: null,
     climatisation: Number(contract.climatisation || 0) === 1,
     cuisine_equipee: Number(contract.cuisine_equipee || 0) === 1,
     place_parking: Number(contract.place_parking || 0) === 1,
