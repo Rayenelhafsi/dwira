@@ -2139,14 +2139,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setHotelCheckIn(nextCheckIn);
     setHotelCheckOut(nextCheckOut);
     setHotelCalendarOpen(false);
-    if (hotelCityId > 0 && hasHotelTravellerSelection) {
-      setHotelCriteriaGlowTarget(null);
-      setTimeout(() => {
-        void runHotelSearch({ replace: true, scroll: false });
-      }, 0);
-    } else {
-      setHotelCriteriaGlowTarget(hasHotelTravellerSelection ? "chambres" : "voyageurs");
-    }
+    setHotelAvailabilitySignatureByHotel({});
+    setHotelCriteriaGlowTarget(hasHotelTravellerSelection ? "chambres" : "voyageurs");
   };
 
   const resolveHotelCardRoomTravellers = (roomCount: number) => {
