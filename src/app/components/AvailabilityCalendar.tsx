@@ -282,40 +282,40 @@ export default function AvailabilityCalendar({
   const weekDays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="w-full max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white p-3 sm:p-4 md:p-6">
+      <div className="mb-4 flex items-center justify-between gap-2 sm:mb-6">
         <button
           onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="rounded-lg p-1.5 transition-colors hover:bg-gray-100 sm:p-2"
           type="button"
         >
-          <ChevronLeft size={20} />
+          <ChevronLeft size={18} className="sm:h-5 sm:w-5" />
         </button>
         
-        <h3 className="text-lg font-bold capitalize">
+        <h3 className="text-base font-bold capitalize sm:text-lg">
           {format(currentMonth, "MMMM yyyy", { locale: fr })}
         </h3>
         
         <button
           onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="rounded-lg p-1.5 transition-colors hover:bg-gray-100 sm:p-2"
           type="button"
         >
-          <ChevronRight size={20} />
+          <ChevronRight size={18} className="sm:h-5 sm:w-5" />
         </button>
       </div>
 
       {/* Week days header */}
-      <div className="grid grid-cols-7 gap-2 mb-2">
+      <div className="mb-1 grid grid-cols-7 gap-1 sm:mb-2 sm:gap-2">
         {weekDays.map((day) => (
-          <div key={day} className="text-center text-xs font-semibold text-gray-500 py-2">
+          <div key={day} className="py-1 text-center text-[11px] font-semibold text-gray-500 sm:py-2 sm:text-xs">
             {day}
           </div>
         ))}
       </div>
 
       {/* Calendar days */}
-      <div className="grid grid-cols-7 gap-2">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {days.map((day, idx) => {
           const label = getDayLabel(day);
           const splitVisual = getSplitDayVisual(day);
@@ -345,7 +345,7 @@ export default function AvailabilityCalendar({
       </div>
 
       {/* Legend */}
-      <div className="mt-6 pt-6 border-t border-gray-100 flex flex-wrap gap-4 text-xs">
+      <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 border-t border-gray-100 pt-4 text-xs sm:mt-6 sm:grid-cols-2 sm:pt-6 lg:grid-cols-3">
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-green-100 rounded border border-green-200"></div>
           <span className="text-gray-600">Disponible</span>
@@ -373,8 +373,8 @@ export default function AvailabilityCalendar({
       </div>
 
       {selectedStart && selectedEnd && (
-        <div className="mt-4 p-4 bg-emerald-50 rounded-lg">
-          <p className="text-sm text-emerald-800 font-medium">
+        <div className="mt-4 rounded-lg bg-emerald-50 p-3 sm:p-4">
+          <p className="text-sm font-medium text-emerald-800">
             Dates sélectionnées : {format(selectedStart, "d MMM", { locale: fr })} - {format(selectedEnd, "d MMM yyyy", { locale: fr })}
           </p>
         </div>

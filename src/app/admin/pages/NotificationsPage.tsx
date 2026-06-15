@@ -3125,9 +3125,9 @@ export default function NotificationsPage() {
       )}
 
       {activeView === 'chat' && (
-        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.08),_transparent_38%),linear-gradient(180deg,#f8fafc_0%,#ffffff_18%,#f8fafc_100%)] shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+        <section className="overflow-x-hidden overflow-y-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.08),_transparent_38%),linear-gradient(180deg,#f8fafc_0%,#ffffff_18%,#f8fafc_100%)] shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
           <div className="border-b border-slate-200 px-4 py-4 md:px-6">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Messagerie proprietaires</p>
                 <h2 className="mt-1 text-xl font-semibold text-slate-900">Espace de discussion admin</h2>
@@ -3478,13 +3478,13 @@ export default function NotificationsPage() {
                     {selectedOwnerBiens.length === 0 ? (
                       <p className="mt-4 text-sm text-slate-500">Aucun bien lie a ce proprietaire.</p>
                     ) : (
-                      <div className="mt-4 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
+                      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                         {selectedOwnerBiens.map((bien) => (
                           <button
                             key={`owner-bien-card-${bien.id}`}
                             type="button"
                             onClick={() => setSelectedOwnerBienCalendarId((current) => current === String(bien.id) ? null : String(bien.id))}
-                            className={`w-[280px] shrink-0 snap-start overflow-hidden rounded-[24px] border bg-white text-left shadow-[0_16px_34px_rgba(15,23,42,0.08)] transition-all ${
+                            className={`min-w-0 overflow-hidden rounded-[24px] border bg-white text-left shadow-[0_16px_34px_rgba(15,23,42,0.08)] transition-all ${
                               selectedOwnerBienCalendarId === String(bien.id)
                                 ? 'border-emerald-300 ring-2 ring-emerald-200'
                                 : 'border-slate-200 hover:border-emerald-200'
@@ -3517,8 +3517,8 @@ export default function NotificationsPage() {
                       </div>
                     )}
                     {selectedOwnerBienForCalendar ? (
-                      <div ref={ownerBienCalendarRef} className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50/30 p-4">
-                        <div className="mb-3 flex items-center justify-between gap-3">
+                      <div ref={ownerBienCalendarRef} className="mt-4 min-w-0 overflow-hidden rounded-3xl border border-emerald-200 bg-emerald-50/30 p-3 sm:p-4">
+                        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <h5 className="text-base font-semibold text-slate-900">Calendrier du bien</h5>
                             <p className="mt-1 text-sm text-slate-500">
@@ -3599,8 +3599,8 @@ export default function NotificationsPage() {
               </button>
             </div>
           </div>
-          <div className="grid min-h-[720px] bg-white min-[900px]:h-[76vh] min-[900px]:grid-cols-[360px_minmax(0,1fr)] xl:h-[78vh] xl:grid-cols-[500px_minmax(0,1fr)]">
-            <aside className={`${isCalendarMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 min-[900px]:flex`}>
+          <div className="grid min-h-[720px] min-w-0 bg-white min-[900px]:h-[76vh] min-[900px]:grid-cols-[360px_minmax(0,1fr)] xl:h-[78vh] xl:grid-cols-[500px_minmax(0,1fr)]">
+            <aside className={`${isCalendarMobileConversationOpen ? 'hidden' : 'flex'} min-h-0 min-w-0 border-r border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9f6_100%)] text-slate-900 min-[900px]:flex`}>
               <div className="flex w-full flex-col">
                 <div className="border-b border-slate-200 px-5 py-5">
                   <div className="flex items-center justify-between gap-3">
@@ -4209,13 +4209,13 @@ export default function NotificationsPage() {
                                   Aucun bien relie a ce proprietaire.
                                 </div>
                               ) : (
-                                <div className="mt-4 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
+                                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                                   {selectedCalendarBiens.map((bien) => (
                                     <button
                                       key={`calendar-owner-bien-${bien.id}`}
                                       type="button"
                                       onClick={() => setSelectedCalendarBienCalendarId((current) => current === String(bien.id) ? null : String(bien.id))}
-                                      className={`w-[280px] shrink-0 snap-start overflow-hidden rounded-[24px] border bg-white text-left shadow-[0_16px_34px_rgba(15,23,42,0.08)] transition-all ${
+                                      className={`min-w-0 overflow-hidden rounded-[24px] border bg-white text-left shadow-[0_16px_34px_rgba(15,23,42,0.08)] transition-all ${
                                         selectedCalendarBienCalendarId === String(bien.id)
                                           ? 'border-emerald-300 ring-2 ring-emerald-200'
                                           : 'border-slate-200 hover:border-emerald-200'
@@ -4248,8 +4248,8 @@ export default function NotificationsPage() {
                                 </div>
                               )}
                               {selectedCalendarBienForCalendar ? (
-                                <div ref={calendarBienCalendarRef} className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50/30 p-4">
-                                  <div className="mb-3 flex items-center justify-between gap-3">
+                                <div ref={calendarBienCalendarRef} className="mt-4 min-w-0 overflow-hidden rounded-3xl border border-emerald-200 bg-emerald-50/30 p-3 sm:p-4">
+                                  <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                       <h5 className="text-base font-semibold text-slate-900">Calendrier du bien</h5>
                                       <p className="mt-1 text-sm text-slate-500">

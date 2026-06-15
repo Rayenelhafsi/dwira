@@ -41,6 +41,10 @@ type ContratApi = {
   created_at: string;
   bien_titre?: string;
   locataire_nom?: string;
+  reservation_demand_id?: string | null;
+  payment_receipt_image_url?: string | null;
+  payment_receipt_uploaded_at?: string | null;
+  payment_receipt_note?: string | null;
 };
 
 type BienApi = {
@@ -460,6 +464,7 @@ export default function ContratsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingContratId, setUploadingContratId] = useState<string | null>(null);
+  const [uploadingReceiptContratId, setUploadingReceiptContratId] = useState<string | null>(null);
   const [regeneratingContratId, setRegeneratingContratId] = useState<string | null>(null);
   const [sendingContratId, setSendingContratId] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
@@ -933,6 +938,44 @@ export default function ContratsPage() {
       toast.error(err?.message || 'Erreur upload contrat');
     } finally {
       setUploadingContratId(null);
+    }
+  };
+
+  const handleUploadPaymentReceipt = async (contrat: ContratApi, file?: File | null) => {
+    if (!file) return;
+    setUploadingReceiptContratId(contrat.id);
+    try {
+      const formData = new FormData();
+      formData.append('receipt', file);
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}/upload-payment-receipt`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Upload recu impossible'));
+      const data = await response.json().catch(() => null);
+      const updatedContract = data?.contract && typeof data.contract === 'object' ? data.contract as ContratApi : null;
+      if (updatedContract) {
+        setContrats((current) => current.map((item) => (item.id === updatedContract.id ? { ...item, ...updatedContract } : item)));
+        setTemplateVarsTargetContract((current) => (current?.id === updatedContract.id ? { ...current, ...updatedContract } : current));
+      } else {
+        setContrats((current) => current.map((item) => (
+          item.id === contrat.id
+            ? {
+                ...item,
+                reservation_demand_id: String(data?.demand_id || item.reservation_demand_id || '').trim() || null,
+                payment_receipt_image_url: String(data?.payment_receipt_image_url || '').trim() || null,
+                payment_receipt_uploaded_at: String(data?.payment_receipt_uploaded_at || '').trim() || null,
+                payment_receipt_note: String(data?.payment_receipt_note || '').trim() || null,
+              }
+            : item
+        )));
+      }
+      toast.success('Recu de paiement uploade');
+    } catch (error: any) {
+      toast.error(error?.message || 'Upload recu impossible');
+    } finally {
+      setUploadingReceiptContratId(null);
     }
   };
 
@@ -2072,6 +2115,8 @@ export default function ContratsPage() {
           const bien = bienById.get(contrat.bien_id);
           const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
           const cardDetails = getContractCardDetails(contrat, bien);
+          const receiptUrl = contrat.payment_receipt_image_url ? toAbsoluteAssetUrl(contrat.payment_receipt_image_url) : '';
+          const hasReceipt = Boolean(receiptUrl);
           return (
             <div key={contrat.id} className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-3 sm:mb-4">
@@ -2148,6 +2193,35 @@ export default function ContratsPage() {
                     onChange={(e) => {
                       const file = e.target.files?.[0] || null;
                       handleUploadContractPdf(contrat, file);
+                      e.currentTarget.value = '';
+                    }}
+                  />
+                </label>
+                {hasReceipt ? (
+                  <a
+                    href={receiptUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-300 text-sky-700 text-sm font-medium hover:bg-sky-50"
+                  >
+                    <Eye size={16} /> Voir recu
+                  </a>
+                ) : (
+                  <div className="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-dashed border-sky-200 text-sky-600 text-sm">
+                    Aucun recu
+                  </div>
+                )}
+                <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-200 text-sky-700 text-sm font-medium hover:bg-sky-50 cursor-pointer">
+                  <Upload size={16} />
+                  {uploadingReceiptContratId === contrat.id ? 'Upload recu...' : (hasReceipt ? 'Remplacer recu' : 'Uploader recu')}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+                    className="hidden"
+                    disabled={uploadingReceiptContratId === contrat.id}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      void handleUploadPaymentReceipt(contrat, file);
                       e.currentTarget.value = '';
                     }}
                   />

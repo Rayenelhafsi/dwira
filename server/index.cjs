@@ -13976,8 +13976,37 @@ app.delete('/api/locataires/:id', requireAdminSession, async (req, res) => {
 app.get('/api/contrats', requireAdminSession, async (req, res) => {
   try {
     await ensureContractsSchema();
+    await ensureReservationDemandSchema();
     const [rows] = await pool.query(`
-      SELECT c.*, b.titre as bien_titre, l.nom as locataire_nom 
+      SELECT c.*, b.titre as bien_titre, l.nom as locataire_nom,
+             (
+               SELECT d.id
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS reservation_demand_id,
+             (
+               SELECT d.payment_receipt_image_url
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS payment_receipt_image_url,
+             (
+               SELECT DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s')
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS payment_receipt_uploaded_at,
+             (
+               SELECT d.payment_receipt_note
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS payment_receipt_note
       FROM contrats c 
       LEFT JOIN biens b ON c.bien_id = b.id 
       LEFT JOIN locataires l ON c.locataire_id = l.id
@@ -14030,6 +14059,10 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
     res.json({
       ...contract,
       resolved_template_vars: templateContext?.resolvedTemplateVars || null,
+      reservation_demand_id: templateContext?.demand?.id || null,
+      payment_receipt_image_url: templateContext?.demand?.payment_receipt_image_url || null,
+      payment_receipt_uploaded_at: templateContext?.demand?.payment_receipt_uploaded_at || null,
+      payment_receipt_note: templateContext?.demand?.payment_receipt_note || null,
     });
   } catch (error) {
     console.error('Error fetching contrat by id:', error);
@@ -14100,6 +14133,87 @@ app.put('/api/contrats/:id/template-vars', requireAdminSession, async (req, res)
   } catch (error) {
     console.error('Error updating contract template vars:', error);
     res.status(500).json({ error: 'Mise a jour des variables impossible' });
+  }
+});
+
+app.post('/api/contrats/:id/upload-payment-receipt', requireAdminSession, reservationMutationRateLimit, (req, res, next) => paymentReceiptUpload.single('receipt')(req, res, next), async (req, res) => {
+  try {
+    await ensureContractsSchema();
+    await ensureReservationDemandSchema();
+    const contractId = String(req.params.id || '').trim();
+    if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
+    if (!req.file) return res.status(400).json({ error: 'Image du recu requise' });
+
+    const [demandRows] = await pool.query(
+      `SELECT *
+       FROM reservation_demands
+       WHERE contract_id = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [contractId]
+    );
+    const demand = demandRows?.[0] || null;
+    if (!demand) return res.status(404).json({ error: 'Demande liee a ce contrat introuvable' });
+
+    const now = getAgencySqlDateTime();
+    const receiptUrl = `/uploads/reservation-payment-receipts/${req.file.filename}`;
+    const receiptNote = String(req.body?.payment_receipt_note || req.body?.note || '').trim() || null;
+    const providedPaymentRef = String(
+      req.body?.payment_id
+      || req.body?.payment_reference
+      || req.body?.reference
+      || req.body?.virement_id
+      || req.body?.quittance_id
+      || ''
+    ).trim();
+    const resolvedPaymentId = providedPaymentRef || String(demand.payment_id || '').trim() || null;
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET payment_receipt_image_url = ?,
+           payment_receipt_uploaded_at = ?,
+           payment_receipt_note = ?,
+           payment_id = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [receiptUrl, now, receiptNote, resolvedPaymentId, now, demand.id]
+    );
+
+    await appendReservationDemandHistory(
+      demand.id,
+      String(demand.status || 'contrat_realise').trim() || 'contrat_realise',
+      'admin',
+      String(req.authUser?.id || req.authUser?.email || 'admin'),
+      'Recu de paiement ajoute manuellement par administrateur',
+      now
+    );
+
+    const [updatedContractRows] = await pool.query(
+      `SELECT c.*, b.titre as bien_titre, l.nom as locataire_nom,
+              ? AS reservation_demand_id,
+              ? AS payment_receipt_image_url,
+              ? AS payment_receipt_uploaded_at,
+              ? AS payment_receipt_note
+       FROM contrats c
+       LEFT JOIN biens b ON c.bien_id = b.id
+       LEFT JOIN locataires l ON c.locataire_id = l.id
+       WHERE c.id = ?
+       LIMIT 1`,
+      [demand.id, receiptUrl, now, receiptNote, contractId]
+    );
+
+    res.json({
+      ok: true,
+      contract_id: contractId,
+      demand_id: demand.id,
+      payment_receipt_image_url: receiptUrl,
+      payment_receipt_uploaded_at: now,
+      payment_receipt_note: receiptNote,
+      contract: updatedContractRows?.[0] || null,
+    });
+  } catch (error) {
+    console.error('Error uploading admin payment receipt for contract:', error);
+    res.status(500).json({ error: 'Impossible d uploader le recu de paiement' });
   }
 });
 
