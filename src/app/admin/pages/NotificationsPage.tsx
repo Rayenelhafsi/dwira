@@ -89,6 +89,11 @@ function isOwnerExcludedFromCalendarAppFlow(status?: OwnerCalendarPromptStatus |
   return isOwnerWithoutAppStatus(status) || isOwnerPhoneOnlyStatus(status);
 }
 
+function isPendingCalendarRequestStatus(status?: string | null) {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'pending' || normalized === 'cancel_pending';
+}
+
 type AdminCalendarRequest = {
   id: string;
   ownerId: string;
@@ -1649,6 +1654,11 @@ export default function NotificationsPage() {
   const selectedCalendarOwnerWithoutApp = isOwnerWithoutAppStatus(selectedCalendarStatus);
   const selectedCalendarOwnerPhoneOnly = isOwnerPhoneOnlyStatus(selectedCalendarStatus);
   const selectedCalendarPendingRequest = selectedCalendarOwner ? pendingCalendarRequestByOwner.get(selectedCalendarOwner.id) || null : null;
+  const isCalendarReviewActionable = useMemo(() => {
+    if (calendarReviewLoading) return false;
+    if (!calendarReviewRequest && !calendarReviewDiff) return false;
+    return isPendingCalendarRequestStatus(calendarReviewDiff?.status) || isPendingCalendarRequestStatus(calendarReviewRequest?.status);
+  }, [calendarReviewDiff, calendarReviewLoading, calendarReviewRequest]);
   const selectedCalendarHistory = useMemo(
     () => (selectedCalendarOwner ? calendarRequestHistoryByOwner.get(selectedCalendarOwner.id) || [] : []),
     [selectedCalendarOwner, calendarRequestHistoryByOwner]
@@ -4752,7 +4762,7 @@ export default function NotificationsPage() {
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                {calendarReviewRequest.status === 'pending' && !calendarReviewLoading && calendarReviewDiff ? (
+                {isCalendarReviewActionable ? (
                   <>
                     <button
                       type="button"
@@ -4830,8 +4840,8 @@ export default function NotificationsPage() {
               )}
             </div>
 
-            {calendarReviewRequest.status === 'pending' && !calendarReviewLoading && calendarReviewDiff && (
-              <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 bg-white px-5 py-4">
+            {isCalendarReviewActionable && (
+              <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-gray-200 bg-white/95 px-5 py-4 backdrop-blur">
                 <button
                   type="button"
                   onClick={() => void rejectCalendarRequest(calendarReviewRequest)}
