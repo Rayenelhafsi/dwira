@@ -355,6 +355,21 @@ function parseTemplateVars(raw: unknown): Record<string, string> {
   }
 }
 
+function resolveContractTemplateVars(contrat: Pick<ContratApi, 'template_vars_json' | 'creation_steps_json'> | null | undefined): Record<string, string> {
+  if (!contrat) return {};
+  const directVars = parseTemplateVars(contrat.template_vars_json);
+  if (Object.keys(directVars).length > 0) return directVars;
+
+  const history = parseContractCreationHistory(contrat.creation_steps_json);
+  const step1Fields = parseTemplateVars(history?.step_1?.fields);
+  if (Object.keys(step1Fields).length > 0) return step1Fields;
+
+  const rootTemplateVars = parseTemplateVars(history?.template_vars ?? history?.templateVars);
+  if (Object.keys(rootTemplateVars).length > 0) return rootTemplateVars;
+
+  return {};
+}
+
 function getContractCardDetails(contrat: ContratApi, bien?: BienApi | null) {
   const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
   const templateVars = parseTemplateVars(contrat.template_vars_json);
@@ -471,6 +486,7 @@ export default function ContratsPage() {
   const [templateVarsEditorOpen, setTemplateVarsEditorOpen] = useState(false);
   const [templateVarsTargetContract, setTemplateVarsTargetContract] = useState<ContratApi | null>(null);
   const [templateVarsDraft, setTemplateVarsDraft] = useState<Record<string, string>>({});
+  const [templateVarsLoadingContractId, setTemplateVarsLoadingContractId] = useState<string | null>(null);
   const [historyViewerContract, setHistoryViewerContract] = useState<ContratApi | null>(null);
 
   const templateVarKeys = useMemo(() => {
@@ -924,6 +940,12 @@ export default function ContratsPage() {
         credentials: 'include',
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Regeneration impossible'));
+      const data = await response.json().catch(() => null);
+      const updatedContract = data?.contract && typeof data.contract === 'object' ? data.contract as ContratApi : null;
+      if (updatedContract) {
+        setContrats((current) => current.map((item) => (item.id === updatedContract.id ? { ...item, ...updatedContract } : item)));
+        setTemplateVarsTargetContract((current) => (current?.id === updatedContract.id ? { ...current, ...updatedContract } : current));
+      }
       await fetchData();
       toast.success('Contrat regenere depuis le template');
     } catch (error: any) {
@@ -933,11 +955,28 @@ export default function ContratsPage() {
     }
   };
 
-  const handleEditTemplateVars = (contrat: ContratApi) => {
-    const parsed = parseTemplateVars(contrat.template_vars_json);
-    setTemplateVarsTargetContract(contrat);
-    setTemplateVarsDraft(parsed);
-    setTemplateVarsEditorOpen(true);
+  const handleEditTemplateVars = async (contrat: ContratApi) => {
+    setTemplateVarsLoadingContractId(contrat.id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}`, {
+        credentials: 'include',
+      });
+      const detailedContract = response.ok
+        ? await response.json().catch(() => null)
+        : null;
+      const nextContract = detailedContract && typeof detailedContract === 'object'
+        ? { ...contrat, ...detailedContract } as ContratApi
+        : contrat;
+      const parsed = resolveContractTemplateVars(nextContract);
+      setContrats((current) => current.map((item) => (item.id === nextContract.id ? { ...item, ...nextContract } : item)));
+      setTemplateVarsTargetContract(nextContract);
+      setTemplateVarsDraft(parsed);
+      setTemplateVarsEditorOpen(true);
+    } catch (error: any) {
+      toast.error(error?.message || 'Chargement des variables impossible');
+    } finally {
+      setTemplateVarsLoadingContractId(null);
+    }
   };
 
   const handleSaveTemplateVars = async () => {
@@ -960,6 +999,11 @@ export default function ContratsPage() {
         ...current,
         template_vars_json: JSON.stringify(payload),
       } : current);
+      setContrats((current) => current.map((item) => (
+        item.id === templateVarsTargetContract.id
+          ? { ...item, template_vars_json: JSON.stringify(payload) }
+          : item
+      )));
       setTemplateVarsDraft(payload);
       toast.success('Variables sauvegardees et contrat regenere');
     } catch (error: any) {
@@ -1949,6 +1993,9 @@ export default function ContratsPage() {
               Fermer
             </button>
           </div>
+          <p className="text-xs text-sky-800">
+            Les valeurs existantes du contrat sont pre-remplies ici. L admin peut les modifier puis regenerer le PDF.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {templateVarKeys.map((key) => (
               <label key={key} className="block">
@@ -2059,8 +2106,13 @@ export default function ContratsPage() {
                 <button type="button" onClick={() => void handleRegenerateTemplatePdf(contrat)} disabled={regeneratingContratId === contrat.id} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-300 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50">
                   {regeneratingContratId === contrat.id ? 'Regeneration...' : 'Generer template'}
                 </button>
-                <button type="button" onClick={() => void handleEditTemplateVars(contrat)} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-300 text-sky-700 text-sm font-medium hover:bg-sky-50">
-                  Modifier variables
+                <button
+                  type="button"
+                  onClick={() => void handleEditTemplateVars(contrat)}
+                  disabled={templateVarsLoadingContractId === contrat.id}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-300 text-sky-700 text-sm font-medium hover:bg-sky-50 disabled:opacity-50"
+                >
+                  {templateVarsLoadingContractId === contrat.id ? 'Chargement...' : 'Modifier variables'}
                 </button>
                 <button
                   type="button"
