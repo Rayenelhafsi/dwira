@@ -34,6 +34,7 @@ type ContratApi = {
   owner_url_pdf?: string;
   template_vars_json?: string | null;
   creation_steps_json?: string | null;
+  resolved_template_vars?: Record<string, string> | null;
   client_sent_at?: string | null;
   origine?: 'manuel' | 'automatique' | string;
   statut: 'actif' | 'termine' | 'resilie';
@@ -355,8 +356,11 @@ function parseTemplateVars(raw: unknown): Record<string, string> {
   }
 }
 
-function resolveContractTemplateVars(contrat: Pick<ContratApi, 'template_vars_json' | 'creation_steps_json'> | null | undefined): Record<string, string> {
+function resolveContractTemplateVars(contrat: Pick<ContratApi, 'template_vars_json' | 'creation_steps_json' | 'resolved_template_vars'> | null | undefined): Record<string, string> {
   if (!contrat) return {};
+  const resolvedVars = parseTemplateVars(contrat.resolved_template_vars);
+  if (Object.keys(resolvedVars).length > 0) return resolvedVars;
+
   const directVars = parseTemplateVars(contrat.template_vars_json);
   if (Object.keys(directVars).length > 0) return directVars;
 

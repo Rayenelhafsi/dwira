@@ -11313,6 +11313,182 @@ async function buildReservationClientContractTemplateVars({
   };
 }
 
+function sanitizeContractTemplateVars(rawTemplateVars) {
+  if (!rawTemplateVars || typeof rawTemplateVars !== 'object' || Array.isArray(rawTemplateVars)) return {};
+  return Object.fromEntries(
+    Object.entries(rawTemplateVars)
+      .map(([key, value]) => [String(key), String(value ?? '').trim()])
+      .filter(([, value]) => value.length > 0)
+  );
+}
+
+async function loadContractTemplateContext(contractId) {
+  const [contractRows] = await pool.query(
+    `SELECT c.*, 
+            b.titre AS bien_titre,
+            b.reference AS bien_reference,
+            b.type AS bien_type,
+            b.configuration AS bien_configuration,
+            b.ville AS bien_ville,
+            b.adresse AS bien_adresse,
+            b.caracteristiques AS bien_caracteristiques,
+            b.caracteristiques_list AS bien_caracteristiques_list,
+            b.caracteristique_valeurs AS bien_caracteristique_valeurs,
+            b.climatisation,
+            b.cuisine_equipee,
+            b.place_parking,
+            b.chauffage_central,
+            b.balcon,
+            b.terrasse,
+            b.ascenseur,
+            b.vue_mer,
+            b.gaz_ville,
+            b.proche_plage,
+            b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
+            b.prix_nuitee,
+            b.avance,
+            b.caution,
+            z.nom AS zone_nom,
+            z.quartier AS zone_quartier,
+            z.gouvernerat AS zone_gouvernerat,
+            z.region AS zone_region,
+            z.pays AS zone_pays,
+            p.nom AS proprietaire_nom,
+            p.email AS proprietaire_email,
+            l.nom AS locataire_nom,
+            l.email AS locataire_email,
+            l.telephone AS locataire_telephone,
+            l.cin AS locataire_cin,
+            l.adresse AS locataire_adresse
+     FROM contrats c
+     LEFT JOIN biens b ON b.id = c.bien_id
+     LEFT JOIN zones z ON z.id = b.zone_id
+     LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+     LEFT JOIN locataires l ON l.id = c.locataire_id
+     WHERE c.id = ?
+     LIMIT 1`,
+    [contractId]
+  );
+  const contract = contractRows[0] || null;
+  if (!contract) return null;
+
+  const [demandRows] = await pool.query(
+    `SELECT *
+     FROM reservation_demands
+     WHERE contract_id = ?
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [contractId]
+  );
+  const demand = demandRows[0] || {};
+
+  const locataireName = splitFullName(contract.locataire_nom || '');
+  const identityFirstName = String(demand.identity_first_name || locataireName.firstName || '').trim();
+  const identityLastName = String(demand.identity_last_name || locataireName.lastName || '').trim();
+  const identityNumber = normalizeIdentityNumber(demand.identity_document_number || contract.locataire_cin || '');
+  const identityDocumentType = normalizeIdentityDocumentType(demand.identity_document_type, identityNumber && /^\d{8}$/.test(identityNumber) ? 'cin_tn' : 'passport_foreign');
+
+  const startDate = String(demand.start_date || contract.date_debut || '').trim();
+  const endDate = String(demand.end_date || contract.date_fin || '').trim();
+  const nights = computeNights(startDate, endDate);
+  const totalAmount = Number.isFinite(Number(demand.total_amount))
+    ? Number(demand.total_amount)
+    : (Number(contract.prix_nuitee || 0) > 0 ? (Number(contract.prix_nuitee || 0) * nights) : Number(contract.montant_recu || 0));
+  const paymentMode = normalizePaymentMode(demand.payment_mode || 'avance', 'avance');
+  const amountDueNow = Number.isFinite(Number(demand.amount_due_now))
+    ? Number(demand.amount_due_now)
+    : Number(contract.montant_recu || 0);
+
+  const contractDemandContext = {
+    ...demand,
+    bien_id: contract.bien_id,
+    bien_titre: contract.bien_titre || null,
+    start_date: startDate,
+    end_date: endDate,
+    client_name: `${identityLastName} ${identityFirstName}`.trim() || String(contract.locataire_nom || '').trim(),
+    client_email: String(demand.client_email || contract.locataire_email || '').trim(),
+    client_phone: String(demand.client_phone || contract.locataire_telephone || '').trim(),
+    client_address: String(demand.client_address || contract.locataire_adresse || '').trim(),
+    finalization_due_at: demand.finalization_due_at || null,
+    payment_mode: paymentMode,
+    amount_due_now: amountDueNow,
+    total_amount: totalAmount,
+  };
+  const bienContext = {
+    id: contract.bien_id,
+    reference: contract.bien_reference || '',
+    titre: contract.bien_titre || '',
+    type: contract.bien_type || '',
+    configuration: contract.bien_configuration || '',
+    ville: contract.bien_ville || '',
+    adresse: contract.bien_adresse || '',
+    caracteristiques: contract.bien_caracteristiques || null,
+    caracteristiques_list: contract.bien_caracteristiques_list || null,
+    caracteristique_valeurs: contract.bien_caracteristique_valeurs || null,
+    climatisation: Number(contract.climatisation || 0) === 1,
+    cuisine_equipee: Number(contract.cuisine_equipee || 0) === 1,
+    place_parking: Number(contract.place_parking || 0) === 1,
+    chauffage_central: Number(contract.chauffage_central || 0) === 1,
+    balcon: Number(contract.balcon || 0) === 1,
+    terrasse: Number(contract.terrasse || 0) === 1,
+    ascenseur: Number(contract.ascenseur || 0) === 1,
+    vue_mer: Number(contract.vue_mer || 0) === 1,
+    gaz_ville: Number(contract.gaz_ville || 0) === 1,
+    proche_plage: Number(contract.proche_plage || 0) === 1,
+    location_saisonniere_config_json: contract.bien_location_saisonniere_config_json || null,
+    zone_nom: contract.zone_nom || null,
+    zone_quartier: contract.zone_quartier || null,
+    zone_gouvernerat: contract.zone_gouvernerat || null,
+    zone_region: contract.zone_region || null,
+    zone_pays: contract.zone_pays || null,
+    caution: contract.caution,
+  };
+
+  return {
+    contract,
+    demand,
+    contractDemandContext,
+    bienContext,
+    totalAmount,
+    amountDueNow,
+    paymentMode,
+    identityNumber,
+    identityDocumentType,
+    identityFirstName,
+    identityLastName,
+  };
+}
+
+async function buildResolvedContractTemplateVars(contractId) {
+  const context = await loadContractTemplateContext(contractId);
+  if (!context) return null;
+
+  const savedTemplateVars = sanitizeContractTemplateVars(safeParseJson(context.contract.template_vars_json, null));
+  const defaultTemplateVars = await buildReservationClientContractTemplateVars({
+    demand: context.contractDemandContext,
+    bien: context.bienContext,
+    contractId,
+    contractCreatedAt: context.contract.created_at || getAgencySqlDateTime(),
+    totalAmount: context.totalAmount,
+    amountDueNow: context.amountDueNow,
+    paymentMode: context.paymentMode,
+    identityNumber: context.identityNumber || '-',
+    identityDocumentType: context.identityDocumentType,
+    identityFirstName: context.identityFirstName || '-',
+    identityLastName: context.identityLastName || '-',
+    cautionAmount: context.contract.caution,
+  });
+
+  return {
+    ...context,
+    savedTemplateVars,
+    resolvedTemplateVars: {
+      ...defaultTemplateVars,
+      ...savedTemplateVars,
+    },
+  };
+}
+
 async function generateReservationClientContractPdf({
   demand,
   bien,
@@ -13817,16 +13993,9 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
     const requester = req.authUser || null;
     const contractId = String(req.params.id || '').trim();
     if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
-    const [rows] = await pool.query(
-      `SELECT c.*, b.titre as bien_titre, b.reference AS bien_reference, l.nom as locataire_nom
-       FROM contrats c
-       LEFT JOIN biens b ON c.bien_id = b.id
-       LEFT JOIN locataires l ON c.locataire_id = l.id
-       WHERE c.id = ?
-       LIMIT 1`,
-      [contractId]
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'Contrat introuvable' });
+    const templateContext = await buildResolvedContractTemplateVars(contractId);
+    const contract = templateContext?.contract || null;
+    if (!contract) return res.status(404).json({ error: 'Contrat introuvable' });
     if (requester?.role !== 'admin') {
       const requesterId = String(requester?.id || '').trim();
       const requesterEmail = normalizeEmailForCompare(requester?.email);
@@ -13856,7 +14025,10 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
         return res.status(403).json({ error: 'Acces refuse a ce contrat' });
       }
     }
-    res.json(rows[0]);
+    res.json({
+      ...contract,
+      resolved_template_vars: templateContext?.resolvedTemplateVars || null,
+    });
   } catch (error) {
     console.error('Error fetching contrat by id:', error);
     res.status(500).json({ error: 'Failed to fetch contrat' });
@@ -13869,142 +14041,25 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
     await ensureContractsSchema();
     const contractId = String(req.params.id || '').trim();
     if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
-
-    const [contractRows] = await pool.query(
-      `SELECT c.*, 
-              b.titre AS bien_titre,
-              b.reference AS bien_reference,
-              b.type AS bien_type,
-              b.configuration AS bien_configuration,
-              b.ville AS bien_ville,
-              b.adresse AS bien_adresse,
-              b.caracteristiques AS bien_caracteristiques,
-              b.caracteristiques_list AS bien_caracteristiques_list,
-              b.caracteristique_valeurs AS bien_caracteristique_valeurs,
-              b.climatisation,
-              b.cuisine_equipee,
-              b.place_parking,
-              b.chauffage_central,
-              b.balcon,
-              b.terrasse,
-              b.ascenseur,
-              b.vue_mer,
-              b.gaz_ville,
-              b.proche_plage,
-              b.location_saisonniere_config_json AS bien_location_saisonniere_config_json,
-              b.prix_nuitee,
-              b.avance,
-              b.caution,
-              z.nom AS zone_nom,
-              z.quartier AS zone_quartier,
-              z.gouvernerat AS zone_gouvernerat,
-              z.region AS zone_region,
-              z.pays AS zone_pays,
-              p.nom AS proprietaire_nom,
-              p.email AS proprietaire_email,
-              l.nom AS locataire_nom,
-              l.email AS locataire_email,
-              l.telephone AS locataire_telephone,
-              l.cin AS locataire_cin,
-              l.adresse AS locataire_adresse
-       FROM contrats c
-       LEFT JOIN biens b ON b.id = c.bien_id
-       LEFT JOIN zones z ON z.id = b.zone_id
-       LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
-       LEFT JOIN locataires l ON l.id = c.locataire_id
-       WHERE c.id = ?
-       LIMIT 1`,
-      [contractId]
-    );
-    const contract = contractRows[0];
+    const templateContext = await buildResolvedContractTemplateVars(contractId);
+    const contract = templateContext?.contract || null;
     if (!contract) return res.status(404).json({ error: 'Contrat introuvable' });
-
-    const [demandRows] = await pool.query(
-      `SELECT *
-       FROM reservation_demands
-       WHERE contract_id = ?
-       ORDER BY updated_at DESC
-       LIMIT 1`,
-      [contractId]
-    );
-    const demand = demandRows[0] || {};
-
-    const locataireName = splitFullName(contract.locataire_nom || '');
-    const identityFirstName = String(demand.identity_first_name || locataireName.firstName || '').trim();
-    const identityLastName = String(demand.identity_last_name || locataireName.lastName || '').trim();
-    const identityNumber = normalizeIdentityNumber(demand.identity_document_number || contract.locataire_cin || '');
-    const identityDocumentType = normalizeIdentityDocumentType(demand.identity_document_type, identityNumber && /^\d{8}$/.test(identityNumber) ? 'cin_tn' : 'passport_foreign');
-
-    const startDate = String(demand.start_date || contract.date_debut || '').trim();
-    const endDate = String(demand.end_date || contract.date_fin || '').trim();
-    const nights = computeNights(startDate, endDate);
-    const totalAmount = Number.isFinite(Number(demand.total_amount))
-      ? Number(demand.total_amount)
-      : (Number(contract.prix_nuitee || 0) > 0 ? (Number(contract.prix_nuitee || 0) * nights) : Number(contract.montant_recu || 0));
-    const paymentMode = normalizePaymentMode(demand.payment_mode || 'avance', 'avance');
-    const amountDueNow = Number.isFinite(Number(demand.amount_due_now))
-      ? Number(demand.amount_due_now)
-      : Number(contract.montant_recu || 0);
-
-    const contractDemandContext = {
-      ...demand,
-      bien_id: contract.bien_id,
-      bien_titre: contract.bien_titre || null,
-      start_date: startDate,
-      end_date: endDate,
-      client_name: `${identityLastName} ${identityFirstName}`.trim() || String(contract.locataire_nom || '').trim(),
-      client_email: String(demand.client_email || contract.locataire_email || '').trim(),
-      client_phone: String(demand.client_phone || contract.locataire_telephone || '').trim(),
-      client_address: String(demand.client_address || contract.locataire_adresse || '').trim(),
-      finalization_due_at: demand.finalization_due_at || null,
-      payment_mode: paymentMode,
-      amount_due_now: amountDueNow,
-      total_amount: totalAmount,
-    };
-    const bienContext = {
-      id: contract.bien_id,
-      reference: contract.bien_reference || '',
-      titre: contract.bien_titre || '',
-      type: contract.bien_type || '',
-      configuration: contract.bien_configuration || '',
-      ville: contract.bien_ville || '',
-      adresse: contract.bien_adresse || '',
-      caracteristiques: contract.bien_caracteristiques || null,
-      caracteristiques_list: contract.bien_caracteristiques_list || null,
-      caracteristique_valeurs: contract.bien_caracteristique_valeurs || null,
-      climatisation: Number(contract.climatisation || 0) === 1,
-      cuisine_equipee: Number(contract.cuisine_equipee || 0) === 1,
-      place_parking: Number(contract.place_parking || 0) === 1,
-      chauffage_central: Number(contract.chauffage_central || 0) === 1,
-      balcon: Number(contract.balcon || 0) === 1,
-      terrasse: Number(contract.terrasse || 0) === 1,
-      ascenseur: Number(contract.ascenseur || 0) === 1,
-      vue_mer: Number(contract.vue_mer || 0) === 1,
-      gaz_ville: Number(contract.gaz_ville || 0) === 1,
-      proche_plage: Number(contract.proche_plage || 0) === 1,
-      location_saisonniere_config_json: contract.bien_location_saisonniere_config_json || null,
-      zone_nom: contract.zone_nom || null,
-      zone_quartier: contract.zone_quartier || null,
-      zone_gouvernerat: contract.zone_gouvernerat || null,
-      zone_region: contract.zone_region || null,
-      zone_pays: contract.zone_pays || null,
-      caution: contract.caution,
-    };
 
     const previousUrl = String(contract.url_pdf || '').trim() || null;
     const regeneratedUrl = await generateReservationClientContractPdf({
-      demand: contractDemandContext,
-      bien: bienContext,
+      demand: templateContext.contractDemandContext,
+      bien: templateContext.bienContext,
       contractId,
       contractCreatedAt: contract.created_at || getAgencySqlDateTime(),
-      totalAmount,
-      amountDueNow,
-      paymentMode,
-      identityNumber: identityNumber || '-',
-      identityDocumentType,
-      identityFirstName: identityFirstName || '-',
-      identityLastName: identityLastName || '-',
-      templateVars: safeParseJson(contract.template_vars_json, null),
+      totalAmount: templateContext.totalAmount,
+      amountDueNow: templateContext.amountDueNow,
+      paymentMode: templateContext.paymentMode,
+      identityNumber: templateContext.identityNumber || '-',
+      identityDocumentType: templateContext.identityDocumentType,
+      identityFirstName: templateContext.identityFirstName || '-',
+      identityLastName: templateContext.identityLastName || '-',
+      cautionAmount: contract.caution,
+      templateVars: templateContext.savedTemplateVars,
     });
 
     await pool.query('UPDATE contrats SET url_pdf = ? WHERE id = ?', [regeneratedUrl, contractId]);
@@ -14015,7 +14070,12 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
       contract_id: contractId,
       previous_url_pdf: previousUrl,
       url_pdf: regeneratedUrl,
-      contract: updatedRows[0] || null,
+      contract: updatedRows[0]
+        ? {
+            ...updatedRows[0],
+            resolved_template_vars: templateContext.resolvedTemplateVars,
+          }
+        : null,
     });
   } catch (error) {
     console.error('Error regenerating contract template PDF:', error);
