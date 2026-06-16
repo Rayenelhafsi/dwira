@@ -425,6 +425,105 @@ const detectCanonicalSeasonalTabKey = (label?: string | null) => {
   return '';
 };
 
+const LOCATION_TAB_FEATURE_ALLOWLIST: Record<string, string[]> = {
+  informations_generales: [
+    'nombre de chambres global',
+    'nombre de sdb global',
+    'categorie standing',
+    'etage',
+    'ascenseur',
+    'vue',
+    'niveau sonore',
+  ],
+  localisation_acces: [
+    'acces general',
+    'distance centre ville',
+    'distance commerces',
+    'distance plage',
+    'distance restaurants cafes',
+    'stationnement proche',
+    'type de route',
+    'type quartier',
+  ],
+  exterieur_jardin: ['*'],
+  lits_couchage: [
+    'canape lit',
+    'lit bebe',
+    'lit double',
+    'lit simple',
+    'prix matelas supplementaire',
+    'max matelas supplementaires',
+    'maximum matelas supplementaires',
+  ],
+  conforts_equipements_interieurs: [
+    'climatisation',
+    'fer a repasser',
+    'seche cheveux',
+    'ventilateurs',
+    'produits d accueil',
+  ],
+  securite_reglement: [
+    'cameras',
+    'fetes',
+    'heures silence',
+    'type acces logement',
+    'visiteurs',
+    'fumeurs',
+    'alcool',
+    'animaux',
+  ],
+  conditions_reservation: [
+    'duree max sejour nuits',
+    'duree max sejour nuits nuit',
+    'duree min sejour nuits nuit',
+    'duree min sejour nuits',
+    'montant caution dt',
+    'montant caution',
+    'politique annulation',
+    'type caution',
+    'depot de garantie',
+    'check in',
+    'check out',
+  ],
+  accessibilite: ['rampes'],
+  capacite_configuration: [
+    'capacite bebes angel',
+    'capacite enfants personne',
+    'capacite max adultes personne',
+    'voyageurs max total',
+    'adultes max',
+    'enfants max',
+    'nombre chambres double chambre',
+    'nombre chambres parentale chambre',
+    'nombre chambres simple chambre',
+    'nombre salles de bain sdb',
+    'nombre salons salon',
+  ],
+  cuisine_repas: ['nombre chaises chaises', 'type cuisine'],
+};
+
+const isFeatureAllowedForSeasonalCanonicalTab = (feature: FeatureApiRow, canonicalTabKey: string) => {
+  const allowed = LOCATION_TAB_FEATURE_ALLOWLIST[canonicalTabKey] || [];
+  if (allowed.includes('*')) return true;
+  if (allowed.length === 0) return false;
+  const normalizedName = normalizeFeatureName(String(feature.nom || '').replace(/[^a-z0-9]+/gi, ' '));
+  return allowed.some((token) => normalizedName.includes(token) || token.includes(normalizedName));
+};
+
+const resolveSeasonalCanonicalKeysForFeature = (feature: FeatureApiRow): string[] => {
+  const tabName = String(feature.onglet_nom || '');
+  if (!isCharacteristicsTabName(tabName)) {
+    const directKey = detectCanonicalSeasonalTabKey(tabName);
+    return directKey ? [directKey] : [];
+  }
+
+  const matchedKey = SEASONAL_CANONICAL_DETAIL_TABS
+    .map((tab) => tab.key)
+    .find((tabKey) => tabKey !== 'exterieur_jardin' && isFeatureAllowedForSeasonalCanonicalTab(feature, tabKey));
+
+  return [matchedKey || 'exterieur_jardin'];
+};
+
 const parseFeatureValueJson = (rawValue?: string | null): string[] => {
   const text = String(rawValue || '').trim();
   if (!text) return [];
@@ -1537,11 +1636,7 @@ out body 40;
     if (String(sourceBien?.mode || '').trim() === 'location_saisonniere') {
       const usedKeys = new Set(
         selectedVisibleFeatures
-          .map((feature) => detectCanonicalSeasonalTabKey(
-            isCharacteristicsTabName(String(feature.onglet_nom || ''))
-              ? String(feature.nom || '')
-              : String(feature.onglet_nom || '')
-          ))
+          .flatMap((feature) => resolveSeasonalCanonicalKeysForFeature(feature))
           .filter(Boolean)
       );
       return SEASONAL_CANONICAL_DETAIL_TABS
@@ -1813,19 +1908,28 @@ out body 40;
       };
     };
 
+    if (String(sourceBien?.mode || '').trim() === 'location_saisonniere') {
+      return SEASONAL_CANONICAL_DETAIL_TABS
+        .map((tab) => {
+          const rows = selectedVisibleFeatures
+            .filter((feature) => resolveSeasonalCanonicalKeysForFeature(feature).includes(tab.key))
+            .map(rowsForFeature)
+            .filter((row): row is SeasonalDetailRow => Boolean(row));
+
+          return {
+            id: tab.key,
+            nom: tab.label,
+            rows,
+          };
+        })
+        .filter((tab) => tab.rows.length > 0);
+    }
+
     return detailTabs
       .map((tab) => {
         const tabId = String(tab.id || '').trim();
         const rows = selectedVisibleFeatures
-          .filter((feature) => {
-            if (String(sourceBien?.mode || '').trim() === 'location_saisonniere') {
-              const rawKey = isCharacteristicsTabName(String(feature.onglet_nom || ''))
-                ? detectCanonicalSeasonalTabKey(String(feature.nom || ''))
-                : detectCanonicalSeasonalTabKey(String(feature.onglet_nom || ''));
-              return rawKey === tabId;
-            }
-            return String(feature.onglet_id || '').trim() === tabId;
-          })
+          .filter((feature) => String(feature.onglet_id || '').trim() === tabId)
           .map(rowsForFeature)
           .filter((row): row is SeasonalDetailRow => Boolean(row));
 
