@@ -20,8 +20,9 @@ export interface StayAvailabilityResolution {
   status: "exact" | "alternative" | "unavailable";
 }
 
-// A reservation request must immediately make the stay unavailable in the public flow.
-const BLOCKING_STATUSES = new Set(["booked", "blocked", "pending"]);
+// Public booking flow keeps pending stays selectable so the next client can
+// still submit a parallel request and see the waiting-list note.
+const BLOCKING_STATUSES = new Set(["booked", "blocked"]);
 
 function formatDateOnlyLocal(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

@@ -4608,10 +4608,13 @@ out body 40;
                 </div>}
 
                 {/* Waiting list message for pending dates */}
-                {hasPendingDates && getPaymentDeadline() && (
+                {hasPendingDates && (
                   <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                     <p className="text-xs text-orange-800 leading-relaxed">
-                      <span className="font-semibold">Liste d'attente :</span> Votre demande sera en liste d'attente car il y a une demande de confirmation en cours. Si l'autre demande est annulée, d'ici vers <span className="font-semibold">{getPaymentDeadline()}</span> nous allons traiter votre demande de confirmation et procéder vers le paiement.
+                      <span className="font-semibold">Liste d'attente :</span> Votre demande sera en liste d'attente car il y a une demande de confirmation en cours.
+                      {getPaymentDeadline()
+                        ? <> Si l'autre demande est annulée, d'ici vers <span className="font-semibold">{getPaymentDeadline()}</span> nous allons traiter votre demande de confirmation et procéder vers le paiement.</>
+                        : <> Si l'autre demande est annulée ou expire, nous allons traiter votre demande de confirmation puis vous orienter vers le paiement.</>}
                     </p>
                   </div>
                 )}
