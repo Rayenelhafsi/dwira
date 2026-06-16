@@ -92,7 +92,7 @@ export type HotelSummary = {
   Token?: string | null;
   Id: number;
   Name: string;
-  Category?: { Title?: string | null } | null;
+  Category?: { Id?: number | null; Title?: string | null; Star?: number | string | null } | null;
   Star?: string | number | null;
   City?: { Id?: number | null; Name?: string | null; ShortDescription?: string | null } | null;
   ShortDescription?: string | null;

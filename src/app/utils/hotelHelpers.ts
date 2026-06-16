@@ -8,6 +8,19 @@ import type {
   HotelSummary,
 } from "../services/hotels";
 
+const HOTEL_BOARDING_CODE_LABELS: Record<string, string> = {
+  bb: "Logement Petit Dejeuner",
+  hb: "Demi Pension",
+  fb: "Pension Complete",
+  ai: "All Inclusive",
+  uai: "Ultra All Inclusive",
+  softai: "Soft All Inclusive",
+  dp: "Demi Pension",
+  pc: "Pension Complete",
+  ro: "Logement Simple",
+  sc: "Logement Simple",
+};
+
 export function formatHotelStarLabel(value?: string | number | null) {
   const normalized = String(value ?? "").trim();
   if (!normalized) return "Hotel";
@@ -68,7 +81,18 @@ export function extractHotelBoardingNames(hotel?: HotelSummary | HotelDetail | n
   return Array.from(
     new Set(
       boardings
-        .map((boarding: any) => String(boarding?.Name || "").trim())
+        .map((boarding: any) => {
+          const name = String(boarding?.Name || "").trim();
+          if (name) return name;
+
+          const description = String(boarding?.Description || "").trim();
+          if (description) return description;
+
+          const code = String(boarding?.Code || "").trim();
+          if (!code) return "";
+
+          return HOTEL_BOARDING_CODE_LABELS[code.toLowerCase()] || code.toUpperCase();
+        })
         .filter(Boolean)
     )
   );
@@ -76,13 +100,27 @@ export function extractHotelBoardingNames(hotel?: HotelSummary | HotelDetail | n
 
 export function getHotelFacilityTitles(facilities?: HotelFacility[] | null, max = 8) {
   if (!Array.isArray(facilities)) return [];
-  return Array.from(
-    new Set(
-      facilities
-        .map((facility) => String(facility?.Title || "").trim())
-        .filter(Boolean)
-    )
-  ).slice(0, max);
+  const labels: string[] = [];
+
+  facilities.forEach((facility) => {
+    const title = String(facility?.Title || "").trim();
+    const category = String(facility?.Category || "").trim();
+    const themes = Array.isArray(facility?.Theme) ? facility.Theme : [];
+    const options = Array.isArray(facility?.Option) ? facility.Option : [];
+
+    if (title) labels.push(title);
+    themes.forEach((theme) => {
+      const value = String(theme || "").trim();
+      if (value) labels.push(value);
+    });
+    options.forEach((option) => {
+      const value = String(option?.Title || "").trim();
+      if (value) labels.push(value);
+    });
+    if (!title && category) labels.push(category);
+  });
+
+  return Array.from(new Set(labels)).slice(0, max);
 }
 
 export function getHotelAlbum(detail?: HotelDetail | null) {

@@ -673,12 +673,39 @@ function extractMyGoHotelData(payload, key) {
   return [];
 }
 
+function normalizeMyGoHotelRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const hotel = { ...record };
+  const rawCategory = hotel.Category;
+
+  if (rawCategory && typeof rawCategory !== 'object') {
+    hotel.Category = { Title: String(rawCategory).trim() || null };
+  } else if (rawCategory && typeof rawCategory === 'object') {
+    hotel.Category = { ...rawCategory };
+  }
+
+  const categoryStar = Number(hotel?.Category?.Star);
+  if ((hotel.Star === undefined || hotel.Star === null || String(hotel.Star).trim() === '') && Number.isFinite(categoryStar) && categoryStar > 0) {
+    hotel.Star = categoryStar;
+  }
+
+  if ((!hotel.Category || !String(hotel?.Category?.Title || '').trim()) && Number.isFinite(Number(hotel.Star)) && Number(hotel.Star) > 0) {
+    hotel.Category = {
+      ...(hotel.Category && typeof hotel.Category === 'object' ? hotel.Category : {}),
+      Title: `${Number(hotel.Star)} étoiles`,
+      Star: Number(hotel.Star),
+    };
+  }
+
+  return hotel;
+}
+
 function normalizeMyGoHotelSearchResults(payload) {
   const entries = Array.isArray(payload?.HotelSearch) ? payload.HotelSearch : [];
   return entries
     .map((entry) => {
       if (!entry || typeof entry !== 'object') return null;
-      const hotel = entry.Hotel && typeof entry.Hotel === 'object' ? { ...entry.Hotel } : null;
+      const hotel = normalizeMyGoHotelRecord(entry.Hotel);
       if (!hotel) return null;
       if (entry.Token !== undefined) hotel.Token = entry.Token;
       if (entry.Price !== undefined) hotel.Price = entry.Price;
@@ -4381,7 +4408,10 @@ app.get('/api/hotels/list', async (req, res) => {
     const payload = await callMyGoHotelService('ListHotel', cityId > 0 ? { City: cityId } : {});
     const pricingRules = await getHotelPricingRules();
     return res.json({
-      hotels: applyHotelPricingRulesToHotels(extractMyGoHotelData(payload, 'ListHotel'), pricingRules),
+      hotels: applyHotelPricingRulesToHotels(
+        extractMyGoHotelData(payload, 'ListHotel').map(normalizeMyGoHotelRecord).filter(Boolean),
+        pricingRules
+      ),
       countResults: Number(payload?.CountResults || 0),
     });
   } catch (error) {
@@ -4403,7 +4433,7 @@ app.post('/api/hotels/search', async (req, res) => {
     const childAges = parseMyGoHotelIntegerArray(req.body?.childAges).filter((age) => age <= 17);
     const categoryIds = parseMyGoHotelIntegerArray(req.body?.categoryIds);
     const tagIds = parseMyGoHotelIntegerArray(req.body?.tagIds);
-    const onlyAvailable = req.body?.onlyAvailable !== false;
+    const onlyAvailable = req.body?.onlyAvailable === true;
     const keywords = String(req.body?.keywords || '').trim();
     const currency = String(req.body?.currency || '').trim();
 
@@ -4432,7 +4462,7 @@ app.post('/api/hotels/search', async (req, res) => {
         Filters: {
           Keywords: keywords,
           Category: categoryIds,
-          OnlyAvailable: Boolean(onlyAvailable),
+          ...(onlyAvailable ? { OnlyAvailable: true } : {}),
           Tags: tagIds,
         },
         Rooms: [
@@ -5216,7 +5246,10 @@ app.get('/api/hotels/:id', async (req, res) => {
 
     const payload = await callMyGoHotelService('HotelDetail', { Hotel: hotelId });
     const pricingRules = await getHotelPricingRules();
-    const hotel = applyHotelPricingRulesToHotel(extractMyGoHotelData(payload, 'HotelDetail')[0] || null, pricingRules);
+    const hotel = applyHotelPricingRulesToHotel(
+      normalizeMyGoHotelRecord(extractMyGoHotelData(payload, 'HotelDetail')[0] || null),
+      pricingRules
+    );
     if (!hotel) {
       return res.status(404).json({
         error: 'Hotel introuvable.',

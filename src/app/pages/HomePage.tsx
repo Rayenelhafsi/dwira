@@ -1,9 +1,10 @@
 ﻿import { useState, useRef, useMemo, useEffect } from "react";
 import { Suspense, lazy } from "react";
 import { useCallback } from "react";
+import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload } from "lucide-react";
+import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload, CheckCircle2, CircleDollarSign, UtensilsCrossed, ExternalLink, LayoutGrid, Rows3 } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -13,7 +14,7 @@ import titaTravelLogo from "../../../logo Tita travel.jpg";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 import type { HotelCity, HotelSummary } from "../services/hotels";
-import { extractHotelMinPrice, flattenHotelRoomOffers, formatHotelStarLabel, getHotelCardDescription, pickHotelDisplayedPrice } from "../utils/hotelHelpers";
+import { extractHotelBoardingNames, extractHotelMinPrice, flattenHotelRoomOffers, formatHotelStarLabel, getHotelCardDescription, getHotelFacilityTitles, pickHotelDisplayedPrice } from "../utils/hotelHelpers";
 import { buildApiUrl } from "../utils/api";
 import { clearAuthPendingLogin, isAuthPendingLogin, markAuthPendingLogin, saveAuthReturnTo } from "../utils/pendingReservation";
 import { toast } from "sonner";
@@ -185,6 +186,9 @@ type HotelTravellerIdentity = {
 };
 
 type HotelDestinationTab = "destinations" | "top" | "villes" | "hotels";
+type HotelResultsSort = "recommended" | "price_asc" | "price_desc" | "stars_desc" | "stars_asc" | "name_asc";
+type HotelResultsView = "grid" | "list";
+type HotelResultsFilterPanel = null | "popular" | "boarding" | "category" | "budget" | "services" | "parameters" | "sort" | "page_size";
 
 type HotelRoomTravellerSelection = {
   adults: number;
@@ -714,6 +718,23 @@ function buildDefaultHotelSearch() {
 }
 
 const DEFAULT_HOTEL_ROOM_COUNT = 1;
+const HOTEL_DESTINATION_PAGE_SIZE = 20;
+const HOTEL_RESULTS_PAGE_SIZE_OPTIONS = [12, 30, 51, 102] as const;
+
+function normalizeHotelResultsToken(value?: string | null) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function buildHotelMapsLink(hotel: HotelSummary) {
+  const latitude = String(hotel?.Localization?.Latitude || "").trim();
+  const longitude = String(hotel?.Localization?.Longitude || "").trim();
+  if (!latitude || !longitude) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
+}
 
 function formatHotelPrice(value: number | null) {
   if (!Number.isFinite(Number(value))) return null;
@@ -876,6 +897,20 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [hotelProviderError, setHotelProviderError] = useState("");
   const [hotelCities, setHotelCities] = useState<HotelCity[]>([]);
   const [hotelResults, setHotelResults] = useState<HotelSummary[]>([]);
+  const [hotelResultsSearchTerm, setHotelResultsSearchTerm] = useState("");
+  const [hotelResultsSort, setHotelResultsSort] = useState<HotelResultsSort>("recommended");
+  const [hotelResultsView, setHotelResultsView] = useState<HotelResultsView>("grid");
+  const [hotelResultsPageSize, setHotelResultsPageSize] = useState<number>(12);
+  const [hotelResultsFilterPanel, setHotelResultsFilterPanel] = useState<HotelResultsFilterPanel>(null);
+  const [selectedHotelResultBoardings, setSelectedHotelResultBoardings] = useState<string[]>([]);
+  const [selectedHotelResultStars, setSelectedHotelResultStars] = useState<string[]>([]);
+  const [selectedHotelResultFacilities, setSelectedHotelResultFacilities] = useState<string[]>([]);
+  const [hotelResultsOnlyPromotions, setHotelResultsOnlyPromotions] = useState(false);
+  const [hotelResultsOnlyRefundable, setHotelResultsOnlyRefundable] = useState(false);
+  const [hotelResultsOnlyWithPrice, setHotelResultsOnlyWithPrice] = useState(false);
+  const [hotelResultsOnlyOnRequest, setHotelResultsOnlyOnRequest] = useState(false);
+  const [hotelResultsBudgetMin, setHotelResultsBudgetMin] = useState<number | null>(null);
+  const [hotelResultsBudgetMax, setHotelResultsBudgetMax] = useState<number | null>(null);
   const [hotelSearchFallbackNotice, setHotelSearchFallbackNotice] = useState("");
   const [loadingHotelCities, setLoadingHotelCities] = useState(false);
   const [loadingHotelResults, setLoadingHotelResults] = useState(false);
@@ -886,8 +921,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [selectedHotelId, setSelectedHotelId] = useState<number>(0);
   const [hotelDestinationOpen, setHotelDestinationOpen] = useState(false);
   const [hotelDestinationTab, setHotelDestinationTab] = useState<HotelDestinationTab>("destinations");
-  const [hotelCheckIn, setHotelCheckIn] = useState(() => searchParams.get("checkIn") || "");
-  const [hotelCheckOut, setHotelCheckOut] = useState(() => searchParams.get("checkOut") || "");
+  const [visibleHotelDestinationCount, setVisibleHotelDestinationCount] = useState(HOTEL_DESTINATION_PAGE_SIZE);
+  const [hotelCheckIn, setHotelCheckIn] = useState(() => searchParams.get("checkIn") || hotelDefaults.checkIn);
+  const [hotelCheckOut, setHotelCheckOut] = useState(() => searchParams.get("checkOut") || hotelDefaults.checkOut);
   const [hotelAdults, setHotelAdults] = useState(() => {
     const rawAdults = String(searchParams.get("adults") || "").trim();
     if (!rawAdults) return hotelDefaults.adults;
@@ -913,18 +949,18 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
   const [hotelCalendarOpen, setHotelCalendarOpen] = useState(false);
   const [hotelCalendarMonth, setHotelCalendarMonth] = useState<Date>(() => {
-    const rawCheckIn = String(searchParams.get("checkIn") || "").trim();
+    const rawCheckIn = String(searchParams.get("checkIn") || hotelDefaults.checkIn || "").trim();
     const parsed = rawCheckIn ? parseISO(rawCheckIn) : new Date();
     return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   });
   const [hotelCalendarCheckInDraft, setHotelCalendarCheckInDraft] = useState<Date | null>(() => {
-    const rawCheckIn = String(searchParams.get("checkIn") || "").trim();
+    const rawCheckIn = String(searchParams.get("checkIn") || hotelDefaults.checkIn || "").trim();
     if (!rawCheckIn) return null;
     const parsed = parseISO(rawCheckIn);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   });
   const [hotelCalendarCheckOutDraft, setHotelCalendarCheckOutDraft] = useState<Date | null>(() => {
-    const rawCheckOut = String(searchParams.get("checkOut") || "").trim();
+    const rawCheckOut = String(searchParams.get("checkOut") || hotelDefaults.checkOut || "").trim();
     if (!rawCheckOut) return null;
     const parsed = parseISO(rawCheckOut);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -1036,13 +1072,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const filteredHotelCities = useMemo(
     () =>
       hotelCitiesSorted
-        .filter((city) => !hotelDestinationNeedle || normalizeLocationMatchToken(city.Name).includes(hotelDestinationNeedle))
-        .slice(0, 18),
+        .filter((city) => !hotelDestinationNeedle || normalizeLocationMatchToken(city.Name).includes(hotelDestinationNeedle)),
     [hotelCitiesSorted, hotelDestinationNeedle]
   );
   const featuredHotelCities = useMemo(
-    () => (hotelDestinationNeedle ? filteredHotelCities : hotelCitiesSorted.slice(0, 10)),
-    [filteredHotelCities, hotelCitiesSorted, hotelDestinationNeedle]
+    () => filteredHotelCities,
+    [filteredHotelCities]
   );
   const filteredHotelsByCity = useMemo(
     () =>
@@ -1064,9 +1099,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           const rightRecommended = Number(right?.Recommended || 0);
           if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
           return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
-        })
-        .slice(0, 18),
+        }),
     [hotelsByCity, hotelCityId, hotelDestinationNeedle, selectedHotelId]
+  );
+  const visibleFilteredHotelsByCity = useMemo(
+    () => filteredHotelsByCity.slice(0, visibleHotelDestinationCount),
+    [filteredHotelsByCity, visibleHotelDestinationCount]
   );
   const featuredHotels = useMemo(
     () =>
@@ -1096,23 +1134,142 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const hotelUnavailableMessage =
     "Cet hotel n'a aucune offre disponible pour votre choix veuillez changer vos filtres ou consultez les alternatives disponibles.";
   const hotelPublicErrorMessage = hotelProviderError ? getClientFacingHotelError(hotelProviderError) : "";
+  const hotelResultBoardingCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    hotelResults.forEach((hotel) => {
+      extractHotelBoardingNames(hotel).forEach((boarding) => {
+        counts.set(boarding, (counts.get(boarding) || 0) + 1);
+      });
+    });
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "fr"));
+  }, [hotelResults]);
+  const hotelResultStarCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    hotelResults.forEach((hotel) => {
+      const star = String(hotel?.Star ?? "").trim();
+      if (!star) return;
+      counts.set(star, (counts.get(star) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => Number(b.label) - Number(a.label));
+  }, [hotelResults]);
+  const hotelResultFacilityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    hotelResults.forEach((hotel) => {
+      getHotelFacilityTitles(hotel.Facilities, 12).forEach((facility) => {
+        counts.set(facility, (counts.get(facility) || 0) + 1);
+      });
+    });
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "fr"))
+      .slice(0, 12);
+  }, [hotelResults]);
+  const hotelResultPriceBounds = useMemo(() => {
+    const prices = hotelResults
+      .map((hotel) => extractHotelMinPrice(hotel))
+      .filter((price): price is number => Number.isFinite(price) && Number(price) > 0);
+    if (prices.length === 0) return { min: 0, max: 0 };
+    return { min: Math.min(...prices), max: Math.max(...prices) };
+  }, [hotelResults]);
+  const filteredHotelResults = useMemo(() => {
+    const keyword = normalizeHotelResultsToken(hotelResultsSearchTerm);
+    const budgetMin = hotelResultsBudgetMin ?? hotelResultPriceBounds.min;
+    const budgetMax = hotelResultsBudgetMax ?? hotelResultPriceBounds.max;
+
+    return hotelResults.filter((hotel) => {
+      const minPrice = extractHotelMinPrice(hotel);
+      const roomOffers = flattenHotelRoomOffers(hotel);
+      const boardingNames = extractHotelBoardingNames(hotel);
+      const facilityTitles = getHotelFacilityTitles(hotel.Facilities, 12);
+      const hotelTokens = [
+        hotel.Name,
+        hotel.City?.Name,
+        hotel.ShortDescription,
+        hotel.HotelDescription,
+        hotel.Adress,
+        ...boardingNames,
+        ...facilityTitles,
+      ]
+        .map((value) => normalizeHotelResultsToken(value))
+        .filter(Boolean);
+
+      if (keyword && !hotelTokens.some((value) => value.includes(keyword))) return false;
+      if (selectedHotelResultBoardings.length > 0 && !selectedHotelResultBoardings.some((item) => boardingNames.includes(item))) return false;
+      if (selectedHotelResultStars.length > 0 && !selectedHotelResultStars.includes(String(hotel?.Star ?? "").trim())) return false;
+      if (selectedHotelResultFacilities.length > 0 && !selectedHotelResultFacilities.every((item) => facilityTitles.includes(item))) return false;
+      if (hotelResultsOnlyPromotions && !hasHotelPromotion(hotel)) return false;
+      if (hotelResultsOnlyRefundable && !roomOffers.some((offer) => !offer.room?.NotRefundable)) return false;
+      if (hotelResultsOnlyWithPrice && minPrice === null) return false;
+      if (hotelResultsOnlyOnRequest && !roomOffers.some((offer) => Boolean(offer.room?.OnRequest || offer.room?.StopReservation))) return false;
+      if (minPrice !== null && hotelResultPriceBounds.max > 0 && (minPrice < budgetMin || minPrice > budgetMax)) return false;
+      if (minPrice === null && (hotelResultsBudgetMin !== null || hotelResultsBudgetMax !== null)) return false;
+      return true;
+    });
+  }, [
+    hotelResults,
+    hotelResultsSearchTerm,
+    hotelResultsBudgetMax,
+    hotelResultsBudgetMin,
+    hotelResultsOnlyOnRequest,
+    hotelResultsOnlyPromotions,
+    hotelResultsOnlyRefundable,
+    hotelResultsOnlyWithPrice,
+    hotelResultPriceBounds.max,
+    hotelResultPriceBounds.min,
+    selectedHotelResultBoardings,
+    selectedHotelResultFacilities,
+    selectedHotelResultStars,
+  ]);
   const sortedHotelResults = useMemo(
-    () => [...hotelResults].sort((left, right) => {
+    () => [...filteredHotelResults].sort((left, right) => {
       const leftSelected = Number(left?.Id || 0) === Number(selectedHotelId) ? 1 : 0;
       const rightSelected = Number(right?.Id || 0) === Number(selectedHotelId) ? 1 : 0;
       if (leftSelected !== rightSelected) return rightSelected - leftSelected;
       const leftPromotion = hasHotelPromotion(left) ? 1 : 0;
       const rightPromotion = hasHotelPromotion(right) ? 1 : 0;
-      if (leftPromotion !== rightPromotion) return rightPromotion - leftPromotion;
       const leftRecommended = Number(left?.Recommended || 0);
       const rightRecommended = Number(right?.Recommended || 0);
-      if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
       const leftPrice = extractHotelMinPrice(left) ?? Number.POSITIVE_INFINITY;
       const rightPrice = extractHotelMinPrice(right) ?? Number.POSITIVE_INFINITY;
+      const leftStar = Number(left?.Star || 0);
+      const rightStar = Number(right?.Star || 0);
+
+      switch (hotelResultsSort) {
+        case "price_asc":
+          if (leftPrice !== rightPrice) return leftPrice - rightPrice;
+          break;
+        case "price_desc":
+          if (leftPrice !== rightPrice) return rightPrice - leftPrice;
+          break;
+        case "stars_desc":
+          if (leftStar !== rightStar) return rightStar - leftStar;
+          break;
+        case "stars_asc":
+          if (leftStar !== rightStar) return leftStar - rightStar;
+          break;
+        case "name_asc":
+          return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
+        case "recommended":
+        default:
+          if (leftPromotion !== rightPromotion) return rightPromotion - leftPromotion;
+          if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
+          if (leftPrice !== rightPrice) return leftPrice - rightPrice;
+          break;
+      }
+
+      if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
       if (leftPrice !== rightPrice) return leftPrice - rightPrice;
       return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
     }),
-    [hotelResults, selectedHotelId]
+    [filteredHotelResults, hotelResultsSort, selectedHotelId]
+  );
+  const visibleHotelResults = useMemo(
+    () => sortedHotelResults.slice(0, hotelResultsPageSize),
+    [sortedHotelResults, hotelResultsPageSize]
   );
   const hotelSearchPeriodLabel = useMemo(() => {
     try {
@@ -1128,9 +1285,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const hotelSearchInfoMessage = hasCompleteHotelCriteria
     ? (selectedHotelId > 0 ? selectedHotelUnavailableMessage : hotelUnavailableMessage)
     : "";
-  const hotelDestinationSelectionLabel = selectedHotelId > 0
-    ? selectedHotelLabel
-    : selectedHotelCity?.Name || "";
+  const hotelDestinationSelectionLabel = selectedHotelCity?.Name || "";
+  const hotelDestinationFieldLabel = selectedHotelId > 0
+    ? (selectedHotelLabel || hotelDestinationSelectionLabel)
+    : hotelDestinationSelectionLabel;
   const isSelectedModeComingSoon =
     (selectedMode === "vente" && PUBLIC_COMING_SOON.ventes)
     || (selectedMode === "location_annuelle" && PUBLIC_COMING_SOON.locationAnnuelle);
@@ -2227,10 +2385,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setSelectedHotelId(0);
     setHotelCityId(0);
     setHotelDestinationTab("destinations");
+    setVisibleHotelDestinationCount(HOTEL_DESTINATION_PAGE_SIZE);
   };
 
   const openHotelDestinationPicker = () => {
-    if (selectedHotelId > 0) setHotelDestinationTab("hotels");
+    if (selectedHotelId > 0 || hotelCityId > 0) setHotelDestinationTab("hotels");
     else if (hotelDestinationNeedle) setHotelDestinationTab("villes");
     else setHotelDestinationTab("destinations");
     setHotelDestinationOpen(true);
@@ -2240,7 +2399,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setHotelCityId(Number(city.Id) || 0);
     setHotelDestinationQuery(String(city.Name || "").trim());
     setSelectedHotelId(0);
-    setHotelDestinationOpen(false);
+    setHotelDestinationTab("hotels");
+    setVisibleHotelDestinationCount(HOTEL_DESTINATION_PAGE_SIZE);
   };
 
   const selectHotelDestinationHotel = (hotel: HotelSummary) => {
@@ -2250,6 +2410,40 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     setSelectedHotelId(Number(hotel.Id || 0));
     setHotelDestinationQuery(String(hotel.Name || "").trim());
     setHotelDestinationOpen(false);
+  };
+
+  const clearSelectedHotelDestinationHotel = () => {
+    setSelectedHotelId(0);
+    setHotelDestinationQuery(selectedHotelCity?.Name ? String(selectedHotelCity.Name).trim() : "");
+    setHotelDestinationTab(selectedHotelCity ? "hotels" : "destinations");
+    setVisibleHotelDestinationCount(HOTEL_DESTINATION_PAGE_SIZE);
+  };
+
+  const showAllHotelDestinationChoices = () => {
+    if (selectedHotelCity?.Name) {
+      setHotelDestinationQuery(String(selectedHotelCity.Name).trim());
+    }
+    setSelectedHotelId(0);
+    setHotelDestinationTab(selectedHotelCity ? "hotels" : "destinations");
+    setVisibleHotelDestinationCount(Math.max(HOTEL_DESTINATION_PAGE_SIZE, filteredHotelsByCity.length));
+    setHotelDestinationOpen(false);
+  };
+
+  const toggleHotelResultSelection = (value: string, setState: Dispatch<SetStateAction<string[]>>) => {
+    setState((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
+  };
+
+  const loadMoreHotelDestinationHotels = useCallback(() => {
+    setVisibleHotelDestinationCount((prev) =>
+      prev >= filteredHotelsByCity.length ? prev : prev + HOTEL_DESTINATION_PAGE_SIZE
+    );
+  }, [filteredHotelsByCity.length]);
+
+  const handleHotelDestinationScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (hotelDestinationTab !== "hotels" || loadingHotelsByCity) return;
+    const container = event.currentTarget;
+    if (container.scrollTop + container.clientHeight < container.scrollHeight - 48) return;
+    loadMoreHotelDestinationHotels();
   };
 
   const hotelDestinationTabMeta: Array<{ key: HotelDestinationTab; label: string }> = [
@@ -2279,8 +2473,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [sharedHotelRoomCount, hotelAdults, hotelChildAges]);
 
   useEffect(() => {
+    setVisibleHotelDestinationCount(HOTEL_DESTINATION_PAGE_SIZE);
+  }, [hotelDestinationTab, hotelCityId, hotelDestinationNeedle]);
+
+  useEffect(() => {
     setHotelAvailabilitySignatureByHotel({});
   }, [hotelCheckIn, hotelCheckOut]);
+
+  useEffect(() => {
+    if (hotelResultPriceBounds.max <= 0) {
+      setHotelResultsBudgetMin(null);
+      setHotelResultsBudgetMax(null);
+      return;
+    }
+    setHotelResultsBudgetMin((prev) => (prev === null ? hotelResultPriceBounds.min : Math.max(hotelResultPriceBounds.min, Math.min(prev, hotelResultPriceBounds.max))));
+    setHotelResultsBudgetMax((prev) => (prev === null ? hotelResultPriceBounds.max : Math.min(hotelResultPriceBounds.max, Math.max(prev, hotelResultPriceBounds.min))));
+  }, [hotelResultPriceBounds.max, hotelResultPriceBounds.min]);
 
   const runHotelSearch = async (options?: { replace?: boolean; scroll?: boolean }) => {
     const travellerContext = resolveHotelSearchTravellerContext();
@@ -2297,6 +2505,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
     try {
       const { listHotels, searchHotels } = await loadHotelsService();
+      let finalHotels: HotelSummary[] = [];
+
       if (!hotelCityId || !hasValidDates || !hasValidTravellers) {
         const fallbackHotels = await listHotels(hotelCityId || undefined);
         const filteredFallback = Array.isArray(fallbackHotels)
@@ -2306,25 +2516,47 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               return matchesKeyword && matchesSelected;
             })
           : [];
-          setHotelResults(filteredFallback);
+        finalHotels = filteredFallback;
+        setHotelResults(filteredFallback);
         if (!hotelCityId) {
           setHotelSearchFallbackNotice("Aucune destination selectionnee. Voici les hotels disponibles.");
-        } else if (hasValidDates && hasValidTravellers) {
+        } else {
           setHotelSearchFallbackNotice("Voici les hotels de la destination selectionnee.");
         }
-        return filteredFallback;
       } else {
-        const hotels = await searchHotels({
-          cityId: hotelCityId || undefined,
-          checkIn: hotelCheckIn,
-          checkOut: hotelCheckOut,
-          adults: resolvedAdults,
-          childAges: nextChildAges,
-          keywords: keywords || undefined,
-          onlyAvailable: true,
-        });
-        if (hotels.length === 0 && nextChildAges.length > 0 && hotelCityId > 0) {
-          const fallbackHotels = await listHotels(hotelCityId);
+        try {
+          const hotels = await searchHotels({
+            cityId: hotelCityId || undefined,
+            checkIn: hotelCheckIn,
+            checkOut: hotelCheckOut,
+            adults: resolvedAdults,
+            childAges: nextChildAges,
+            keywords: keywords || undefined,
+          });
+
+          if (hotels.length === 0 && hotelCityId > 0) {
+            const fallbackHotels = await listHotels(hotelCityId);
+            const filteredFallback = Array.isArray(fallbackHotels)
+              ? fallbackHotels.filter((hotel) => {
+                  const matchesKeyword = matchesHotelKeywordForFallback(hotel, keywords);
+                  const matchesSelected = selectedHotelId <= 0 || Number(hotel.Id || 0) === Number(selectedHotelId);
+                  return matchesKeyword && matchesSelected;
+                })
+              : [];
+
+            finalHotels = filteredFallback;
+            setHotelResults(filteredFallback);
+            setHotelSearchFallbackNotice(
+              selectedHotelId > 0
+                ? selectedHotelUnavailableMessage
+                : hotelUnavailableMessage
+            );
+          } else {
+            finalHotels = hotels;
+            setHotelResults(hotels);
+          }
+        } catch (searchError) {
+          const fallbackHotels = hotelCityId > 0 ? await listHotels(hotelCityId) : [];
           const filteredFallback = Array.isArray(fallbackHotels)
             ? fallbackHotels.filter((hotel) => {
                 const matchesKeyword = matchesHotelKeywordForFallback(hotel, keywords);
@@ -2332,18 +2564,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 return matchesKeyword && matchesSelected;
               })
             : [];
-          setHotelResults(filteredFallback);
-          setHotelSearchFallbackNotice(
-            selectedHotelId > 0
-              ? selectedHotelUnavailableMessage
-              : hotelUnavailableMessage
-          );
-          return filteredFallback;
-        } else {
-          setHotelResults(hotels);
+
+          if (filteredFallback.length > 0) {
+            finalHotels = filteredFallback;
+            setHotelResults(filteredFallback);
+            setHotelSearchFallbackNotice("Les offres en temps reel sont indisponibles pour le moment. Voici les hotels de la destination selectionnee.");
+            setHotelProviderError("");
+          } else {
+            throw searchError;
+          }
+        }
+
+        if (finalHotels.length > 0) {
+          setHotelResults(finalHotels);
           setHotelAvailabilitySignatureByHotel((prev) => {
             const next = { ...prev };
-            hotels.forEach((hotel) => {
+            finalHotels.forEach((hotel) => {
               const hotelId = Number(hotel?.Id || 0);
               if (hotelId <= 0) return;
               const roomSelections = Array.isArray(localRoomSelectionsByHotel[hotelId]) ? localRoomSelectionsByHotel[hotelId] : [];
@@ -2361,7 +2597,6 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             });
             return next;
           });
-          return hotels;
         }
       }
 
@@ -2394,6 +2629,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           resultsRef.current?.scrollIntoView({ behavior: "smooth" });
         }, 100);
       }
+
+      return finalHotels;
     } catch (error) {
       setHotelResults([]);
       setHotelProviderError(error instanceof Error ? error.message : "Recherche hoteliere impossible.");
@@ -3132,7 +3369,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           }}
                           className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
                         >
-                          {hotelDestinationSelectionLabel || "Ville ou nom hotel"}
+                          {hotelDestinationFieldLabel || "Ville ou nom hotel"}
                         </button>
                         {(hotelDestinationQuery.trim() || selectedHotelCity || selectedHotelId > 0 || hotelCityId > 0) && (
                           <button
@@ -3175,23 +3412,43 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             <div className="flex items-center justify-between gap-3">
                               <div>
                                 <p className="text-sm font-semibold text-slate-900">Entrez une ou plusieurs destinations ou établissements</p>
-                                {hotelDestinationSelectionLabel ? (
-                                  <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-sky-600 px-3 py-1 text-xs font-semibold text-white">
-                                    <span>{hotelDestinationSelectionLabel}</span>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        resetHotelDestinationSelection();
-                                      }}
-                                      className="rounded-full text-white/90 transition hover:text-white"
-                                    >
-                                      <X size={12} />
-                                    </button>
+                                {(hotelDestinationSelectionLabel || selectedHotelLabel) ? (
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    {hotelDestinationSelectionLabel ? (
+                                      <div className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-3 py-1 text-xs font-semibold text-white">
+                                        <span>{hotelDestinationSelectionLabel}</span>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            resetHotelDestinationSelection();
+                                          }}
+                                          className="rounded-full text-white/90 transition hover:text-white"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                    {selectedHotelLabel ? (
+                                      <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+                                        <span>{selectedHotelLabel}</span>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            clearSelectedHotelDestinationHotel();
+                                          }}
+                                          className="rounded-full text-white/90 transition hover:text-white"
+                                          aria-label="Supprimer l'hôtel sélectionné"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      </div>
+                                    ) : null}
                                   </div>
                                 ) : null}
                               </div>
-                              {hotelDestinationSelectionLabel ? (
+                              {(hotelDestinationSelectionLabel || selectedHotelLabel) ? (
                                 <button
                                   type="button"
                                   onClick={resetHotelDestinationSelection}
@@ -3216,7 +3473,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               ))}
                             </div>
                           </div>
-                          <div className="max-h-80 overflow-y-auto">
+                          <div className="max-h-80 overflow-y-auto" onScroll={handleHotelDestinationScroll}>
                             {(hotelDestinationTab === "destinations" ? featuredHotelCities : hotelDestinationTab === "villes" ? filteredHotelCities : []).map((city) => (
                               hotelDestinationTab === "destinations" || hotelDestinationTab === "villes" ? (
                                 <button
@@ -3256,7 +3513,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             {loadingHotelsByCity && hotelDestinationTab === "hotels" && (
                               <div className="px-4 py-4 text-sm text-slate-500">Chargement des hôtels...</div>
                             )}
-                            {hotelDestinationTab === "hotels" && filteredHotelsByCity.map((hotel) => (
+                            {hotelDestinationTab === "hotels" && visibleFilteredHotelsByCity.map((hotel) => (
                               <button
                                 key={`home-hotel-name-${hotel.Id}`}
                                 type="button"
@@ -3279,6 +3536,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               || (hotelDestinationTab === "villes" && filteredHotelCities.length === 0)) && (
                               <div className="px-4 py-6 text-sm text-slate-500">
                                 Aucun résultat pour cet onglet.
+                              </div>
+                            )}
+                            {hotelDestinationTab === "hotels" && visibleFilteredHotelsByCity.length < filteredHotelsByCity.length && (
+                              <div className="px-4 py-3 text-center text-xs font-medium text-slate-500">
+                                Faites défiler pour charger plus d'hôtels
+                              </div>
+                            )}
+                            {hotelDestinationTab === "hotels" && selectedHotelCity && (
+                              <div className="border-t border-slate-100 bg-white px-4 py-4">
+                                <button
+                                  type="button"
+                                  onClick={showAllHotelDestinationChoices}
+                                  className="inline-flex w-full items-center justify-center rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(2,132,199,0.28)] transition hover:bg-sky-700"
+                                >
+                                  Voir tous les choix
+                                </button>
                               </div>
                             )}
                           </div>
@@ -3461,7 +3734,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
                   <div className="mt-3">
                     <div className="rounded-xl border border-slate-200/70 bg-white/75 px-3 py-2 text-sm text-slate-600">
-                      {selectedHotelCity ? `Destination sélectionnée : ${selectedHotelCity.Name}.` : "Sélectionnez une destination pour lancer votre recherche."}
+                      {selectedHotelLabel
+                        ? `Hôtel sélectionné : ${selectedHotelLabel}${selectedHotelCity ? `, ${selectedHotelCity.Name}.` : "."}`
+                        : selectedHotelCity
+                          ? `Destination sélectionnée : ${selectedHotelCity.Name}.`
+                          : "Sélectionnez une destination pour lancer votre recherche."}
                     </div>
                   </div>
 
@@ -4392,6 +4669,276 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </div>
               )}
 
+              {hasSearched && (
+                <div className="mb-6 space-y-4">
+                  <div className="rounded-[28px] border border-slate-100 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <p className="text-sm text-slate-400">Accueil - Liste Hôtels</p>
+                        <h3 className="mt-2 text-2xl font-semibold text-slate-900">
+                          {loadingHotelResults
+                            ? "Recherche en cours..."
+                            : `${sortedHotelResults.length} hôtel${sortedHotelResults.length > 1 ? "s" : ""} trouvé${sortedHotelResults.length > 1 ? "s" : ""}${selectedHotelCity ? ` à ${selectedHotelCity.Name}` : ""}${hotelSearchPeriodLabel ? ` du ${hotelSearchPeriodLabel}` : ""} pour ${hotelTravellersLabel}`}
+                        </h3>
+                        <p className="mt-2 text-sm text-sky-700">Plus de détails</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setHotelResultsFilterPanel((prev) => prev === "sort" ? null : "sort")}
+                            className="inline-flex min-w-[170px] items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700"
+                          >
+                            <span>
+                              {{
+                                recommended: "Recommandé",
+                                price_asc: "Prix ASC",
+                                price_desc: "Prix DESC",
+                                stars_desc: "Catégorie DESC",
+                                stars_asc: "Catégorie ASC",
+                                name_asc: "Nom A-Z",
+                              }[hotelResultsSort]}
+                            </span>
+                            <ChevronDown size={16} />
+                          </button>
+                          {hotelResultsFilterPanel === "sort" && (
+                            <div className="absolute right-0 z-20 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              {[
+                                ["recommended", "Recommandé"],
+                                ["price_asc", "Prix ASC"],
+                                ["price_desc", "Prix DESC"],
+                                ["stars_desc", "Catégorie DESC"],
+                                ["stars_asc", "Catégorie ASC"],
+                                ["name_asc", "Nom A-Z"],
+                              ].map(([value, label]) => (
+                                <button
+                                  key={`hotel-sort-${value}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setHotelResultsSort(value as HotelResultsSort);
+                                    setHotelResultsFilterPanel(null);
+                                  }}
+                                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm ${hotelResultsSort === value ? "bg-sky-50 text-sky-700" : "text-slate-700 hover:bg-slate-50"}`}
+                                >
+                                  <span>{label}</span>
+                                  {hotelResultsSort === value ? <Check size={14} /> : null}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setHotelResultsFilterPanel((prev) => prev === "page_size" ? null : "page_size")}
+                            className="inline-flex min-w-[130px] items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700"
+                          >
+                            <span>{hotelResultsPageSize} hôtels</span>
+                            <ChevronDown size={16} />
+                          </button>
+                          {hotelResultsFilterPanel === "page_size" && (
+                            <div className="absolute right-0 z-20 mt-2 w-40 rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              {HOTEL_RESULTS_PAGE_SIZE_OPTIONS.map((size) => (
+                                <button
+                                  key={`hotel-page-size-${size}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setHotelResultsPageSize(size);
+                                    setHotelResultsFilterPanel(null);
+                                  }}
+                                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm ${hotelResultsPageSize === size ? "bg-sky-50 text-sky-700" : "text-slate-700 hover:bg-slate-50"}`}
+                                >
+                                  <span>{size} hôtels</span>
+                                  {hotelResultsPageSize === size ? <Check size={14} /> : null}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      {[
+                        { key: "popular", label: "Filtres populaires" },
+                        { key: "boarding", label: "Formule repas" },
+                        { key: "category", label: "Catégorie" },
+                        { key: "budget", label: "Budget" },
+                        { key: "services", label: "Services" },
+                        { key: "parameters", label: "Paramètres" },
+                      ].map((filter) => (
+                        <div key={`hotel-toolbar-${filter.key}`} className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setHotelResultsFilterPanel((prev) => prev === filter.key ? null : (filter.key as HotelResultsFilterPanel))}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800"
+                          >
+                            {filter.label}
+                            <ChevronDown size={16} />
+                          </button>
+
+                          {hotelResultsFilterPanel === filter.key && filter.key === "popular" && (
+                            <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              <p className="text-lg font-semibold text-slate-900">Filtres populaires</p>
+                              <div className="mt-4 space-y-3">
+                                {[
+                                  ["Promotions uniquement", hotelResultsOnlyPromotions, setHotelResultsOnlyPromotions],
+                                  ["Annulation selon conditions", hotelResultsOnlyRefundable, setHotelResultsOnlyRefundable],
+                                  ["Afficher seulement avec prix", hotelResultsOnlyWithPrice, setHotelResultsOnlyWithPrice],
+                                  ["Offres sur demande", hotelResultsOnlyOnRequest, setHotelResultsOnlyOnRequest],
+                                ].map(([label, checked, setter]) => (
+                                  <label key={`popular-${label}`} className="flex items-center gap-3 text-sm text-slate-700">
+                                    <input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setter as Dispatch<SetStateAction<boolean>>)(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+                                    <span>{label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {hotelResultsFilterPanel === filter.key && filter.key === "boarding" && (
+                            <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              <p className="text-lg font-semibold text-slate-900">Formule repas</p>
+                              <div className="mt-4 max-h-72 space-y-3 overflow-auto">
+                                {hotelResultBoardingCounts.length > 0 ? hotelResultBoardingCounts.map((item) => (
+                                  <label key={`boarding-filter-${item.label}`} className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                                    <span className="flex items-center gap-3">
+                                      <input type="checkbox" checked={selectedHotelResultBoardings.includes(item.label)} onChange={() => toggleHotelResultSelection(item.label, setSelectedHotelResultBoardings)} className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+                                      <span>{item.label}</span>
+                                    </span>
+                                    <span className="font-semibold text-sky-600">{item.count}</span>
+                                  </label>
+                                )) : (
+                                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                                    Aucune formule repas detaillee n'a ete retournee pour ces resultats.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {hotelResultsFilterPanel === filter.key && filter.key === "category" && (
+                            <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              <p className="text-lg font-semibold text-slate-900">Catégorie</p>
+                              <div className="mt-4 space-y-3">
+                                {hotelResultStarCounts.length > 0 ? hotelResultStarCounts.map((item) => (
+                                  <label key={`star-filter-${item.label}`} className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                                    <span className="flex items-center gap-3">
+                                      <input type="checkbox" checked={selectedHotelResultStars.includes(item.label)} onChange={() => toggleHotelResultSelection(item.label, setSelectedHotelResultStars)} className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+                                      <span>{item.label} étoile(s)</span>
+                                    </span>
+                                    <span className="font-semibold text-sky-600">{item.count}</span>
+                                  </label>
+                                )) : (
+                                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                                    Aucune categorie n'est disponible pour le filtrage sur ces resultats.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {hotelResultsFilterPanel === filter.key && filter.key === "budget" && (
+                            <div className="absolute left-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              <p className="text-lg font-semibold text-slate-900">Budget</p>
+                              <div className="mt-4 space-y-5">
+                                <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                                  <span>{formatHotelPrice(hotelResultsBudgetMin ?? hotelResultPriceBounds.min) || "0"} DT</span>
+                                  <span>{formatHotelPrice(hotelResultsBudgetMax ?? hotelResultPriceBounds.max) || "0"} DT</span>
+                                </div>
+                                <input type="range" min={hotelResultPriceBounds.min} max={hotelResultPriceBounds.max || hotelResultPriceBounds.min + 1} value={hotelResultsBudgetMin ?? hotelResultPriceBounds.min} onChange={(event) => setHotelResultsBudgetMin(Math.min(Number(event.target.value), hotelResultsBudgetMax ?? hotelResultPriceBounds.max))} className="w-full accent-sky-500" />
+                                <input type="range" min={hotelResultPriceBounds.min} max={hotelResultPriceBounds.max || hotelResultPriceBounds.min + 1} value={hotelResultsBudgetMax ?? hotelResultPriceBounds.max} onChange={(event) => setHotelResultsBudgetMax(Math.max(Number(event.target.value), hotelResultsBudgetMin ?? hotelResultPriceBounds.min))} className="w-full accent-sky-500" />
+                              </div>
+                            </div>
+                          )}
+
+                          {hotelResultsFilterPanel === filter.key && filter.key === "services" && (
+                            <div className="absolute left-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              <p className="text-lg font-semibold text-slate-900">Services</p>
+                              <div className="mt-4 max-h-72 space-y-3 overflow-auto">
+                                {hotelResultFacilityCounts.length > 0 ? hotelResultFacilityCounts.map((item) => (
+                                  <label key={`facility-filter-${item.label}`} className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                                    <span className="flex items-center gap-3">
+                                      <input type="checkbox" checked={selectedHotelResultFacilities.includes(item.label)} onChange={() => toggleHotelResultSelection(item.label, setSelectedHotelResultFacilities)} className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+                                      <span>{item.label}</span>
+                                    </span>
+                                    <span className="font-semibold text-sky-600">{item.count}</span>
+                                  </label>
+                                )) : (
+                                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                                    Aucun service exploitable n'a ete trouve dans les resultats actuels.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {hotelResultsFilterPanel === filter.key && filter.key === "parameters" && (
+                            <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_20px_45px_rgba(15,23,42,0.16)]">
+                              <p className="text-lg font-semibold text-slate-900">Paramètres</p>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                {selectedHotelResultBoardings.length + selectedHotelResultStars.length + selectedHotelResultFacilities.length + Number(hotelResultsOnlyPromotions) + Number(hotelResultsOnlyRefundable) + Number(hotelResultsOnlyWithPrice) + Number(hotelResultsOnlyOnRequest) > 0 ? (
+                                  <>
+                                    {selectedHotelResultBoardings.map((item) => <span key={`active-boarding-${item}`} className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{item}</span>)}
+                                    {selectedHotelResultStars.map((item) => <span key={`active-star-${item}`} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{item}*</span>)}
+                                    {selectedHotelResultFacilities.map((item) => <span key={`active-fac-${item}`} className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{item}</span>)}
+                                  </>
+                                ) : (
+                                  <p className="text-sm text-slate-500">Aucun filtre actif pour le moment.</p>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedHotelResultBoardings([]);
+                                  setSelectedHotelResultStars([]);
+                                  setSelectedHotelResultFacilities([]);
+                                  setHotelResultsOnlyPromotions(false);
+                                  setHotelResultsOnlyRefundable(false);
+                                  setHotelResultsOnlyWithPrice(false);
+                                  setHotelResultsOnlyOnRequest(false);
+                                  setHotelResultsBudgetMin(hotelResultPriceBounds.min);
+                                  setHotelResultsBudgetMax(hotelResultPriceBounds.max);
+                                  setHotelResultsFilterPanel(null);
+                                }}
+                                className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                              >
+                                Réinitialiser
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-100 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <Search size={18} className="text-slate-400" />
+                          <input
+                            value={hotelResultsSearchTerm}
+                            onChange={(event) => setHotelResultsSearchTerm(event.target.value)}
+                            placeholder="Recherchez un hôtel dans la liste"
+                            className="w-full border-0 bg-transparent text-sm outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 self-end lg:self-auto">
+                        <span className="text-sm font-semibold text-slate-900">Mode d'affichage</span>
+                        <button type="button" onClick={() => setHotelResultsView("list")} className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${hotelResultsView === "list" ? "border-sky-500 bg-sky-500 text-white" : "border-slate-200 bg-white text-slate-400"}`}>
+                          <Rows3 size={18} />
+                        </button>
+                        <button type="button" onClick={() => setHotelResultsView("grid")} className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${hotelResultsView === "grid" ? "border-sky-500 bg-sky-500 text-white" : "border-slate-200 bg-white text-slate-400"}`}>
+                          <LayoutGrid size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {loadingHotelResults && (
                 <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                   {Array.from({ length: 6 }).map((_, index) => (
@@ -4434,8 +4981,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               )}
 
               {!loadingHotelResults && sortedHotelResults.length > 0 && (
-                <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                  {sortedHotelResults.map((hotel) => {
+                <div className={hotelResultsView === "list" ? "space-y-6" : "grid gap-6 md:grid-cols-2 xl:grid-cols-3"}>
+                  {visibleHotelResults.map((hotel) => {
                     const hotelId = Number(hotel.Id || 0);
                     const minPrice = extractHotelMinPrice(hotel);
                     const roomOffers = flattenHotelRoomOffers(hotel);
@@ -4443,6 +4990,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room) : null;
                     const hasPromotion = hasHotelPromotion(hotel);
                     const hasRefundableOffer = roomOffers.some((offer) => !offer.room?.NotRefundable);
+                    const hasOnRequestOffer = roomOffers.some((offer) => Boolean(offer.room?.OnRequest || offer.room?.StopReservation));
+                    const boardings = extractHotelBoardingNames(hotel).slice(0, 3);
+                    const facilities = getHotelFacilityTitles(hotel.Facilities, 6);
+                    const mapsLink = buildHotelMapsLink(hotel);
+                    const categoryLabel = String(hotel.Category?.Title || "").trim();
+                    const promotionTitle = String(hotel.Promotion?.Title || hotel.Promotion?.Description || "").trim();
+                    const promotionRate = Number(hotel.Promotion?.Rate || 0);
+                    const cityShortDescription = String(hotel.City?.ShortDescription || "").trim();
+                    const hotelAddress = String(hotel.Adress || "").trim();
                     const boardingMap = new Map<string, { key: string; boardingId: number | null; boardingName: string; price: number | null }>();
                     roomOffers.forEach((offer) => {
                       const offerPrice = pickHotelDisplayedPrice(offer.room);
@@ -4467,6 +5023,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       const bPrice = b.price ?? Number.POSITIVE_INFINITY;
                       return aPrice - bPrice;
                     });
+                    const roomTypeCount = new Set(
+                      roomOffers
+                        .map((offer) => String(offer.room?.Name || "").trim())
+                        .filter(Boolean)
+                    ).size;
                     const roomCount = Math.max(1, Math.min(4, Number(sharedHotelRoomCount ?? 1) || 1));
                     const roomSelections = Array.isArray(localRoomSelectionsByHotel[hotelId]) ? localRoomSelectionsByHotel[hotelId] : [];
                     const resolvedRoomChoices = Array.from({ length: roomCount }).map((_, roomIndex) => {
@@ -4541,10 +5102,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           hasPromotion
                             ? "border border-amber-200 shadow-[0_18px_48px_rgba(217,119,6,0.18)] hover:shadow-[0_30px_70px_rgba(217,119,6,0.28)]"
                             : "border border-slate-100 shadow-[0_18px_48px_rgba(15,23,42,0.08)] hover:shadow-[0_28px_60px_rgba(15,23,42,0.12)]"
-                        }`}
+                        } ${hotelResultsView === "list" ? "xl:grid xl:grid-cols-[360px_minmax(0,1fr)]" : ""}`}
                       >
                         <Link to={linkTo} className="block">
-                          <div className="relative aspect-[16/10] overflow-hidden">
+                          <div className={`relative overflow-hidden ${hotelResultsView === "list" ? "h-full min-h-[280px]" : "aspect-[16/10]"}`}>
                             <img
                               src={String(hotel.Image || "").trim() || HOTEL_FALLBACK_IMAGE}
                               alt={hotel.Name}
@@ -4576,6 +5137,52 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               {hotel.City?.Name || "Destination"}
                             </p>
                             <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{hotel.Name}</h3>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {categoryLabel ? (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                                  <Star size={12} className="fill-current" />
+                                  {categoryLabel}
+                                </span>
+                              ) : null}
+                              {Number(hotel.Recommended || 0) > 0 ? (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                  <CheckCircle2 size={12} />
+                                  Recommande
+                                </span>
+                              ) : null}
+                              <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
+                                hasOnRequestOffer
+                                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                                  : "border-sky-200 bg-sky-50 text-sky-700"
+                              }`}>
+                                <CircleDollarSign size={12} />
+                                {hasOnRequestOffer ? "Sur demande possible" : "Tarif affiche"}
+                              </span>
+                              {promotionTitle || promotionRate > 0 ? (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                                  <Sparkles size={12} />
+                                  {promotionRate > 0 ? `Promo -${promotionRate}%` : promotionTitle}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-500">
+                              <span className="inline-flex items-center gap-2">
+                                <MapPin size={14} className="text-sky-600" />
+                                {cityShortDescription || hotelAddress || hotel.City?.Name || "Tunisie"}
+                              </span>
+                              {boardingOptions.length > 0 ? (
+                                <span className="inline-flex items-center gap-2">
+                                  <UtensilsCrossed size={14} className="text-sky-600" />
+                                  {boardingOptions.length} formule{boardingOptions.length > 1 ? "s" : ""}
+                                </span>
+                              ) : null}
+                              {roomTypeCount > 0 ? (
+                                <span className="inline-flex items-center gap-2">
+                                  <BedDouble size={14} className="text-sky-600" />
+                                  {roomTypeCount} type{roomTypeCount > 1 ? "s" : ""} de chambre
+                                </span>
+                              ) : null}
+                            </div>
                             <p className="mt-2 line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-500">
                               {getHotelCardDescription(hotel)}
                             </p>
@@ -4588,6 +5195,49 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 : hotelUnavailableMessage}
                             </div>
                           )}
+
+                          {facilities.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {facilities.slice(0, 4).map((item) => (
+                                <span key={`${hotel.Id}-facility-${item}`} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                                  {item}
+                                </span>
+                              ))}
+                              {facilities.length > 4 ? (
+                                <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">+{facilities.length - 4} plus</span>
+                              ) : null}
+                            </div>
+                          )}
+
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">A partir de</p>
+                              <p className="mt-2 text-lg font-semibold text-slate-900">
+                                {displayedClientPrice !== null ? `${formatHotelPrice(displayedClientPrice)} TND` : "Sur demande"}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {resolvedRoomChoices[0]?.selectedBoardingOption?.boardingName || leadOffer?.boardingName || "Selon les chambres"}
+                              </p>
+                            </div>
+                            <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Conditions</p>
+                              <p className={`mt-2 text-sm font-semibold ${hasRefundableOffer ? "text-emerald-700" : "text-amber-700"}`}>
+                                {hasRefundableOffer ? "Annulation selon conditions" : "Non remboursable"}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {hasOnRequestOffer ? "Certaines offres sont sur demande." : "Reservation directe selon disponibilite."}
+                              </p>
+                            </div>
+                            <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Total sejour</p>
+                              <p className="mt-2 text-lg font-semibold text-slate-900">
+                                {Number.isFinite(totalClientPrice) && totalClientPrice > 0 ? `${formatHotelPrice(totalClientPrice)} TND` : "Sur demande"}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {roomCount} chambre{roomCount > 1 ? "s" : ""} • {totalRoomAdults} adulte{totalRoomAdults > 1 ? "s" : ""}{totalRoomChildren > 0 ? ` • ${totalRoomChildren} enfant${totalRoomChildren > 1 ? "s" : ""}` : ""}
+                              </p>
+                            </div>
+                          </div>
 
                           <div className="space-y-3">
                             <div className={`rounded-[20px] border bg-slate-50/80 px-4 py-3 transition-all ${
@@ -4632,10 +5282,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               </p>
                             </div>
 
-                            <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                <TicketPercent size={14} className="text-sky-600" />
-                                Tarif client
+                          <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              <TicketPercent size={14} className="text-sky-600" />
+                              Tarif client
                               </div>
                               <p className="mt-2 text-lg font-semibold text-slate-900">
                                 {displayedClientPrice !== null ? `${formatHotelPrice(displayedClientPrice)} TND` : "Sur demande"}
@@ -4647,6 +5297,17 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 Total ({roomCount} chambre{roomCount > 1 ? "s" : ""}): {Number.isFinite(totalClientPrice) && totalClientPrice > 0 ? `${formatHotelPrice(totalClientPrice)} TND` : "Sur demande"}
                               </p>
                             </div>
+
+                            {boardings.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {boardings.map((item) => (
+                                  <span key={`${hotel.Id}-boarding-${item}`} className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                                    <UtensilsCrossed size={12} />
+                                    {item}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
 
                             <div className={`rounded-[20px] border bg-slate-50/80 px-4 py-3 transition-all ${
                               hotelCriteriaGlowTarget === "chambres"
@@ -4869,20 +5530,6 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap gap-2">
-                            {hasRefundableOffer ? (
-                              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                                <ShieldCheck size={13} />
-                                Annulation selon conditions
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-                                <ShieldX size={13} />
-                                Offre non remboursable
-                              </span>
-                            )}
-                          </div>
-
                           <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
                             <div className="text-xs text-slate-500">
                               {selectedHotelCity?.Name || hotel.City?.Name || "Destination"} • {totalRoomAdults} adulte{totalRoomAdults > 1 ? "s" : ""}{totalRoomChildren > 0 ? ` - ${totalRoomChildren} enfant${totalRoomChildren > 1 ? "s" : ""}` : ""}
@@ -4934,6 +5581,43 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               >
                                 {checkingAvailabilityHotelId === hotelId ? "Vérification..." : availabilityActionLabel}
                               </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                            <div className="flex flex-wrap gap-2">
+                              {hasRefundableOffer ? (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                  <ShieldCheck size={13} />
+                                  Annulation selon conditions
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                                  <ShieldX size={13} />
+                                  Offre non remboursable
+                                </span>
+                              )}
+                              {hasPromotion ? (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                                  <Sparkles size={13} />
+                                  Promotion disponible
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {mapsLink ? (
+                                <a
+                                  href={mapsLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-slate-800"
+                                >
+                                  Carte <ExternalLink size={14} />
+                                </a>
+                              ) : null}
+                              <Link to={linkTo} className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700">
+                                Détails
+                              </Link>
                             </div>
                           </div>
                         </div>
@@ -5146,7 +5830,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       {createPortal(
         <>
           {hotelDestinationOpen && (
-            <div className="fixed inset-0 z-[9999] bg-[linear-gradient(160deg,#ffffff,#f6faff)] md:hidden">
+            <div className="fixed inset-0 z-[9999] flex flex-col bg-[linear-gradient(160deg,#ffffff,#f6faff)] md:hidden">
               <div className="relative border-b border-slate-200 px-4 py-4">
                 <h3 className="text-center text-[18px] font-semibold leading-tight text-slate-900">Indiquez la destination</h3>
                 <button type="button" onClick={() => setHotelDestinationOpen(false)} className="absolute right-3 top-3 rounded-full p-2 text-slate-700">
@@ -5176,20 +5860,40 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               </div>
               <div className="border-b border-slate-200 px-4 py-4">
                 <p className="text-[15px] font-medium leading-6 text-slate-900">Entrez une ou plusieurs destinations ou établissements</p>
-                {hotelDestinationSelectionLabel ? (
+                {(hotelDestinationSelectionLabel || selectedHotelLabel) ? (
                   <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white">
-                      <span>{hotelDestinationSelectionLabel}</span>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          resetHotelDestinationSelection();
-                        }}
-                        className="rounded-full text-white/90 transition hover:text-white"
-                      >
-                        <X size={12} />
-                      </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {hotelDestinationSelectionLabel ? (
+                        <div className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white">
+                          <span>{hotelDestinationSelectionLabel}</span>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              resetHotelDestinationSelection();
+                            }}
+                            className="rounded-full text-white/90 transition hover:text-white"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : null}
+                      {selectedHotelLabel ? (
+                        <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white">
+                          <span>{selectedHotelLabel}</span>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              clearSelectedHotelDestinationHotel();
+                            }}
+                            className="rounded-full text-white/90 transition hover:text-white"
+                            aria-label="Supprimer l'hôtel sélectionné"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                     <button
                       type="button"
@@ -5215,7 +5919,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   ))}
                 </div>
               </div>
-              <div className="h-[calc(100vh-260px)] overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto pb-8" onScroll={handleHotelDestinationScroll}>
                 {(hotelDestinationTab === "destinations" ? featuredHotelCities : hotelDestinationTab === "villes" ? filteredHotelCities : []).map((city) => (
                   hotelDestinationTab === "destinations" || hotelDestinationTab === "villes" ? (
                     <button
@@ -5257,7 +5961,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     Chargement des hôtels...
                   </div>
                 )}
-                {hotelDestinationTab === "hotels" && filteredHotelsByCity.map((hotel) => (
+                {hotelDestinationTab === "hotels" && visibleFilteredHotelsByCity.map((hotel) => (
                   <button
                     key={`mobile-home-hotel-name-${hotel.Id}`}
                     type="button"
@@ -5280,6 +5984,22 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   || (hotelDestinationTab === "villes" && filteredHotelCities.length === 0)) && (
                   <div className="px-4 py-6 text-sm text-slate-500">
                     Aucun résultat pour cet onglet.
+                  </div>
+                )}
+                {hotelDestinationTab === "hotels" && visibleFilteredHotelsByCity.length < filteredHotelsByCity.length && (
+                  <div className="px-4 py-3 text-center text-xs font-medium text-slate-500">
+                    Faites défiler pour charger plus d'hôtels
+                  </div>
+                )}
+                {hotelDestinationTab === "hotels" && selectedHotelCity && (
+                  <div className="bg-white px-4 pb-4 pt-2">
+                    <button
+                      type="button"
+                      onClick={showAllHotelDestinationChoices}
+                      className="inline-flex w-full items-center justify-center rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(2,132,199,0.28)] transition active:scale-[0.99]"
+                    >
+                      Voir tous les choix
+                    </button>
                   </div>
                 )}
               </div>

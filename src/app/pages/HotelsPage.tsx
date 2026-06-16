@@ -218,7 +218,6 @@ export default function HotelsPage() {
           adults,
           childAges: nextChildAges,
           keywords: keywords || undefined,
-          onlyAvailable: true,
         });
         if (hotels.length === 0 && nextChildAges.length > 0 && cityId > 0) {
           const fallbackHotels = await listHotels(cityId);
