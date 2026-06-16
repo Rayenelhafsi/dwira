@@ -394,6 +394,36 @@ const cleanFeatureTabName = (value: string) =>
     .trim();
 
 const isCharacteristicsTabName = (value: string) => normalizeFeatureName(cleanFeatureTabName(value)).includes('caracteristique');
+const isHiddenClientDetailTabName = (value: string) => {
+  const key = normalizeFeatureName(cleanFeatureTabName(value));
+  return key.includes('tarification publique') || key === 'tarification' || key.includes('tarification');
+};
+const SEASONAL_CANONICAL_DETAIL_TABS: Array<{ key: string; label: string }> = [
+  { key: 'informations_generales', label: 'Informations generales' },
+  { key: 'localisation_acces', label: 'Localisation & acces' },
+  { key: 'exterieur_jardin', label: 'Exterieur & jardin' },
+  { key: 'lits_couchage', label: 'Lits & couchage' },
+  { key: 'conforts_equipements_interieurs', label: 'Conforts & equipements interieurs' },
+  { key: 'securite_reglement', label: 'Securite & reglement' },
+  { key: 'conditions_reservation', label: 'Conditions de reservation' },
+  { key: 'accessibilite', label: 'Accessibilite' },
+  { key: 'capacite_configuration', label: 'Capacite & configuration' },
+  { key: 'cuisine_repas', label: 'Cuisine & repas' },
+];
+const detectCanonicalSeasonalTabKey = (label?: string | null) => {
+  const normalized = normalizeFeatureName(cleanFeatureTabName(String(label || '')));
+  if (normalized.includes('information')) return 'informations_generales';
+  if (normalized.includes('localisation')) return 'localisation_acces';
+  if (normalized.includes('lits') || normalized.includes('couchage')) return 'lits_couchage';
+  if (normalized.includes('confort') || normalized.includes('equipement')) return 'conforts_equipements_interieurs';
+  if (normalized.includes('securite') || normalized.includes('reglement')) return 'securite_reglement';
+  if (normalized.includes('condition') || normalized.includes('reservation')) return 'conditions_reservation';
+  if (normalized.includes('accessibil')) return 'accessibilite';
+  if (normalized.includes('capacite') || normalized.includes('configuration')) return 'capacite_configuration';
+  if (normalized.includes('cuisine') || normalized.includes('repas')) return 'cuisine_repas';
+  if (normalized.includes('exterieur') || normalized.includes('jardin') || normalized.includes('caracteristique')) return 'exterieur_jardin';
+  return '';
+};
 
 const parseFeatureValueJson = (rawValue?: string | null): string[] => {
   const text = String(rawValue || '').trim();
@@ -401,9 +431,21 @@ const parseFeatureValueJson = (rawValue?: string | null): string[] => {
   try {
     const parsed = JSON.parse(text);
     if (Array.isArray(parsed)) {
-      return parsed.map((item) => String(item || '').trim()).filter(Boolean);
+      return parsed.map((item) => String(item ?? '').trim()).filter(Boolean);
     }
-    const scalar = String(parsed || '').trim();
+    if (parsed && typeof parsed === 'object') {
+      const values = Array.isArray((parsed as { values?: unknown[] }).values)
+        ? (parsed as { values?: unknown[] }).values || []
+        : [];
+      if (values.length > 0) {
+        return values.map((item) => String(item ?? '').trim()).filter(Boolean);
+      }
+      if (Object.prototype.hasOwnProperty.call(parsed, 'value')) {
+        const scalarValue = String((parsed as { value?: unknown }).value ?? '').trim();
+        return scalarValue ? [scalarValue] : [];
+      }
+    }
+    const scalar = String(parsed ?? '').trim();
     return scalar ? [scalar] : [];
   } catch {
     return text ? [text] : [];
@@ -1419,6 +1461,37 @@ out body 40;
     () => new Set((Array.isArray(sourceBien?.caracteristiques) ? sourceBien?.caracteristiques : []).map((item) => normalizeFeatureName(String(item)))),
     [sourceBien?.caracteristiques]
   );
+  const characteristicValuesFromLines = useMemo(() => {
+    const exact = new Map<string, string[]>();
+    const implied = new Map<string, string[]>();
+
+    for (const rawLine of (Array.isArray(sourceBien?.caracteristiques) ? sourceBien.caracteristiques : [])) {
+      const line = String(rawLine || '').trim();
+      if (!line) continue;
+      const separatorIndex = line.indexOf(':');
+      if (separatorIndex >= 0) {
+        const label = line.slice(0, separatorIndex).trim();
+        const valuesPart = line.slice(separatorIndex + 1).trim();
+        const normalizedLabel = normalizeFeatureName(label);
+        const values = valuesPart.split(',').map((item) => String(item || '').trim()).filter(Boolean);
+        if (normalizedLabel && values.length > 0) {
+          exact.set(normalizedLabel, values);
+          values.forEach((value) => {
+            const normalizedValue = normalizeFeatureName(value);
+            if (!normalizedValue) return;
+            if (!implied.has(normalizedValue)) implied.set(normalizedValue, ['Oui']);
+          });
+        }
+        continue;
+      }
+      const normalizedLine = normalizeFeatureName(line);
+      if (!normalizedLine) continue;
+      exact.set(normalizedLine, ['Oui']);
+      implied.set(normalizedLine, ['Oui']);
+    }
+
+    return { exact, implied };
+  }, [sourceBien?.caracteristiques]);
   const selectedPublicFeatures = useMemo(
     () => allFeatures.filter((feature) => {
       const byId = selectedFeatureIds.has(String(feature.id || ''));
@@ -1428,7 +1501,11 @@ out body 40;
     [allFeatures, selectedFeatureIds, selectedFeatureNames]
   );
   const selectedVisibleFeatures = useMemo(
-    () => selectedPublicFeatures.filter((item) => String(item.onglet_id || '').trim().length > 0),
+    () => selectedPublicFeatures.filter((item) => {
+      if (String(item.onglet_id || '').trim().length === 0) return false;
+      if (isHiddenClientDetailTabName(String(item.onglet_nom || ''))) return false;
+      return true;
+    }),
     [selectedPublicFeatures]
   );
   const selectedAmenityFeatures = useMemo(
@@ -1457,13 +1534,29 @@ out body 40;
       .sort((a, b) => (orderLookup.get(a.id) ?? 999) - (orderLookup.get(b.id) ?? 999));
   }, [featureTabs, selectedAmenityFeatures]);
   const detailTabs = useMemo(() => {
+    if (String(sourceBien?.mode || '').trim() === 'location_saisonniere') {
+      const usedKeys = new Set(
+        selectedVisibleFeatures
+          .map((feature) => detectCanonicalSeasonalTabKey(
+            isCharacteristicsTabName(String(feature.onglet_nom || ''))
+              ? String(feature.nom || '')
+              : String(feature.onglet_nom || '')
+          ))
+          .filter(Boolean)
+      );
+      return SEASONAL_CANONICAL_DETAIL_TABS
+        .filter((tab) => usedKeys.has(tab.key))
+        .map((tab, index) => ({ id: tab.key, nom: tab.label, ordre: index + 1 }));
+    }
+
     const availableTabIds = new Set(selectedVisibleFeatures.map((item) => String(item.onglet_id || '')));
     return featureTabs
       .filter((tab) => availableTabIds.has(String(tab.id || '')))
+      .filter((tab) => !isHiddenClientDetailTabName(String(tab.nom || '')))
       .map((tab) => ({ ...tab, nom: cleanFeatureTabName(String(tab.nom || '')) }))
       .slice()
       .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999));
-  }, [featureTabs, selectedVisibleFeatures]);
+  }, [featureTabs, selectedVisibleFeatures, sourceBien?.mode]);
   const fallbackDetailTabs = useMemo<SeasonalFallbackTab[]>(() => {
     if (selectedPublicFeatures.length === 0) return [];
     return [{
@@ -1576,11 +1669,15 @@ out body 40;
   ]);
   const valueForFeature = useCallback((featureName: string) => {
     const key = normalizeFeatureName(featureName);
+    const lineValues = characteristicValuesFromLines.exact.get(key) || characteristicValuesFromLines.implied.get(key) || [];
+    if (lineValues.length > 0) {
+      return lineValues.join(', ');
+    }
     const zoneName = selectedZone?.nom || property?.location || '-';
     const startsWith = (value: string) => key.startsWith(value) || key.includes(value);
     if (startsWith('reference')) return sourceBien?.reference || '-';
     if (startsWith('titre annonce')) return sourceBien?.titre || property?.title || '-';
-    if (startsWith('type logement')) return 'Appartement';
+    if (startsWith('type logement')) return String(property?.category || sourceBien?.type || 'Appartement');
     if (startsWith('zone') || startsWith('quartier')) return selectedZone?.quartier || zoneName;
     if (startsWith('ville')) return selectedZone?.region || '-';
     if (startsWith('gouvernerat')) return selectedZone?.gouvernerat || '-';
@@ -1591,7 +1688,26 @@ out body 40;
     if (startsWith('vue')) return vueLabel || '-';
     if (startsWith('niveau sonore')) return niveauSonoreLabel || '-';
     if (startsWith('acces')) return accesLabel || '-';
+    if (startsWith('capacite max adultes')) return String(maxAdultGuests);
+    if (startsWith('capacite enfants')) return String(maxChildGuests);
+    if (startsWith('capacite bebes')) return '0';
     if (startsWith('limite personnes')) return String(maxGuests);
+    if (startsWith('configuration')) return property?.category || sourceBien?.type || '-';
+    if (startsWith('sous-type')) return property?.category || sourceBien?.type || '-';
+    if (startsWith('nombre chambres global')) return String(property?.bedrooms ?? 0);
+    if (startsWith('nombre de sdb global')) return String(property?.bathrooms ?? 0);
+    if (startsWith('nombre chambres double')) return String((sourceBien as any)?.nb_chambres_double ?? '-');
+    if (startsWith('nombre chambres parentale')) return String((sourceBien as any)?.nb_chambres_parentale ?? '-');
+    if (startsWith('nombre chambres simple')) return String((sourceBien as any)?.nb_chambres_simple ?? '-');
+    if (startsWith('nombre salles de bain')) return String(property?.bathrooms ?? 0);
+    if (startsWith('nombre salons')) return String((sourceBien as any)?.nb_salons ?? '1');
+    if (startsWith('lit double')) return String((sourceBien as any)?.nb_lits_double ?? '-');
+    if (startsWith('lit simple')) return String((sourceBien as any)?.nb_lits_simple ?? '-');
+    if (startsWith('lit bebe')) return '0';
+    if (startsWith('canape-lit')) return '0';
+    if (startsWith('prix matelas supplementaire')) return `${extraMattressPrice}`;
+    if (startsWith('maximum matelas supplementaires')) return `${extraMattressMax}`;
+    if (startsWith('nombre chaises')) return String((sourceBien as any)?.nb_chaises ?? '-');
     if (startsWith('duree min sejour')) return `${minStay}`;
     if (startsWith('duree max sejour')) return `${maxStay}`;
     if (startsWith('politique annulation')) return politiqueAnnulationLabel || '-';
@@ -1613,6 +1729,7 @@ out body 40;
     if (startsWith('tarif semaine') || startsWith('prix semaine')) return `${formatTnd(displayedWeeklyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}`;
     return 'Oui';
   }, [
+    characteristicValuesFromLines,
     accesLabel,
     alcoolLabel,
     animauxLabel,
@@ -1622,11 +1739,16 @@ out body 40;
     hasCleaningFee,
     hasExtraMattress,
     hasServiceFee,
+    extraMattressMax,
+    maxAdultGuests,
+    maxChildGuests,
     maxGuests,
     maxStay,
     minStay,
     niveauSonoreLabel,
     politiqueAnnulationLabel,
+    property?.bathrooms,
+    property?.category,
     property?.cleaningFee,
     property?.location,
     property?.serviceFee,
@@ -1644,6 +1766,8 @@ out body 40;
     selectedZone?.nom,
     selectedZone?.quartier,
     selectedZone?.region,
+    sourceBien?.bathrooms,
+    sourceBien?.bedrooms,
     sourceBien?.reference,
     sourceBien?.titre,
     standingLabel,
@@ -1676,27 +1800,43 @@ out body 40;
         .map((value) => String(value || '').trim())
         .filter((value) => value.length > 0 && value !== '-');
       if (values.length === 0) return null;
+      const normalizedType = String(feature.type_caracteristique || '').trim().toLowerCase();
+      const unit = String(feature.unite || '').trim();
+      const renderedValues = values.map((value) => {
+        if (normalizedType !== 'valeur' || !unit) return value;
+        if (value.toLowerCase().includes(unit.toLowerCase())) return value;
+        return `${value} ${unit}`.trim();
+      });
       return {
         label: feature.nom,
-        value: values.join(', '),
+        value: renderedValues.join(', '),
       };
     };
 
     return detailTabs
       .map((tab) => {
+        const tabId = String(tab.id || '').trim();
         const rows = selectedVisibleFeatures
-          .filter((feature) => String(feature.onglet_id || '').trim() === String(tab.id || '').trim())
+          .filter((feature) => {
+            if (String(sourceBien?.mode || '').trim() === 'location_saisonniere') {
+              const rawKey = isCharacteristicsTabName(String(feature.onglet_nom || ''))
+                ? detectCanonicalSeasonalTabKey(String(feature.nom || ''))
+                : detectCanonicalSeasonalTabKey(String(feature.onglet_nom || ''));
+              return rawKey === tabId;
+            }
+            return String(feature.onglet_id || '').trim() === tabId;
+          })
           .map(rowsForFeature)
           .filter((row): row is SeasonalDetailRow => Boolean(row));
 
         return {
-          id: String(tab.id || ''),
+          id: tabId,
           nom: cleanFeatureTabName(String(tab.nom || '')),
           rows,
         };
       })
       .filter((tab) => tab.rows.length > 0);
-  }, [detailTabs, selectedVisibleFeatures, valuesForFeature]);
+  }, [detailTabs, selectedVisibleFeatures, sourceBien?.mode, valuesForFeature]);
   const usingConfiguredTabs = configuredDetailTabs.length > 0;
   const visibleDetailTabs = usingConfiguredTabs
     ? configuredDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
