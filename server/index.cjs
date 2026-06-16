@@ -8741,6 +8741,27 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
     [contractId, now, now, identityDocumentType, identityDocumentNumber, identityFirstName, identityLastName, identityDocumentImageUrl, now, demandId]
   );
 
+  if (String(current.request_type || 'reservation').trim() === 'reservation') {
+    const unavailableDateId = String(current.unavailable_date_id || '').trim() || `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    if (String(current.unavailable_date_id || '').trim()) {
+      await pool.query(
+        'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
+        ['booked', current.finalization_due_at || now, unavailableDateId]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+         VALUES (?, ?, ?, ?, 'booked', ?, NULL)`,
+        [unavailableDateId, current.bien_id, current.start_date, current.end_date, demandId]
+      );
+      await pool.query(
+        'UPDATE reservation_demands SET unavailable_date_id = ?, updated_at = ? WHERE id = ?',
+        [unavailableDateId, now, demandId]
+      );
+      current.unavailable_date_id = unavailableDateId;
+    }
+  }
+
   await appendReservationDemandHistory(
     demandId,
     'contrat_realise',
@@ -17803,9 +17824,9 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     const initialDemandStatus = isAmicaleFlow
       ? 'attente_validation_amicale'
       : (instantReservationEnabled ? 'client_procede_vers_paiement_en_cours' : 'en_attente_reponse_proprietaire');
-    const unavailableDateId = instantReservationEnabled
-      ? null
-      : `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const unavailableDateId = requestType === 'reservation'
+      ? `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      : null;
 
     await pool.query(
       `INSERT INTO reservation_demands (
@@ -17864,8 +17885,16 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     if (unavailableDateId) {
       await pool.query(
         `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
-         VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-        [unavailableDateId, bien_id, start_date, end_date, demandId, paymentDeadline]
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          unavailableDateId,
+          bien_id,
+          start_date,
+          end_date,
+          instantReservationEnabled ? 'booked' : 'pending',
+          demandId,
+          instantReservationEnabled ? null : paymentDeadline,
+        ]
       );
     }
 
@@ -18485,24 +18514,47 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
       ]
     );
 
-    if (current.unavailable_date_id) {
+    if (String(current.request_type || 'reservation').trim() === 'reservation') {
       if (nextStatus === 'demande_rejetee_admin' || nextStatus === 'demande_annulee_client') {
-        await pool.query(
-          `DELETE FROM unavailable_dates
-           WHERE id = ?
-             AND reservation_demand_id = ?`,
-          [current.unavailable_date_id, demandId]
-        );
-        await pool.query(
-          'UPDATE reservation_demands SET unavailable_date_id = ?, updated_at = ? WHERE id = ?',
-          [null, updatedAt, demandId]
-        );
+        if (current.unavailable_date_id) {
+          await pool.query(
+            `DELETE FROM unavailable_dates
+             WHERE id = ?
+               AND reservation_demand_id = ?`,
+            [current.unavailable_date_id, demandId]
+          );
+          await pool.query(
+            'UPDATE reservation_demands SET unavailable_date_id = ?, updated_at = ? WHERE id = ?',
+            [null, updatedAt, demandId]
+          );
+        }
       } else {
         const unavailableStatus = (nextStatus === 'contrat_realise' || nextStatus === 'succes_paiement') ? 'booked' : 'pending';
-        await pool.query(
-          'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
-          [unavailableStatus, finalizationDueAt || current.finalization_due_at || null, current.unavailable_date_id]
-        );
+        if (current.unavailable_date_id) {
+          await pool.query(
+            'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
+            [unavailableStatus, finalizationDueAt || current.finalization_due_at || null, current.unavailable_date_id]
+          );
+        } else {
+          const createdUnavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          await pool.query(
+            `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              createdUnavailableDateId,
+              current.bien_id,
+              current.start_date,
+              current.end_date,
+              unavailableStatus,
+              demandId,
+              unavailableStatus === 'booked' ? null : (finalizationDueAt || current.finalization_due_at || null),
+            ]
+          );
+          await pool.query(
+            'UPDATE reservation_demands SET unavailable_date_id = ?, updated_at = ? WHERE id = ?',
+            [createdUnavailableDateId, updatedAt, demandId]
+          );
+        }
       }
     }
 

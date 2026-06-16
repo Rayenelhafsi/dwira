@@ -52,18 +52,21 @@ export default function AvailabilityCalendar({
   const toDayKey = (date: Date) => format(date, "yyyy-MM-dd");
   const normalizeKey = (value: string) => String(value || "").slice(0, 10);
 
-  const getBlockingStatusForDay = (day: Date): 'blocked' | 'booked' | null => {
+  const getBlockingStatusForDay = (day: Date): 'blocked' | 'pending' | 'booked' | null => {
     const key = toDayKey(day);
     const blocking = unavailableDates.find((range) => {
       const status = String(range.status || '').toLowerCase();
-      if (status !== 'blocked' && status !== 'booked') return false;
+      if (status !== 'blocked' && status !== 'booked' && status !== 'pending') return false;
       const startKey = normalizeKey(range.start);
       const endKey = normalizeKey(range.end);
       if (!startKey || !endKey) return false;
       return startKey <= key && key <= endKey;
     });
     if (!blocking) return null;
-    return String(blocking.status).toLowerCase() === 'booked' ? 'booked' : 'blocked';
+    const status = String(blocking.status).toLowerCase();
+    if (status === 'booked') return 'booked';
+    if (status === 'pending') return 'pending';
+    return 'blocked';
   };
 
   const getDateStatus = (date: Date): 'available' | 'blocked' | 'pending' | 'booked' | 'past' => {
@@ -89,13 +92,13 @@ export default function AvailabilityCalendar({
   const isDateUnavailable = (date: Date) => {
     if (isBefore(date, today)) return true;
     const blockingStatus = getBlockingStatusForDay(date);
-    return blockingStatus === 'blocked' || blockingStatus === 'booked';
+    return blockingStatus === 'blocked' || blockingStatus === 'booked' || blockingStatus === 'pending';
   };
 
   const canUseAsCheckoutBoundary = (date: Date) => {
     return unavailableDates.some((range) => {
       const status = String(range.status || '').toLowerCase();
-      if (status !== 'blocked' && status !== 'booked') return false;
+      if (status !== 'blocked' && status !== 'booked' && status !== 'pending') return false;
       const start = parseISO(range.start);
       return isSameDay(start, date);
     });
@@ -104,7 +107,7 @@ export default function AvailabilityCalendar({
   const canUseAsCheckinBoundary = (date: Date) => {
     const matchesBoundaryEnd = unavailableDates.some((range) => {
       const status = String(range.status || '').toLowerCase();
-      if (status !== 'blocked' && status !== 'booked') return false;
+      if (status !== 'blocked' && status !== 'booked' && status !== 'pending') return false;
       const endKey = normalizeKey(range.end);
       return endKey === toDayKey(date);
     });
@@ -114,10 +117,6 @@ export default function AvailabilityCalendar({
     // when the next day is available.
     const nextDay = addDays(date, 1);
     return getBlockingStatusForDay(nextDay) === null;
-  };
-
-  const isDatePending = (date: Date) => {
-    return getDateStatus(date) === 'pending';
   };
 
   const isDateInSelectedRange = (date: Date) => {
@@ -188,8 +187,6 @@ export default function AvailabilityCalendar({
     const isCurrentMonth = isSameMonth(date, currentMonth);
     const dateStatus = getDateStatus(date);
     const isSelected = isDateSelected(date);
-    const isInSelectedRange = isDateInSelectedRange(date);
-    const isPending = dateStatus === 'pending';
 
     let className = "w-full aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative overflow-hidden ";
     
@@ -203,15 +200,9 @@ export default function AvailabilityCalendar({
     } else if (dateStatus === 'booked') {
       // Red for Réservé
       className += "bg-red-500 text-white cursor-not-allowed ";
-    } else if (isSelected && isPending) {
-      // Dark Orange for selected pending dates (user's selection over pending)
-      className += "bg-orange-700 text-white font-bold ";
-    } else if (isInSelectedRange && isPending) {
-      // Dark Orange for pending dates in selected range
-      className += "bg-orange-700 text-white font-bold ";
-    } else if (isPending) {
-      // Light Orange for pending dates not selected (En attente de confirmation)
-      className += "bg-orange-200 text-orange-800 hover:bg-orange-300 ";
+    } else if (dateStatus === 'pending') {
+      // Pending requests must also block the public calendar.
+      className += "bg-orange-400 text-white cursor-not-allowed ";
     } else if (isSelected) {
       // Dark Green for Sélectionné (entire selected period)
       className += "bg-emerald-600 text-white font-bold ";
@@ -242,7 +233,7 @@ export default function AvailabilityCalendar({
     if (!isTransition) {
       return { enabled: false, leftClass: "", rightClass: "" };
     }
-    const blockedClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
+    const blockedClass = blocking === "booked" ? "bg-red-500" : blocking === "pending" ? "bg-orange-400" : "bg-gray-900";
     // left = morning(departure side), right = evening(arrival side)
     if (canCheckinOnThisDay && !canCheckoutOnThisDay) {
       return { enabled: true, leftClass: blockedClass, rightClass: availableClass };
