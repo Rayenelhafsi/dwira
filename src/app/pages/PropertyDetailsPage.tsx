@@ -1574,29 +1574,6 @@ out body 40;
     vueLabel,
     featureTabs,
   ]);
-  const usingConfiguredTabs = configuredDetailTabs.length > 0;
-  const visibleDetailTabs = usingConfiguredTabs
-    ? configuredDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
-    : (systemFallbackTabs.length > 0
-      ? systemFallbackTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
-      : fallbackDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom })));
-  const selectedConfiguredTab = configuredDetailTabs.find((tab) => tab.id === seasonalDetailsTabId)
-    || configuredDetailTabs[0]
-    || null;
-  const selectedFallbackTab = (systemFallbackTabs.length > 0 ? systemFallbackTabs : fallbackDetailTabs).find((tab) => tab.id === seasonalDetailsTabId)
-    || (systemFallbackTabs.length > 0 ? systemFallbackTabs[0] : fallbackDetailTabs[0])
-    || null;
-
-  useEffect(() => {
-    if (visibleDetailTabs.length === 0) {
-      setSeasonalDetailsTabId('');
-      return;
-    }
-    if (!visibleDetailTabs.some((tab) => tab.id === seasonalDetailsTabId)) {
-      setSeasonalDetailsTabId(visibleDetailTabs[0].id);
-    }
-  }, [visibleDetailTabs, seasonalDetailsTabId]);
-
   const valueForFeature = useCallback((featureName: string) => {
     const key = normalizeFeatureName(featureName);
     const zoneName = selectedZone?.nom || property?.location || '-';
@@ -1720,6 +1697,28 @@ out body 40;
       })
       .filter((tab) => tab.rows.length > 0);
   }, [detailTabs, selectedVisibleFeatures, valuesForFeature]);
+  const usingConfiguredTabs = configuredDetailTabs.length > 0;
+  const visibleDetailTabs = usingConfiguredTabs
+    ? configuredDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
+    : (systemFallbackTabs.length > 0
+      ? systemFallbackTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
+      : fallbackDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom })));
+  const selectedConfiguredTab = configuredDetailTabs.find((tab) => tab.id === seasonalDetailsTabId)
+    || configuredDetailTabs[0]
+    || null;
+  const selectedFallbackTab = (systemFallbackTabs.length > 0 ? systemFallbackTabs : fallbackDetailTabs).find((tab) => tab.id === seasonalDetailsTabId)
+    || (systemFallbackTabs.length > 0 ? systemFallbackTabs[0] : fallbackDetailTabs[0])
+    || null;
+
+  useEffect(() => {
+    if (visibleDetailTabs.length === 0) {
+      setSeasonalDetailsTabId('');
+      return;
+    }
+    if (!visibleDetailTabs.some((tab) => tab.id === seasonalDetailsTabId)) {
+      setSeasonalDetailsTabId(visibleDetailTabs[0].id);
+    }
+  }, [visibleDetailTabs, seasonalDetailsTabId]);
   const featureDisplayItems = useMemo<FeatureDisplayItem[]>(() => (
     amenitySections.flatMap((section) => (
       section.features.flatMap((feature) => {
