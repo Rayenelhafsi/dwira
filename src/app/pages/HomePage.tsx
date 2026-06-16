@@ -184,6 +184,8 @@ type HotelTravellerIdentity = {
   lastName: string;
 };
 
+type HotelDestinationTab = "destinations" | "top" | "villes" | "hotels";
+
 type HotelRoomTravellerSelection = {
   adults: number;
   children: number;
@@ -711,6 +713,8 @@ function buildDefaultHotelSearch() {
   };
 }
 
+const DEFAULT_HOTEL_ROOM_COUNT = 1;
+
 function formatHotelPrice(value: number | null) {
   if (!Number.isFinite(Number(value))) return null;
   return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Number(value));
@@ -881,11 +885,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [hotelDestinationQuery, setHotelDestinationQuery] = useState(() => searchParams.get("q") || "");
   const [selectedHotelId, setSelectedHotelId] = useState<number>(0);
   const [hotelDestinationOpen, setHotelDestinationOpen] = useState(false);
+  const [hotelDestinationTab, setHotelDestinationTab] = useState<HotelDestinationTab>("destinations");
   const [hotelCheckIn, setHotelCheckIn] = useState(() => searchParams.get("checkIn") || "");
   const [hotelCheckOut, setHotelCheckOut] = useState(() => searchParams.get("checkOut") || "");
   const [hotelAdults, setHotelAdults] = useState(() => {
     const rawAdults = String(searchParams.get("adults") || "").trim();
-    if (!rawAdults) return 0;
+    if (!rawAdults) return hotelDefaults.adults;
     return Math.max(1, Number(rawAdults) || 1);
   });
   const [hotelChildAges, setHotelChildAges] = useState<number[]>(() => {
@@ -898,9 +903,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     return parsed.length > 0 ? parsed : hotelDefaults.childAges;
   });
   const [hotelsByCity, setHotelsByCity] = useState<HotelSummary[]>([]);
-  const [sharedHotelRoomCount, setSharedHotelRoomCount] = useState(1);
+  const [sharedHotelRoomCount, setSharedHotelRoomCount] = useState(DEFAULT_HOTEL_ROOM_COUNT);
   const [localRoomSelectionsByHotel, setLocalRoomSelectionsByHotel] = useState<Record<number, Array<{ boardingKey: string; roomKey: string }>>>({});
-  const [sharedHotelRoomTravellers, setSharedHotelRoomTravellers] = useState<HotelRoomTravellerSelection[]>(() => buildDefaultHotelRoomTravellers(1));
+  const [sharedHotelRoomTravellers, setSharedHotelRoomTravellers] = useState<HotelRoomTravellerSelection[]>(() =>
+    buildHotelRoomTravellersFromFilters(DEFAULT_HOTEL_ROOM_COUNT, hotelDefaults.adults, hotelDefaults.childAges)
+  );
   const [hotelAvailabilitySignatureByHotel, setHotelAvailabilitySignatureByHotel] = useState<Record<number, string>>({});
   const [hotelCriteriaGlowTarget, setHotelCriteriaGlowTarget] = useState<null | "dates" | "chambres" | "voyageurs" | "action">(null);
   const [hotelTravellersOpen, setHotelTravellersOpen] = useState(false);
@@ -1012,10 +1019,30 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     () => hotelCities.find((item) => Number(item.Id) === Number(hotelCityId)) || null,
     [hotelCities, hotelCityId]
   );
-  const hotelDestinationNeedle = String(hotelDestinationQuery || "").trim().toLowerCase();
+  const hotelDestinationNeedle = normalizeLocationMatchToken(hotelDestinationQuery);
+  const hotelCitiesSorted = useMemo(
+    () => [...hotelCities].sort((left, right) => String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr")),
+    [hotelCities]
+  );
+  const hotelCountsByCityId = useMemo(() => {
+    const counts: Record<number, number> = {};
+    hotelsByCity.forEach((hotel) => {
+      const cityId = Number(hotel?.City?.Id || 0);
+      if (cityId <= 0) return;
+      counts[cityId] = (counts[cityId] || 0) + 1;
+    });
+    return counts;
+  }, [hotelsByCity]);
   const filteredHotelCities = useMemo(
-    () => hotelCities.filter((city) => !hotelDestinationNeedle || String(city.Name || "").toLowerCase().includes(hotelDestinationNeedle)).slice(0, 12),
-    [hotelCities, hotelDestinationNeedle]
+    () =>
+      hotelCitiesSorted
+        .filter((city) => !hotelDestinationNeedle || normalizeLocationMatchToken(city.Name).includes(hotelDestinationNeedle))
+        .slice(0, 18),
+    [hotelCitiesSorted, hotelDestinationNeedle]
+  );
+  const featuredHotelCities = useMemo(
+    () => (hotelDestinationNeedle ? filteredHotelCities : hotelCitiesSorted.slice(0, 10)),
+    [filteredHotelCities, hotelCitiesSorted, hotelDestinationNeedle]
   );
   const filteredHotelsByCity = useMemo(
     () =>
@@ -1025,17 +1052,36 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             Number(hotelCityId) <= 0 || Number(hotel?.City?.Id || 0) === Number(hotelCityId);
           const matchesQuery =
             !hotelDestinationNeedle ||
-            String(hotel.Name || "").toLowerCase().includes(hotelDestinationNeedle);
+            normalizeLocationMatchToken(hotel.Name).includes(hotelDestinationNeedle) ||
+            normalizeLocationMatchToken(hotel?.City?.Name).includes(hotelDestinationNeedle);
           return matchesCity && matchesQuery;
         })
         .sort((left, right) => {
           const leftSelected = Number(left?.Id || 0) === Number(selectedHotelId) ? 1 : 0;
           const rightSelected = Number(right?.Id || 0) === Number(selectedHotelId) ? 1 : 0;
           if (leftSelected !== rightSelected) return rightSelected - leftSelected;
+          const leftRecommended = Number(left?.Recommended || 0);
+          const rightRecommended = Number(right?.Recommended || 0);
+          if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
           return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
         })
-        .slice(0, 12),
+        .slice(0, 18),
     [hotelsByCity, hotelCityId, hotelDestinationNeedle, selectedHotelId]
+  );
+  const featuredHotels = useMemo(
+    () =>
+      [...filteredHotelsByCity]
+        .sort((left, right) => {
+          const leftRecommended = Number(left?.Recommended || 0);
+          const rightRecommended = Number(right?.Recommended || 0);
+          if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
+          const leftPrice = extractHotelMinPrice(left) ?? Number.POSITIVE_INFINITY;
+          const rightPrice = extractHotelMinPrice(right) ?? Number.POSITIVE_INFINITY;
+          if (leftPrice !== rightPrice) return leftPrice - rightPrice;
+          return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
+        })
+        .slice(0, 10),
+    [filteredHotelsByCity]
   );
   const selectedHotelLabel = useMemo(() => {
     if (selectedHotelId <= 0) return "";
@@ -1078,12 +1124,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   }, [hotelCheckIn, hotelCheckOut]);
   const hasHotelTravellerSelection = hotelAdults > 0 || hotelChildAges.length > 0;
   const hasCompleteHotelCriteria = hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) && hasHotelTravellerSelection;
-  const hotelTravellersLabel = hasHotelTravellerSelection
-    ? `${hotelAdults} adulte${hotelAdults > 1 ? "s" : ""} - ${hotelChildAges.length} enfant${hotelChildAges.length > 1 ? "s" : ""}`
-    : "Voyageurs";
+  const hotelTravellersLabel = `${sharedHotelRoomCount} chambre${sharedHotelRoomCount > 1 ? "s" : ""} - ${hotelAdults} adulte${hotelAdults > 1 ? "s" : ""} - ${hotelChildAges.length} enfant${hotelChildAges.length > 1 ? "s" : ""}`;
   const hotelSearchInfoMessage = hasCompleteHotelCriteria
     ? (selectedHotelId > 0 ? selectedHotelUnavailableMessage : hotelUnavailableMessage)
     : "";
+  const hotelDestinationSelectionLabel = selectedHotelId > 0
+    ? selectedHotelLabel
+    : selectedHotelCity?.Name || "";
   const isSelectedModeComingSoon =
     (selectedMode === "vente" && PUBLIC_COMING_SOON.ventes)
     || (selectedMode === "location_annuelle" && PUBLIC_COMING_SOON.locationAnnuelle);
@@ -2170,9 +2217,52 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     };
   };
 
+  const updateHotelAdults = (nextAdults: number) => {
+    const minimumAdults = Math.max(1, Math.min(4, Number(sharedHotelRoomCount ?? DEFAULT_HOTEL_ROOM_COUNT) || DEFAULT_HOTEL_ROOM_COUNT));
+    setHotelAdults(Math.max(minimumAdults, Math.min(8, Math.floor(Number(nextAdults) || minimumAdults))));
+  };
+
+  const resetHotelDestinationSelection = () => {
+    setHotelDestinationQuery("");
+    setSelectedHotelId(0);
+    setHotelCityId(0);
+    setHotelDestinationTab("destinations");
+  };
+
+  const openHotelDestinationPicker = () => {
+    if (selectedHotelId > 0) setHotelDestinationTab("hotels");
+    else if (hotelDestinationNeedle) setHotelDestinationTab("villes");
+    else setHotelDestinationTab("destinations");
+    setHotelDestinationOpen(true);
+  };
+
+  const selectHotelDestinationCity = (city: HotelCity) => {
+    setHotelCityId(Number(city.Id) || 0);
+    setHotelDestinationQuery(String(city.Name || "").trim());
+    setSelectedHotelId(0);
+    setHotelDestinationOpen(false);
+  };
+
+  const selectHotelDestinationHotel = (hotel: HotelSummary) => {
+    if (Number(hotel?.City?.Id || 0) > 0) {
+      setHotelCityId(Number(hotel.City?.Id || 0));
+    }
+    setSelectedHotelId(Number(hotel.Id || 0));
+    setHotelDestinationQuery(String(hotel.Name || "").trim());
+    setHotelDestinationOpen(false);
+  };
+
+  const hotelDestinationTabMeta: Array<{ key: HotelDestinationTab; label: string }> = [
+    { key: "destinations", label: "Destinations" },
+    { key: "top", label: "Top" },
+    { key: "villes", label: "Villes" },
+    { key: "hotels", label: "Hôtels" },
+  ];
+
   const setHotelRoomCount = (nextRoomCount: number) => {
     const safeRoomCount = Math.max(1, Math.min(4, Math.floor(Number(nextRoomCount) || 1)));
     setSharedHotelRoomCount(safeRoomCount);
+    setHotelAdults((prev) => Math.max(safeRoomCount, Math.min(8, Math.floor(Number(prev) || hotelDefaults.adults || safeRoomCount))));
     setSharedHotelRoomTravellers((prev) => {
       const seededCurrent = Array.isArray(prev) && prev.length > 0
         ? prev
@@ -3033,19 +3123,23 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       <div className="relative">
                         <button
                           type="button"
-                          onClick={() => setHotelDestinationOpen((prev) => !prev)}
+                          onClick={() => {
+                            if (hotelDestinationOpen) {
+                              setHotelDestinationOpen(false);
+                              return;
+                            }
+                            openHotelDestinationPicker();
+                          }}
                           className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
                         >
-                          {hotelDestinationQuery.trim() || selectedHotelCity?.Name || "Ville ou nom hotel"}
+                          {hotelDestinationSelectionLabel || "Ville ou nom hotel"}
                         </button>
                         {(hotelDestinationQuery.trim() || selectedHotelCity || selectedHotelId > 0 || hotelCityId > 0) && (
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setHotelDestinationQuery("");
-                              setSelectedHotelId(0);
-                              setHotelCityId(0);
+                              resetHotelDestinationSelection();
                             }}
                             className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
                             aria-label="Supprimer la destination"
@@ -3055,7 +3149,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         )}
                       </div>
                       {hotelDestinationOpen && (
-                        <div className="absolute left-0 right-0 top-[84px] z-30 hidden max-h-80 overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.22)] md:block">
+                        <div className="absolute left-0 right-0 top-[84px] z-30 hidden overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.22)] md:block">
                           <div className="border-b border-slate-100 p-3">
                             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                               <Search size={16} className="text-slate-500" />
@@ -3065,9 +3159,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                   const nextValue = event.target.value;
                                   setHotelDestinationQuery(nextValue);
                                   setSelectedHotelId(0);
+                                  if (nextValue.trim()) setHotelDestinationTab("villes");
                                   if (!nextValue.trim()) {
                                     setHotelCityId(0);
                                     setSelectedHotelId(0);
+                                    setHotelDestinationTab("destinations");
                                   }
                                 }}
                                 placeholder="ex. ville, nom hotel"
@@ -3075,42 +3171,117 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               />
                             </div>
                           </div>
-                          {filteredHotelCities.map((city) => (
-                            <button
-                              key={`home-hotel-city-${city.Id}`}
-                              type="button"
-                              onClick={() => {
-                                setHotelCityId(city.Id);
-                                setHotelDestinationQuery(city.Name);
-                                setSelectedHotelId(0);
-                              }}
-                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left transition hover:bg-sky-50/60"
-                            >
-                              <MapPin size={14} className="text-slate-500" />
-                              <span className="text-sm font-medium text-slate-800">{city.Name}</span>
-                            </button>
-                          ))}
-                          {loadingHotelsByCity && (
-                            <div className="px-3 py-3 text-xs text-slate-500">Chargement des hôtels...</div>
-                          )}
-                          {filteredHotelsByCity.map((hotel) => (
-                            <button
-                              key={`home-hotel-name-${hotel.Id}`}
-                              type="button"
-                              onClick={() => {
-                                if (Number(hotel?.City?.Id || 0) > 0) {
-                                  setHotelCityId(Number(hotel.City?.Id || 0));
-                                }
-                                setSelectedHotelId(Number(hotel.Id || 0));
-                                setHotelDestinationQuery(hotel.Name);
-                                setHotelDestinationOpen(false);
-                              }}
-                              className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-3 text-left transition hover:bg-sky-50/60"
-                            >
-                              <BedDouble size={14} className="text-slate-500" />
-                              <span className="text-sm font-medium text-slate-800">{hotel.Name}</span>
-                            </button>
-                          ))}
+                          <div className="border-b border-slate-100 px-3 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">Entrez une ou plusieurs destinations ou établissements</p>
+                                {hotelDestinationSelectionLabel ? (
+                                  <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-sky-600 px-3 py-1 text-xs font-semibold text-white">
+                                    <span>{hotelDestinationSelectionLabel}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        resetHotelDestinationSelection();
+                                      }}
+                                      className="rounded-full text-white/90 transition hover:text-white"
+                                    >
+                                      <X size={12} />
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                              {hotelDestinationSelectionLabel ? (
+                                <button
+                                  type="button"
+                                  onClick={resetHotelDestinationSelection}
+                                  className="text-xs font-semibold text-rose-500 transition hover:text-rose-600"
+                                >
+                                  Supprimer tout
+                                </button>
+                              ) : null}
+                            </div>
+                            <div className="mt-3 flex overflow-hidden rounded-xl border border-sky-500">
+                              {hotelDestinationTabMeta.map((tab) => (
+                                <button
+                                  key={`desktop-hotel-destination-tab-${tab.key}`}
+                                  type="button"
+                                  onClick={() => setHotelDestinationTab(tab.key)}
+                                  className={`flex-1 px-3 py-2 text-xs font-semibold transition ${
+                                    hotelDestinationTab === tab.key ? "bg-sky-500 text-white" : "bg-white text-slate-700 hover:bg-sky-50"
+                                  }`}
+                                >
+                                  {tab.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="max-h-80 overflow-y-auto">
+                            {(hotelDestinationTab === "destinations" ? featuredHotelCities : hotelDestinationTab === "villes" ? filteredHotelCities : []).map((city) => (
+                              hotelDestinationTab === "destinations" || hotelDestinationTab === "villes" ? (
+                                <button
+                                  key={`home-hotel-city-${hotelDestinationTab}-${city.Id}`}
+                                  type="button"
+                                  onClick={() => selectHotelDestinationCity(city)}
+                                  className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-sky-50/60"
+                                >
+                                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+                                    <MapPin size={16} />
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-semibold text-slate-900">{city.Name}</p>
+                                    <p className="text-xs text-slate-500">Tunisie</p>
+                                  </div>
+                                  <span className="shrink-0 text-sm font-semibold text-violet-500">({hotelCountsByCityId[Number(city.Id)] || 0})</span>
+                                </button>
+                              ) : null
+                            ))}
+                            {hotelDestinationTab === "top" && featuredHotels.map((hotel) => (
+                              <button
+                                key={`home-featured-hotel-${hotel.Id}`}
+                                type="button"
+                                onClick={() => selectHotelDestinationHotel(hotel)}
+                                className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-sky-50/60"
+                              >
+                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+                                  <BedDouble size={16} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-semibold text-slate-900">{hotel.Name}</p>
+                                  <p className="text-xs text-slate-500">Tunisie, {hotel?.City?.Name || "Destination"}</p>
+                                </div>
+                                <span className="shrink-0 text-sm font-semibold text-violet-500">(1)</span>
+                              </button>
+                            ))}
+                            {loadingHotelsByCity && hotelDestinationTab === "hotels" && (
+                              <div className="px-4 py-4 text-sm text-slate-500">Chargement des hôtels...</div>
+                            )}
+                            {hotelDestinationTab === "hotels" && filteredHotelsByCity.map((hotel) => (
+                              <button
+                                key={`home-hotel-name-${hotel.Id}`}
+                                type="button"
+                                onClick={() => selectHotelDestinationHotel(hotel)}
+                                className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-sky-50/60"
+                              >
+                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+                                  <BedDouble size={16} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-semibold text-slate-900">{hotel.Name}</p>
+                                  <p className="text-xs text-slate-500">Tunisie, {hotel?.City?.Name || "Destination"}</p>
+                                </div>
+                                <span className="shrink-0 text-sm font-semibold text-violet-500">(1)</span>
+                              </button>
+                            ))}
+                            {((hotelDestinationTab === "top" && featuredHotels.length === 0)
+                              || (hotelDestinationTab === "hotels" && !loadingHotelsByCity && filteredHotelsByCity.length === 0)
+                              || (hotelDestinationTab === "destinations" && featuredHotelCities.length === 0)
+                              || (hotelDestinationTab === "villes" && filteredHotelCities.length === 0)) && (
+                              <div className="px-4 py-6 text-sm text-slate-500">
+                                Aucun résultat pour cet onglet.
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -3198,20 +3369,24 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         <button
                           type="button"
                           onClick={() => setHotelTravellersOpen((prev) => !prev)}
-                          className="h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
+                          className="min-h-14 w-full rounded-2xl border border-slate-200/90 bg-white px-4 py-2 pr-12 text-left text-slate-900 outline-none transition hover:border-sky-500 hover:shadow-[0_8px_28px_rgba(14,116,214,0.14)]"
                         >
-                          {hotelTravellersLabel}
+                          <span className="block pr-2 text-[15px] font-medium leading-[1.25] text-slate-900 whitespace-normal break-words">
+                            {hotelTravellersLabel}
+                          </span>
                         </button>
                         {hasHotelTravellerSelection && (
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setHotelAdults(0);
-                              setHotelChildAges([]);
+                              setSharedHotelRoomCount(DEFAULT_HOTEL_ROOM_COUNT);
+                              setHotelAdults(hotelDefaults.adults);
+                              setHotelChildAges(hotelDefaults.childAges);
+                              setSharedHotelRoomTravellers(buildHotelRoomTravellersFromFilters(DEFAULT_HOTEL_ROOM_COUNT, hotelDefaults.adults, hotelDefaults.childAges));
                             }}
                             className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                            aria-label="Supprimer les voyageurs"
+                            aria-label="Reinitialiser chambres et voyageurs"
                           >
                             <X size={14} />
                           </button>
@@ -3236,11 +3411,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                   {hotelTravellersOpen && (
                     <div className="mt-4 hidden rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,#f8fbff,#f1f5f9)] p-4 text-slate-900 shadow-[0_12px_30px_rgba(15,23,42,0.08)] md:block">
                       <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-slate-900">Chambres</p>
+                        <div className="flex items-center gap-2 text-slate-900">
+                          <button type="button" onClick={() => setHotelRoomCount(sharedHotelRoomCount - 1)} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Minus size={14} /></button>
+                          <span className="w-6 text-center font-semibold text-slate-900">{sharedHotelRoomCount}</span>
+                          <button type="button" onClick={() => setHotelRoomCount(sharedHotelRoomCount + 1)} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Plus size={14} /></button>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between">
                         <p className="text-sm font-semibold text-slate-900">Adultes</p>
                         <div className="flex items-center gap-2 text-slate-900">
-                          <button type="button" onClick={() => setHotelAdults((prev) => Math.max(0, prev - 1))} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Minus size={14} /></button>
+                          <button type="button" onClick={() => updateHotelAdults(hotelAdults - 1)} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Minus size={14} /></button>
                           <span className="w-6 text-center font-semibold text-slate-900">{hotelAdults}</span>
-                          <button type="button" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Plus size={14} /></button>
+                          <button type="button" onClick={() => updateHotelAdults(hotelAdults + 1)} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Plus size={14} /></button>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center justify-between">
@@ -4979,9 +5162,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       const nextValue = event.target.value;
                       setHotelDestinationQuery(nextValue);
                       setSelectedHotelId(0);
+                      if (nextValue.trim()) setHotelDestinationTab("villes");
                       if (!nextValue.trim()) {
                         setHotelCityId(0);
                         setSelectedHotelId(0);
+                        setHotelDestinationTab("destinations");
                       }
                     }}
                     placeholder="ex. ville, nom hotel"
@@ -4990,57 +5175,113 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </div>
               </div>
               <div className="border-b border-slate-200 px-4 py-4">
-                <div className="mb-3 flex items-center gap-3 text-slate-900">
-                  <MapPin size={20} />
-                  <span className="text-[15px] font-semibold">Proche de votre emplacement</span>
+                <p className="text-[15px] font-medium leading-6 text-slate-900">Entrez une ou plusieurs destinations ou établissements</p>
+                {hotelDestinationSelectionLabel ? (
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white">
+                      <span>{hotelDestinationSelectionLabel}</span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          resetHotelDestinationSelection();
+                        }}
+                        className="rounded-full text-white/90 transition hover:text-white"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetHotelDestinationSelection}
+                      className="text-sm font-medium text-rose-500"
+                    >
+                      Supprimer tout
+                    </button>
+                  </div>
+                ) : null}
+                <div className="mt-4 flex overflow-hidden rounded-xl border border-sky-500 bg-white">
+                  {hotelDestinationTabMeta.map((tab) => (
+                    <button
+                      key={`mobile-hotel-destination-tab-${tab.key}`}
+                      type="button"
+                      onClick={() => setHotelDestinationTab(tab.key)}
+                      className={`flex-1 px-2 py-2 text-[13px] font-semibold transition ${
+                        hotelDestinationTab === tab.key ? "bg-sky-500 text-white" : "text-slate-700"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
-                <p className="text-[18px] font-semibold text-slate-900">Destinations en vogue</p>
               </div>
               <div className="h-[calc(100vh-260px)] overflow-y-auto">
-                {filteredHotelCities.map((city) => (
+                {(hotelDestinationTab === "destinations" ? featuredHotelCities : hotelDestinationTab === "villes" ? filteredHotelCities : []).map((city) => (
+                  hotelDestinationTab === "destinations" || hotelDestinationTab === "villes" ? (
+                    <button
+                      key={`mobile-home-hotel-city-${hotelDestinationTab}-${city.Id}`}
+                      type="button"
+                      onClick={() => selectHotelDestinationCity(city)}
+                      className="flex w-full items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 text-left transition active:bg-sky-50"
+                    >
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+                        <MapPin size={18} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[16px] font-semibold text-slate-900">{city.Name}</p>
+                        <p className="text-[12px] text-slate-500">Tunisie</p>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold text-violet-500">({hotelCountsByCityId[Number(city.Id)] || 0})</span>
+                    </button>
+                  ) : null
+                ))}
+                {hotelDestinationTab === "top" && featuredHotels.map((hotel) => (
                   <button
-                    key={`mobile-home-hotel-city-${city.Id}`}
+                    key={`mobile-featured-hotel-${hotel.Id}`}
                     type="button"
-                    onClick={() => {
-                      setHotelCityId(city.Id);
-                      setHotelDestinationQuery(city.Name);
-                      setSelectedHotelId(0);
-                    }}
+                    onClick={() => selectHotelDestinationHotel(hotel)}
                     className="flex w-full items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 text-left transition active:bg-sky-50"
                   >
-                    <MapPin size={20} className="text-slate-700" />
-                    <div>
-                      <p className="text-[16px] font-semibold text-slate-900">{city.Name}</p>
-                      <p className="text-[12px] text-slate-500">Tunisie</p>
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+                      <BedDouble size={18} />
                     </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[16px] font-semibold text-slate-900">{hotel.Name}</p>
+                      <p className="text-[12px] text-slate-500">Tunisie, {hotel?.City?.Name || "Destination"}</p>
+                    </div>
+                    <span className="shrink-0 text-sm font-semibold text-violet-500">(1)</span>
                   </button>
                 ))}
-                {loadingHotelsByCity && (
+                {loadingHotelsByCity && hotelDestinationTab === "hotels" && (
                   <div className="border-b border-slate-200 px-4 py-3 text-[13px] text-slate-500">
                     Chargement des hôtels...
                   </div>
                 )}
-                {filteredHotelsByCity.map((hotel) => (
+                {hotelDestinationTab === "hotels" && filteredHotelsByCity.map((hotel) => (
                   <button
                     key={`mobile-home-hotel-name-${hotel.Id}`}
                     type="button"
-                    onClick={() => {
-                      if (Number(hotel?.City?.Id || 0) > 0) {
-                        setHotelCityId(Number(hotel.City?.Id || 0));
-                      }
-                      setSelectedHotelId(Number(hotel.Id || 0));
-                      setHotelDestinationQuery(hotel.Name);
-                      setHotelDestinationOpen(false);
-                    }}
+                    onClick={() => selectHotelDestinationHotel(hotel)}
                     className="flex w-full items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 text-left transition active:bg-sky-50"
                   >
-                    <BedDouble size={20} className="text-slate-700" />
-                    <div>
-                      <p className="text-[16px] font-semibold text-slate-900">{hotel.Name}</p>
-                      <p className="text-[12px] text-slate-500">{selectedHotelCity?.Name || "Hotel"}</p>
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+                      <BedDouble size={18} />
                     </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[16px] font-semibold text-slate-900">{hotel.Name}</p>
+                      <p className="text-[12px] text-slate-500">Tunisie, {hotel?.City?.Name || "Destination"}</p>
+                    </div>
+                    <span className="shrink-0 text-sm font-semibold text-violet-500">(1)</span>
                   </button>
                 ))}
+                {((hotelDestinationTab === "top" && featuredHotels.length === 0)
+                  || (hotelDestinationTab === "hotels" && !loadingHotelsByCity && filteredHotelsByCity.length === 0)
+                  || (hotelDestinationTab === "destinations" && featuredHotelCities.length === 0)
+                  || (hotelDestinationTab === "villes" && filteredHotelCities.length === 0)) && (
+                  <div className="px-4 py-6 text-sm text-slate-500">
+                    Aucun résultat pour cet onglet.
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -5372,7 +5613,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           {hotelTravellersOpen && (
             <div className="fixed inset-0 z-[9999] bg-[linear-gradient(160deg,#ffffff,#f6faff)] md:hidden">
               <div className="relative border-b border-slate-200 px-5 py-4">
-                <h3 className="text-[18px] font-semibold text-slate-900">Voyageurs</h3>
+                <h3 className="text-[18px] font-semibold text-slate-900">Chambres et voyageurs</h3>
                 <button type="button" onClick={() => setHotelTravellersOpen(false)} className="absolute right-3 top-3 rounded-full p-2 text-slate-700">
                   <X size={22} />
                 </button>
@@ -5380,11 +5621,19 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               <div className="max-h-[calc(100vh-130px)] overflow-y-auto px-5 py-5">
                 <div className="space-y-7 rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_16px_42px_rgba(15,23,42,0.12)]">
                   <div className="flex items-center justify-between gap-4">
+                    <p className="text-[16px] font-medium text-slate-900">Chambres</p>
+                    <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-5 py-3 text-slate-900">
+                      <button type="button" className="text-sky-600" onClick={() => setHotelRoomCount(sharedHotelRoomCount - 1)}><Minus size={18} /></button>
+                      <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{sharedHotelRoomCount}</span>
+                      <button type="button" className="text-sky-600" onClick={() => setHotelRoomCount(sharedHotelRoomCount + 1)}><Plus size={18} /></button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
                     <p className="text-[16px] font-medium text-slate-900">Adultes</p>
                     <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-5 py-3 text-slate-900">
-                      <button type="button" className="text-sky-600" onClick={() => setHotelAdults((prev) => Math.max(0, prev - 1))}><Minus size={18} /></button>
+                      <button type="button" className="text-sky-600" onClick={() => updateHotelAdults(hotelAdults - 1)}><Minus size={18} /></button>
                       <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{hotelAdults}</span>
-                      <button type="button" className="text-sky-600" onClick={() => setHotelAdults((prev) => Math.min(8, prev + 1))}><Plus size={18} /></button>
+                      <button type="button" className="text-sky-600" onClick={() => updateHotelAdults(hotelAdults + 1)}><Plus size={18} /></button>
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-4">

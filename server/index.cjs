@@ -13609,10 +13609,11 @@ app.get('/api/biens-lite', async (req, res) => {
       FROM biens
       ORDER BY date_ajout DESC
     `);
-    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rows || []).map((row) => row.id));
-    const servicesByBienId = await listPaidServicesForBienIds((rows || []).map((row) => row.id));
-    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rows || []).map((row) => row.id));
-    const enrichedRows = (rows || []).map((row) => {
+    const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
+    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
       try {
         config = row.location_saisonniere_config_json
