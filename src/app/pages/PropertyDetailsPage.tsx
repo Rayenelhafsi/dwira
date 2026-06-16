@@ -108,6 +108,7 @@ type UnavailableDateRow = {
 
 type SeasonalDetailRow = { label: string; value: string };
 type SeasonalFallbackTab = { id: string; nom: string; rows: SeasonalDetailRow[] };
+type SeasonalConfiguredTab = { id: string; nom: string; rows: SeasonalDetailRow[] };
 type AmenitySection = { id: string; nom: string; features: FeatureApiRow[] };
 type FeatureDisplayItem = { id: string; label: string; meta: string | null; sectionName: string; feature: FeatureApiRow };
 type PaidServiceItem = {
@@ -1463,10 +1464,6 @@ out body 40;
       .slice()
       .sort((a, b) => Number(a.ordre || 999) - Number(b.ordre || 999));
   }, [featureTabs, selectedVisibleFeatures]);
-  const selectedDetailFeatures = useMemo(
-    () => selectedVisibleFeatures.filter((item) => String(item.onglet_id || '') === seasonalDetailsTabId),
-    [seasonalDetailsTabId, selectedVisibleFeatures]
-  );
   const fallbackDetailTabs = useMemo<SeasonalFallbackTab[]>(() => {
     if (selectedPublicFeatures.length === 0) return [];
     return [{
@@ -1577,12 +1574,15 @@ out body 40;
     vueLabel,
     featureTabs,
   ]);
-  const usingConfiguredTabs = detailTabs.length > 0;
+  const usingConfiguredTabs = configuredDetailTabs.length > 0;
   const visibleDetailTabs = usingConfiguredTabs
-    ? detailTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
+    ? configuredDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
     : (systemFallbackTabs.length > 0
       ? systemFallbackTabs.map((tab) => ({ id: tab.id, nom: tab.nom }))
       : fallbackDetailTabs.map((tab) => ({ id: tab.id, nom: tab.nom })));
+  const selectedConfiguredTab = configuredDetailTabs.find((tab) => tab.id === seasonalDetailsTabId)
+    || configuredDetailTabs[0]
+    || null;
   const selectedFallbackTab = (systemFallbackTabs.length > 0 ? systemFallbackTabs : fallbackDetailTabs).find((tab) => tab.id === seasonalDetailsTabId)
     || (systemFallbackTabs.length > 0 ? systemFallbackTabs[0] : fallbackDetailTabs[0])
     || null;
@@ -1693,6 +1693,33 @@ out body 40;
     if (!isSimpleType && fallbackValue === 'Oui') return [];
     return [fallbackValue];
   }, [valueForFeature]);
+  const configuredDetailTabs = useMemo<SeasonalConfiguredTab[]>(() => {
+    const rowsForFeature = (feature: FeatureApiRow): SeasonalDetailRow | null => {
+      const values = valuesForFeature(feature)
+        .map((value) => String(value || '').trim())
+        .filter((value) => value.length > 0 && value !== '-');
+      if (values.length === 0) return null;
+      return {
+        label: feature.nom,
+        value: values.join(', '),
+      };
+    };
+
+    return detailTabs
+      .map((tab) => {
+        const rows = selectedVisibleFeatures
+          .filter((feature) => String(feature.onglet_id || '').trim() === String(tab.id || '').trim())
+          .map(rowsForFeature)
+          .filter((row): row is SeasonalDetailRow => Boolean(row));
+
+        return {
+          id: String(tab.id || ''),
+          nom: cleanFeatureTabName(String(tab.nom || '')),
+          rows,
+        };
+      })
+      .filter((tab) => tab.rows.length > 0);
+  }, [detailTabs, selectedVisibleFeatures, valuesForFeature]);
   const featureDisplayItems = useMemo<FeatureDisplayItem[]>(() => (
     amenitySections.flatMap((section) => (
       section.features.flatMap((feature) => {
@@ -1724,13 +1751,6 @@ out body 40;
   ), [amenitySections, valuesForFeature]);
   const amenityPreviewItems = useMemo(() => featureDisplayItems.slice(0, 6), [featureDisplayItems]);
   const totalAmenitiesCount = featureDisplayItems.length;
-  const visibleSelectedDetailFeatures = useMemo(
-    () => selectedDetailFeatures.filter((feature) => {
-      const normalizedType = String(feature.type_caracteristique || 'simple').trim().toLowerCase();
-      return normalizedType === 'simple' || valuesForFeature(feature).length > 0;
-    }),
-    [selectedDetailFeatures, valuesForFeature]
-  );
   const hasSeasonalStayInfo = seasonalHighlights.length > 0 || visibleDetailTabs.length > 0;
 
   // Load saved state from localStorage on mount
@@ -3441,13 +3461,13 @@ out body 40;
                             <ChevronRight className="mx-auto h-4 w-4" />
                           </button>
                         </div>
-                        {(usingConfiguredTabs ? visibleSelectedDetailFeatures.length > 0 : Boolean(selectedFallbackTab?.rows?.length)) ? (
+                        {(usingConfiguredTabs ? Boolean(selectedConfiguredTab?.rows?.length) : Boolean(selectedFallbackTab?.rows?.length)) ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                             {usingConfiguredTabs ? (
-                              visibleSelectedDetailFeatures.map((feature) => (
-                                <div key={feature.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
-                                  <span className="text-gray-500">{feature.nom}</span>
-                                  <div className="font-semibold text-gray-900">{valuesForFeature(feature).join(', ') || 'Oui'}</div>
+                              (selectedConfiguredTab?.rows || []).map((row) => (
+                                <div key={`${selectedConfiguredTab?.id || 'configured'}-${row.label}`} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                                  <span className="text-gray-500">{row.label}</span>
+                                  <div className="font-semibold text-gray-900">{row.value}</div>
                                 </div>
                               ))
                             ) : (
