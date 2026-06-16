@@ -2494,6 +2494,14 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const travellerContext = resolveHotelSearchTravellerContext();
     const nextChildAges = [...travellerContext.childAges];
     const keywords = selectedHotelId > 0 ? "" : hotelDestinationQuery.trim();
+    const providerKeywords = selectedHotelId > 0
+      ? ""
+      : (
+        hotelCityId > 0
+        && normalizeHotelResultsToken(keywords) === normalizeHotelResultsToken(selectedHotelCity?.Name || "")
+          ? ""
+          : keywords
+      );
     const resolvedAdults = Math.max(1, Number(travellerContext.adults || hotelAdults || hotelDefaults.adults || 1));
     const hasValidDates = hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut);
     const hasValidTravellers = travellerContext.adults > 0 || nextChildAges.length > 0 || hasHotelTravellerSelection;
@@ -2531,7 +2539,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             checkOut: hotelCheckOut,
             adults: resolvedAdults,
             childAges: nextChildAges,
-            keywords: keywords || undefined,
+            keywords: providerKeywords || undefined,
           });
 
           if (hotels.length === 0 && hotelCityId > 0) {

@@ -112,6 +112,14 @@ function matchesHotelSearchKeyword(hotel: HotelSummary, keyword: string) {
   ].some((value) => String(value || "").toLowerCase().includes(needle));
 }
 
+function normalizeHotelSearchInputToken(value: string | null | undefined) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 export default function HotelsPage() {
   const defaults = useMemo(() => buildDefaultSearch(), []);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -192,6 +200,11 @@ export default function HotelsPage() {
     const nextChildAges = [...childAges];
     const keywords = destinationQuery.trim();
     const hasCitySelection = cityId > 0;
+    const selectedCityName = cities.find((item) => Number(item.Id) === Number(cityId))?.Name || "";
+    const providerKeywords = hasCitySelection
+      && normalizeHotelSearchInputToken(keywords) === normalizeHotelSearchInputToken(selectedCityName)
+      ? ""
+      : keywords;
     const hasValidDates = isValidHotelDate(checkIn) && isValidHotelDate(checkOut);
     setHasSearched(true);
     setLoadingResults(true);
@@ -217,7 +230,7 @@ export default function HotelsPage() {
           checkOut,
           adults,
           childAges: nextChildAges,
-          keywords: keywords || undefined,
+          keywords: providerKeywords || undefined,
         });
         if (hotels.length === 0 && nextChildAges.length > 0 && cityId > 0) {
           const fallbackHotels = await listHotels(cityId);
