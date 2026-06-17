@@ -8,6 +8,7 @@ import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
+import type { Property } from "../data/properties";
 import { Zone } from "../admin/types";
 import logo from "../../../logo dwira.jpg";
 import titaTravelLogo from "../../../logo Tita travel.jpg";
@@ -37,6 +38,7 @@ import {
 import { fr } from "date-fns/locale";
 import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
 import { resolveMediaUrl } from "../utils/media";
+import { getPropertyFlashOffer, type PropertyFlashOffer } from "../utils/flashOffers";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -50,6 +52,13 @@ type HomeComfortOptionKey =
   | "toutes_pieces_climatisees"
   | "jardin_gazon"
   | "terrasse";
+type PropertyDisplayCard = {
+  key: string;
+  property: Property;
+  cardVariant: "default" | "flash";
+  flashOffer: PropertyFlashOffer | null;
+  searchParams: string;
+};
 const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean }> = [
   { value: "location_saisonniere", label: "Location saisonniere", comingSoon: false },
   { value: "hotellerie", label: "Hotellerie", comingSoon: false },
@@ -3340,11 +3349,86 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       return b.rating - a.rating;
     });
   }, [hasSearched, selectedLocations, selectedMainTypes, selectedCategories, selectedSeasideOptions, selectedComfortOptions, selectedStayRanges, modeProperties]);
-  const visibleFilteredProperties = useMemo(
-    () => (showAllProperties ? filteredProperties : filteredProperties.slice(0, visiblePropertiesCount)),
-    [filteredProperties, showAllProperties, visiblePropertiesCount]
+  const basePropertySearchParams = useMemo(() => {
+    const params = applyAmicaleParam(new URLSearchParams(searchParams));
+    params.set("mode", selectedMode);
+    params.delete("location");
+    params.delete("locations");
+    params.delete("mainType");
+    params.delete("mainTypes");
+    params.delete("categories");
+    params.delete("seaside");
+    params.delete("comfort");
+    params.delete("stayRanges");
+    params.delete("flashOffer");
+    params.delete("flashStart");
+    params.delete("flashEnd");
+    params.delete("flashDiscount");
+    params.delete("flashMode");
+    params.delete("flashAmount");
+    params.delete("flashTitle");
+    if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
+    if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
+    if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+    if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
+    if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
+    if (selectedStayRanges.length > 0) {
+      params.set("stayRanges", serializeStayRangesParam(selectedStayRanges));
+      params.set("checkIn", selectedStayRanges[0].start);
+      params.set("checkOut", selectedStayRanges[0].end);
+    } else {
+      params.delete("checkIn");
+      params.delete("checkOut");
+    }
+    return params;
+  }, [searchParams, selectedMode, selectedLocations, selectedMainTypes, selectedCategories, selectedSeasideOptions, selectedComfortOptions, selectedStayRanges]);
+  const filteredPropertyCards = useMemo<PropertyDisplayCard[]>(() => {
+    const flashCards: PropertyDisplayCard[] = [];
+    const regularCards: PropertyDisplayCard[] = [];
+    filteredProperties.forEach((property) => {
+      const flashOffer = getPropertyFlashOffer(property);
+      if (flashOffer) {
+        const flashParams = new URLSearchParams(basePropertySearchParams.toString());
+        flashParams.set("mode", "location_saisonniere");
+        flashParams.set("checkIn", flashOffer.start);
+        flashParams.set("checkOut", flashOffer.end);
+        flashParams.set("stayRanges", serializeStayRangesParam([{ start: flashOffer.start, end: flashOffer.end }]));
+        flashParams.set("flashOffer", "1");
+        flashParams.set("flashStart", flashOffer.start);
+        flashParams.set("flashEnd", flashOffer.end);
+        flashParams.set("flashMode", flashOffer.mode);
+        if (flashOffer.discountPercent !== null && flashOffer.discountPercent !== undefined) {
+          flashParams.set("flashDiscount", String(flashOffer.discountPercent));
+        }
+        if (flashOffer.fixedNightlyAmount !== null && flashOffer.fixedNightlyAmount !== undefined) {
+          flashParams.set("flashAmount", String(flashOffer.fixedNightlyAmount));
+        }
+        if (flashOffer.title) {
+          flashParams.set("flashTitle", flashOffer.title);
+        }
+        flashCards.push({
+          key: `${property.id}-flash-${flashOffer.start}-${flashOffer.end}`,
+          property,
+          cardVariant: "flash",
+          flashOffer,
+          searchParams: flashParams.toString(),
+        });
+      }
+      regularCards.push({
+        key: String(property.id),
+        property,
+        cardVariant: "default",
+        flashOffer: null,
+        searchParams: basePropertySearchParams.toString(),
+      });
+    });
+    return [...flashCards, ...regularCards];
+  }, [basePropertySearchParams, filteredProperties]);
+  const visibleFilteredPropertyCards = useMemo(
+    () => (showAllProperties ? filteredPropertyCards : filteredPropertyCards.slice(0, visiblePropertiesCount)),
+    [filteredPropertyCards, showAllProperties, visiblePropertiesCount]
   );
-  const hasMoreFilteredProperties = !showAllProperties && filteredProperties.length > visiblePropertiesCount;
+  const hasMoreFilteredProperties = !showAllProperties && filteredPropertyCards.length > visiblePropertiesCount;
 
   useEffect(() => {
     setVisiblePropertiesCount(INITIAL_VISIBLE_PROPERTIES);
@@ -4781,7 +4865,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 {isHotelMode
                   ? "Consultez une sélection d'hôtels avec leurs disponibilités, leurs informations pratiques et leurs tarifs."
                   : hasSearched
-                    ? `${filteredProperties.length} bien${filteredProperties.length !== 1 ? 's' : ''} trouvé${filteredProperties.length !== 1 ? 's' : ''} selon vos critères`
+                    ? `${filteredPropertyCards.length} bien${filteredPropertyCards.length !== 1 ? 's' : ''} trouvé${filteredPropertyCards.length !== 1 ? 's' : ''} selon vos critères`
                     : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
@@ -5866,36 +5950,13 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
 
           {!isSelectedModeComingSoon && !isHotelMode && (<div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-              {visibleFilteredProperties.map((property) => (
+              {visibleFilteredPropertyCards.map((card) => (
                 <PropertyCard
-                  key={property.id}
-                  property={property}
-                  searchParams={(() => {
-                    const params = applyAmicaleParam(new URLSearchParams(searchParams));
-                    params.set("mode", selectedMode);
-                    params.delete("location");
-                    params.delete("locations");
-                    params.delete("mainType");
-                    params.delete("mainTypes");
-                    params.delete("categories");
-                    params.delete("seaside");
-                    params.delete("comfort");
-                    params.delete("stayRanges");
-                    if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
-                    if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
-                    if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
-                    if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
-                    if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
-                    if (selectedStayRanges.length > 0) {
-                      params.set("stayRanges", serializeStayRangesParam(selectedStayRanges));
-                      params.set("checkIn", selectedStayRanges[0].start);
-                      params.set("checkOut", selectedStayRanges[0].end);
-                    } else {
-                      params.delete("checkIn");
-                      params.delete("checkOut");
-                    }
-                    return params.toString();
-                  })()}
+                  key={card.key}
+                  property={card.property}
+                  searchParams={card.searchParams}
+                  cardVariant={card.cardVariant}
+                  flashOffer={card.flashOffer}
                 />
               ))}
               {loading && filteredProperties.length === 0 && Array.from({ length: 3 }).map((_, index) => (
@@ -5914,7 +5975,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </div>
               ))}
             </div>
-            {filteredProperties.length > INITIAL_VISIBLE_PROPERTIES && (
+            {filteredPropertyCards.length > INITIAL_VISIBLE_PROPERTIES && (
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 {hasMoreFilteredProperties && (
                   <button
@@ -5946,7 +6007,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             )}
           </div>)}
           
-          {filteredProperties.length === 0 && hasSearched && !isSelectedModeComingSoon && !isHotelMode && (
+          {filteredPropertyCards.length === 0 && hasSearched && !isSelectedModeComingSoon && !isHotelMode && (
             <div className="text-center py-16">
               <p className="text-gray-500 text-lg mb-4">Aucun bien ne correspond à vos critères pour ce mode</p>
               <button 

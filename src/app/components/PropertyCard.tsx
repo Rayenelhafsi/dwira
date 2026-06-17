@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle, Zap } from "lucide-react";
+import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle, Zap, Flame } from "lucide-react";
 import { useMemo } from "react";
 import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
@@ -8,10 +8,14 @@ import { resolveCurrentPricing } from "../utils/seasonalPricing";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 import { trackMetaEvent } from "../utils/metaConversions";
+import { getFlashBadgeLabel, getFlashNightlyAmount, type PropertyFlashOffer } from "../utils/flashOffers";
+import LightningBorder from "./LightningBorder";
 
 interface PropertyCardProps {
   property: Property;
   searchParams?: string;
+  cardVariant?: "default" | "flash";
+  flashOffer?: PropertyFlashOffer | null;
 }
 
 const PROPERTY_CARD_FALLBACK_IMAGE =
@@ -76,7 +80,21 @@ const buildReferenceLabel = (reference?: string) => {
   return /^ref\b/i.test(safeReference) ? safeReference : `REF-${safeReference}`;
 };
 
-export function PropertyCard({ property, searchParams }: PropertyCardProps) {
+const formatFlashDateLabel = (start?: string | null, end?: string | null) => {
+  if (!start || !end) return "";
+  try {
+    return `${new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(new Date(`${start}T00:00:00`))} - ${new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${end}T00:00:00`))}`;
+  } catch {
+    return `${start} - ${end}`;
+  }
+};
+
+export function PropertyCard({
+  property,
+  searchParams,
+  cardVariant = "default",
+  flashOffer = null,
+}: PropertyCardProps) {
   const baseDetailPath = buildPropertyDetailsPath(property);
   const linkTo = searchParams 
     ? `${baseDetailPath}?${searchParams}`
@@ -112,6 +130,16 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
     : currentPricing.weeklyPrice;
   const displayedNightlyPrice = applyAmicaleTtc(syncedNightlyPrice, isAmicalePricing);
   const displayedWeeklyPrice = applyAmicaleTtc(syncedWeeklyPrice, isAmicalePricing);
+  const isFlashCard = cardVariant === "flash" && Boolean(flashOffer);
+  const flashDiscountPercent = Math.max(0, Math.min(95, Number(flashOffer?.discountPercent || 0)));
+  const flashNightlyPrice = isFlashCard ? getFlashNightlyAmount(displayedNightlyPrice, flashOffer) : displayedNightlyPrice;
+  const flashWeeklyPrice = isFlashCard
+    ? (flashOffer?.mode === "fixed_amount" && Number(flashOffer.fixedNightlyAmount || 0) > 0
+        ? Math.round(Number(flashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
+        : getFlashNightlyAmount(displayedWeeklyPrice, flashOffer))
+    : displayedWeeklyPrice;
+  const flashDateLabel = isFlashCard ? formatFlashDateLabel(flashOffer?.start, flashOffer?.end) : "";
+  const flashBadgeLabel = isFlashCard ? getFlashBadgeLabel(flashOffer) : "";
   const mainTypeLabel = resolveMainTypeLabel(property.category || "", property.title || "");
   const subTypeLabel = resolveSubTypeLabel(
     property.category || "",
@@ -124,6 +152,8 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   const referenceLabel = buildReferenceLabel(property.reference);
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
   const residenceBadgeLabel = String(property.residenceName || "").trim();
+  const visualNightlyPrice = isFlashCard ? flashNightlyPrice : displayedNightlyPrice;
+  const visualWeeklyPrice = isFlashCard ? flashWeeklyPrice : displayedWeeklyPrice;
 
   const handleMessengerClick = () => {
     void trackMetaEvent({
@@ -172,6 +202,7 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
   };
     
   return (
+    <LightningBorder enabled={isFlashCard} className="rounded-[28px]">
     <div className={`dwira-property-card group overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_20px_48px_rgba(15,23,42,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_62px_rgba(15,23,42,0.16)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'} ${hasInstantReservation ? 'dwira-instant-card' : ''}`}>
       {hasInstantReservation ? (
         <span aria-hidden="true" className="dwira-electric-frame">
@@ -214,18 +245,31 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             sizes="(max-width: 767px) 92vw, (max-width: 1279px) 44vw, 31vw"
           />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
-          <div className="absolute left-4 top-4 inline-flex rounded-full border border-white/25 bg-black/35 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 backdrop-blur-md">
-            Sejour premium
-          </div>
-          {residenceBadgeLabel ? (
-            <div className="absolute left-4 top-[3.15rem] inline-flex rounded-full border border-emerald-200/85 bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700 shadow-sm backdrop-blur-md">
-              Residence {residenceBadgeLabel}
+          <div className="absolute left-3 right-24 top-3 z-[2] flex flex-wrap items-start gap-2 sm:left-4 sm:right-24 sm:top-4">
+            <div className="inline-flex max-w-full rounded-full border border-white/25 bg-black/35 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100 backdrop-blur-md sm:text-[11px] sm:tracking-[0.18em]">
+              Sejour premium
             </div>
-          ) : null}
-          {hasInstantReservation ? (
-            <div className={`dwira-instant-badge absolute left-4 ${residenceBadgeLabel ? 'top-[5.4rem]' : 'top-[3.15rem]'} inline-flex items-center gap-1.5 rounded-full border border-amber-200/85 bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 shadow-sm backdrop-blur-md`}>
-              <Zap size={12} className="text-amber-500" />
-              <span>Reservation rapide</span>
+            {residenceBadgeLabel ? (
+              <div className="inline-flex max-w-full truncate rounded-full border border-emerald-200/85 bg-white/92 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-700 shadow-sm backdrop-blur-md sm:text-[11px] sm:tracking-[0.12em]">
+                <span className="truncate">Residence {residenceBadgeLabel}</span>
+              </div>
+            ) : null}
+            {hasInstantReservation ? (
+              <div className="dwira-instant-badge inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200/85 bg-white/92 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-700 shadow-sm backdrop-blur-md sm:text-[11px] sm:tracking-[0.12em]">
+                <Zap size={12} className="shrink-0 text-amber-500" />
+                <span className="truncate">Reservation rapide</span>
+              </div>
+            ) : null}
+          </div>
+          {isFlashCard ? (
+            <div className="absolute right-3 top-[3.45rem] z-[2] sm:right-4 sm:top-[3.3rem]">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-[linear-gradient(135deg,#dc2626_0%,#ef4444_44%,#fb923c_100%)] px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.14em] text-white shadow-[0_18px_40px_rgba(239,68,68,0.34)] sm:gap-2 sm:px-3.5 sm:py-2 sm:text-xs sm:tracking-[0.18em]">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 sm:h-7 sm:w-7">
+                  <Flame size={15} />
+                </span>
+                <span className="max-sm:hidden">{flashBadgeLabel}</span>
+                <span className="sm:hidden">Flash</span>
+              </div>
             </div>
           ) : null}
           <div className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-white/25 bg-black/35 px-3 py-1 text-xs font-semibold text-white backdrop-blur-md">
@@ -233,26 +277,80 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             <span>{ratingDisplay}</span>
             <span className="text-white/80">({property.reviews})</span>
           </div>
-          <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3">
+          <div className="absolute bottom-4 left-4 right-4 hidden flex-col gap-2 sm:flex sm:flex-row sm:items-end sm:justify-between sm:gap-3">
             <div className="min-w-0 rounded-2xl border border-white/15 bg-white/12 px-3 py-2 backdrop-blur-md">
               <p className="truncate text-sm font-semibold text-white">{property.location}</p>
               <p className="truncate text-xs text-white/80">{typeWidgetLabel}</p>
             </div>
-            <div className="shrink-0 rounded-2xl bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 shadow-md">
+            <div className={`shrink-0 self-start rounded-2xl px-3 py-1.5 text-sm font-semibold shadow-md sm:self-auto ${isFlashCard ? 'bg-[linear-gradient(135deg,#fff7ed,#ffffff)] text-red-700 ring-1 ring-red-200' : 'bg-white text-emerald-900'}`}>
               <div>
-                {formatTnd(displayedNightlyPrice)} TND{isAmicalePricing ? " TTC" : ""}
+                {isFlashCard && displayedNightlyPrice > visualNightlyPrice ? (
+                  <span className="mr-2 text-xs font-semibold text-slate-400 line-through">
+                    {formatTnd(displayedNightlyPrice)} TND
+                  </span>
+                ) : null}
+                {formatTnd(visualNightlyPrice)} TND{isAmicalePricing ? " TTC" : ""}
                 {property.priceContext !== 'sale' ? <span className="text-xs font-normal text-gray-500"> / nuit</span> : null}
               </div>
-              {property.priceContext !== 'sale' && displayedWeeklyPrice > 0 ? (
+              {property.priceContext !== 'sale' && visualWeeklyPrice > 0 ? (
                 <div className="text-[11px] font-medium text-gray-600">
-                  {formatTnd(displayedWeeklyPrice)} TND{isAmicalePricing ? " TTC" : ""} / semaine
+                  {isFlashCard && displayedWeeklyPrice > visualWeeklyPrice ? (
+                    <span className="mr-1 text-[10px] text-slate-400 line-through">{formatTnd(displayedWeeklyPrice)} TND</span>
+                  ) : null}
+                  {formatTnd(visualWeeklyPrice)} TND{isAmicalePricing ? " TTC" : ""} / semaine
                 </div>
               ) : null}
             </div>
           </div>
+          {isFlashCard ? (
+            <>
+              <div className="absolute inset-x-3 bottom-16 z-[2] hidden rounded-2xl border border-white/30 bg-[linear-gradient(135deg,rgba(127,29,29,0.82),rgba(239,68,68,0.78),rgba(251,146,60,0.72))] px-3 py-2.5 text-white shadow-[0_22px_40px_rgba(127,29,29,0.28)] backdrop-blur-md sm:inset-x-4 sm:bottom-20 sm:block sm:px-4 sm:py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase tracking-[0.24em] text-white/88">
+                    {String(flashOffer?.title || "Vente flash")}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold sm:text-sm">{flashDateLabel}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-[0.22em] text-white/70">Prix flash</p>
+                  <p className="text-sm font-black sm:text-base">{formatTnd(visualNightlyPrice)} TND</p>
+                </div>
+              </div>
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div className="space-y-4 p-5">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:hidden">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{property.location}</p>
+                <p className="truncate text-xs text-slate-500">{typeWidgetLabel}</p>
+              </div>
+              <div className={`shrink-0 rounded-2xl px-3 py-1.5 text-sm font-semibold shadow-sm ${isFlashCard ? 'bg-[linear-gradient(135deg,#fff7ed,#ffffff)] text-red-700 ring-1 ring-red-200' : 'bg-white text-emerald-900 ring-1 ring-slate-200'}`}>
+                <div>
+                  {isFlashCard && displayedNightlyPrice > visualNightlyPrice ? (
+                    <span className="mr-2 text-[11px] font-semibold text-slate-400 line-through">
+                      {formatTnd(displayedNightlyPrice)} TND
+                    </span>
+                  ) : null}
+                  {formatTnd(visualNightlyPrice)} TND{isAmicalePricing ? " TTC" : ""}
+                  {property.priceContext !== 'sale' ? <span className="text-[11px] font-normal text-gray-500"> / nuit</span> : null}
+                </div>
+                {property.priceContext !== 'sale' && visualWeeklyPrice > 0 ? (
+                  <div className="text-[10px] font-medium text-gray-500">
+                    {isFlashCard && displayedWeeklyPrice > visualWeeklyPrice ? (
+                      <span className="mr-1 text-[10px] text-slate-400 line-through">{formatTnd(displayedWeeklyPrice)} TND</span>
+                    ) : null}
+                    {formatTnd(visualWeeklyPrice)} TND{isAmicalePricing ? " TTC" : ""} / semaine
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-start justify-between gap-3">
             <div className="relative min-w-0 flex-1 overflow-hidden">
               {referenceLabel ? (
@@ -277,6 +375,21 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
             <MapPin size={14} />
             <span className="line-clamp-1">{property.location}</span>
           </div>
+
+          {isFlashCard ? (
+            <div className="rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-red-600">Sejour flash</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{flashDateLabel}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-xs text-slate-500 line-through">{formatTnd(displayedNightlyPrice)} TND</p>
+                  <p className="text-lg font-black text-red-600">{formatTnd(visualNightlyPrice)} TND</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-3 gap-2 rounded-2xl border border-emerald-100 bg-emerald-50/45 p-3 text-sm text-emerald-900">
             <div className="flex items-center gap-1">
@@ -320,5 +433,6 @@ export function PropertyCard({ property, searchParams }: PropertyCardProps) {
         </div>
       </div>
     </div>
+    </LightningBorder>
   );
 }

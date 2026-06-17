@@ -19,6 +19,7 @@ import {
   addDays
 } from "date-fns";
 import { fr } from "date-fns/locale";
+import { isValidDateOnly } from "../utils/flashOffers";
 
 interface DateStatus {
   start: string;
@@ -31,13 +32,15 @@ interface AvailabilityCalendarProps {
   onDateRangeSelect: (startDate: Date | null, endDate: Date | null) => void;
   selectedStart: Date | null;
   selectedEnd: Date | null;
+  allowedRange?: { start: string; end: string } | null;
 }
 
 export default function AvailabilityCalendar({ 
   unavailableDates = [], 
   onDateRangeSelect,
   selectedStart,
-  selectedEnd
+  selectedEnd,
+  allowedRange = null,
 }: AvailabilityCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const today = startOfDay(new Date());
@@ -51,6 +54,14 @@ export default function AvailabilityCalendar({
 
   const toDayKey = (date: Date) => format(date, "yyyy-MM-dd");
   const normalizeKey = (value: string) => String(value || "").slice(0, 10);
+  const normalizedAllowedRange = allowedRange && isValidDateOnly(allowedRange.start) && isValidDateOnly(allowedRange.end)
+    ? { start: allowedRange.start, end: allowedRange.end }
+    : null;
+  const isOutsideAllowedRange = (date: Date) => {
+    if (!normalizedAllowedRange) return false;
+    const key = toDayKey(date);
+    return key < normalizedAllowedRange.start || key > normalizedAllowedRange.end;
+  };
 
   const getBlockingStatusForDay = (day: Date): 'blocked' | 'booked' | null => {
     const key = toDayKey(day);
@@ -67,6 +78,9 @@ export default function AvailabilityCalendar({
   };
 
   const getDateStatus = (date: Date): 'available' | 'blocked' | 'pending' | 'booked' | 'past' => {
+    if (isOutsideAllowedRange(date)) {
+      return 'blocked';
+    }
     // Check if date is in the past
     if (isBefore(date, today)) {
       return 'past';
@@ -87,6 +101,7 @@ export default function AvailabilityCalendar({
   };
 
   const isDateUnavailable = (date: Date) => {
+    if (isOutsideAllowedRange(date)) return true;
     if (isBefore(date, today)) return true;
     const blockingStatus = getBlockingStatusForDay(date);
     return blockingStatus === 'blocked' || blockingStatus === 'booked';
@@ -132,6 +147,9 @@ export default function AvailabilityCalendar({
   };
 
   const handleDateClick = (date: Date) => {
+    if (isOutsideAllowedRange(date)) {
+      return;
+    }
     // Don't allow selection of unavailable dates (blocked, booked, past).
     // Pending dates remain selectable for parallel requests.
     if (isDateUnavailable(date)) {
@@ -189,6 +207,8 @@ export default function AvailabilityCalendar({
     
     if (!isCurrentMonth) {
       className += "text-gray-300 ";
+    } else if (isOutsideAllowedRange(date)) {
+      className += "bg-slate-100 text-slate-300 cursor-not-allowed opacity-80 ";
     } else if (dateStatus === 'past') {
       className += "text-gray-300 cursor-not-allowed ";
     } else if (dateStatus === 'blocked') {

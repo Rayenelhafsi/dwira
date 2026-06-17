@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy, Flame } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router';
 import { mockZones } from '../data/mockData';
@@ -439,6 +439,13 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   matelas_supplementaire_prix: 25,
   matelas_supplementaires_max: 3,
   avance_pourcentage: 30,
+  vente_flash_active: false,
+  vente_flash_titre: 'Vente flash',
+  vente_flash_mode: 'pourcentage',
+  vente_flash_taux_reduction: 15,
+  vente_flash_montant_tnd: null,
+  vente_flash_date_debut: null,
+  vente_flash_date_fin: null,
   frais_menage_disponible: false,
   frais_menage: 0,
   frais_service_disponible: false,
@@ -8385,6 +8392,95 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                           </label>
                           <p className="mt-2 text-[11px] text-gray-500">
                             Active: confirmation client -&gt; paiement direct. Date bloquee uniquement apres paiement reussi.
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-orange-100 bg-[linear-gradient(135deg,rgba(255,247,237,0.96),rgba(255,237,213,0.9))] p-3 sm:col-span-2">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">
+                                <Flame className="h-4 w-4" />
+                                Vente flash
+                              </label>
+                              <p className="mt-1 text-[11px] text-orange-700/80">
+                                Duplique le bien côté client avec une offre limitée sur une période de séjour fixe.
+                              </p>
+                            </div>
+                            <label className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(saisonConfig.vente_flash_active)}
+                                onChange={(e) => updateSaisonConfig({ vente_flash_active: e.target.checked })}
+                                className="h-4 w-4"
+                              />
+                              Active
+                            </label>
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                            <div>
+                              <label className="mb-1 block text-xs text-gray-600">Titre affiché</label>
+                              <input
+                                type="text"
+                                value={saisonConfig.vente_flash_titre || 'Vente flash'}
+                                onChange={(e) => updateSaisonConfig({ vente_flash_titre: e.target.value })}
+                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                placeholder="Vente flash"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-gray-600">Réduction (%)</label>
+                              <select
+                                value={saisonConfig.vente_flash_mode || 'pourcentage'}
+                                onChange={(e) => updateSaisonConfig({ vente_flash_mode: e.target.value === 'montant_tnd' ? 'montant_tnd' : 'pourcentage' })}
+                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                              >
+                                <option value="pourcentage">Par pourcentage</option>
+                                <option value="montant_tnd">Par montant TND</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-gray-600">
+                                {saisonConfig.vente_flash_mode === 'montant_tnd' ? 'Montant flash / nuit (TND)' : 'Reduction (%)'}
+                              </label>
+                              {saisonConfig.vente_flash_mode === 'montant_tnd' ? (
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={saisonConfig.vente_flash_montant_tnd ?? ''}
+                                  onChange={(e) => updateSaisonConfig({ vente_flash_montant_tnd: Math.max(1, Number(e.target.value || 0)) || null })}
+                                  className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                />
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={95}
+                                  value={saisonConfig.vente_flash_taux_reduction ?? 15}
+                                  onChange={(e) => updateSaisonConfig({ vente_flash_taux_reduction: Math.max(1, Math.min(95, Number(e.target.value || 0))) })}
+                                  className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                />
+                              )}
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-gray-600">Début du séjour flash</label>
+                              <input
+                                type="date"
+                                value={saisonConfig.vente_flash_date_debut || ''}
+                                onChange={(e) => updateSaisonConfig({ vente_flash_date_debut: e.target.value || null })}
+                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-gray-600">Fin du séjour flash</label>
+                              <input
+                                type="date"
+                                value={saisonConfig.vente_flash_date_fin || ''}
+                                onChange={(e) => updateSaisonConfig({ vente_flash_date_fin: e.target.value || null })}
+                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                              />
+                            </div>
+                          </div>
+                          <p className="mt-3 text-[11px] text-orange-700/85">
+                            Le bien principal reste visible normalement. Une deuxième carte spéciale sera affichée en haut avec le prix barré et le tarif flash, et le client sera verrouillé sur cette période.
                           </p>
                         </div>
                         <div><label className="block text-xs text-gray-600 mb-1">Voyageurs max (total)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? 1} onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: Math.max(1, Number(e.target.value || 1)) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>

@@ -9847,6 +9847,7 @@ function formatReservationDemandRow(row) {
     child_guests: Number(row.child_guests || 0),
     total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
+    flash_offer: safeParseJson(row.flash_offer_json, null),
     selected_fixed_services: parseJsonArray(row.selected_fixed_services_json),
     selected_variable_services: parseJsonArray(row.selected_variable_services_json),
     variable_services_quote: parseJsonArray(row.variable_services_quote_json),
@@ -17600,6 +17601,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       payment_mode,
       total_amount,
       amount_due_now,
+      flash_offer,
       selected_fixed_services,
       selected_variable_services,
       client_note,
@@ -17737,6 +17739,31 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     const requestType = bien.mode === 'vente' ? 'visite' : (request_type === 'visite' ? 'visite' : 'reservation');
     const normalizedTotalAmount = Number.isFinite(Number(total_amount)) ? Number(total_amount) : null;
     const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) ? Number(amount_due_now) : null;
+    const normalizedFlashOffer = (() => {
+      const raw = (flash_offer && typeof flash_offer === 'object') ? flash_offer : null;
+      if (!raw) return null;
+      const start = String(raw.start || '').trim();
+      const end = String(raw.end || '').trim();
+      const mode = String(raw.mode || '').trim() === 'fixed_amount' ? 'fixed_amount' : 'percentage';
+      const discountPercent = Number.isFinite(Number(raw.discountPercent)) ? Math.max(0, Math.min(95, Number(raw.discountPercent))) : null;
+      const fixedNightlyAmount = Number.isFinite(Number(raw.fixedNightlyAmount)) ? Math.max(0, Number(raw.fixedNightlyAmount)) : null;
+      if (!start || !end || end < start) return null;
+      if (mode === 'percentage' && (!discountPercent || discountPercent <= 0)) return null;
+      if (mode === 'fixed_amount' && (!fixedNightlyAmount || fixedNightlyAmount <= 0)) return null;
+      return {
+        title: String(raw.title || '').trim() || 'Vente flash',
+        start,
+        end,
+        mode,
+        discountPercent: mode === 'percentage' ? discountPercent : null,
+        fixedNightlyAmount: mode === 'fixed_amount' ? Math.round(fixedNightlyAmount * 100) / 100 : null,
+      };
+    })();
+    if (normalizedFlashOffer) {
+      if (String(start_date) !== normalizedFlashOffer.start || String(end_date) !== normalizedFlashOffer.end) {
+        return res.status(400).json({ error: 'La reservation vente flash doit respecter exactement la periode de l offre.' });
+      }
+    }
     const normalizedFixedServices = Array.isArray(selected_fixed_services) ? selected_fixed_services : [];
     const normalizedVariableServices = Array.isArray(selected_variable_services) ? selected_variable_services : [];
     const variableServicesQuoteStatus = normalizedVariableServices.length > 0 ? 'a_traiter' : 'aucun';
@@ -17908,10 +17935,10 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
         start_date, end_date, guests, adult_guests, child_guests, payment_mode, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
-        total_amount, amount_due_now, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
+        total_amount, amount_due_now, flash_offer_json, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
         amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
@@ -17934,6 +17961,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         isAmicaleFlow ? normalizedAmicaleCode : null,
         normalizedTotalAmount,
         normalizedAmountDueNow,
+        normalizedFlashOffer ? JSON.stringify(normalizedFlashOffer) : null,
         JSON.stringify(normalizedFixedServices),
         JSON.stringify(normalizedVariableServices),
         JSON.stringify([]),
@@ -21208,6 +21236,7 @@ async function ensureReservationDemandSchema() {
       amicale_code VARCHAR(80) NULL,
       total_amount DECIMAL(12,2) NULL,
       amount_due_now DECIMAL(12,2) NULL,
+      flash_offer_json LONGTEXT NULL,
       selected_fixed_services_json LONGTEXT NULL,
       selected_variable_services_json LONGTEXT NULL,
       variable_services_quote_json LONGTEXT NULL,
@@ -21371,6 +21400,9 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'amount_due_now'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN amount_due_now DECIMAL(12,2) NULL AFTER total_amount');
+  }
+  if (!(await columnExists('reservation_demands', 'flash_offer_json'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN flash_offer_json LONGTEXT NULL AFTER amount_due_now');
   }
   if (!(await columnExists('reservation_demands', 'selected_fixed_services_json'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN selected_fixed_services_json LONGTEXT NULL AFTER amount_due_now');

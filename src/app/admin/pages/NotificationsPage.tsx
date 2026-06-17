@@ -3017,6 +3017,7 @@ export default function NotificationsPage() {
               : cinPhotoUrlBase;
             const hasCinPhoto = Boolean(cinPhotoUrl);
             const isAmicaleDemand = String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
+            const isFlashDemand = Boolean(demand.flash_offer?.start && demand.flash_offer?.end);
             const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : '';
             const unreadDemandNotifications = getUnreadNotificationsForDemand(demand);
             return (
@@ -3027,6 +3028,11 @@ export default function NotificationsPage() {
                     <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-sm ${statusToneClasses[displayStatus]}`}>
                       {statusLabels[displayStatus]}
                     </span>
+                    {isFlashDemand ? (
+                      <span className="inline-flex items-center rounded-full border border-orange-200 bg-[linear-gradient(135deg,#fff7ed,#ffedd5)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-700 shadow-sm">
+                        Vente flash
+                      </span>
+                    ) : null}
                     <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
                       Cree le {formatDateTime(demand.created_at)}
                     </span>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, BadgeCheck, CreditCard, ReceiptText, TimerReset, Upload } from "lucide-react";
+import { ArrowLeft, BadgeCheck, CreditCard, Landmark, MapPin, Phone, ReceiptText, TimerReset, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { ReservationDemand } from "../admin/types";
@@ -61,6 +61,14 @@ function resolveAssetUrl(url?: string | null) {
   if (/^https?:\/\//i.test(value)) return value;
   return `${window.location.origin}${value.startsWith("/") ? value : `/${value}`}`;
 }
+
+const AGENCY_BANK_DETAILS = {
+  titulaire: "DWIRA KELIBIA",
+  adresse: "Rue Ibn Khaldoun, Kelibia 8090, Nabeul",
+  rib: "14 069 0691017000664 77",
+  banque: "BH Banque",
+  contacts: ["29 879 227", "52 080 695"],
+};
 
 export default function ReservationPaymentPage() {
   const { id } = useParams();
@@ -605,7 +613,131 @@ export default function ReservationPaymentPage() {
               <InfoCard label="Paiement services" value={summary?.servicesPayable ? (summary?.servicesPaid ? `Regle le ${formatDateTime(demand.services_payment_paid_at)}` : formatMoney(summary?.servicesAmount)) : "Aucun devis a regler"} />
             </div>
 
-            {showClickToPayBlock ? (
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              {showClickToPayBlock ? (
+                <div className="relative overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#0b7a58_0%,#169b67_56%,#34d399_100%)] p-6 text-white shadow-[0_24px_80px_-32px_rgba(5,150,105,0.85)]">
+                  <div className="absolute -right-10 top-6 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
+                  <div className="absolute bottom-4 right-4 hidden rounded-[22px] border border-white/10 bg-white/10 px-5 py-4 text-right text-white/70 backdrop-blur md:block">
+                    <p className="text-[11px] uppercase tracking-[0.32em]">Methode</p>
+                    <p className="mt-2 text-xl font-semibold text-white">Click to Pay</p>
+                  </div>
+                  <div className="relative flex h-full min-h-[260px] flex-col justify-between">
+                    <div>
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/25 bg-white/10 backdrop-blur">
+                        <CreditCard className="h-6 w-6" />
+                      </div>
+                      <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-white/80">Paiement avec carte bancaire</p>
+                      <h2 className="mt-2 text-2xl font-bold leading-tight">Reglez votre reservation en ligne</h2>
+                      <p className="mt-3 max-w-sm text-sm leading-6 text-emerald-50">
+                        Paiement securise via Click to Pay. La confirmation de votre dossier se fait automatiquement apres verification du statut.
+                      </p>
+                    </div>
+                    <div className="mt-6 flex justify-center">
+                      <button
+                        type="button"
+                        disabled={!clickToPayScope || !!startingClickToPayScope || confirmingClickToPay}
+                        onClick={() => {
+                          if (clickToPayScope) void handleStartClickToPay(clickToPayScope);
+                        }}
+                        className="inline-flex min-w-[230px] items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-emerald-800 shadow-lg shadow-emerald-950/10 transition hover:-translate-y-0.5 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        {startingClickToPayScope ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {showReceiptBlock ? (
+                <div className="rounded-[28px] border border-sky-200 bg-[linear-gradient(180deg,#eff9ff_0%,#f8fdff_100%)] p-6 shadow-[0_24px_80px_-40px_rgba(14,116,144,0.45)]">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold uppercase tracking-[0.12em] text-sky-800">Paiement par virement et envoi de recu</p>
+                      <h2 className="mt-2 text-2xl font-bold text-slate-900">Coordonnees bancaires de l'agence</h2>
+                    </div>
+                    <div className="hidden rounded-2xl bg-sky-100 p-3 text-sky-700 sm:block">
+                      <Landmark className="h-6 w-6" />
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-3">
+                    <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Titulaire</p>
+                      <p className="mt-2 text-lg font-bold text-slate-900">{AGENCY_BANK_DETAILS.titulaire}</p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-[1.45fr,1fr]">
+                      <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <Landmark className="h-4 w-4" />
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em]">RIB / Compte</p>
+                        </div>
+                        <p className="mt-2 text-lg font-bold tracking-[0.08em] text-slate-900">{AGENCY_BANK_DETAILS.rib}</p>
+                        <p className="mt-1 text-sm text-slate-500">{AGENCY_BANK_DETAILS.banque}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <Phone className="h-4 w-4" />
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em]">Confirmation</p>
+                        </div>
+                        <p className="mt-2 text-lg font-bold text-slate-900">{AGENCY_BANK_DETAILS.contacts.join(" / ")}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <MapPin className="h-4 w-4" />
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em]">Adresse agence</p>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-700">{AGENCY_BANK_DETAILS.adresse}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-[24px] border border-sky-100 bg-white p-4 shadow-sm">
+                    <p className="text-sm font-semibold text-slate-900">Envoyer mon recu de paiement</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {demand.status === "demande_recu_paiement"
+                        ? "L'administration demande votre recu pour valider le paiement."
+                        : demand.status === "recu_paiement_envoye"
+                          ? "Recu deja envoye. Vous pouvez en renvoyer un autre si necessaire."
+                          : "Apres votre virement, ajoutez votre justificatif pour verification."}
+                    </p>
+                    <div className="mt-4 space-y-3">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp"
+                        onChange={(event) => setReceiptFile(event.target.files?.[0] || null)}
+                        className="w-full rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-sky-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+                      />
+                      <textarea
+                        value={receiptNote}
+                        onChange={(event) => setReceiptNote(event.target.value)}
+                        rows={3}
+                        placeholder="Note (optionnelle)"
+                        className="w-full rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
+                      />
+                      <input
+                        type="text"
+                        value={paymentReference}
+                        onChange={(event) => setPaymentReference(event.target.value)}
+                        placeholder="N° quittance / ID virement"
+                        className="w-full rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleUploadReceipt()}
+                        disabled={uploadingReceipt}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-900/10 transition hover:-translate-y-0.5 hover:bg-sky-700 disabled:opacity-60"
+                      >
+                        <Upload className="h-4 w-4" />
+                        {uploadingReceipt ? "Envoi..." : "Uploader mon recu"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {false && showClickToPayBlock ? (
               <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
                 <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Click to Pay</p>
                 <p className="mt-1 text-sm text-emerald-700">
@@ -627,7 +759,7 @@ export default function ReservationPaymentPage() {
               </div>
             ) : null}
 
-            {showReceiptBlock ? (
+            {false && showReceiptBlock ? (
               <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
                 <p className="text-sm font-semibold text-emerald-800">Envoyer mon recu de paiement</p>
                 <p className="mt-1 text-sm text-emerald-700">

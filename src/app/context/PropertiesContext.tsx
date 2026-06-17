@@ -733,6 +733,15 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
       matelasSupplementairesMax: bien.location_saisonniere_config?.matelas_supplementaires_max ?? null,
       avancePourcentage: bien.location_saisonniere_config?.avance_pourcentage ?? 30,
       reservationInstantanee: Boolean((bien.location_saisonniere_config as any)?.reservation_instantanee),
+      venteFlashActive: Boolean((bien.location_saisonniere_config as any)?.vente_flash_active),
+      venteFlashTitle: String((bien.location_saisonniere_config as any)?.vente_flash_titre || '').trim() || null,
+      venteFlashMode: (((bien.location_saisonniere_config as any)?.vente_flash_mode === 'montant_tnd')
+        ? 'montant_tnd'
+        : 'pourcentage'),
+      venteFlashDiscountPercent: (bien.location_saisonniere_config as any)?.vente_flash_taux_reduction ?? null,
+      venteFlashFixedAmount: (bien.location_saisonniere_config as any)?.vente_flash_montant_tnd ?? null,
+      venteFlashStart: String((bien.location_saisonniere_config as any)?.vente_flash_date_debut || '').trim() || null,
+      venteFlashEnd: String((bien.location_saisonniere_config as any)?.vente_flash_date_fin || '').trim() || null,
       fraisMenageDisponible: isCleaningAvailable,
       fraisServiceDisponible: isServiceAvailable,
       servicesPayants: Array.isArray(bien.location_saisonniere_config?.services_payants) ? bien.location_saisonniere_config?.services_payants : [],

@@ -16,6 +16,7 @@ import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 import { trackMetaEvent } from "../utils/metaConversions";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import CenterStatusPopup from "../components/CenterStatusPopup";
+import { getFlashNightlyAmount } from "../utils/flashOffers";
 
 type LocationState = {
   draft?: PendingReservationDraft;
@@ -168,7 +169,17 @@ export default function ReservationConfirmationPage() {
       amicaleId: pricingAmicaleId,
     });
     const nights = accommodationPricing.nights;
-    const accommodationTotal = accommodationPricing.accommodationTotal;
+    const draftFlashOffer = draft.flashOffer || null;
+    const flashAccommodationTotal = draftFlashOffer
+      ? (draftFlashOffer.mode === "fixed_amount" && Number(draftFlashOffer.fixedNightlyAmount || 0) > 0
+          ? Math.round(Number(draftFlashOffer.fixedNightlyAmount || 0) * nights * 100) / 100
+          : Math.round(getFlashNightlyAmount(accommodationPricing.averageNightlyPrice, {
+              mode: draftFlashOffer.mode === "fixed_amount" ? "fixed_amount" : "percentage",
+              discountPercent: draftFlashOffer.discountPercent ?? null,
+              fixedNightlyAmount: draftFlashOffer.fixedNightlyAmount ?? null,
+            }) * nights * 100) / 100)
+      : accommodationPricing.accommodationTotal;
+    const accommodationTotal = flashAccommodationTotal;
     const cleaningFee = hasCleaningFee && draft.includeCleaningFee ? (property.cleaningFee || 0) : 0;
     const serviceFee = hasServiceFee && draft.includeServiceFee ? (property.serviceFee || 0) : 0;
     const extraMattresses = Math.min(extraMattressMax, Math.max(0, Number(draft.extraMattresses || 0)));
@@ -184,7 +195,7 @@ export default function ReservationConfirmationPage() {
     const total = accommodationTotal + extrasTotal;
     const totalTtc = applyAmicaleTtc(total, isAmicalePricingActive);
     const advancePercent = Number(seasonalConfig?.avancePourcentage || 30);
-    const dueNow = draft.paymentMode === 'totalite' ? totalTtc : Math.round((totalTtc * advancePercent) / 100);
+    const dueNow = draft.paymentMode === 'totalite' ? totalTtc : Math.round(((totalTtc * advancePercent) / 100) * 100) / 100;
     const adultsRaw = Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1));
     const childrenRaw = Math.max(0, Number(draft.childGuests ?? 0));
     const adultGuests = Math.min(maxGuests, maxAdultGuests, adultsRaw);
@@ -212,6 +223,7 @@ export default function ReservationConfirmationPage() {
       dueNow,
       paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : (draft.paymentMode === 'amicale' ? 'amicale' : 'avance'),
       advancePercent,
+      flashOffer: draftFlashOffer,
     };
   }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, isAmicalePricingActive, maxAdultGuests, maxChildGuests, maxGuests, pricingAmicaleId, property, seasonalConfig]);
 
@@ -387,6 +399,7 @@ export default function ReservationConfirmationPage() {
             payment_mode: summary.paymentMode,
             total_amount: summary.total,
             amount_due_now: summary.dueNow,
+            flash_offer: summary.flashOffer || undefined,
             selected_fixed_services: summary.fixedPaidServices || [],
             selected_variable_services: summary.variablePaidServices || [],
             client_note: buildClientNote(
@@ -759,8 +772,13 @@ export default function ReservationConfirmationPage() {
               </div>
             ) : (
               <div className="mt-6 space-y-4 text-sm text-gray-700">
-                <Line label={summary?.hasPeriodOverride ? `${formatTnd(applyAmicaleTtc(summary?.averageNightlyPrice || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} (moyenne) x ${summary?.nights || 0} nuits` : `${formatTnd(applyAmicaleTtc(property.pricePerNight, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${summary?.nights || 0} nuits`} value={`${formatTnd(summary?.accommodationTotal || 0)} TND${isAmicalePricingActive ? ' TTC' : ''}`} />
-                {summary?.accommodationSegments?.length ? (
+                <Line label={summary?.flashOffer
+                  ? `${formatTnd(applyAmicaleTtc(summary?.averageNightlyPrice || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${summary?.nights || 0} nuits`
+                  : (summary?.hasPeriodOverride
+                      ? `${formatTnd(applyAmicaleTtc(summary?.averageNightlyPrice || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} (moyenne) x ${summary?.nights || 0} nuits`
+                      : `${formatTnd(applyAmicaleTtc(property.pricePerNight, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${summary?.nights || 0} nuits`)}
+                  value={`${formatTnd(summary?.accommodationTotal || 0)} TND${isAmicalePricingActive ? ' TTC' : ''}`} />
+                {summary?.accommodationSegments?.length && !summary?.flashOffer ? (
                   <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Detail par periode</p>
                     <div className="mt-2 space-y-2">

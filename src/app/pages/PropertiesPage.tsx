@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw, Share2 } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
+import type { Property } from "../data/properties";
 import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServicePayant } from "../utils/servicePayants";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
@@ -15,6 +16,7 @@ import {
   resolveStayAvailability,
 } from "../utils/availability";
 import { getReservationMinStayRequirement, validateReservationWeekdayRule } from "../utils/seasonalPricing";
+import { getPropertyFlashOffer, type PropertyFlashOffer } from "../utils/flashOffers";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -28,6 +30,15 @@ type HomeComfortOptionKey =
   | "toutes_pieces_climatisees"
   | "jardin_gazon"
   | "terrasse";
+type PrimaryDisplayResult = {
+  displayKey: string;
+  property: Property;
+  hints: string[];
+  score: number;
+  cardVariant: "default" | "flash";
+  flashOffer: PropertyFlashOffer | null;
+  searchParams: string;
+};
 
 const MODE_TABS: Array<{ value: ListingMode; label: string }> = [
   { value: "location_saisonniere", label: "Location saisonniere" },
@@ -2379,11 +2390,54 @@ export default function PropertiesPage() {
     return sections;
   }, [alternativeScoredResults, selectedSeasideOptions]);
   const hasStrictStaySearch = selectedMode === "location_saisonniere" && stayRanges.some((range) => isValidStayRange(range.start, range.end));
-  const visibleSortedScoredResults = useMemo(
-    () => (showAllResults ? sortedScoredResults : sortedScoredResults.slice(0, visibleCount)),
-    [showAllResults, sortedScoredResults, visibleCount]
+  const displayedPrimaryResults = useMemo<PrimaryDisplayResult[]>(() => {
+    const flashRows: PrimaryDisplayResult[] = [];
+    const regularRows: PrimaryDisplayResult[] = [];
+    sortedScoredResults.forEach((row) => {
+      const baseParams = new URLSearchParams(searchParams.toString());
+      const flashOffer = getPropertyFlashOffer(row.property);
+      if (flashOffer) {
+        const flashParams = new URLSearchParams(baseParams.toString());
+        flashParams.set("mode", "location_saisonniere");
+        flashParams.set("checkIn", flashOffer.start);
+        flashParams.set("checkOut", flashOffer.end);
+        flashParams.set("stayRanges", serializeStayRangesParam([{ start: flashOffer.start, end: flashOffer.end }]));
+        flashParams.set("flashOffer", "1");
+        flashParams.set("flashStart", flashOffer.start);
+        flashParams.set("flashEnd", flashOffer.end);
+        flashParams.set("flashMode", flashOffer.mode);
+        if (flashOffer.discountPercent !== null && flashOffer.discountPercent !== undefined) {
+          flashParams.set("flashDiscount", String(flashOffer.discountPercent));
+        }
+        if (flashOffer.fixedNightlyAmount !== null && flashOffer.fixedNightlyAmount !== undefined) {
+          flashParams.set("flashAmount", String(flashOffer.fixedNightlyAmount));
+        }
+        if (flashOffer.title) {
+          flashParams.set("flashTitle", flashOffer.title);
+        }
+        flashRows.push({
+          ...row,
+          displayKey: `${row.property.id}-flash-${flashOffer.start}-${flashOffer.end}`,
+          cardVariant: "flash",
+          flashOffer,
+          searchParams: flashParams.toString(),
+        });
+      }
+      regularRows.push({
+        ...row,
+        displayKey: String(row.property.id),
+        cardVariant: "default",
+        flashOffer: null,
+        searchParams: baseParams.toString(),
+      });
+    });
+    return [...flashRows, ...regularRows];
+  }, [searchParams, sortedScoredResults]);
+  const visibleDisplayedPrimaryResults = useMemo(
+    () => (showAllResults ? displayedPrimaryResults : displayedPrimaryResults.slice(0, visibleCount)),
+    [displayedPrimaryResults, showAllResults, visibleCount]
   );
-  const hasMoreResults = !showAllResults && sortedScoredResults.length > visibleCount;
+  const hasMoreResults = !showAllResults && displayedPrimaryResults.length > visibleCount;
   const isLoadingInitialResults = loading && properties.length === 0 && biens.length === 0;
 
   useEffect(() => {
@@ -3185,7 +3239,7 @@ export default function PropertiesPage() {
                 ) : (
                   <>
                     <span className="font-medium text-gray-500">
-                      {sortedScoredResults.length} resultat{sortedScoredResults.length !== 1 ? "s" : ""} trouve{sortedScoredResults.length !== 1 ? "s" : ""}
+                      {displayedPrimaryResults.length} resultat{displayedPrimaryResults.length !== 1 ? "s" : ""} trouve{displayedPrimaryResults.length !== 1 ? "s" : ""}
                     </span>
                     {alternativeScoredResults.length > 0 && <span className="text-sm text-gray-500">{alternativeScoredResults.length} choix alternatives</span>}
                   </>
@@ -3220,11 +3274,11 @@ export default function PropertiesPage() {
                   </div>
                 ))}
               </div>
-            ) : sortedScoredResults.length > 0 ? (
+            ) : displayedPrimaryResults.length > 0 ? (
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-                {visibleSortedScoredResults.map((row) => (
-                  <div key={row.property.id} className="space-y-2">
-                    <PropertyCard property={row.property} searchParams={searchParams.toString()} />
+                {visibleDisplayedPrimaryResults.map((row) => (
+                  <div key={row.displayKey} className="space-y-2">
+                    <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} />
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
                       {row.hints.length > 0 && (
                         <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
@@ -3250,7 +3304,7 @@ export default function PropertiesPage() {
                 </button>
               </div>
             )}
-            {sortedScoredResults.length > PAGE_SIZE && (
+            {displayedPrimaryResults.length > PAGE_SIZE && (
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 {hasMoreResults && (
                   <button

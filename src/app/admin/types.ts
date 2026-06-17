@@ -296,6 +296,13 @@ export type LocationSaisonniereConfig = {
   matelas_supplementaires_max?: number | null;
   avance_pourcentage?: number | null;
   reservation_instantanee?: boolean;
+  vente_flash_active?: boolean;
+  vente_flash_titre?: string | null;
+  vente_flash_mode?: 'pourcentage' | 'montant_tnd' | null;
+  vente_flash_taux_reduction?: number | null;
+  vente_flash_montant_tnd?: number | null;
+  vente_flash_date_debut?: string | null;
+  vente_flash_date_fin?: string | null;
   frais_menage_disponible?: boolean;
   frais_menage?: number | null;
   frais_service_disponible?: boolean;
@@ -630,6 +637,14 @@ export interface ReservationDemand {
   amicale_code?: string | null;
   total_amount?: number | null;
   amount_due_now?: number | null;
+  flash_offer?: {
+    title?: string | null;
+    start: string;
+    end: string;
+    mode?: 'percentage' | 'fixed_amount' | null;
+    discountPercent?: number | null;
+    fixedNightlyAmount?: number | null;
+  } | null;
   selected_fixed_services?: ServicePayantBien[];
   selected_variable_services?: ServicePayantBien[];
   variable_services_quote?: Array<ServicePayantBien & { prix_saisi?: number | null }>;

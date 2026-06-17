@@ -27,6 +27,7 @@ import "leaflet/dist/leaflet.css";
 import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { getFlashNightlyAmount, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
 import {
   clearAuthPendingLogin,
   isAuthPendingLogin,
@@ -902,6 +903,26 @@ export default function PropertyDetailsPage() {
   const maxPriceParam = searchParams.get("maxPrice");
   const maxPrice = maxPriceParam ? parseInt(maxPriceParam, 10) : Number.POSITIVE_INFINITY;
   const filterMode = (searchParams.get("mode") || property?.mode || "location_saisonniere").trim();
+  const flashOfferEnabled = searchParams.get("flashOffer") === "1";
+  const flashStartParam = String(searchParams.get("flashStart") || searchParams.get("checkIn") || "").trim();
+  const flashEndParam = String(searchParams.get("flashEnd") || searchParams.get("checkOut") || "").trim();
+  const flashModeParam = String(searchParams.get("flashMode") || "").trim() === "fixed_amount" ? "fixed_amount" : "percentage";
+  const flashDiscountParam = Math.max(0, Math.min(95, Number(searchParams.get("flashDiscount") || property?.seasonalConfig?.venteFlashDiscountPercent || 0)));
+  const flashAmountParam = Math.max(0, Number(searchParams.get("flashAmount") || property?.seasonalConfig?.venteFlashFixedAmount || 0));
+  const lockedFlashOffer: PropertyFlashOffer | null = flashOfferEnabled
+    && isValidDateOnly(flashStartParam)
+    && isValidDateOnly(flashEndParam)
+    && flashEndParam >= flashStartParam
+    && ((flashModeParam === "percentage" && flashDiscountParam > 0) || (flashModeParam === "fixed_amount" && flashAmountParam > 0))
+    ? {
+        title: String(searchParams.get("flashTitle") || property?.seasonalConfig?.venteFlashTitle || "Vente flash").trim() || "Vente flash",
+        start: flashStartParam,
+        end: flashEndParam,
+        mode: flashModeParam,
+        discountPercent: flashModeParam === "percentage" && flashDiscountParam > 0 ? flashDiscountParam : null,
+        fixedNightlyAmount: flashModeParam === "fixed_amount" && flashAmountParam > 0 ? flashAmountParam : null,
+      }
+    : null;
 
   // Build query string for "Voir tout" link
   const filterQueryString = searchParams.toString();
@@ -1325,6 +1346,13 @@ out body 40;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
 
+    if (lockedFlashOffer && (startDate !== lockedFlashOffer.start || endDate !== lockedFlashOffer.end)) {
+      return {
+        valid: false,
+        message: `Cette vente flash impose exactement la periode du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`,
+      };
+    }
+
     if (startDate === endDate) {
       return { valid: false, message: "Choisissez au moins une nuit." };
     }
@@ -1366,7 +1394,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, isSaleProperty, lockedFlashOffer, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -1394,6 +1422,12 @@ out body 40;
   );
   const displayedNightlyPrice = applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive);
   const displayedWeeklyPrice = applyAmicaleTtc(Number(currentDisplayPricing.weeklyPrice || 0), isAmicalePricingActive);
+  const effectiveNightlyPrice = lockedFlashOffer ? getFlashNightlyAmount(displayedNightlyPrice, lockedFlashOffer) : displayedNightlyPrice;
+  const effectiveWeeklyPrice = lockedFlashOffer
+    ? (lockedFlashOffer.mode === "fixed_amount" && Number(lockedFlashOffer.fixedNightlyAmount || 0) > 0
+        ? Math.round(Number(lockedFlashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
+        : getFlashNightlyAmount(displayedWeeklyPrice, lockedFlashOffer))
+    : displayedWeeklyPrice;
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;
@@ -1719,8 +1753,8 @@ out body 40;
       }
       if (key.includes('tarification')) {
         return [
-          { label: 'Tarif nuit', value: `${formatTnd(displayedNightlyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}` },
-          { label: 'Tarif semaine', value: `${formatTnd(displayedWeeklyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}` },
+          { label: 'Tarif nuit', value: `${formatTnd(effectiveNightlyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}` },
+          { label: 'Tarif semaine', value: `${formatTnd(effectiveWeeklyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}` },
           ...(hasCleaningFee ? [{ label: 'Frais de menage', value: `${formatTnd(applyAmicaleTtc(property?.cleaningFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` }] : []),
           ...(hasServiceFee ? [{ label: 'Frais de service', value: `${formatTnd(applyAmicaleTtc(property?.serviceFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` }] : []),
           ...(hasExtraMattress ? [{ label: 'Matelas supplementaire', value: `${formatTnd(applyAmicaleTtc(extraMattressPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} / unite` }] : []),
@@ -1829,8 +1863,8 @@ out body 40;
     if (startsWith('frais de menage')) return hasCleaningFee ? `${formatTnd(applyAmicaleTtc(property?.cleaningFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` : 'Non disponible';
     if (startsWith('frais de service')) return hasServiceFee ? `${formatTnd(applyAmicaleTtc(property?.serviceFee || 0, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''}` : 'Non disponible';
     if (startsWith('matelas supplementaire')) return hasExtraMattress ? `${formatTnd(applyAmicaleTtc(extraMattressPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} / unite` : 'Non disponible';
-    if (startsWith('tarif nuit') || startsWith('prix nuit')) return `${formatTnd(displayedNightlyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}`;
-    if (startsWith('tarif semaine') || startsWith('prix semaine')) return `${formatTnd(displayedWeeklyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}`;
+    if (startsWith('tarif nuit') || startsWith('prix nuit')) return `${formatTnd(effectiveNightlyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}`;
+    if (startsWith('tarif semaine') || startsWith('prix semaine')) return `${formatTnd(effectiveWeeklyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''}`;
     return 'Oui';
   }, [
     characteristicValuesFromLines,
@@ -2512,11 +2546,12 @@ out body 40;
   };
 
   const handleBookingDateRangeSelect = useCallback((start: Date | null, end: Date | null) => {
+    if (lockedFlashOffer) return;
     handleDateRangeSelect(start, end);
     if (start && end) {
       setShowBookingCalendarDialog(false);
     }
-  }, []);
+  }, [lockedFlashOffer]);
 
   const formatBookingFieldDate = useCallback((value: Date | null) => {
     if (!value) return "jj/mm/aaaa";
@@ -2534,6 +2569,16 @@ out body 40;
     };
     void loadAmicales();
   }, []);
+
+  useEffect(() => {
+    if (!lockedFlashOffer || draftHydratedRef.current) return;
+    const parsedStart = new Date(`${lockedFlashOffer.start}T00:00:00`);
+    const parsedEnd = new Date(`${lockedFlashOffer.end}T00:00:00`);
+    if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) return;
+    draftHydratedRef.current = true;
+    setSelectedStart(parsedStart);
+    setSelectedEnd(parsedEnd);
+  }, [lockedFlashOffer]);
 
   useEffect(() => {
     if (!property || draftHydratedRef.current) return;
@@ -2600,15 +2645,20 @@ out body 40;
     });
     const nights = accommodationPricing.nights;
     const accommodationTotal = accommodationPricing.accommodationTotal;
+    const discountedAccommodationTotal = lockedFlashOffer
+      ? (lockedFlashOffer.mode === "fixed_amount" && Number(lockedFlashOffer.fixedNightlyAmount || 0) > 0
+          ? Math.round(Number(lockedFlashOffer.fixedNightlyAmount || 0) * nights * 100) / 100
+          : getFlashNightlyAmount(accommodationPricing.averageNightlyPrice, lockedFlashOffer) * nights)
+      : accommodationTotal;
     const cleaningFee = (hasCleaningFee && includeCleaningFee && property?.cleaningFee) ? property.cleaningFee : 0;
     const serviceFee = (hasServiceFee && includeServiceFee && property?.serviceFee) ? property.serviceFee : 0;
     const extraMattressTotal = extraMattresses * extraMattressPrice;
     const extrasTotal = cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
-    const total = accommodationTotal + extrasTotal;
+    const total = discountedAccommodationTotal + extrasTotal;
     return {
       nights,
-      accommodationTotal: applyAmicaleTtc(accommodationTotal, isAmicalePricingActive),
-      averageNightlyPrice: accommodationPricing.averageNightlyPrice,
+      accommodationTotal: applyAmicaleTtc(discountedAccommodationTotal, isAmicalePricingActive),
+      averageNightlyPrice: nights > 0 ? discountedAccommodationTotal / nights : accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
       cleaningFee: applyAmicaleTtc(cleaningFee, isAmicalePricingActive),
       serviceFee: applyAmicaleTtc(serviceFee, isAmicalePricingActive),
@@ -2747,6 +2797,10 @@ out body 40;
     const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
+    if (lockedFlashOffer && (startDate !== lockedFlashOffer.start || endDate !== lockedFlashOffer.end)) {
+      failRule(`Cette vente flash est reservee uniquement pour la periode du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`);
+      return;
+    }
     if (startDate === endDate) {
       failRule('Choisissez au moins une nuit.');
       return;
@@ -2794,6 +2848,14 @@ out body 40;
       includeServiceFee,
       extraMattresses,
       selectedPaidServiceIds,
+      flashOffer: lockedFlashOffer ? {
+        title: lockedFlashOffer.title,
+        start: lockedFlashOffer.start,
+        end: lockedFlashOffer.end,
+        mode: lockedFlashOffer.mode,
+        discountPercent: lockedFlashOffer.discountPercent,
+        fixedNightlyAmount: lockedFlashOffer.fixedNightlyAmount,
+      } : null,
       paymentMode,
       pricingAmicaleId: pricingAmicaleId || undefined,
       amicaleSelectionId: paymentMode === "amicale" ? amicaleSelectionId : undefined,
@@ -4163,11 +4225,21 @@ out body 40;
                   Regle periode: check-in {activeWeekdayRule.requiredCheckinDay || 'libre'} | check-out {activeWeekdayRule.requiredCheckoutDay || 'libre'}.
                 </p>
               )}
+              {lockedFlashOffer ? (
+                <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700 shadow-[0_12px_28px_rgba(239,68,68,0.08)]">
+                  <p className="font-semibold">Vente flash active</p>
+                  <p className="mt-1">
+                    Cette offre est verrouillee du {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}
+                    {" "}avec {lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`}.
+                  </p>
+                </div>
+              ) : null}
               <AvailabilityCalendar
                 unavailableDates={effectiveUnavailableDates || []}
-                onDateRangeSelect={handleDateRangeSelect}
+                onDateRangeSelect={lockedFlashOffer ? () => undefined : handleDateRangeSelect}
                 selectedStart={selectedStart}
                 selectedEnd={selectedEnd}
+                allowedRange={lockedFlashOffer ? { start: lockedFlashOffer.start, end: lockedFlashOffer.end } : null}
               />
             </div>
           </div>
@@ -4177,10 +4249,16 @@ out body 40;
             <div ref={priceSectionRef} className="sticky top-24 bg-white rounded-xl shadow-xl border border-gray-100 p-6">
               <div className="flex justify-between items-baseline mb-6">
                 <div>
-                  <span className="text-2xl font-bold text-gray-900">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
+                  {lockedFlashOffer && displayedNightlyPrice > effectiveNightlyPrice ? (
+                    <p className="mb-1 text-sm font-semibold text-slate-400 line-through">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
+                  ) : null}
+                  <span className={`text-2xl font-bold ${lockedFlashOffer ? "text-red-600" : "text-gray-900"}`}>{formatTnd(effectiveNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
                   {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
-                  {property.priceContext !== 'sale' && displayedWeeklyPrice > 0 ? (
-                    <p className="mt-1 text-xs text-gray-500">{formatTnd(displayedWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""} / semaine</p>
+                  {property.priceContext !== 'sale' && effectiveWeeklyPrice > 0 ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {lockedFlashOffer && displayedWeeklyPrice > effectiveWeeklyPrice ? <span className="mr-1 line-through text-slate-400">{formatTnd(displayedWeeklyPrice)} TND</span> : null}
+                      {formatTnd(effectiveWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""} / semaine
+                    </p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-1 text-sm text-gray-600">
@@ -4189,14 +4267,24 @@ out body 40;
                 </div>
               </div>
 
+              {lockedFlashOffer ? (
+                <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700">
+                  <p className="font-semibold">Periode flash verrouillee</p>
+                  <p className="mt-1">Reservation possible uniquement du {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.</p>
+                </div>
+              ) : null}
+
               <form className="space-y-4">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div className="col-span-1">
                     <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date souhaitee' : 'Arrivee'}</label>
                     <button
                       type="button"
-                      onClick={() => setShowBookingCalendarDialog(true)}
-                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
+                      onClick={() => {
+                        if (!lockedFlashOffer) setShowBookingCalendarDialog(true);
+                      }}
+                      disabled={Boolean(lockedFlashOffer)}
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
                     >
                       <span className={`truncate ${selectedStart ? "text-gray-900" : "text-gray-500"}`}>
                         {formatBookingFieldDate(selectedStart)}
@@ -4208,8 +4296,11 @@ out body 40;
                     <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date alternative' : 'Depart'}</label>
                     <button
                       type="button"
-                      onClick={() => setShowBookingCalendarDialog(true)}
-                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
+                      onClick={() => {
+                        if (!lockedFlashOffer) setShowBookingCalendarDialog(true);
+                      }}
+                      disabled={Boolean(lockedFlashOffer)}
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
                     >
                       <span className={`truncate ${selectedEnd ? "text-gray-900" : "text-gray-500"}`}>
                         {formatBookingFieldDate(selectedEnd)}
@@ -4614,9 +4705,11 @@ out body 40;
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    <div className="flex justify-between">
                      <span className="underline">
-                       {isAmicalePricingActive
-                         ? `${formatTnd(applyAmicaleTtc(pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight, true))} TND TTC (forfaitaire) x ${pricing.nights} nuits`
-                         : (pricing.hasPeriodOverride ? `${formatTnd(pricing.averageNightlyPrice)} TND (moyenne) x ${pricing.nights} nuits` : `${formatTnd(property.pricePerNight)} TND x ${pricing.nights} nuits`)}
+                       {lockedFlashOffer
+                         ? `${formatTnd(applyAmicaleTtc(pricing.averageNightlyPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${pricing.nights} nuits`
+                         : (isAmicalePricingActive
+                             ? `${formatTnd(applyAmicaleTtc(pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight, true))} TND TTC (forfaitaire) x ${pricing.nights} nuits`
+                             : (pricing.hasPeriodOverride ? `${formatTnd(pricing.averageNightlyPrice)} TND (moyenne) x ${pricing.nights} nuits` : `${formatTnd(property.pricePerNight)} TND x ${pricing.nights} nuits`))}
                      </span>
                      <span>{formatTnd(pricing.accommodationTotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
                    </div>
@@ -4706,7 +4799,9 @@ out body 40;
           <div className="max-h-[calc(86vh-92px)] overflow-y-auto px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6 sm:pt-4">
             {!isSaleProperty && (
               <p className="mb-2 text-xs text-emerald-700 sm:mb-3 sm:text-sm">
-                {selectedStart
+                {lockedFlashOffer
+                  ? `Periode flash verrouillee du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")} avec ${lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`}.`
+                  : selectedStart
                   ? `Duree autorisee pour la periode ${activeStayRuleLabel || 'selectionnee'}: minimum ${displayedMinStay} nuit(s), maximum ${maxStay} nuit(s).`
                   : 'Selectionnez une date de sejour pour que vous puissiez voir le minimum de nuitees pour la periode.'}
               </p>
@@ -4721,6 +4816,7 @@ out body 40;
               onDateRangeSelect={handleBookingDateRangeSelect}
               selectedStart={selectedStart}
               selectedEnd={selectedEnd}
+              allowedRange={lockedFlashOffer ? { start: lockedFlashOffer.start, end: lockedFlashOffer.end } : null}
             />
           </div>
         </DialogContent>

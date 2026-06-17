@@ -98,6 +98,13 @@ export interface Property {
     matelasSupplementairesMax?: number | null;
     avancePourcentage?: number | null;
     reservationInstantanee?: boolean;
+    venteFlashActive?: boolean;
+    venteFlashTitle?: string | null;
+    venteFlashMode?: 'pourcentage' | 'montant_tnd' | null;
+    venteFlashDiscountPercent?: number | null;
+    venteFlashFixedAmount?: number | null;
+    venteFlashStart?: string | null;
+    venteFlashEnd?: string | null;
     fraisMenageDisponible?: boolean;
     fraisServiceDisponible?: boolean;
     servicesPayants?: Array<{ id: string; label: string; prix: number; enabled: boolean }>;

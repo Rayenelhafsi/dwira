@@ -15,6 +15,14 @@ export type PendingReservationDraft = {
   includeServiceFee: boolean;
   extraMattresses?: number;
   selectedPaidServiceIds?: string[];
+  flashOffer?: {
+    title?: string | null;
+    start: string;
+    end: string;
+    mode?: "percentage" | "fixed_amount" | null;
+    discountPercent?: number | null;
+    fixedNightlyAmount?: number | null;
+  } | null;
   paymentMode?: "totalite" | "avance" | "amicale";
   pricingAmicaleId?: string;
   amicaleSelectionId?: string;
