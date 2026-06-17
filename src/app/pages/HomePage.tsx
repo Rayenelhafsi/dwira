@@ -954,6 +954,9 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [hotelResultsSearchTerm, setHotelResultsSearchTerm] = useState("");
   const [hotelResultsSort, setHotelResultsSort] = useState<HotelResultsSort>("recommended");
   const [hotelResultsView, setHotelResultsView] = useState<HotelResultsView>("grid");
+  const [isMobileHotelResultsViewport, setIsMobileHotelResultsViewport] = useState<boolean>(() => (
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false
+  ));
   const [expandedHotelResultDetailsById, setExpandedHotelResultDetailsById] = useState<Record<number, boolean>>({});
   const [hotelResultsPageSize, setHotelResultsPageSize] = useState<number>(12);
   const [hotelResultsFilterPanel, setHotelResultsFilterPanel] = useState<HotelResultsFilterPanel>(null);
@@ -973,6 +976,15 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const [loadingHotelsByCity, setLoadingHotelsByCity] = useState(false);
   const [hotelCityId, setHotelCityId] = useState<number>(() => Number(searchParams.get("cityId") || 0) || 0);
   const [hotelDestinationQuery, setHotelDestinationQuery] = useState(() => searchParams.get("q") || "");
+  const effectiveHotelResultsView: HotelResultsView = isMobileHotelResultsViewport ? "grid" : hotelResultsView;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const syncViewport = () => setIsMobileHotelResultsViewport(window.innerWidth < 1024);
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
   const [selectedHotelId, setSelectedHotelId] = useState<number>(0);
   const [hotelDestinationOpen, setHotelDestinationOpen] = useState(false);
   const [hotelDestinationTab, setHotelDestinationTab] = useState<HotelDestinationTab>("destinations");
@@ -4858,12 +4870,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                         </h3>
                         <p className="mt-2 text-sm text-sky-700">Plus de détails</p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-3">
+                      <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:w-auto xl:grid-cols-2">
                         <div className="relative">
                           <button
                             type="button"
                             onClick={() => setHotelResultsFilterPanel((prev) => prev === "sort" ? null : "sort")}
-                            className="inline-flex min-w-[170px] items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700"
+                            className="inline-flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700"
                           >
                             <span>
                               {{
@@ -4907,7 +4919,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           <button
                             type="button"
                             onClick={() => setHotelResultsFilterPanel((prev) => prev === "page_size" ? null : "page_size")}
-                            className="inline-flex min-w-[130px] items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700"
+                            className="inline-flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700"
                           >
                             <span>{hotelResultsPageSize} hôtels</span>
                             <ChevronDown size={16} />
@@ -4934,7 +4946,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                       </div>
                     </div>
 
-                    <div className="mt-5 flex flex-wrap gap-3">
+                    <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:flex xl:flex-wrap">
                       {[
                         { key: "popular", label: "Filtres populaires" },
                         { key: "boarding", label: "Formule repas" },
@@ -4947,7 +4959,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           <button
                             type="button"
                             onClick={() => setHotelResultsFilterPanel((prev) => prev === filter.key ? null : (filter.key as HotelResultsFilterPanel))}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800"
+                            className="inline-flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800 xl:w-auto xl:justify-start"
                           >
                             {filter.label}
                             <ChevronDown size={16} />
@@ -5101,12 +5113,12 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           />
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 self-end lg:self-auto">
+                      <div className={`items-center gap-3 self-end lg:self-auto ${isMobileHotelResultsViewport ? "hidden" : "flex"}`}>
                         <span className="text-sm font-semibold text-slate-900">Mode d'affichage</span>
-                        <button type="button" onClick={() => setHotelResultsView("list")} className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${hotelResultsView === "list" ? "border-sky-500 bg-sky-500 text-white" : "border-slate-200 bg-white text-slate-400"}`}>
+                        <button type="button" onClick={() => setHotelResultsView("list")} className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${effectiveHotelResultsView === "list" ? "border-sky-500 bg-sky-500 text-white" : "border-slate-200 bg-white text-slate-400"}`}>
                           <Rows3 size={18} />
                         </button>
-                        <button type="button" onClick={() => setHotelResultsView("grid")} className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${hotelResultsView === "grid" ? "border-sky-500 bg-sky-500 text-white" : "border-slate-200 bg-white text-slate-400"}`}>
+                        <button type="button" onClick={() => setHotelResultsView("grid")} className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${effectiveHotelResultsView === "grid" ? "border-sky-500 bg-sky-500 text-white" : "border-slate-200 bg-white text-slate-400"}`}>
                           <LayoutGrid size={18} />
                         </button>
                       </div>
@@ -5146,11 +5158,11 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
               )}
 
               {!loadingHotelResults && sortedHotelResults.length > 0 && (
-                <div className={hotelResultsView === "list" ? "space-y-6" : "grid gap-6 md:grid-cols-2 xl:grid-cols-3"}>
+                <div className={effectiveHotelResultsView === "list" ? "space-y-6" : "grid gap-5 md:grid-cols-2 xl:grid-cols-3"}>
                   {visibleHotelResults.map((hotel) => {
                     const hotelId = Number(hotel.Id || 0);
                     const hotelStarCount = getHotelStarCount(hotel.Category?.Star ?? hotel.Star);
-                    const isResultDetailsExpanded = hotelResultsView === "grid" || Boolean(expandedHotelResultDetailsById[hotelId]);
+                    const isResultDetailsExpanded = effectiveHotelResultsView === "grid" || Boolean(expandedHotelResultDetailsById[hotelId]);
                     const minPrice = extractHotelMinPrice(hotel);
                     const roomOffers = flattenHotelRoomOffers(hotel);
                     const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room) !== null) || roomOffers[0] || null;
@@ -5274,10 +5286,10 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                           hasPromotion
                             ? "border border-amber-200 shadow-[0_18px_48px_rgba(217,119,6,0.18)] hover:shadow-[0_30px_70px_rgba(217,119,6,0.28)]"
                             : "border border-slate-100 shadow-[0_18px_48px_rgba(15,23,42,0.08)] hover:shadow-[0_28px_60px_rgba(15,23,42,0.12)]"
-                        } ${hotelResultsView === "list" ? "mx-auto w-full max-w-[1160px] lg:grid lg:grid-cols-[280px_minmax(0,1fr)]" : ""}`}
+                        } ${effectiveHotelResultsView === "list" ? "mx-auto w-full max-w-[1160px] lg:grid lg:grid-cols-[280px_minmax(0,1fr)]" : ""}`}
                       >
                         <Link to={linkTo} className="block">
-                          <div className={`relative overflow-hidden ${hotelResultsView === "list" ? "h-full min-h-[260px]" : "aspect-[16/10]"}`}>
+                          <div className={`relative overflow-hidden ${effectiveHotelResultsView === "list" ? "h-full min-h-[260px]" : "aspect-[16/10] sm:aspect-[16/10]"}`}>
                             <img
                               src={String(hotel.Image || "").trim() || HOTEL_FALLBACK_IMAGE}
                               alt={hotel.Name}
@@ -5293,9 +5305,20 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                               </div>
                             ) : null}
                             {hasPromotion && (
-                              <div className="absolute right-4 top-4 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-400/95 px-3 py-1 text-xs font-semibold text-slate-950 shadow-md">
-                                <Sparkles size={13} />
-                                Promotion
+                              <div className="absolute right-3 top-3 z-10 rounded-[22px] border border-white/35 bg-[radial-gradient(circle_at_top,_rgba(253,224,71,0.98)_0%,_rgba(249,115,22,0.97)_38%,_rgba(220,38,38,0.98)_100%)] px-3 py-2 text-white shadow-[0_16px_35px_rgba(220,38,38,0.38)] ring-1 ring-black/5 backdrop-blur-sm sm:right-4 sm:top-4 sm:px-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/18">
+                                    <Sparkles size={14} className="text-yellow-100" />
+                                  </span>
+                                  <div className="leading-none">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-yellow-50/90">
+                                      Promo
+                                    </p>
+                                    <p className="mt-1 text-lg font-black tracking-tight sm:text-xl">
+                                      {promotionRate > 0 ? `-${promotionRate}%` : promotionTitle || "OFFRE"}
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                             )}
                             {(leadOfferPrice !== null || minPrice !== null) && (
@@ -5334,12 +5357,6 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                                 <CircleDollarSign size={12} />
                                 {hasOnRequestOffer ? "Sur demande possible" : "Tarif affiche"}
                               </span>
-                              {promotionTitle || promotionRate > 0 ? (
-                                <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-                                  <Sparkles size={12} />
-                                  {promotionRate > 0 ? `Promo -${promotionRate}%` : promotionTitle}
-                                </span>
-                              ) : null}
                             </div>
                             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-500">
                               <span className="inline-flex items-center gap-2">
@@ -5407,7 +5424,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                             </div>
                           </div>
 
-                          {hotelResultsView === "list" && (
+                          {effectiveHotelResultsView === "list" && (
                             <div className="flex justify-end">
                               <button
                                 type="button"
