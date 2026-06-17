@@ -14061,7 +14061,14 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
                WHERE d.contract_id = c.id
                ORDER BY d.updated_at DESC
                LIMIT 1
-             ) AS payment_receipt_note
+             ) AS payment_receipt_note,
+             (
+               SELECT d.status
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS reservation_demand_status
       FROM contrats c 
       LEFT JOIN biens b ON c.bien_id = b.id 
       LEFT JOIN locataires l ON c.locataire_id = l.id
@@ -14305,7 +14312,19 @@ app.post('/api/contrats/:id/send-to-client', requireAdminSession, async (req, re
 app.post('/api/contrats', requireAdminSession, async (req, res) => {
   try {
     await ensureContractsSchema();
-    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut, origine } = req.body;
+    const {
+      bien_id,
+      locataire_id,
+      date_debut,
+      date_fin,
+      montant_recu,
+      montant_donne_proprietaire,
+      profit_net,
+      url_pdf,
+      owner_url_pdf,
+      statut,
+      origine,
+    } = req.body;
     const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
     if (locataireProfile && (locataireProfile.globalStatus === 'blackliste' || locataireProfile.locataireStatus === 'blackliste')) {
       return res.status(400).json({ error: 'Creation impossible: ce locataire est blackliste' });
@@ -14314,8 +14333,8 @@ app.post('/api/contrats', requireAdminSession, async (req, res) => {
     const created_at = getAgencySqlDateTime();
     const contractOrigin = String(origine || 'manuel').trim().toLowerCase() === 'automatique' ? 'automatique' : 'manuel';
     await pool.query(
-      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, url_pdf || null, owner_url_pdf || null, contractOrigin, statut || 'actif', created_at]
+      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, montant_donne_proprietaire, profit_net, url_pdf, owner_url_pdf, origine, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, montant_donne_proprietaire ?? null, profit_net ?? null, url_pdf || null, owner_url_pdf || null, contractOrigin, statut || 'actif', created_at]
     );
     const [matchingDemandRows] = await pool.query(
       `SELECT d.id
@@ -16025,6 +16044,50 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/phone-only',
   }
 });
 
+app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/verify', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    const currentStatuses = await getOwnerCalendarPromptStatuses();
+    const currentStatus = currentStatuses.find((row) => String(row.ownerId || '').trim() === ownerId) || null;
+    const currentValue = String(currentStatus?.status || '').trim();
+    if (!['no_app', 'phone_only'].includes(currentValue)) {
+      return res.status(400).json({ error: 'Aucun suivi manuel actif pour ce proprietaire' });
+    }
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    if (!ownerIdentity.ownerId) {
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+    const nextMetadata = {
+      ...(currentStatus?.responseMetadata && typeof currentStatus.responseMetadata === 'object' ? currentStatus.responseMetadata : {}),
+      ...(currentStatus?.responseMetadata?.metadata && typeof currentStatus.responseMetadata.metadata === 'object' ? currentStatus.responseMetadata.metadata : {}),
+      source: 'admin_manual_follow_up',
+      ownerName: ownerIdentity.ownerName,
+      verifiedAt: getAgencySqlDateTime(),
+      verifiedBy: req.authUser?.id || 'admin',
+      reminder_notified_at: null,
+    };
+    const result = await setOwnerCalendarStatusFlag({
+      ownerId,
+      status: currentValue,
+      metadata: nextMetadata,
+    });
+    res.json({
+      ok: true,
+      ownerId,
+      ownerName: ownerIdentity.ownerName,
+      status: currentValue,
+      updatedAt: result?.updatedAt || null,
+      verifiedAt: nextMetadata.verifiedAt,
+    });
+  } catch (error) {
+    console.error('Error verifying owner calendar follow-up:', error);
+    res.status(500).json({ error: 'Failed to verify owner calendar follow-up' });
+  }
+});
+
 app.delete('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/no-app', requireAdminSession, async (req, res) => {
   try {
     const ownerId = String(req.params.ownerId || '').trim();
@@ -17146,7 +17209,18 @@ app.delete('/api/contrats/:id', requireAdminSession, async (req, res) => {
 
 app.put('/api/contrats/:id', requireAdminSession, async (req, res) => {
   try {
-    const { bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, statut } = req.body;
+    const {
+      bien_id,
+      locataire_id,
+      date_debut,
+      date_fin,
+      montant_recu,
+      montant_donne_proprietaire,
+      profit_net,
+      url_pdf,
+      owner_url_pdf,
+      statut,
+    } = req.body;
     if (locataire_id) {
       const locataireProfile = await fetchClienteleProfileBySource('locataires', locataire_id);
       if (locataireProfile && (locataireProfile.globalStatus === 'blackliste' || locataireProfile.locataireStatus === 'blackliste')) {
@@ -17172,6 +17246,8 @@ app.put('/api/contrats/:id', requireAdminSession, async (req, res) => {
     if (date_debut !== undefined) { fields.push('date_debut = ?'); values.push(date_debut); }
     if (date_fin !== undefined) { fields.push('date_fin = ?'); values.push(date_fin); }
     if (montant_recu !== undefined) { fields.push('montant_recu = ?'); values.push(montant_recu); }
+    if (montant_donne_proprietaire !== undefined) { fields.push('montant_donne_proprietaire = ?'); values.push(montant_donne_proprietaire); }
+    if (profit_net !== undefined) { fields.push('profit_net = ?'); values.push(profit_net); }
     if (url_pdf !== undefined) { fields.push('url_pdf = ?'); values.push(url_pdf); }
     if (owner_url_pdf !== undefined) { fields.push('owner_url_pdf = ?'); values.push(owner_url_pdf); }
     if (statut !== undefined) { fields.push('statut = ?'); values.push(statut); }
@@ -20583,6 +20659,56 @@ async function notifyOverdueOwnerCalendarPrompts() {
       [notificationId, now, row.id]
     );
   }
+
+  const [flagRows] = await pool.query(
+    `SELECT owner_id, status, metadata_json,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM owner_calendar_status_flags
+     WHERE status IN ('no_app', 'phone_only')
+     ORDER BY updated_at ASC, created_at ASC`
+  );
+  for (const row of flagRows || []) {
+    const ownerId = String(row.owner_id || '').trim();
+    const status = String(row.status || '').trim();
+    if (!ownerId || !status) continue;
+    const anchorAt = String(row.updated_at || row.created_at || '').trim();
+    if (!anchorAt) continue;
+    const anchorMs = new Date(anchorAt).getTime();
+    if (!Number.isFinite(anchorMs)) continue;
+    if ((Date.now() - anchorMs) < 48 * 60 * 60 * 1000) continue;
+
+    let metadata = null;
+    try {
+      metadata = row.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
+    } catch {
+      metadata = null;
+    }
+    const reminderNotifiedAt = String(metadata?.reminder_notified_at || '').trim();
+    if (reminderNotifiedAt) {
+      const reminderMs = new Date(reminderNotifiedAt).getTime();
+      if (Number.isFinite(reminderMs) && reminderMs >= anchorMs) continue;
+    }
+
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    const ownerName = ownerIdentity.ownerName || ownerId;
+    await createAdminNotification(
+      'warning',
+      `Suivi proprietaire a verifier: ${ownerName} est marque ${status === 'phone_only' ? 'avec telephone' : 'sans application'} depuis plus de 48 heures.`,
+      now
+    );
+    const nextMetadata = {
+      ...(metadata && typeof metadata === 'object' ? metadata : {}),
+      reminder_notified_at: now,
+      reminder_reason: 'owner_calendar_status_follow_up',
+    };
+    await pool.query(
+      `UPDATE owner_calendar_status_flags
+       SET metadata_json = ?
+       WHERE owner_id = ?`,
+      [JSON.stringify(nextMetadata), ownerId]
+    );
+  }
 }
 
 async function appendOwnerSystemChatMessage({
@@ -21406,6 +21532,12 @@ async function ensureContractsSchema() {
   }
   if (!(await columnExists('contrats', 'client_sent_at'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN client_sent_at DATETIME NULL AFTER creation_steps_json');
+  }
+  if (!(await columnExists('contrats', 'montant_donne_proprietaire'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN montant_donne_proprietaire DECIMAL(12,2) NULL AFTER montant_recu');
+  }
+  if (!(await columnExists('contrats', 'profit_net'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN profit_net DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
   }
 }
 

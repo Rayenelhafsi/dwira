@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2, Plus, ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { FileText, Calendar, AlertCircle, Search, ArrowDownUp, Eye, Download, Upload, Trash2, Plus, ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import AvailabilityCalendar from '../../components/AvailabilityCalendar';
 import { calculateAccommodationPricing, type SeasonalPricingPeriod } from '../../utils/seasonalPricing';
@@ -45,6 +45,9 @@ type ContratApi = {
   payment_receipt_image_url?: string | null;
   payment_receipt_uploaded_at?: string | null;
   payment_receipt_note?: string | null;
+  montant_donne_proprietaire?: number | null;
+  profit_net?: number | null;
+  reservation_demand_status?: string | null;
 };
 
 type BienApi = {
@@ -115,6 +118,7 @@ type ContractsPageCachePayload = {
 type SortOption = 'created_desc' | 'created_asc' | 'start_desc' | 'start_asc';
 type OriginFilter = 'all' | 'manuel' | 'automatique';
 type ManualStep = 1 | 2 | 3;
+type ContractCategoryFilter = 'all' | 'rejected' | 'pending_payment' | 'finished_paid';
 
 type ManualReservationDraft = {
   client_first_name: string;
@@ -398,6 +402,21 @@ function getContractCardDetails(contrat: ContratApi, bien?: BienApi | null) {
   };
 }
 
+function getContractCategory(contrat: ContratApi): ContractCategoryFilter {
+  const demandStatus = String(contrat.reservation_demand_status || '').trim().toLowerCase();
+  const contractStatus = String(contrat.statut || '').trim().toLowerCase();
+  if (demandStatus === 'demande_rejetee_admin' || contractStatus === 'resilie') return 'rejected';
+  if (demandStatus === 'succes_paiement' || contractStatus === 'termine') return 'finished_paid';
+  return 'pending_payment';
+}
+
+function getContractCategoryLabel(category: ContractCategoryFilter) {
+  if (category === 'rejected') return 'Contrat rejete';
+  if (category === 'pending_payment') return 'Contrat genere en attente de paiement';
+  if (category === 'finished_paid') return 'Contrat fini et paye';
+  return 'Tous les contrats';
+}
+
 function extractManualPropertyEquipements(bien: BienApi | null, seasonalConfig: Record<string, any>): string {
   if (!bien) return '';
   const scalarFlags: Array<[unknown, string]> = [
@@ -468,6 +487,10 @@ export default function ContratsPage() {
   const [regeneratingContratId, setRegeneratingContratId] = useState<string | null>(null);
   const [sendingContratId, setSendingContratId] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
+  const [categoryFilter, setCategoryFilter] = useState<ContractCategoryFilter>('all');
+  const [financialDrafts, setFinancialDrafts] = useState<Record<string, { ownerAmount: string; netProfit: string }>>({});
+  const [expandedFinancials, setExpandedFinancials] = useState<Record<string, boolean>>({});
+  const [savingFinancialContratId, setSavingFinancialContratId] = useState<string | null>(null);
 
   const [searchLocataire, setSearchLocataire] = useState('');
   const [searchProprietaire, setSearchProprietaire] = useState('');
@@ -777,6 +800,7 @@ export default function ContratsPage() {
       const matchesProprietaire = !proprietaireQuery || proprietaireNom.includes(proprietaireQuery);
       const matchesReference = !referenceQuery || referenceBien.includes(referenceQuery);
       const matchesOrigin = originFilter === 'all' || normalizedOrigin === originFilter;
+      const matchesCategory = categoryFilter === 'all' || getContractCategory(contrat) === categoryFilter;
 
       let matchesDate = true;
       if (filterDate) {
@@ -789,7 +813,7 @@ export default function ContratsPage() {
           created.toISOString().slice(0, 10) === filterDate;
       }
 
-      return matchesLocataire && matchesProprietaire && matchesReference && matchesOrigin && matchesDate;
+      return matchesLocataire && matchesProprietaire && matchesReference && matchesOrigin && matchesCategory && matchesDate;
     });
 
     return [...filtered].sort((a, b) => {
@@ -803,7 +827,16 @@ export default function ContratsPage() {
       if (sortBy === 'start_asc') return startA - startB;
       return createdB - createdA;
     });
-  }, [contrats, bienById, searchLocataire, searchProprietaire, searchReference, filterDate, sortBy, originFilter]);
+  }, [contrats, bienById, searchLocataire, searchProprietaire, searchReference, filterDate, sortBy, originFilter, categoryFilter]);
+
+  const contractCategoryCounts = useMemo(() => {
+    return contrats.reduce<Record<ContractCategoryFilter, number>>((acc, contrat) => {
+      const category = getContractCategory(contrat);
+      acc.all += 1;
+      acc[category] += 1;
+      return acc;
+    }, { all: 0, rejected: 0, pending_payment: 0, finished_paid: 0 });
+  }, [contrats]);
 
   const availableBiensForManual = useMemo(() => {
     const query = manualBienSearch.trim().toLowerCase();
@@ -1086,6 +1119,60 @@ export default function ContratsPage() {
     } catch (err: any) {
       console.error(err);
       toast.error(err?.message || 'Erreur suppression contrat');
+    }
+  };
+
+  const getFinancialDraft = (contrat: ContratApi) => {
+    const existing = financialDrafts[contrat.id];
+    if (existing) return existing;
+    const ownerAmountValue = contrat.montant_donne_proprietaire ?? null;
+    return {
+      ownerAmount: ownerAmountValue === null || ownerAmountValue === undefined ? '' : String(ownerAmountValue),
+      netProfit: contrat.profit_net === null || contrat.profit_net === undefined
+        ? ''
+        : String(Math.round(Number(contrat.profit_net) * 100) / 100),
+    };
+  };
+
+  const handleFinancialDraftChange = (contrat: ContratApi, patch: Partial<{ ownerAmount: string; netProfit: string }>) => {
+    const current = getFinancialDraft(contrat);
+    const next = { ...current, ...patch };
+    if (patch.ownerAmount !== undefined && patch.netProfit === undefined) {
+      const parsedOwnerAmount = Number(String(patch.ownerAmount || '').replace(',', '.'));
+      if (Number.isFinite(parsedOwnerAmount)) {
+        next.netProfit = String(Math.round((Number(contrat.montant_recu || 0) - parsedOwnerAmount) * 100) / 100);
+      }
+    }
+    setFinancialDrafts((prev) => ({ ...prev, [contrat.id]: next }));
+  };
+
+  const handleSaveFinancials = async (contrat: ContratApi) => {
+    const draft = getFinancialDraft(contrat);
+    const ownerAmount = draft.ownerAmount === '' ? null : Number(String(draft.ownerAmount).replace(',', '.'));
+    const netProfit = draft.netProfit === '' ? null : Number(String(draft.netProfit).replace(',', '.'));
+    if ((ownerAmount !== null && !Number.isFinite(ownerAmount)) || (netProfit !== null && !Number.isFinite(netProfit))) {
+      toast.error('Montants invalides');
+      return;
+    }
+    setSavingFinancialContratId(contrat.id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          montant_donne_proprietaire: ownerAmount,
+          profit_net: netProfit,
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Sauvegarde montants impossible'));
+      const updated = await response.json();
+      setContrats((current) => current.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+      toast.success('Montants du contrat mis a jour');
+    } catch (error: any) {
+      toast.error(error?.message || 'Sauvegarde montants impossible');
+    } finally {
+      setSavingFinancialContratId(null);
     }
   };
 
@@ -2021,6 +2108,27 @@ export default function ContratsPage() {
       </div>
 
       <div className="text-sm text-gray-500">{filteredAndSorted.length} contrat(s) trouve(s)</div>
+      <div className="flex flex-wrap gap-2">
+        {([
+          ['all', getContractCategoryLabel('all')],
+          ['rejected', getContractCategoryLabel('rejected')],
+          ['pending_payment', getContractCategoryLabel('pending_payment')],
+          ['finished_paid', getContractCategoryLabel('finished_paid')],
+        ] as Array<[ContractCategoryFilter, string]>).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setCategoryFilter(value)}
+            className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+              categoryFilter === value
+                ? 'bg-emerald-600 text-white'
+                : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {label} ({contractCategoryCounts[value]})
+          </button>
+        ))}
+      </div>
 
       {templateVarsEditorOpen && templateVarsTargetContract && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 space-y-3">
@@ -2115,6 +2223,8 @@ export default function ContratsPage() {
           const bien = bienById.get(contrat.bien_id);
           const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
           const cardDetails = getContractCardDetails(contrat, bien);
+          const category = getContractCategory(contrat);
+          const financialDraft = getFinancialDraft(contrat);
           const receiptUrl = contrat.payment_receipt_image_url ? toAbsoluteAssetUrl(contrat.payment_receipt_image_url) : '';
           const hasReceipt = Boolean(receiptUrl);
           return (
@@ -2129,6 +2239,15 @@ export default function ContratsPage() {
                   </span>
                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${contrat.statut === 'actif' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                     {contrat.statut}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    category === 'finished_paid'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : category === 'rejected'
+                        ? 'bg-rose-100 text-rose-700'
+                        : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {getContractCategoryLabel(category)}
                   </span>
                 </div>
               </div>
@@ -2146,6 +2265,58 @@ export default function ContratsPage() {
                   <AlertCircle size={14} className="text-gray-400 flex-shrink-0 sm:w-4 sm:h-4" />
                   <span>Montant recu: {cardDetails.montantRecu}</span>
                 </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+                <button
+                  type="button"
+                  onClick={() => setExpandedFinancials((prev) => ({ ...prev, [contrat.id]: !prev[contrat.id] }))}
+                  className="flex w-full items-center justify-between gap-3 text-left text-xs text-emerald-900"
+                >
+                  <span className="font-medium">Pilotage financier contrat</span>
+                  <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-medium text-emerald-800">
+                    {expandedFinancials[contrat.id] ? 'Reduire' : 'Afficher'}
+                    {expandedFinancials[contrat.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </span>
+                </button>
+                {expandedFinancials[contrat.id] ? (
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Montant donne au proprietaire</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={financialDraft.ownerAmount}
+                          onChange={(event) => handleFinancialDraftChange(contrat, { ownerAmount: event.target.value })}
+                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Profit net</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={financialDraft.netProfit}
+                          onChange={(event) => handleFinancialDraftChange(contrat, { netProfit: event.target.value })}
+                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveFinancials(contrat)}
+                        disabled={savingFinancialContratId === contrat.id}
+                        className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-60"
+                      >
+                        {savingFinancialContratId === contrat.id ? 'Enregistrement...' : 'Enregistrer montants'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-2 gap-2 mt-4">

@@ -174,9 +174,8 @@ export function renderHotelRichText(value?: string | null) {
 
 export function getHotelCardDescription(hotel?: HotelSummary | HotelDetail | null) {
   const candidates = [
-    (hotel as any)?.ShortDescription,
     (hotel as any)?.HotelDescription,
-    (hotel as any)?.Note,
+    (hotel as any)?.ShortDescription,
     hotel?.Adress,
   ];
 

@@ -810,6 +810,7 @@ export default function BiensPage() {
   const [modeFilter, setModeFilter] = useState<BienMode | 'all'>('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBien, setEditingBien] = useState<Bien | null>(null);
+  const [editorInitialTab, setEditorInitialTab] = useState<'general' | 'images' | 'calendar'>('general');
   const [duplicateSeedBien, setDuplicateSeedBien] = useState<Bien | null>(null);
   const [viewingBien, setViewingBien] = useState<Bien | null>(null);
   const [editorInitialStep, setEditorInitialStep] = useState<0 | 1 | 2 | 3 | 4 | 5>(1);
@@ -868,9 +869,31 @@ export default function BiensPage() {
     priorityValues.every((value) => Number.isInteger(value) && value >= 1 && value <= 3) &&
     new Set(priorityValues).size === 3;
 
+  const normalizeSearchValue = (value?: string | null) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
+  const ownerNameById = new Map(
+    proprietaireOptions.map((owner) => [String(owner.id || '').trim(), String(owner.nom || '').trim()])
+  );
+
   const filteredBiens = biens.filter((bien) => {
-    const query = searchTerm.toLowerCase();
-    const matchesQuery = bien.titre.toLowerCase().includes(query) || bien.reference.toLowerCase().includes(query);
+    const query = normalizeSearchValue(searchTerm);
+    const ownerName = normalizeSearchValue(
+      ownerNameById.get(String(bien.proprietaire_id || '').trim()) || String((bien as any).proprietaire_nom || '')
+    );
+    const mobileName = normalizeSearchValue(bien.nom_bien_mobile || '');
+    const title = normalizeSearchValue(bien.titre || '');
+    const reference = normalizeSearchValue(bien.reference || '');
+    const matchesQuery =
+      !query ||
+      title.includes(query) ||
+      reference.includes(query) ||
+      mobileName.includes(query) ||
+      ownerName.includes(query);
     const matchesStatus = statusFilter === 'all' || bien.statut === statusFilter;
     const matchesMode = modeFilter === 'all' || bien.mode === modeFilter;
     return matchesQuery && matchesStatus && matchesMode;
@@ -958,6 +981,25 @@ export default function BiensPage() {
       cancelled = true;
     };
   }, [homeFilterImageMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || biens.length === 0 || isAddOpen) return;
+    const params = new URLSearchParams(window.location.search);
+    const editBienId = String(params.get('editBien') || '').trim();
+    const requestedTab = String(params.get('tab') || '').trim().toLowerCase();
+    if (!editBienId) return;
+    const targetBien = biens.find((item) => String(item.id || '').trim() === editBienId);
+    if (!targetBien) return;
+    setDuplicateSeedBien(null);
+    setEditingBien(normalizeBienForEditor(targetBien) as Bien);
+    setEditorInitialStep(isResidenceParentBien(targetBien) ? 0 : 1);
+    setEditorInitialTab(requestedTab === 'calendar' ? 'calendar' : 'general');
+    setIsAddOpen(true);
+    params.delete('editBien');
+    params.delete('tab');
+    const nextSearch = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`);
+  }, [biens, isAddOpen]);
   const handleTypeImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
     setTypeImageFile(file);
@@ -1538,8 +1580,8 @@ export default function BiensPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div><h1 className="text-xl sm:text-2xl font-bold text-gray-900">Gestion des Biens</h1><p className="text-xs sm:text-sm text-gray-500">Gérez votre portefeuille</p></div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          <button onClick={() => { setDuplicateSeedBien(null); setEditingBien(null); setEditorInitialStep(1); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
-          <button onClick={() => { setDuplicateSeedBien({ mode: 'location_saisonniere', type: 'residence', residence_units: [], statut: 'disponible', visible_sur_site: true } as Bien); setEditingBien(null); setEditorInitialStep(0); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 border border-emerald-600 text-emerald-700 text-sm font-medium rounded-md hover:bg-emerald-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau residence</button>
+          <button onClick={() => { setDuplicateSeedBien(null); setEditingBien(null); setEditorInitialStep(1); setEditorInitialTab('general'); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
+          <button onClick={() => { setDuplicateSeedBien({ mode: 'location_saisonniere', type: 'residence', residence_units: [], statut: 'disponible', visible_sur_site: true } as Bien); setEditingBien(null); setEditorInitialStep(0); setEditorInitialTab('general'); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 border border-emerald-600 text-emerald-700 text-sm font-medium rounded-md hover:bg-emerald-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau residence</button>
           <Link to="/admin/packs" className="inline-flex items-center justify-center px-4 py-2 border border-amber-400 text-amber-800 text-sm font-medium rounded-md hover:bg-amber-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Packs</Link>
         </div>
       </div>
@@ -1762,7 +1804,7 @@ export default function BiensPage() {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(normalizeBienForEditor(bien) as Bien); setEditorInitialStep(isResidenceParentBien(bien) ? 0 : 1); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(normalizeBienForEditor(bien) as Bien)} />)}
+        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(normalizeBienForEditor(bien) as Bien); setEditorInitialStep(isResidenceParentBien(bien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(normalizeBienForEditor(bien) as Bien)} />)}
       </div>
       {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
       <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
@@ -1778,7 +1820,7 @@ export default function BiensPage() {
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
             ><Save className="h-4 w-4" /><span>Sauvegarder</span></button>
           </div>
-          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} seedData={duplicateSeedBien} initialGeneralStep={editorInitialStep} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
+          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} seedData={duplicateSeedBien} initialGeneralStep={editorInitialStep} initialTab={editorInitialTab} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root open={!!viewingBien} onOpenChange={() => setViewingBien(null)}>
@@ -1787,8 +1829,8 @@ export default function BiensPage() {
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
             <div className="flex items-center gap-3"><button onClick={() => setViewingBien(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">Apercu</Dialog.Title></div>
             <div className="flex items-center gap-2">
-              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 2); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><span>Modifier visibilite</span></button>
-              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 1); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /><span>Modifier</span></button>
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 2); setEditorInitialTab('general'); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><span>Modifier visibilite</span></button>
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /><span>Modifier</span></button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">{viewingBien && <BienPreview bien={viewingBien} zones={zoneOptions} onSaveVisibility={handlePreviewVisibilitySave} />}</div>
@@ -1931,12 +1973,12 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
   );
 }
 
-function BienEditor({ initialData, seedData, initialGeneralStep = 1, zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; seedData?: Bien | null; initialGeneralStep?: 0 | 1 | 2 | 3 | 4 | 5; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
+function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab = 'general', zones, proprietaires, existingBiens, onSubmit }: { initialData: Bien | null; seedData?: Bien | null; initialGeneralStep?: 0 | 1 | 2 | 3 | 4 | 5; initialTab?: 'general' | 'images' | 'calendar'; zones: Zone[]; proprietaires: Proprietaire[]; existingBiens: Bien[]; onSubmit: (data: Bien) => void | Promise<void>; onCancel: () => void; }) {
   const resolvedInitialData = normalizeBienForEditor(initialData) as Bien | null;
   const resolvedSeedData = normalizeBienForEditor(seedData) as Bien | null | undefined;
   const initialEditorData = resolvedInitialData || resolvedSeedData;
   const initialIsResidenceParent = isResidenceParentBien(initialEditorData);
-  const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>(initialTab);
   const [generalStep, setGeneralStep] = useState<0 | 1 | 2 | 3 | 4 | 5>(initialIsResidenceParent ? 0 : initialGeneralStep);
   const [formData, setFormData] = useState<Partial<Bien>>(initialEditorData || { reference: '', titre: '', nom_bien_mobile: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, residence_units: [], nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, prix_semaine: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
   const saisonConfig: LocationSaisonniereConfig = {
@@ -9120,7 +9162,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, zones, prop
   );
 }
 
-function AdminCalendar({
+export function AdminCalendar({
   dates,
   onDatesChange,
   pricingPeriods,

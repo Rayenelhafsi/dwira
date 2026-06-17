@@ -5,7 +5,8 @@ import { useRef } from 'react';
 import { toast } from 'sonner';
 import AvailabilityCalendar from '../../components/AvailabilityCalendar';
 import { useProperties } from '../../context/PropertiesContext';
-import type { Bien, DateStatus, Notification, Proprietaire, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus } from '../types';
+import { AdminCalendar } from './BiensPage';
+import type { Bien, DateStatus, Notification, Proprietaire, ReservationDemand, ReservationDemandHistory, ReservationDemandStatus, SeasonalPricingPeriod } from '../types';
 import { getServiceDisplayPrice } from '../../utils/servicePayants';
 import { resolveMediaUrl } from '../../utils/media';
 
@@ -772,28 +773,38 @@ function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, n
   const value = String(status?.status || '').trim();
   if (value === 'no_app') {
     const flaggedAt = status?.updatedAt || status?.createdAt || null;
+    const waitingDurationLabel = flaggedAt ? formatElapsedDuration(flaggedAt, nowMs) : '';
+    const isOverdue = Boolean(flaggedAt) && (nowMs - (parseDateForRelative(flaggedAt)?.getTime() || nowMs)) >= 48 * 60 * 60 * 1000;
+    const verifiedAt = String((status?.responseMetadata as any)?.verifiedAt || '').trim();
     return {
       label: "N'a pas encore l'application",
-      tone: 'border-indigo-200 bg-indigo-50 text-indigo-800',
+      tone: isOverdue ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-indigo-200 bg-indigo-50 text-indigo-800',
       detail: flaggedAt ? `Classe sans application le ${formatDateTime(flaggedAt)}` : "Proprietaire marque sans application",
-      helper: 'Non compte dans les retards tant que ce statut reste actif.',
+      helper: verifiedAt
+        ? `Derniere verification admin le ${formatDateTime(verifiedAt)}.`
+        : 'Suivi manuel requis toutes les 48 heures.',
       sentAt: flaggedAt,
       respondedAt: null,
-      waitingDurationLabel: '',
-      isOverdue: false,
+      waitingDurationLabel,
+      isOverdue,
     };
   }
   if (value === 'phone_only') {
     const flaggedAt = status?.updatedAt || status?.createdAt || null;
+    const waitingDurationLabel = flaggedAt ? formatElapsedDuration(flaggedAt, nowMs) : '';
+    const isOverdue = Boolean(flaggedAt) && (nowMs - (parseDateForRelative(flaggedAt)?.getTime() || nowMs)) >= 48 * 60 * 60 * 1000;
+    const verifiedAt = String((status?.responseMetadata as any)?.verifiedAt || '').trim();
     return {
       label: 'Avec tel seulement',
-      tone: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+      tone: isOverdue ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-cyan-200 bg-cyan-50 text-cyan-800',
       detail: flaggedAt ? `Classe discussion telephone le ${formatDateTime(flaggedAt)}` : 'Proprietaire marque discussion telephone',
-      helper: 'Suivi par telephone uniquement. Non compte dans les retards tant que ce statut reste actif.',
+      helper: verifiedAt
+        ? `Derniere verification admin le ${formatDateTime(verifiedAt)}.`
+        : 'Suivi par telephone uniquement. Verification admin attendue sous 48 heures.',
       sentAt: flaggedAt,
       respondedAt: null,
-      waitingDurationLabel: '',
-      isOverdue: false,
+      waitingDurationLabel,
+      isOverdue,
     };
   }
   const sentAt = value === 'pending'
@@ -857,7 +868,7 @@ function getOwnerCalendarStatusMeta(status?: OwnerCalendarPromptStatus | null, n
 export default function NotificationsPage() {
   const initialCache = readNotificationsCache();
   const location = useLocation();
-  const { biens } = useProperties();
+  const { biens, updateBien } = useProperties();
   const [notifications, setNotifications] = useState<Notification[]>(initialCache?.notifications || []);
   const [demands, setDemands] = useState<ReservationDemand[]>(initialCache?.demands || []);
   const [historyRows, setHistoryRows] = useState<ReservationDemandHistory[]>([]);
@@ -900,6 +911,10 @@ export default function NotificationsPage() {
   const [calendarReviewRequest, setCalendarReviewRequest] = useState<AdminCalendarRequest | null>(null);
   const [calendarOwnerStatusLoadingId, setCalendarOwnerStatusLoadingId] = useState<string | null>(null);
   const [calendarReviewDiff, setCalendarReviewDiff] = useState<CalendarDiffPayload | null>(null);
+  const [calendarEditorBien, setCalendarEditorBien] = useState<Bien | null>(null);
+  const [calendarEditorDates, setCalendarEditorDates] = useState<DateStatus[]>([]);
+  const [calendarEditorPricingPeriods, setCalendarEditorPricingPeriods] = useState<SeasonalPricingPeriod[]>([]);
+  const [calendarEditorSaving, setCalendarEditorSaving] = useState(false);
   const [selectedClientDemand, setSelectedClientDemand] = useState<ReservationDemand | null>(null);
   const [calendarReviewLoading, setCalendarReviewLoading] = useState(false);
   const [calendarActionLoadingId, setCalendarActionLoadingId] = useState<string | null>(null);
@@ -1554,6 +1569,105 @@ export default function NotificationsPage() {
     return Array.isArray(rawDates) ? rawDates : [];
   };
 
+  const getBienPricingPeriods = (bien?: Bien | null) => {
+    const directRows = bien?.pricing_periods;
+    if (Array.isArray(directRows)) return directRows;
+    const nestedRows = bien?.location_saisonniere_config?.pricing_periods;
+    return Array.isArray(nestedRows) ? nestedRows : [];
+  };
+
+  const syncUnavailableDatesForBien = useCallback(async (bienId: string, dates: DateStatus[]) => {
+    const normalizedBienId = String(bienId || '').trim();
+    if (!normalizedBienId) return;
+
+    const normalizeStatus = (value: unknown): 'blocked' | 'pending' | 'booked' => {
+      const raw = String(value || '').trim().toLowerCase();
+      if (raw === 'booked' || raw === 'pending' || raw === 'blocked') return raw;
+      return 'blocked';
+    };
+    const normalizeSqlDate = (value: unknown): string => String(value || '').slice(0, 10);
+    const isValidSqlDate = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const buildKey = (start: string, end: string, status: string) => `${start}|${end}|${status}`;
+
+    const desired = (Array.isArray(dates) ? dates : [])
+      .map((item) => {
+        const start = normalizeSqlDate(item?.start);
+        const end = normalizeSqlDate(item?.end);
+        const status = normalizeStatus(item?.status);
+        if (!start || !end || !isValidSqlDate(start) || !isValidSqlDate(end) || end < start) return null;
+        return { start, end, status };
+      })
+      .filter((item): item is { start: string; end: string; status: 'blocked' | 'pending' | 'booked' } => Boolean(item));
+
+    const existingResponse = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(normalizedBienId)}`, { credentials: 'include' });
+    if (!existingResponse.ok) {
+      throw new Error('Impossible de charger les indisponibilites actuelles');
+    }
+
+    const existingRows = (await existingResponse.json().catch(() => [])) as Array<{
+      id?: string;
+      start_date?: string;
+      end_date?: string;
+      status?: string;
+    }>;
+
+    const existingBuckets = new Map<string, Array<{ id: string }>>();
+    for (const row of Array.isArray(existingRows) ? existingRows : []) {
+      const id = String(row?.id || '').trim();
+      const start = normalizeSqlDate(row?.start_date);
+      const end = normalizeSqlDate(row?.end_date);
+      const status = normalizeStatus(row?.status);
+      if (!id || !start || !end || !isValidSqlDate(start) || !isValidSqlDate(end)) continue;
+      const key = buildKey(start, end, status);
+      const bucket = existingBuckets.get(key) || [];
+      bucket.push({ id });
+      existingBuckets.set(key, bucket);
+    }
+
+    const toCreate: Array<{ start: string; end: string; status: 'blocked' | 'pending' | 'booked' }> = [];
+    for (const row of desired) {
+      const key = buildKey(row.start, row.end, row.status);
+      const existingList = existingBuckets.get(key);
+      if (existingList && existingList.length > 0) {
+        existingList.pop();
+      } else {
+        toCreate.push(row);
+      }
+    }
+
+    const toDelete: string[] = [];
+    for (const list of existingBuckets.values()) {
+      for (const item of list) toDelete.push(item.id);
+    }
+
+    for (const unavailableDateId of toDelete) {
+      const deleteResponse = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(unavailableDateId)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!deleteResponse.ok && deleteResponse.status !== 404) {
+        throw new Error('Impossible de supprimer une indisponibilite');
+      }
+    }
+
+    for (const row of toCreate) {
+      const createResponse = await fetch(`${API_URL}/unavailable-dates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          bien_id: normalizedBienId,
+          start_date: row.start,
+          end_date: row.end,
+          status: row.status,
+        }),
+      });
+      if (!createResponse.ok) {
+        throw new Error('Impossible d enregistrer une indisponibilite');
+      }
+    }
+  }, []);
+
   const calendarOwners = useMemo(() => {
     const byId = new Map<string, { id: string; name: string }>();
     owners.forEach((owner) => {
@@ -2195,6 +2309,62 @@ export default function NotificationsPage() {
     }
   };
 
+  const verifyCalendarOwnerFollowUp = async (owner: { id: string; name: string }) => {
+    const ownerId = String(owner.id || '').trim();
+    if (!ownerId) return;
+    setCalendarOwnerStatusLoadingId(ownerId);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses/${encodeURIComponent(ownerId)}/verify`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Impossible de verifier le suivi de ce proprietaire'));
+      }
+      toast.success(`Suivi proprietaire confirme pour ${owner.name}`);
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de verifier le suivi de ce proprietaire');
+    } finally {
+      setCalendarOwnerStatusLoadingId(null);
+    }
+  };
+
+  const openBienCalendarEditor = (bien?: Bien | null) => {
+    if (!bien) return;
+    setCalendarEditorBien(bien);
+    setCalendarEditorDates(getBienCalendarDates(bien));
+    setCalendarEditorPricingPeriods(getBienPricingPeriods(bien));
+  };
+
+  const closeCalendarEditor = () => {
+    setCalendarEditorBien(null);
+    setCalendarEditorDates([]);
+    setCalendarEditorPricingPeriods([]);
+    setCalendarEditorSaving(false);
+  };
+
+  const saveCalendarEditor = async () => {
+    if (!calendarEditorBien) return;
+    setCalendarEditorSaving(true);
+    try {
+      await updateBien({
+        ...calendarEditorBien,
+        pricing_periods: calendarEditorPricingPeriods,
+        location_saisonniere_config: {
+          ...(calendarEditorBien.location_saisonniere_config || {}),
+          pricing_periods: calendarEditorPricingPeriods,
+        },
+      } as Bien);
+      await syncUnavailableDatesForBien(calendarEditorBien.id, calendarEditorDates);
+      toast.success(`Calendrier mis a jour pour ${calendarEditorBien.titre || calendarEditorBien.reference || 'ce bien'}`);
+      closeCalendarEditor();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de sauvegarder le calendrier');
+      setCalendarEditorSaving(false);
+    }
+  };
+
   const openCalendarDiff = async (request: AdminCalendarRequest) => {
     setCalendarReviewRequest(request);
     setCalendarReviewDiff(null);
@@ -2375,6 +2545,40 @@ export default function NotificationsPage() {
       toast.error(error instanceof Error ? error.message : 'Generation contrat impossible');
     } finally {
       setGeneratingContractDemandId(null);
+    }
+  };
+
+  const getUnreadNotificationsForDemand = useCallback((demand: ReservationDemand) => {
+    const tokens = [
+      String(demand.id || '').trim().toLowerCase(),
+      String(demand.contract_id || '').trim().toLowerCase(),
+      String(demand.bien_reference || '').trim().toLowerCase(),
+      String(demand.client_email || '').trim().toLowerCase(),
+    ].filter(Boolean);
+    if (tokens.length === 0) return [];
+    return notifications.filter((notification) => {
+      if (notification.lu) return false;
+      const message = String(notification.message || '').toLowerCase();
+      return tokens.some((token) => token && message.includes(token));
+    });
+  }, [notifications]);
+
+  const markDemandNotificationsAsRead = async (demand: ReservationDemand) => {
+    const rows = getUnreadNotificationsForDemand(demand);
+    if (rows.length === 0) {
+      toast.info('Aucune notification non lue clairement liee a cette demande');
+      return;
+    }
+    try {
+      for (const row of rows) {
+        const response = await fetch(`${API_URL}/notifications/${encodeURIComponent(row.id)}/lu`, { method: 'PUT', credentials: 'include' });
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Impossible de marquer les notifications comme lues'));
+      }
+      const readIds = new Set(rows.map((row) => row.id));
+      setNotifications((prev) => prev.map((item) => readIds.has(item.id) ? { ...item, lu: true } : item));
+      toast.success(rows.length > 1 ? 'Notifications du dossier marquees comme lues' : 'Notification du dossier marquee comme lue');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de marquer les notifications comme lues');
     }
   };
 
@@ -2814,65 +3018,124 @@ export default function NotificationsPage() {
             const hasCinPhoto = Boolean(cinPhotoUrl);
             const isAmicaleDemand = String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
             const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : '';
+            const unreadDemandNotifications = getUnreadNotificationsForDemand(demand);
             return (
-            <div key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div className="space-y-2">
+            <div key={demand.id} className="overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] shadow-[0_18px_45px_rgba(15,23,42,0.07)] transition-shadow hover:shadow-[0_24px_60px_rgba(15,23,42,0.10)]">
+              <div className="grid gap-0 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)]">
+                <div className="border-b border-slate-200 p-5 xl:border-b-0 xl:border-r">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClasses[displayStatus]}`}>
+                    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-sm ${statusToneClasses[displayStatus]}`}>
                       {statusLabels[displayStatus]}
                     </span>
-                    <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
                       Cree le {formatDateTime(demand.created_at)}
                     </span>
+                    {String(demand.bien_reference || '').trim() ? (
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                        {String(demand.bien_reference).trim()}
+                      </span>
+                    ) : null}
                   </div>
-                  <p className="text-base font-semibold text-gray-900">
-                    {(String(demand.bien_titre || '').trim() || 'Bien demande')}
-                    {String(demand.bien_reference || '').trim() ? ` • ${String(demand.bien_reference).trim()}` : ''}
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    {demand.client_name || demand.client_email || 'Client non identifie'} - Arrivee {formatStayDate(demand.start_date)} - Depart {formatStayDate(demand.end_date)} - {demand.guests} voyageurs
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Proprietaire: <span className="font-medium text-gray-700">{demand.proprietaire_nom || '-'}</span>
-                  </p>
+
+                  <div className="mt-4">
+                    <p className="text-lg font-semibold leading-tight text-slate-900">
+                      {String(demand.bien_titre || '').trim() || 'Bien demande'}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {demand.client_name || demand.client_email || 'Client non identifie'}
+                    </p>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Arrivee</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">{formatStayDate(demand.start_date)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Depart</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">{formatStayDate(demand.end_date)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Voyageurs</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">{demand.guests} voyageur{Number(demand.guests || 0) > 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                    <span className="rounded-full bg-emerald-50 px-3 py-1.5 font-medium text-emerald-800">
+                      Proprietaire: {demand.proprietaire_nom || '-'}
+                    </span>
+                    <span className="rounded-full bg-sky-50 px-3 py-1.5 font-medium text-sky-800">
+                      Client: {demand.client_name || demand.client_email || '-'}
+                    </span>
+                  </div>
+
                   {isAmicaleDemand && (
-                    <div className="space-y-1 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                      <p className="font-semibold uppercase tracking-wide text-emerald-700">Amicale</p>
-                      <p>
-                        Matricule: <span className="font-medium text-emerald-900">{demand.amicale_matricule || '-'}</span>
-                      </p>
-                      <p>
-                        Telephone: <span className="font-medium text-emerald-900">{demand.amicale_phone || '-'}</span>
-                      </p>
-                      <p>
-                        Code: <span className="font-medium text-emerald-900">{demand.amicale_code || '-'}</span>
-                      </p>
+                    <div className="mt-5 rounded-2xl border border-emerald-200 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_100%)] p-4 text-sm text-emerald-900">
+                      <p className="font-semibold uppercase tracking-[0.18em] text-emerald-700">Dossier amicale</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-emerald-600">Matricule</p>
+                          <p className="mt-1 font-medium">{demand.amicale_matricule || '-'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-emerald-600">Telephone</p>
+                          <p className="mt-1 font-medium">{demand.amicale_phone || '-'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-emerald-600">Code</p>
+                          <p className="mt-1 font-medium">{demand.amicale_code || '-'}</p>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2 xl:justify-end">
+
+                <div className="bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_22%)] p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleDemandExpanded(demand.id)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                    >
+                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      {isExpanded ? 'Masquer details' : 'Voir details'}
+                    </button>
+                    <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm">
+                      Etat
+                      <select
+                        value={displayStatus}
+                        onChange={(event) => void handleDemandUpdate(demand, { status: event.target.value as ReservationDemandStatus, history_note: `Etat change par admin: ${statusLabels[event.target.value as ReservationDemandStatus]}` })}
+                        disabled={savingId === demand.id}
+                        className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700"
+                      >
+                        {statusSelectOptions.map((value) => (
+                          <option key={value} value={value}>{statusLabels[value]}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   <button
                     type="button"
-                    onClick={() => toggleDemandExpanded(demand.id)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => void openHistory(demand.id)}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
                   >
-                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                    {isExpanded ? 'Masquer details' : 'Voir details'}
+                    <History className="h-4 w-4" />
+                    Trace
                   </button>
-                  <label className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-medium text-gray-600">
-                    Etat
-                    <select
-                      value={displayStatus}
-                      onChange={(event) => void handleDemandUpdate(demand, { status: event.target.value as ReservationDemandStatus, history_note: `Etat change par admin: ${statusLabels[event.target.value as ReservationDemandStatus]}` })}
-                      disabled={savingId === demand.id}
-                      className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700"
+                  {unreadDemandNotifications.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void markDemandNotificationsAsRead(demand)}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-3 py-2.5 text-sm font-medium text-emerald-700 shadow-sm hover:bg-emerald-50"
                     >
-                      {statusSelectOptions.map((value) => (
-                        <option key={value} value={value}>{statusLabels[value]}</option>
-                      ))}
-                    </select>
-                  </label>
+                      Marquer lu
+                    </button>
+                  ) : (
+                    <div className="hidden xl:block" />
+                  )}
                   {isAmicaleDemand ? (
                     <>
                       {displayStatus === 'attente_validation_par_agence' && (
@@ -2881,7 +3144,7 @@ export default function NotificationsPage() {
                             type="button"
                             onClick={() => void handleDemandUpdate(demand, { status: 'voucher_en_cours', history_note: 'Agence valide la demande amicale et genere le voucher' })}
                             disabled={savingId === demand.id}
-                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                           >
                             <CheckCircle2 className="h-4 w-4" />
                             Valider voucher
@@ -2890,7 +3153,7 @@ export default function NotificationsPage() {
                             type="button"
                             onClick={() => void handleDemandUpdate(demand, { status: 'rejete_par_agence', history_note: "Agence rejette la demande amicale" })}
                             disabled={savingId === demand.id}
-                            className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
                           >
                             Rejeter agence
                           </button>
@@ -2901,7 +3164,7 @@ export default function NotificationsPage() {
                           href={voucherUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-indigo-300 bg-indigo-50 px-3 py-2.5 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
                         >
                           Ouvrir voucher
                         </a>
@@ -2916,7 +3179,7 @@ export default function NotificationsPage() {
                           openOwnerChat(demand);
                         }}
                         disabled={savingId === demand.id}
-                        className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-sky-300 bg-sky-50 px-3 py-2.5 text-sm font-semibold text-sky-800 hover:bg-sky-100"
                       >
                         <MessageSquareShare className="h-4 w-4" />
                         Contacter proprietaire
@@ -2926,7 +3189,7 @@ export default function NotificationsPage() {
                         target="_blank"
                         rel="noreferrer"
                         aria-disabled={!hasReceipt}
-                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                        className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-3 py-2.5 text-sm font-semibold ${
                           hasReceipt
                             ? 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100'
                             : 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
@@ -2943,7 +3206,7 @@ export default function NotificationsPage() {
                         target="_blank"
                         rel="noreferrer"
                         aria-disabled={!hasCinPhoto}
-                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                        className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-3 py-2.5 text-sm font-semibold ${
                           hasCinPhoto
                             ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
                             : 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
@@ -2959,7 +3222,7 @@ export default function NotificationsPage() {
                         type="button"
                         onClick={() => void requestOwnerAvailability(demand)}
                         disabled={savingId === demand.id}
-                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                       >
                         <Bell className="h-4 w-4" />
                         Demander disponibilite
@@ -2968,7 +3231,7 @@ export default function NotificationsPage() {
                         type="button"
                         onClick={() => void generateContractForDemand(demand)}
                         disabled={generatingContractDemandId === demand.id || !String(demand.contract_id || '').trim()}
-                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                       >
                         {generatingContractDemandId === demand.id ? 'Generation...' : 'Generer contrat'}
                       </button>
@@ -2976,7 +3239,7 @@ export default function NotificationsPage() {
                         type="button"
                         onClick={() => void viewContractForDemand(demand)}
                         disabled={!String(demand.contract_id || '').trim()}
-                        className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-sky-300 bg-sky-50 px-3 py-2.5 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
                       >
                         Voir contrat
                       </button>
@@ -2984,27 +3247,19 @@ export default function NotificationsPage() {
                         type="button"
                         onClick={() => void sendContractToClient(demand)}
                         disabled={sendingContractDemandId === demand.id || !String(demand.contract_id || '').trim()}
-                        className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-indigo-300 bg-indigo-50 px-3 py-2.5 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
                       >
                         {sendingContractDemandId === demand.id ? 'Envoi...' : 'Envoyer contrat client'}
                       </button>
                     </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => void openHistory(demand.id)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    <History className="h-4 w-4" />
-                    Trace
-                  </button>
                   {!isAmicaleDemand && (
                     <>
                       <button
                         type="button"
                         onClick={() => void rejectDemand(demand, false)}
                         disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
-                        className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-3 py-2.5 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
                       >
                         Rejeter
                       </button>
@@ -3012,7 +3267,7 @@ export default function NotificationsPage() {
                         type="button"
                         onClick={() => void rejectDemand(demand, true)}
                         disabled={savingId === demand.id || demand.status === 'demande_rejetee_admin'}
-                        className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-60"
                       >
                         Rejeter + popup client
                       </button>
@@ -3020,23 +3275,42 @@ export default function NotificationsPage() {
                   )}
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600 md:grid-cols-2 xl:grid-cols-4">
-                <div>Notif proprietaire: <span className="font-semibold text-gray-800">{demand.owner_notified_at ? formatDateTime(demand.owner_notified_at) : 'Non envoyee'}</span></div>
-                <div>Reponse proprietaire: <span className="font-semibold text-gray-800">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</span></div>
-                <div>Consultation client: <span className="font-semibold text-gray-800">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</span></div>
-                <div>Derniere MAJ: <span className="font-semibold text-gray-800">{demand.updated_at ? formatDateTime(demand.updated_at) : formatDateTime(demand.created_at)}</span></div>
-                <div>Contrat realise: <span className="font-semibold text-gray-800">{demand.contract_generated_at ? formatDateTime(demand.contract_generated_at) : 'Pas encore'}</span></div>
+              </div>
+              <div className="border-t border-slate-200 bg-slate-50/80 px-5 py-4">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  <div className="rounded-2xl border border-white/80 bg-white px-3 py-3 text-xs text-slate-600 shadow-sm">
+                    <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">Notif proprietaire</p>
+                    <p className="mt-2 font-semibold text-slate-900">{demand.owner_notified_at ? formatDateTime(demand.owner_notified_at) : 'Non envoyee'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/80 bg-white px-3 py-3 text-xs text-slate-600 shadow-sm">
+                    <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">Reponse proprietaire</p>
+                    <p className="mt-2 font-semibold text-slate-900">{demand.owner_response_at ? formatDateTime(demand.owner_response_at) : 'Pas encore'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/80 bg-white px-3 py-3 text-xs text-slate-600 shadow-sm">
+                    <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">Consultation client</p>
+                    <p className="mt-2 font-semibold text-slate-900">{demand.client_confirmation_clicked_at ? formatDateTime(demand.client_confirmation_clicked_at) : 'Pas encore'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/80 bg-white px-3 py-3 text-xs text-slate-600 shadow-sm">
+                    <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">Derniere MAJ</p>
+                    <p className="mt-2 font-semibold text-slate-900">{demand.updated_at ? formatDateTime(demand.updated_at) : formatDateTime(demand.created_at)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/80 bg-white px-3 py-3 text-xs text-slate-600 shadow-sm">
+                    <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">Contrat realise</p>
+                    <p className="mt-2 font-semibold text-slate-900">{demand.contract_generated_at ? formatDateTime(demand.contract_generated_at) : 'Pas encore'}</p>
+                  </div>
+                </div>
               </div>
               {isExpanded && (
                 <>
-              <div className="mt-2 text-xs text-gray-500">
-                Repartition voyageurs: <span className="font-medium text-gray-700">Adultes {Number(demand.adult_guests || demand.guests || 1)} / Enfants {Number(demand.child_guests || 0)}</span>
+              <div className="px-5 pb-5 pt-4">
+              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
+                Repartition voyageurs: <span className="font-medium text-slate-700">Adultes {Number(demand.adult_guests || demand.guests || 1)} / Enfants {Number(demand.child_guests || 0)}</span>
               </div>
               {(demand.selected_fixed_services?.length || demand.selected_variable_services?.length) ? (
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
                   {(demand.selected_fixed_services || []).length > 0 && (
-                    <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Services fixes inclus</p>
+                    <div className="rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_100%)] p-4 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Services fixes inclus</p>
                       <div className="mt-2 space-y-2 text-sm text-gray-700">
                         {(demand.selected_fixed_services || []).map((service) => (
                           <div key={`fixed-${service.id}`} className="flex items-center justify-between gap-3">
@@ -3048,8 +3322,8 @@ export default function NotificationsPage() {
                     </div>
                   )}
                   {(demand.selected_variable_services || []).length > 0 && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Services a deviser</p>
+                    <div className="rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_100%)] p-4 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">Services a deviser</p>
                       <div className="mt-2 space-y-2">
                         {(demand.selected_variable_services || []).map((service) => (
                           <div key={`variable-${service.id}`} className="grid gap-2 sm:grid-cols-[1fr_120px]">
@@ -3068,7 +3342,7 @@ export default function NotificationsPage() {
                                   [String(service.id)]: Number(event.target.value || 0),
                                 },
                               }))}
-                              className="rounded-lg border border-amber-200 px-3 py-2 text-sm"
+                              className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
                             />
                           </div>
                         ))}
@@ -3082,7 +3356,7 @@ export default function NotificationsPage() {
                           type="button"
                           onClick={() => void saveVariableServicesQuote(demand)}
                           disabled={savingId === demand.id}
-                          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-50"
+                          className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-50"
                         >
                           Enregistrer devis services
                         </button>
@@ -3092,13 +3366,13 @@ export default function NotificationsPage() {
                 </div>
               ) : null}
               {(demand.identity_submitted_at || demand.identity_document_number) && (
-                <div className="mt-2 text-xs text-gray-500">
-                  Coordonnees client: <span className="font-medium text-gray-700">{demand.identity_document_type || '-'}</span> - numero <span className="font-medium text-gray-700">{demand.identity_document_number || '-'}</span> - soumis le <span className="font-medium text-gray-700">{demand.identity_submitted_at ? formatDateTime(demand.identity_submitted_at) : '-'}</span>
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                  Coordonnees client: <span className="font-medium text-slate-700">{demand.identity_document_type || '-'}</span> - numero <span className="font-medium text-slate-700">{demand.identity_document_number || '-'}</span> - soumis le <span className="font-medium text-slate-700">{demand.identity_submitted_at ? formatDateTime(demand.identity_submitted_at) : '-'}</span>
                 </div>
               )}
               {(demand.payment_receipt_image_url || demand.payment_receipt_uploaded_at || demand.payment_receipt_note) && (
-                <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Recu de paiement client</p>
+                <div className="mt-4 rounded-2xl border border-sky-200 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_100%)] p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Recu de paiement client</p>
                   <p className="mt-1 text-xs text-gray-600">
                     Envoye le <span className="font-medium text-gray-800">{demand.payment_receipt_uploaded_at ? formatDateTime(demand.payment_receipt_uploaded_at) : '-'}</span>
                   </p>
@@ -3110,17 +3384,19 @@ export default function NotificationsPage() {
                       href={resolveAssetUrl(demand.payment_receipt_image_url)}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-2 inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                      className="mt-3 inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-white px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
                     >
                       Ouvrir le recu
                     </a>
                   ) : null}
                 </div>
               )}
+              </div>
                 </>
               )}
             </div>
-          )})}
+            );
+          })}
         </div>
       </section>
       )}
@@ -3479,7 +3755,7 @@ export default function NotificationsPage() {
                     {selectedOwnerBiens.length === 0 ? (
                       <p className="mt-4 text-sm text-slate-500">Aucun bien lie a ce proprietaire.</p>
                     ) : (
-                      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                         {selectedOwnerBiens.map((bien) => (
                           <button
                             key={`owner-bien-card-${bien.id}`}
@@ -3491,7 +3767,7 @@ export default function NotificationsPage() {
                                 : 'border-slate-200 hover:border-emerald-200'
                             }`}
                           >
-                            <div className="relative h-40 overflow-hidden">
+                            <div className="relative h-56 overflow-hidden">
                               <img src={getBienCoverImage(bien)} alt={bien.titre} className="h-full w-full object-cover" />
                               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/60 via-slate-950/20 to-transparent p-4">
                                 <span className="inline-flex rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-800">
@@ -3511,6 +3787,11 @@ export default function NotificationsPage() {
                                 {bien.nb_chambres > 0 ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{bien.nb_chambres} ch</span> : null}
                                 {bien.nb_salle_bain > 0 ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{bien.nb_salle_bain} sdb</span> : null}
                                 {bien.prix_nuitee > 0 ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{bien.prix_nuitee} DT / nuit</span> : null}
+                              </div>
+                              <div className="flex justify-end">
+                                <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                                  {selectedOwnerBienCalendarId === String(bien.id) ? 'Calendrier affiche' : 'Voir calendrier'}
+                                </span>
                               </div>
                             </div>
                           </button>
@@ -3534,13 +3815,27 @@ export default function NotificationsPage() {
                           >
                             Fermer calendrier
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => openBienCalendarEditor(selectedOwnerBienForCalendar)}
+                            className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+                          >
+                            Modifier calendrier
+                          </button>
                         </div>
-                        <AvailabilityCalendar
-                          unavailableDates={getBienCalendarDates(selectedOwnerBienForCalendar)}
-                          onDateRangeSelect={() => {}}
-                          selectedStart={null}
-                          selectedEnd={null}
-                        />
+                        <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/80 p-4">
+                          <p className="text-sm text-slate-600">
+                            Ouvrez le calendrier dans la fenetre popup pour le consulter et le modifier avec une taille plus confortable.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+                            <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700">
+                              {getBienCalendarDates(selectedOwnerBienForCalendar).length} periode(s) indisponible(s)
+                            </span>
+                            <span className="rounded-full bg-sky-50 px-3 py-1 font-semibold text-sky-700">
+                              {getBienPricingPeriods(selectedOwnerBienForCalendar).length} periode(s) tarifaire(s)
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -3879,7 +4174,18 @@ export default function NotificationsPage() {
                                     <span>{statusMeta.helper}</span>
                                     <span>{historyCount} historique</span>
                                   </div>
-                                  <div className="mt-3">
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void verifyCalendarOwnerFollowUp(owner);
+                                      }}
+                                      disabled={calendarOwnerStatusLoadingId === owner.id}
+                                      className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                                    >
+                                      {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Verifier suivi'}
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={(event) => {
@@ -3953,7 +4259,18 @@ export default function NotificationsPage() {
                                       <span>{statusMeta.helper}</span>
                                       <span>{historyCount} historique</span>
                                     </div>
-                                    <div className="mt-3">
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void verifyCalendarOwnerFollowUp(owner);
+                                        }}
+                                        disabled={calendarOwnerStatusLoadingId === owner.id}
+                                        className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                                      >
+                                        {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Verifier suivi'}
+                                      </button>
                                       <button
                                         type="button"
                                         onClick={(event) => {
@@ -4018,14 +4335,24 @@ export default function NotificationsPage() {
                       </div>
                       <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 sm:ml-0">
                         {selectedCalendarOwnerWithoutApp || selectedCalendarOwnerPhoneOnly ? (
-                          <button
-                            type="button"
-                            onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
-                            disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
-                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60"
-                          >
-                            {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Admet application'}
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void verifyCalendarOwnerFollowUp(selectedCalendarOwner)}
+                              disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                              className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-60"
+                            >
+                              {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Verifier suivi'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
+                              disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                              className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60"
+                            >
+                              {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Admet application'}
+                            </button>
+                          </>
                         ) : (
                           <>
                             <button
@@ -4096,14 +4423,24 @@ export default function NotificationsPage() {
                               </div>
                               <div className="mt-4 flex flex-wrap gap-2">
                                 {selectedCalendarOwnerWithoutApp || selectedCalendarOwnerPhoneOnly ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
-                                    disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
-                                    className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                                  >
-                                    {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Admet application'}
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => void verifyCalendarOwnerFollowUp(selectedCalendarOwner)}
+                                      disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                      className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                                    >
+                                      {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Verifier suivi'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void admitCalendarOwnerHasApp(selectedCalendarOwner)}
+                                      disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                      className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                    >
+                                      {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Admet application'}
+                                    </button>
+                                  </>
                                 ) : (
                                   <>
                                     <button
@@ -4210,7 +4547,7 @@ export default function NotificationsPage() {
                                   Aucun bien relie a ce proprietaire.
                                 </div>
                               ) : (
-                                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                                   {selectedCalendarBiens.map((bien) => (
                                     <button
                                       key={`calendar-owner-bien-${bien.id}`}
@@ -4222,7 +4559,7 @@ export default function NotificationsPage() {
                                           : 'border-slate-200 hover:border-emerald-200'
                                       }`}
                                     >
-                                      <div className="relative h-40 overflow-hidden">
+                                      <div className="relative h-60 overflow-hidden">
                                         <img src={getBienCoverImage(bien)} alt={bien.titre} className="h-full w-full object-cover" />
                                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/60 via-slate-950/20 to-transparent p-4">
                                           <span className="inline-flex rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-800">
@@ -4242,6 +4579,11 @@ export default function NotificationsPage() {
                                         <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
                                           {bien.prix_nuitee > 0 ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{bien.prix_nuitee} DT / nuit</span> : null}
                                           {bien.prix_semaine > 0 ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{bien.prix_semaine} DT / semaine</span> : null}
+                                        </div>
+                                        <div className="flex justify-end">
+                                          <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                                            {selectedCalendarBienCalendarId === String(bien.id) ? 'Calendrier affiche' : 'Voir calendrier'}
+                                          </span>
                                         </div>
                                       </div>
                                     </button>
@@ -4265,13 +4607,27 @@ export default function NotificationsPage() {
                                     >
                                       Fermer calendrier
                                     </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openBienCalendarEditor(selectedCalendarBienForCalendar)}
+                                      className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+                                    >
+                                      Modifier calendrier
+                                    </button>
                                   </div>
-                                  <AvailabilityCalendar
-                                    unavailableDates={getBienCalendarDates(selectedCalendarBienForCalendar)}
-                                    onDateRangeSelect={() => {}}
-                                    selectedStart={null}
-                                    selectedEnd={null}
-                                  />
+                                  <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/80 p-4">
+                                    <p className="text-sm text-slate-600">
+                                      Ouvrez le calendrier dans la fenetre popup pour le consulter et le modifier en grand format.
+                                    </p>
+                                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+                                      <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700">
+                                        {getBienCalendarDates(selectedCalendarBienForCalendar).length} periode(s) indisponible(s)
+                                      </span>
+                                      <span className="rounded-full bg-sky-50 px-3 py-1 font-semibold text-sky-700">
+                                        {getBienPricingPeriods(selectedCalendarBienForCalendar).length} periode(s) tarifaire(s)
+                                      </span>
+                                    </div>
+                                  </div>
                                 </div>
                               ) : null}
                             </div>
@@ -4957,6 +5313,69 @@ export default function NotificationsPage() {
                     Voir recu
                   </a>
                 ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {calendarEditorBien && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-3 sm:p-6">
+          <div className="flex max-h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-8">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Edition calendrier</p>
+                <h3 className="mt-1 text-xl font-semibold text-slate-900">
+                  {calendarEditorBien.titre || calendarEditorBien.reference || 'Bien'}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {String(calendarEditorBien.reference || '').trim() || 'Sans reference'} • calendrier et tarifs de periode
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCalendarEditor}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Fermer
+              </button>
+            </div>
+            <div className="overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+              <AdminCalendar
+                dates={calendarEditorDates}
+                onDatesChange={setCalendarEditorDates}
+                pricingPeriods={calendarEditorPricingPeriods}
+                onPricingPeriodsChange={setCalendarEditorPricingPeriods}
+                defaultNightlyPrice={Number(calendarEditorBien.prix_nuitee || 0)}
+                defaultWeeklyPrice={calendarEditorBien.prix_semaine ?? null}
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-8">
+              <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-700">
+                  {calendarEditorDates.length} indisponibilite(s)
+                </span>
+                <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-700">
+                  {calendarEditorPricingPeriods.length} periode(s) tarifaire(s)
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={closeCalendarEditor}
+                  disabled={calendarEditorSaving}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveCalendarEditor()}
+                  disabled={calendarEditorSaving}
+                  className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {calendarEditorSaving ? 'Enregistrement...' : 'Enregistrer le calendrier'}
+                </button>
               </div>
             </div>
           </div>
