@@ -804,7 +804,7 @@ interface PropertiesContextType {
 }
 
 const PropertiesContext = createContext<PropertiesContextType | undefined>(undefined);
-const PROPERTIES_CACHE_KEY = 'dwira_properties_cache_v1';
+const PROPERTIES_CACHE_KEY = 'dwira_properties_cache_v2';
 
 type PropertiesCachePayload = {
   biens: Bien[];
