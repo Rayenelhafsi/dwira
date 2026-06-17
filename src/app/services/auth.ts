@@ -13,6 +13,8 @@ export interface AuthUser {
   address?: string | null;
   cin?: string | null;
   cinImageUrl?: string | null;
+  cinImageRectoUrl?: string | null;
+  cinImageVersoUrl?: string | null;
   profileCompleted?: boolean;
   authProvider?: 'local' | 'google' | 'facebook' | 'apple' | 'phone' | 'email' | 'passkey' | null;
   providerUserId?: string | null;
@@ -42,6 +44,8 @@ export interface CompleteSocialProfileInput {
   address: string;
   cin?: string;
   cinImageUrl?: string;
+  cinImageRectoUrl?: string;
+  cinImageVersoUrl?: string;
   avatar?: string | null;
 }
 

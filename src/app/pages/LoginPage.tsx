@@ -66,6 +66,8 @@ export default function LoginPage() {
     address: '',
     cin: '',
     cinImageUrl: '',
+    cinImageRectoUrl: '',
+    cinImageVersoUrl: '',
   });
   const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -90,6 +92,8 @@ export default function LoginPage() {
       address: authUser.address || undefined,
       cin: authUser.cin || undefined,
       cinImageUrl: authUser.cinImageUrl || undefined,
+      cinImageRectoUrl: authUser.cinImageRectoUrl || authUser.cinImageUrl || undefined,
+      cinImageVersoUrl: authUser.cinImageVersoUrl || undefined,
       profileCompleted: authUser.profileCompleted,
       role: 'user',
     });
@@ -162,6 +166,8 @@ export default function LoginPage() {
         address: (user as any).address || '',
         cin: user.cin || '',
         cinImageUrl: user.cinImageUrl || '',
+        cinImageRectoUrl: user.cinImageRectoUrl || user.cinImageUrl || '',
+        cinImageVersoUrl: user.cinImageVersoUrl || '',
       });
       return;
     }
@@ -228,6 +234,8 @@ export default function LoginPage() {
             address: (socialUser as any).address || '',
             cin: socialUser.cin || '',
             cinImageUrl: socialUser.cinImageUrl || '',
+            cinImageRectoUrl: socialUser.cinImageRectoUrl || socialUser.cinImageUrl || '',
+            cinImageVersoUrl: socialUser.cinImageVersoUrl || '',
           });
           toast.info('Completez d abord votre profil client');
         }
@@ -298,6 +306,8 @@ export default function LoginPage() {
           address: (passkeyUser as any).address || prev.address,
           cin: passkeyUser.cin || prev.cin,
           cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
+          cinImageRectoUrl: passkeyUser.cinImageRectoUrl || passkeyUser.cinImageUrl || prev.cinImageRectoUrl || prev.cinImageUrl,
+          cinImageVersoUrl: passkeyUser.cinImageVersoUrl || prev.cinImageVersoUrl,
         }));
         toast.info('Completez votre identite legale pour finaliser votre compte.');
         return;
@@ -339,6 +349,8 @@ export default function LoginPage() {
           address: (passkeyUser as any).address || prev.address,
           cin: passkeyUser.cin || prev.cin,
           cinImageUrl: passkeyUser.cinImageUrl || prev.cinImageUrl,
+          cinImageRectoUrl: passkeyUser.cinImageRectoUrl || passkeyUser.cinImageUrl || prev.cinImageRectoUrl || prev.cinImageUrl,
+          cinImageVersoUrl: passkeyUser.cinImageVersoUrl || prev.cinImageVersoUrl,
         }));
         toast.success('Passkey creee. Completez maintenant votre identite legale.');
         setPasskeyRegisterEmail('');
@@ -357,7 +369,7 @@ export default function LoginPage() {
     }
   };
 
-  const handleCinImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCinImageUpload = async (event: React.ChangeEvent<HTMLInputElement>, side: 'recto' | 'verso') => {
     const file = event.target.files?.[0];
     if (!file) return;
     setIsUploadingCin(true);
@@ -370,8 +382,13 @@ export default function LoginPage() {
         throw new Error(data?.error || "Upload de la carte d'identite echoue");
       }
       const imageUrl = String(data?.url || data?.imageUrl || '');
-      setProfileForm((prev) => ({ ...prev, cinImageUrl: imageUrl }));
-      toast.success("Image de la carte d'identite ajoutee");
+      setProfileForm((prev) => ({
+        ...prev,
+        cinImageUrl: side === 'recto' ? imageUrl : prev.cinImageUrl,
+        cinImageRectoUrl: side === 'recto' ? imageUrl : prev.cinImageRectoUrl,
+        cinImageVersoUrl: side === 'verso' ? imageUrl : prev.cinImageVersoUrl,
+      }));
+      toast.success(`Image CIN ${side === 'recto' ? 'recto' : 'verso'} ajoutee`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload de la carte d'identite echoue");
     } finally {
@@ -390,8 +407,8 @@ export default function LoginPage() {
       toast.error('Nom, prenom, numero de telephone, adresse et CIN sont obligatoires');
       return;
     }
-    if (!profileForm.cinImageUrl.trim()) {
-      toast.error("La photo de la CIN est obligatoire");
+    if (!profileForm.cinImageRectoUrl.trim() || !profileForm.cinImageVersoUrl.trim()) {
+      toast.error("Les photos CIN recto et verso sont obligatoires");
       return;
     }
     setIsCompletingProfile(true);
@@ -406,7 +423,9 @@ export default function LoginPage() {
         telephone: profileForm.telephone.trim(),
         address: profileForm.address.trim(),
         cin: profileForm.cin.trim(),
-        cinImageUrl: profileForm.cinImageUrl.trim(),
+        cinImageUrl: profileForm.cinImageRectoUrl.trim(),
+        cinImageRectoUrl: profileForm.cinImageRectoUrl.trim(),
+        cinImageVersoUrl: profileForm.cinImageVersoUrl.trim(),
         avatar: user.avatar || null,
       });
       loginUser(savedUser);
@@ -543,7 +562,7 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Image carte d'identite *</label>
+                <label className="block text-sm font-medium text-gray-700">Images carte d'identite *</label>
                 <div className="mt-1 overflow-hidden rounded-md border border-emerald-100 bg-white">
                   <img
                     src={cinUploadIllustration}
@@ -551,22 +570,39 @@ export default function LoginPage() {
                     className="h-auto w-full object-cover"
                   />
                   <div className="border-t border-emerald-100 bg-emerald-50/70 px-3 py-2">
-                    <p className="text-sm font-semibold text-emerald-900">Telechargez votre CIN</p>
+                    <p className="text-sm font-semibold text-emerald-900">Telechargez votre CIN recto et verso</p>
                     <p className="mt-1 text-xs text-emerald-800">
-                      Ajoutez une photo ou un scan clair de votre carte d&apos;identite avant de continuer.
+                      Ajoutez deux images claires: une pour le recto et une pour le verso avant de continuer.
                     </p>
                   </div>
                 </div>
-                <label className="mt-1 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                  <Upload className="h-4 w-4" />
-                  {isUploadingCin ? 'Upload en cours...' : "Uploader l'image obligatoire"}
-                  <input type="file" accept="image/*" className="hidden" onChange={handleCinImageUpload} />
-                </label>
-                {profileForm.cinImageUrl ? (
-                  <img src={profileForm.cinImageUrl} alt="Carte d'identite" className="mt-3 h-32 w-full rounded-md border border-gray-200 object-cover" />
-                ) : (
-                  <p className="mt-2 text-xs text-red-600">La validation reste bloquee tant que la photo CIN n'est pas envoyee.</p>
-                )}
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Recto</p>
+                    <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                      <Upload className="h-4 w-4" />
+                      {isUploadingCin ? 'Upload en cours...' : "Uploader recto"}
+                      <input type="file" accept="image/*" className="hidden" onChange={(event) => void handleCinImageUpload(event, 'recto')} />
+                    </label>
+                    {profileForm.cinImageRectoUrl ? (
+                      <img src={profileForm.cinImageRectoUrl} alt="Carte d'identite recto" className="mt-3 h-32 w-full rounded-md border border-gray-200 object-cover" />
+                    ) : null}
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Verso</p>
+                    <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                      <Upload className="h-4 w-4" />
+                      {isUploadingCin ? 'Upload en cours...' : "Uploader verso"}
+                      <input type="file" accept="image/*" className="hidden" onChange={(event) => void handleCinImageUpload(event, 'verso')} />
+                    </label>
+                    {profileForm.cinImageVersoUrl ? (
+                      <img src={profileForm.cinImageVersoUrl} alt="Carte d'identite verso" className="mt-3 h-32 w-full rounded-md border border-gray-200 object-cover" />
+                    ) : null}
+                  </div>
+                </div>
+                {(!profileForm.cinImageRectoUrl || !profileForm.cinImageVersoUrl) ? (
+                  <p className="mt-2 text-xs text-red-600">La validation reste bloquee tant que les images CIN recto et verso ne sont pas envoyees.</p>
+                ) : null}
               </div>
 
               <div className="md:col-span-2">

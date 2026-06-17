@@ -978,6 +978,8 @@ export default function PropertyDetailsPage() {
     address: "",
     cin: "",
     cinImageUrl: "",
+    cinImageRectoUrl: "",
+    cinImageVersoUrl: "",
   });
   const [pendingDraft, setPendingDraft] = useState<PendingReservationDraft | null>(null);
   const pricingAmicaleId = String(searchParams.get("amicale") || (paymentMode === "amicale" ? amicaleSelectionId : "") || pendingDraft?.pricingAmicaleId || "").trim() || null;
@@ -2072,12 +2074,14 @@ out body 40;
       address: String(currentUser?.address || "").trim(),
       cin: String(currentUser?.cin || "").trim(),
       cinImageUrl: String(currentUser?.cinImageUrl || "").trim(),
+      cinImageRectoUrl: String(currentUser?.cinImageRectoUrl || currentUser?.cinImageUrl || "").trim(),
+      cinImageVersoUrl: String(currentUser?.cinImageVersoUrl || "").trim(),
     });
     setLoginPromptStep("profile_setup");
     setShowLoginPrompt(true);
   }, [user]);
 
-  const handleProfileCinUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProfileCinUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>, side: "recto" | "verso") => {
     const file = event.target.files?.[0];
     if (!file) return;
     setIsProfileCinUploading(true);
@@ -2093,8 +2097,13 @@ out body 40;
       if (!response.ok) throw new Error(String(data?.error || "Upload de la photo CIN echoue"));
       const imageUrl = String(data?.url || data?.imageUrl || "").trim();
       if (!imageUrl) throw new Error("URL photo CIN manquante");
-      setProfilePromptForm((prev) => ({ ...prev, cinImageUrl: imageUrl }));
-      toast.success("Photo CIN enregistree");
+      setProfilePromptForm((prev) => ({
+        ...prev,
+        cinImageUrl: side === "recto" ? imageUrl : prev.cinImageUrl,
+        cinImageRectoUrl: side === "recto" ? imageUrl : prev.cinImageRectoUrl,
+        cinImageVersoUrl: side === "verso" ? imageUrl : prev.cinImageVersoUrl,
+      }));
+      toast.success(`Photo CIN ${side === "recto" ? "recto" : "verso"} enregistree`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload de la photo CIN echoue");
     } finally {
@@ -2995,6 +3004,8 @@ out body 40;
         telephone: loggedUser.telephone || undefined,
         cin: loggedUser.cin || undefined,
         cinImageUrl: loggedUser.cinImageUrl || undefined,
+        cinImageRectoUrl: loggedUser.cinImageRectoUrl || loggedUser.cinImageUrl || undefined,
+        cinImageVersoUrl: loggedUser.cinImageVersoUrl || undefined,
         profileCompleted: loggedUser.profileCompleted,
         role: 'user',
       });
@@ -3066,6 +3077,8 @@ out body 40;
         telephone: loggedUser.telephone || undefined,
         cin: loggedUser.cin || undefined,
         cinImageUrl: loggedUser.cinImageUrl || undefined,
+        cinImageRectoUrl: loggedUser.cinImageRectoUrl || loggedUser.cinImageUrl || undefined,
+        cinImageVersoUrl: loggedUser.cinImageVersoUrl || undefined,
         profileCompleted: loggedUser.profileCompleted,
         role: 'user',
       });
@@ -3100,8 +3113,8 @@ out body 40;
       toast.error("Nom, prenom, telephone, adresse et CIN sont obligatoires.");
       return;
     }
-    if (!profilePromptForm.cinImageUrl.trim()) {
-      toast.error("La photo CIN est obligatoire.");
+    if (!profilePromptForm.cinImageRectoUrl.trim() || !profilePromptForm.cinImageVersoUrl.trim()) {
+      toast.error("Les photos CIN recto et verso sont obligatoires.");
       return;
     }
     setIsProfilePromptSaving(true);
@@ -3116,7 +3129,9 @@ out body 40;
         telephone: profilePromptForm.telephone.trim(),
         address: profilePromptForm.address.trim(),
         cin: profilePromptForm.cin.trim(),
-        cinImageUrl: profilePromptForm.cinImageUrl.trim(),
+        cinImageUrl: profilePromptForm.cinImageRectoUrl.trim(),
+        cinImageRectoUrl: profilePromptForm.cinImageRectoUrl.trim(),
+        cinImageVersoUrl: profilePromptForm.cinImageVersoUrl.trim(),
       });
       login({
         id: savedUser.id,
@@ -3129,6 +3144,8 @@ out body 40;
         telephone: savedUser.telephone || undefined,
         cin: savedUser.cin || undefined,
         cinImageUrl: savedUser.cinImageUrl || undefined,
+        cinImageRectoUrl: savedUser.cinImageRectoUrl || savedUser.cinImageUrl || undefined,
+        cinImageVersoUrl: savedUser.cinImageVersoUrl || undefined,
         profileCompleted: savedUser.profileCompleted,
         role: 'user',
       });
@@ -5279,16 +5296,33 @@ out body 40;
                       placeholder="CIN *"
                       className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800"
                     />
-                    <label className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
-                      <Upload className="h-4 w-4" />
-                      {isProfileCinUploading ? "Upload photo CIN..." : "Uploader photo CIN *"}
-                      <input type="file" accept="image/*" className="hidden" onChange={handleProfileCinUpload} />
-                    </label>
-                    {profilePromptForm.cinImageUrl ? (
-                      <img src={profilePromptForm.cinImageUrl} alt="Photo CIN" className="mt-2 h-32 w-full rounded-xl border border-emerald-200 object-cover" />
-                    ) : (
-                      <p className="mt-2 text-xs text-red-600">La photo CIN est obligatoire pour continuer.</p>
-                    )}
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Recto</p>
+                        <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
+                          <Upload className="h-4 w-4" />
+                          {isProfileCinUploading ? "Upload photo CIN..." : "Uploader recto *"}
+                          <input type="file" accept="image/*" className="hidden" onChange={(event) => void handleProfileCinUpload(event, "recto")} />
+                        </label>
+                        {profilePromptForm.cinImageRectoUrl ? (
+                          <img src={profilePromptForm.cinImageRectoUrl} alt="Photo CIN recto" className="mt-2 h-32 w-full rounded-xl border border-emerald-200 object-cover" />
+                        ) : null}
+                      </div>
+                      <div>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Verso</p>
+                        <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
+                          <Upload className="h-4 w-4" />
+                          {isProfileCinUploading ? "Upload photo CIN..." : "Uploader verso *"}
+                          <input type="file" accept="image/*" className="hidden" onChange={(event) => void handleProfileCinUpload(event, "verso")} />
+                        </label>
+                        {profilePromptForm.cinImageVersoUrl ? (
+                          <img src={profilePromptForm.cinImageVersoUrl} alt="Photo CIN verso" className="mt-2 h-32 w-full rounded-xl border border-emerald-200 object-cover" />
+                        ) : null}
+                      </div>
+                    </div>
+                    {(!profilePromptForm.cinImageRectoUrl || !profilePromptForm.cinImageVersoUrl) ? (
+                      <p className="mt-2 text-xs text-red-600">Les photos CIN recto et verso sont obligatoires pour continuer.</p>
+                    ) : null}
                   </div>
                   <button
                     type="button"

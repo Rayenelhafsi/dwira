@@ -16,6 +16,8 @@ interface User {
   address?: string | null;
   cin?: string | null;
   cinImageUrl?: string | null;
+  cinImageRectoUrl?: string | null;
+  cinImageVersoUrl?: string | null;
   profileCompleted?: boolean;
   authProvider?: 'local' | 'google' | 'facebook' | 'apple' | 'phone' | 'email' | 'passkey' | null;
   providerUserId?: string | null;
@@ -65,6 +67,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           address: serverUser.address || undefined,
           cin: serverUser.cin || undefined,
           cinImageUrl: serverUser.cinImageUrl || undefined,
+          cinImageRectoUrl: serverUser.cinImageRectoUrl || undefined,
+          cinImageVersoUrl: serverUser.cinImageVersoUrl || undefined,
           profileCompleted: serverUser.profileCompleted,
           authProvider: serverUser.authProvider || undefined,
           providerUserId: serverUser.providerUserId || undefined,

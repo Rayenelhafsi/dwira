@@ -2873,6 +2873,8 @@ function createSignedSessionToken(user) {
     telephone: user?.telephone ? String(user.telephone) : null,
     cin: user?.cin ? String(user.cin) : null,
     cinImageUrl: user?.cinImageUrl ? String(user.cinImageUrl) : null,
+    cinImageRectoUrl: user?.cinImageRectoUrl ? String(user.cinImageRectoUrl) : null,
+    cinImageVersoUrl: user?.cinImageVersoUrl ? String(user.cinImageVersoUrl) : null,
     profileCompleted: Boolean(user?.profileCompleted),
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -2924,7 +2926,9 @@ function buildAuthUser(user) {
     telephone: user?.telephone || null,
     address: user?.address || null,
     cin: user?.cin || null,
-    cinImageUrl: user?.cinImageUrl || null,
+    cinImageUrl: user?.cinImageUrl || user?.cinImageRectoUrl || user?.cin_image_url || user?.cin_image_recto_url || null,
+    cinImageRectoUrl: user?.cinImageRectoUrl || user?.cin_image_recto_url || user?.cinImageUrl || user?.cin_image_url || null,
+    cinImageVersoUrl: user?.cinImageVersoUrl || user?.cin_image_verso_url || null,
     profileCompleted: Boolean(user?.profileCompleted),
     authProvider: user?.authProvider || user?.auth_provider || null,
     providerUserId: user?.providerUserId || user?.provider_user_id || null,
@@ -6649,6 +6653,18 @@ async function ensureAuthSchema() {
     );
   }
 
+  if (!(await columnExists('utilisateurs', 'cin_image_recto_url'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN cin_image_recto_url VARCHAR(500) NULL AFTER cin_image_url'
+    );
+  }
+
+  if (!(await columnExists('utilisateurs', 'cin_image_verso_url'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN cin_image_verso_url VARCHAR(500) NULL AFTER cin_image_recto_url'
+    );
+  }
+
   if (!(await columnExists('utilisateurs', 'profile_completed_at'))) {
     await pool.query(
       'ALTER TABLE utilisateurs ADD COLUMN profile_completed_at DATETIME NULL'
@@ -7775,10 +7791,14 @@ function isLegalIdentityProfileCompleted(user) {
   const address = String(user?.address || '').trim();
   const cin = String(user?.cin || '').trim();
   const cinImageUrl = String(user?.cin_image_url || user?.cinImageUrl || '').trim();
+  const cinImageRectoUrl = String(user?.cin_image_recto_url || user?.cinImageRectoUrl || cinImageUrl || '').trim();
+  const cinImageVersoUrl = String(user?.cin_image_verso_url || user?.cinImageVersoUrl || '').trim();
   const clientType = String(user?.client_type || user?.clientType || '').trim().toLowerCase();
   const profileCompletedAt = String(user?.profile_completed_at || '').trim();
   const hasValidClientType = ['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType);
-  return Boolean(fullName && phone && address && cin && cinImageUrl && hasValidClientType && profileCompletedAt);
+  const hasLegacyCinImage = Boolean(cinImageUrl);
+  const hasDualCinImages = Boolean(cinImageRectoUrl && cinImageVersoUrl);
+  return Boolean(fullName && phone && address && cin && (hasDualCinImages || hasLegacyCinImage) && hasValidClientType && profileCompletedAt);
 }
 
 function buildPhonePlaceholderEmail(phone) {
@@ -24198,6 +24218,8 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     const clientType = String(req.body?.clientType || req.body?.client_type || '').trim().toLowerCase();
     const cin = String(req.body?.cin || '').trim();
     const cinImageUrl = String(req.body?.cinImageUrl || req.body?.cin_image_url || '').trim();
+    const cinImageRectoUrl = String(req.body?.cinImageRectoUrl || req.body?.cin_image_recto_url || cinImageUrl || '').trim();
+    const cinImageVersoUrl = String(req.body?.cinImageVersoUrl || req.body?.cin_image_verso_url || '').trim();
     const avatar = req.body?.avatar === undefined ? undefined : normalizeAvatarUrl(req.body.avatar);
     const now = getAgencySqlDateTime();
 
@@ -24219,7 +24241,8 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     if (!telephone) return res.status(400).json({ error: 'Numero de telephone obligatoire' });
     if (!address) return res.status(400).json({ error: 'Adresse obligatoire' });
     if (!cin) return res.status(400).json({ error: 'Numero CIN obligatoire' });
-    if (!cinImageUrl) return res.status(400).json({ error: 'Photo CIN obligatoire' });
+    if (!cinImageRectoUrl) return res.status(400).json({ error: 'Photo CIN recto obligatoire' });
+    if (!cinImageVersoUrl && !cinImageUrl) return res.status(400).json({ error: 'Photo CIN verso obligatoire' });
     if (!['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType)) {
       return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire, acheteur ou agent_amicale)' });
     }
@@ -24242,14 +24265,28 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
 
     await pool.query(
       `UPDATE utilisateurs
-       SET nom = ?, email = ?, telephone = ?, address = ?, client_type = ?, cin = ?, cin_image_url = ?, avatar = COALESCE(?, avatar),
+       SET nom = ?, email = ?, telephone = ?, address = ?, client_type = ?, cin = ?, cin_image_url = ?, cin_image_recto_url = ?, cin_image_verso_url = ?, avatar = COALESCE(?, avatar),
            profile_completed_at = ?, updated_at = ?
        WHERE id = ?`,
-      [nom, resolvedEmail, telephone, address, clientType || null, cin || null, cinImageUrl || null, avatar || null, now, now, id]
+      [
+        nom,
+        resolvedEmail,
+        telephone,
+        address,
+        clientType || null,
+        cin || null,
+        cinImageRectoUrl || cinImageUrl || null,
+        cinImageRectoUrl || cinImageUrl || null,
+        cinImageVersoUrl || null,
+        avatar || null,
+        now,
+        now,
+        id,
+      ]
     );
 
     const [rows] = await pool.query(
-      `SELECT id, nom, email, role, avatar, telephone, address, client_type, cin, cin_image_url, profile_completed_at,
+      `SELECT id, nom, email, role, avatar, telephone, address, client_type, cin, cin_image_url, cin_image_recto_url, cin_image_verso_url, profile_completed_at,
               auth_provider, provider_user_id, last_login_at, updated_at
        FROM utilisateurs
        WHERE id = ? LIMIT 1`,
@@ -24285,7 +24322,9 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
       telephone: user.telephone || null,
       address: user.address || null,
       cin: user.cin || null,
-      cinImageUrl: user.cin_image_url || null,
+      cinImageUrl: user.cin_image_recto_url || user.cin_image_url || null,
+      cinImageRectoUrl: user.cin_image_recto_url || user.cin_image_url || null,
+      cinImageVersoUrl: user.cin_image_verso_url || null,
       profileCompleted: isLegalIdentityProfileCompleted(user),
     });
     setAuthSessionCookie(req, res, authUser);

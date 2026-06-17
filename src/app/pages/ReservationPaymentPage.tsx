@@ -98,6 +98,7 @@ export default function ReservationPaymentPage() {
   const selectedMethod = useMemo(() => normalizePaymentMethodParam(searchParams.get("method")), [searchParams]);
   const showClickToPayBlock = selectedMethod === "clicktopay";
   const showReceiptBlock = selectedMethod === "receipt";
+  const visiblePaymentCardsCount = Number(showClickToPayBlock) + Number(showReceiptBlock);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -613,14 +614,15 @@ export default function ReservationPaymentPage() {
               <InfoCard label="Paiement services" value={summary?.servicesPayable ? (summary?.servicesPaid ? `Regle le ${formatDateTime(demand.services_payment_paid_at)}` : formatMoney(summary?.servicesAmount)) : "Aucun devis a regler"} />
             </div>
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <div className="mt-6 overflow-x-auto pb-2 [scrollbar-width:thin]">
+              <div className="flex min-w-full gap-4">
               {showClickToPayBlock ? (
-                <div className="relative overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#0b7a58_0%,#169b67_56%,#34d399_100%)] p-6 text-white shadow-[0_24px_80px_-32px_rgba(5,150,105,0.85)]">
+                <div
+                  className={`relative overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#0b7a58_0%,#169b67_56%,#34d399_100%)] p-6 text-white shadow-[0_24px_80px_-32px_rgba(5,150,105,0.85)] ${
+                    visiblePaymentCardsCount > 1 ? "min-w-[320px] shrink-0 sm:min-w-[380px] lg:min-w-[440px]" : "w-full flex-1"
+                  }`}
+                >
                   <div className="absolute -right-10 top-6 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
-                  <div className="absolute bottom-4 right-4 hidden rounded-[22px] border border-white/10 bg-white/10 px-5 py-4 text-right text-white/70 backdrop-blur md:block">
-                    <p className="text-[11px] uppercase tracking-[0.32em]">Methode</p>
-                    <p className="mt-2 text-xl font-semibold text-white">Click to Pay</p>
-                  </div>
                   <div className="relative flex h-full min-h-[260px] flex-col justify-between">
                     <div>
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/25 bg-white/10 backdrop-blur">
@@ -628,9 +630,15 @@ export default function ReservationPaymentPage() {
                       </div>
                       <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-white/80">Paiement avec carte bancaire</p>
                       <h2 className="mt-2 text-2xl font-bold leading-tight">Reglez votre reservation en ligne</h2>
-                      <p className="mt-3 max-w-sm text-sm leading-6 text-emerald-50">
+                      <p className="mt-3 text-sm leading-6 text-emerald-50">
                         Paiement securise via Click to Pay. La confirmation de votre dossier se fait automatiquement apres verification du statut.
                       </p>
+                      <div className="mt-5 inline-flex rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 text-left text-white/80 backdrop-blur">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.32em]">Methode</p>
+                          <p className="mt-1 text-lg font-semibold text-white">Click to Pay</p>
+                        </div>
+                      </div>
                     </div>
                     <div className="mt-6 flex justify-center">
                       <button
@@ -639,7 +647,7 @@ export default function ReservationPaymentPage() {
                         onClick={() => {
                           if (clickToPayScope) void handleStartClickToPay(clickToPayScope);
                         }}
-                        className="inline-flex min-w-[230px] items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-emerald-800 shadow-lg shadow-emerald-950/10 transition hover:-translate-y-0.5 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-emerald-800 shadow-lg shadow-emerald-950/10 transition hover:-translate-y-0.5 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:min-w-[260px]"
                       >
                         <CreditCard className="h-4 w-4" />
                         {startingClickToPayScope ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
@@ -650,7 +658,11 @@ export default function ReservationPaymentPage() {
               ) : null}
 
               {showReceiptBlock ? (
-                <div className="rounded-[28px] border border-sky-200 bg-[linear-gradient(180deg,#eff9ff_0%,#f8fdff_100%)] p-6 shadow-[0_24px_80px_-40px_rgba(14,116,144,0.45)]">
+                <div
+                  className={`rounded-[28px] border border-sky-200 bg-[linear-gradient(180deg,#eff9ff_0%,#f8fdff_100%)] p-6 shadow-[0_24px_80px_-40px_rgba(14,116,144,0.45)] ${
+                    visiblePaymentCardsCount > 1 ? "min-w-[320px] shrink-0 sm:min-w-[420px] lg:min-w-[520px]" : "w-full flex-1"
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-sm font-semibold uppercase tracking-[0.12em] text-sky-800">Paiement par virement et envoi de recu</p>
@@ -735,6 +747,7 @@ export default function ReservationPaymentPage() {
                   </div>
                 </div>
               ) : null}
+              </div>
             </div>
 
             {false && showClickToPayBlock ? (
