@@ -38,7 +38,7 @@ import {
 import { fr } from "date-fns/locale";
 import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
 import { resolveMediaUrl } from "../utils/media";
-import { getPropertyFlashOffer, type PropertyFlashOffer } from "../utils/flashOffers";
+import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashOffers";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -3399,8 +3399,8 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     const flashCards: PropertyDisplayCard[] = [];
     const regularCards: PropertyDisplayCard[] = [];
     filteredProperties.forEach((property) => {
-      const flashOffer = getPropertyFlashOffer(property);
-      if (flashOffer) {
+      const flashOffers = getPropertyFlashOffers(property);
+      flashOffers.forEach((flashOffer) => {
         const flashParams = new URLSearchParams(basePropertySearchParams.toString());
         flashParams.set("mode", "location_saisonniere");
         flashParams.set("checkIn", flashOffer.start);
@@ -3419,14 +3419,20 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
         if (flashOffer.title) {
           flashParams.set("flashTitle", flashOffer.title);
         }
+        if (flashOffer.id) {
+          flashParams.set("flashId", flashOffer.id);
+        }
+        if (flashOffer.expiresAt) {
+          flashParams.set("flashExpiresAt", flashOffer.expiresAt);
+        }
         flashCards.push({
-          key: `${property.id}-flash-${flashOffer.start}-${flashOffer.end}`,
+          key: `${property.id}-flash-${flashOffer.id || `${flashOffer.start}-${flashOffer.end}`}`,
           property,
           cardVariant: "flash",
           flashOffer,
           searchParams: flashParams.toString(),
         });
-      }
+      });
       regularCards.push({
         key: String(property.id),
         property,

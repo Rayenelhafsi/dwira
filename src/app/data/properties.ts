@@ -105,6 +105,19 @@ export interface Property {
     venteFlashFixedAmount?: number | null;
     venteFlashStart?: string | null;
     venteFlashEnd?: string | null;
+    venteFlashOffers?: Array<{
+      id: string;
+      active?: boolean;
+      title?: string | null;
+      mode?: 'pourcentage' | 'montant_tnd' | null;
+      discountPercent?: number | null;
+      fixedNightlyAmount?: number | null;
+      start?: string | null;
+      end?: string | null;
+      expirationHours?: number | null;
+      createdAt?: string | null;
+      expiresAt?: string | null;
+    }>;
     fraisMenageDisponible?: boolean;
     fraisServiceDisponible?: boolean;
     servicesPayants?: Array<{ id: string; label: string; prix: number; enabled: boolean }>;

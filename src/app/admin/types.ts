@@ -10,6 +10,8 @@ export interface Utilisateur {
   telephone?: string | null;
   cin?: string | null;
   cin_image_url?: string | null;
+  cin_image_recto_url?: string | null;
+  cin_image_verso_url?: string | null;
   auth_provider?: 'local' | 'google' | 'facebook' | 'apple' | 'phone' | 'email' | 'passkey';
   provider_user_id?: string | null;
   last_login_at?: string | null;
@@ -267,6 +269,19 @@ export type ServicePayantBien = {
   type_tarification?: ServicePayantTarification;
   enabled: boolean;
 };
+export type VenteFlashConfig = {
+  id: string;
+  active?: boolean;
+  title?: string | null;
+  mode?: 'pourcentage' | 'montant_tnd' | null;
+  discount_percent?: number | null;
+  fixed_amount_tnd?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  expiration_hours?: number | null;
+  created_at?: string | null;
+  expires_at?: string | null;
+};
 export type LocationSaisonniereConfig = {
   categorie_standing?: CategorieStanding | null;
   etage?: EtageAppartement | null;
@@ -303,6 +318,7 @@ export type LocationSaisonniereConfig = {
   vente_flash_montant_tnd?: number | null;
   vente_flash_date_debut?: string | null;
   vente_flash_date_fin?: string | null;
+  ventes_flash?: VenteFlashConfig[];
   frais_menage_disponible?: boolean;
   frais_menage?: number | null;
   frais_service_disponible?: boolean;

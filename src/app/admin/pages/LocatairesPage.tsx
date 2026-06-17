@@ -27,6 +27,8 @@ type ClientRecord = {
   linkedRecordIds: string[];
   clientType?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | null;
   cinImageUrl?: string;
+  cinImageRectoUrl?: string;
+  cinImageVersoUrl?: string;
   nom: string;
   prenom: string;
   telephone: string;
@@ -72,6 +74,8 @@ type ClientInteraction = {
 
 type ClientDossier = {
   cinImageUrl?: string;
+  cinImageRectoUrl?: string;
+  cinImageVersoUrl?: string;
   extraPhones?: string[];
   extraEmails?: string[];
   interactions: ClientInteraction[];
@@ -385,6 +389,7 @@ export default function ClientelesPage() {
   const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string }>>(initialCache?.amicaleOptions || []);
   const [agentAmicaleProfiles, setAgentAmicaleProfiles] = useState<Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }>>(initialCache?.agentAmicaleProfiles || {});
   const [isCinViewerOpen, setIsCinViewerOpen] = useState(false);
+  const [cinViewerSide, setCinViewerSide] = useState<'recto' | 'verso'>('recto');
   const [qrPreviewOwner, setQrPreviewOwner] = useState<{ id: string; name: string } | null>(null);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientModalMode, setClientModalMode] = useState<'create' | 'edit'>('create');
@@ -426,6 +431,8 @@ export default function ClientelesPage() {
           const safeDossier = dossier && typeof dossier === 'object' ? dossier as Record<string, unknown> : {};
           return [clientId, {
             cinImageUrl: typeof safeDossier.cinImageUrl === 'string' ? safeDossier.cinImageUrl : undefined,
+            cinImageRectoUrl: typeof safeDossier.cinImageRectoUrl === 'string' ? safeDossier.cinImageRectoUrl : undefined,
+            cinImageVersoUrl: typeof safeDossier.cinImageVersoUrl === 'string' ? safeDossier.cinImageVersoUrl : undefined,
             extraPhones: Array.isArray(safeDossier.extraPhones) ? safeDossier.extraPhones.map((item) => String(item || '').trim()).filter(Boolean) : [],
             extraEmails: Array.isArray(safeDossier.extraEmails) ? safeDossier.extraEmails.map((item) => String(item || '').trim()).filter(Boolean) : [],
             interactions: Array.isArray(safeDossier.interactions) ? safeDossier.interactions.filter(isClientInteraction) : [],
@@ -710,7 +717,9 @@ export default function ClientelesPage() {
         linkedUserId: linkedUser?.id || null,
         linkedRecordIds: [locataire.id, ...(linkedUser ? [linkedUser.id] : [])],
         clientType: linkedUser?.client_type || resolveClientType(locataire.email, 'locataire'),
-        cinImageUrl: linkedUser?.cin_image_url || undefined,
+        cinImageUrl: linkedUser?.cin_image_recto_url || linkedUser?.cin_image_url || undefined,
+        cinImageRectoUrl: linkedUser?.cin_image_recto_url || linkedUser?.cin_image_url || undefined,
+        cinImageVersoUrl: linkedUser?.cin_image_verso_url || undefined,
         nom: nom || splitFullName(linkedUser?.nom).nom,
         prenom: prenom || splitFullName(linkedUser?.nom).prenom,
         telephone: locataire.telephone || linkedUser?.telephone || '',
@@ -732,7 +741,9 @@ export default function ClientelesPage() {
           linkedUserId: utilisateur.id,
           linkedRecordIds: [utilisateur.id],
           clientType: 'locataire' as const,
-          cinImageUrl: utilisateur.cin_image_url || undefined,
+          cinImageUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageRectoUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageVersoUrl: utilisateur.cin_image_verso_url || undefined,
           nom,
           prenom,
           telephone: utilisateur.telephone || '',
@@ -759,7 +770,9 @@ export default function ClientelesPage() {
         linkedUserId: linkedUser?.id || null,
         linkedRecordIds: [proprietaire.id, ...(linkedUser ? [linkedUser.id] : [])],
         clientType: linkedUser?.client_type || resolveClientType(proprietaire.email, 'proprietaire'),
-        cinImageUrl: linkedUser?.cin_image_url || undefined,
+        cinImageUrl: linkedUser?.cin_image_recto_url || linkedUser?.cin_image_url || undefined,
+        cinImageRectoUrl: linkedUser?.cin_image_recto_url || linkedUser?.cin_image_url || undefined,
+        cinImageVersoUrl: linkedUser?.cin_image_verso_url || undefined,
         nom: nom || splitFullName(linkedUser?.nom).nom,
         prenom: prenom || splitFullName(linkedUser?.nom).prenom,
         telephone: proprietaire.telephone || linkedUser?.telephone || '',
@@ -781,7 +794,9 @@ export default function ClientelesPage() {
           linkedUserId: utilisateur.id,
           linkedRecordIds: [utilisateur.id],
           clientType: 'proprietaire' as const,
-          cinImageUrl: utilisateur.cin_image_url || undefined,
+          cinImageUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageRectoUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageVersoUrl: utilisateur.cin_image_verso_url || undefined,
           nom,
           prenom,
           telephone: utilisateur.telephone || '',
@@ -806,7 +821,9 @@ export default function ClientelesPage() {
           linkedUserId: utilisateur.id,
           linkedRecordIds: [utilisateur.id],
           clientType: (utilisateur.client_type as 'acheteur' | null) || 'acheteur',
-          cinImageUrl: utilisateur.cin_image_url || undefined,
+          cinImageUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageRectoUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageVersoUrl: utilisateur.cin_image_verso_url || undefined,
           nom,
           prenom,
           telephone: utilisateur.telephone || '',
@@ -830,7 +847,9 @@ export default function ClientelesPage() {
           linkedUserId: utilisateur.id,
           linkedRecordIds: [utilisateur.id],
           clientType: 'agent_amicale' as const,
-          cinImageUrl: utilisateur.cin_image_url || undefined,
+          cinImageUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageRectoUrl: utilisateur.cin_image_recto_url || utilisateur.cin_image_url || undefined,
+          cinImageVersoUrl: utilisateur.cin_image_verso_url || undefined,
           nom,
           prenom,
           telephone: utilisateur.telephone || '',
@@ -876,12 +895,19 @@ export default function ClientelesPage() {
       const dossier = dossiers[clientId];
       if (!dossier) return acc;
       return {
-        cinImageUrl: acc.cinImageUrl || dossier.cinImageUrl,
+        cinImageUrl: acc.cinImageUrl || dossier.cinImageRectoUrl || dossier.cinImageUrl,
+        cinImageRectoUrl: acc.cinImageRectoUrl || dossier.cinImageRectoUrl || dossier.cinImageUrl,
+        cinImageVersoUrl: acc.cinImageVersoUrl || dossier.cinImageVersoUrl,
         extraPhones: Array.from(new Set([...(acc.extraPhones || []), ...(dossier.extraPhones || [])])),
         extraEmails: Array.from(new Set([...(acc.extraEmails || []), ...(dossier.extraEmails || [])])),
         interactions: [...acc.interactions, ...(dossier.interactions || [])],
       };
-    }, { cinImageUrl: selectedClient.cinImageUrl, interactions: [] });
+    }, {
+      cinImageUrl: selectedClient.cinImageRectoUrl || selectedClient.cinImageUrl,
+      cinImageRectoUrl: selectedClient.cinImageRectoUrl || selectedClient.cinImageUrl,
+      cinImageVersoUrl: selectedClient.cinImageVersoUrl,
+      interactions: [],
+    });
   }, [dossiers, selectedClient, selectedClientLinkedIds]);
   const selectedClientPhones = selectedClient ? mergeUniqueContacts(selectedClient.telephone, selectedClientDossier.extraPhones) : [];
   const selectedClientEmails = selectedClient ? mergeUniqueContacts(selectedClient.email, selectedClientDossier.extraEmails) : [];
@@ -1366,6 +1392,8 @@ export default function ClientelesPage() {
       cin: clientForm.cin.trim(),
       score_fiabilite: 5,
     };
+    const currentEditingDossier = editingClientId ? dossiers[editingClientId] : undefined;
+    const currentLinkedDossier = editingLinkedUserId ? dossiers[editingLinkedUserId] : undefined;
 
     try {
       if (clientForm.category === 'acheteurs' || clientForm.category === 'agents_amicale') {
@@ -1377,7 +1405,9 @@ export default function ClientelesPage() {
           telephone: clientForm.telephone.trim(),
           client_type: isAgentAmicale ? 'agent_amicale' : 'acheteur',
           cin: clientForm.cin.trim() || null,
-          cin_image_url: (editingClientId ? dossiers[editingClientId]?.cinImageUrl : '') || null,
+          cin_image_url: currentEditingDossier?.cinImageRectoUrl || currentEditingDossier?.cinImageUrl || null,
+          cin_image_recto_url: currentEditingDossier?.cinImageRectoUrl || currentEditingDossier?.cinImageUrl || null,
+          cin_image_verso_url: currentEditingDossier?.cinImageVersoUrl || null,
         };
         const url = clientModalMode === 'edit' && editingClientId
           ? `${API_URL}/utilisateurs/${encodeURIComponent(editingClientId)}`
@@ -1446,6 +1476,9 @@ export default function ClientelesPage() {
           const parts = splitFullName(savedBuyer.nom);
           setSelectedClient((prev) => prev ? {
             ...prev,
+            cinImageUrl: savedBuyer.cin_image_recto_url || savedBuyer.cin_image_url || undefined,
+            cinImageRectoUrl: savedBuyer.cin_image_recto_url || savedBuyer.cin_image_url || undefined,
+            cinImageVersoUrl: savedBuyer.cin_image_verso_url || undefined,
             nom: parts.nom,
             prenom: parts.prenom,
             telephone: savedBuyer.telephone || '',
@@ -1456,7 +1489,9 @@ export default function ClientelesPage() {
         setDossiers((prev) => ({
           ...prev,
           [savedBuyer.id]: {
-            cinImageUrl: prev[savedBuyer.id]?.cinImageUrl || savedBuyer.cin_image_url || undefined,
+            cinImageUrl: prev[savedBuyer.id]?.cinImageRectoUrl || prev[savedBuyer.id]?.cinImageUrl || savedBuyer.cin_image_recto_url || savedBuyer.cin_image_url || undefined,
+            cinImageRectoUrl: prev[savedBuyer.id]?.cinImageRectoUrl || savedBuyer.cin_image_recto_url || savedBuyer.cin_image_url || undefined,
+            cinImageVersoUrl: prev[savedBuyer.id]?.cinImageVersoUrl || savedBuyer.cin_image_verso_url || undefined,
             interactions: prev[savedBuyer.id]?.interactions || [],
             extraPhones,
             extraEmails,
@@ -1483,7 +1518,9 @@ export default function ClientelesPage() {
           telephone: clientForm.telephone.trim(),
           client_type: clientForm.category === 'locataires' ? 'locataire' : 'proprietaire',
           cin: clientForm.cin.trim() || null,
-          cin_image_url: dossiers[editingClientId]?.cinImageUrl || null,
+          cin_image_url: currentEditingDossier?.cinImageRectoUrl || currentEditingDossier?.cinImageUrl || null,
+          cin_image_recto_url: currentEditingDossier?.cinImageRectoUrl || currentEditingDossier?.cinImageUrl || null,
+          cin_image_verso_url: currentEditingDossier?.cinImageVersoUrl || null,
         };
         const response = await fetch(`${API_URL}/utilisateurs/${encodeURIComponent(editingClientId)}`, {
           method: 'PUT',
@@ -1497,6 +1534,9 @@ export default function ClientelesPage() {
           const parts = splitFullName(savedUser.nom);
           setSelectedClient((prev) => prev ? {
             ...prev,
+            cinImageUrl: savedUser.cin_image_recto_url || savedUser.cin_image_url || undefined,
+            cinImageRectoUrl: savedUser.cin_image_recto_url || savedUser.cin_image_url || undefined,
+            cinImageVersoUrl: savedUser.cin_image_verso_url || undefined,
             nom: parts.nom,
             prenom: parts.prenom,
             telephone: savedUser.telephone || '',
@@ -1507,7 +1547,9 @@ export default function ClientelesPage() {
         setDossiers((prev) => ({
           ...prev,
           [savedUser.id]: {
-            cinImageUrl: prev[savedUser.id]?.cinImageUrl || savedUser.cin_image_url || undefined,
+            cinImageUrl: prev[savedUser.id]?.cinImageRectoUrl || prev[savedUser.id]?.cinImageUrl || savedUser.cin_image_recto_url || savedUser.cin_image_url || undefined,
+            cinImageRectoUrl: prev[savedUser.id]?.cinImageRectoUrl || savedUser.cin_image_recto_url || savedUser.cin_image_url || undefined,
+            cinImageVersoUrl: prev[savedUser.id]?.cinImageVersoUrl || savedUser.cin_image_verso_url || undefined,
             interactions: prev[savedUser.id]?.interactions || [],
             extraPhones,
             extraEmails,
@@ -1562,7 +1604,9 @@ export default function ClientelesPage() {
       setDossiers((prev) => ({
         ...prev,
         [saved.id]: {
-          cinImageUrl: prev[saved.id]?.cinImageUrl,
+          cinImageUrl: prev[saved.id]?.cinImageRectoUrl || prev[saved.id]?.cinImageUrl,
+          cinImageRectoUrl: prev[saved.id]?.cinImageRectoUrl || prev[saved.id]?.cinImageUrl,
+          cinImageVersoUrl: prev[saved.id]?.cinImageVersoUrl,
           interactions: prev[saved.id]?.interactions || [],
           extraPhones,
           extraEmails,
@@ -1577,7 +1621,9 @@ export default function ClientelesPage() {
           telephone: clientForm.telephone.trim(),
           client_type: clientForm.category === 'locataires' ? 'locataire' : 'proprietaire',
           cin: clientForm.cin.trim() || null,
-          cin_image_url: dossiers[editingLinkedUserId]?.cinImageUrl || null,
+          cin_image_url: currentLinkedDossier?.cinImageRectoUrl || currentLinkedDossier?.cinImageUrl || null,
+          cin_image_recto_url: currentLinkedDossier?.cinImageRectoUrl || currentLinkedDossier?.cinImageUrl || null,
+          cin_image_verso_url: currentLinkedDossier?.cinImageVersoUrl || null,
         };
         const linkedResponse = await fetch(`${API_URL}/utilisateurs/${encodeURIComponent(editingLinkedUserId)}`, {
           method: 'PUT',
@@ -1630,7 +1676,7 @@ export default function ClientelesPage() {
     }
   };
 
-  const handleUploadCinImage = async (clientId: string, file: File) => {
+  const handleUploadCinImage = async (clientId: string, file: File, side: 'recto' | 'verso') => {
     const uploadFormData = new FormData();
     uploadFormData.append('image', file);
     const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
@@ -1644,16 +1690,25 @@ export default function ClientelesPage() {
       setDossiers((prev) => {
         const next = { ...prev };
         for (const linkedId of linkedIds) {
+          const previous = prev[linkedId];
           next[linkedId] = {
-            cinImageUrl: imageUrl,
-            extraPhones: prev[linkedId]?.extraPhones || [],
-            extraEmails: prev[linkedId]?.extraEmails || [],
-            interactions: prev[linkedId]?.interactions || [],
+            ...previous,
+            cinImageUrl: side === 'recto' ? imageUrl : previous?.cinImageRectoUrl || previous?.cinImageUrl,
+            cinImageRectoUrl: side === 'recto' ? imageUrl : previous?.cinImageRectoUrl || previous?.cinImageUrl,
+            cinImageVersoUrl: side === 'verso' ? imageUrl : previous?.cinImageVersoUrl,
+            extraPhones: previous?.extraPhones || [],
+            extraEmails: previous?.extraEmails || [],
+            interactions: previous?.interactions || [],
           };
         }
         return next;
       });
-      setSelectedClient((prev) => prev ? { ...prev, cinImageUrl: imageUrl } : null);
+      setSelectedClient((prev) => prev ? {
+        ...prev,
+        cinImageUrl: side === 'recto' ? imageUrl : prev.cinImageRectoUrl || prev.cinImageUrl,
+        cinImageRectoUrl: side === 'recto' ? imageUrl : prev.cinImageRectoUrl || prev.cinImageUrl,
+        cinImageVersoUrl: side === 'verso' ? imageUrl : prev.cinImageVersoUrl,
+      } : null);
 
       const targetUserId = selectedClient.linkedUserId || (selectedClient.sourceTable === 'utilisateurs' ? selectedClient.id : null);
       if (targetUserId) {
@@ -1670,7 +1725,15 @@ export default function ClientelesPage() {
               telephone: linkedUser.telephone || null,
               client_type: linkedUser.client_type || null,
               cin: linkedUser.cin || null,
-              cin_image_url: imageUrl,
+              cin_image_url: side === 'recto'
+                ? imageUrl
+                : linkedUser.cin_image_recto_url || linkedUser.cin_image_url || selectedClient.cinImageRectoUrl || selectedClient.cinImageUrl || null,
+              cin_image_recto_url: side === 'recto'
+                ? imageUrl
+                : linkedUser.cin_image_recto_url || linkedUser.cin_image_url || selectedClient.cinImageRectoUrl || selectedClient.cinImageUrl || null,
+              cin_image_verso_url: side === 'verso'
+                ? imageUrl
+                : linkedUser.cin_image_verso_url || selectedClient.cinImageVersoUrl || null,
             }),
           });
           if (updateResponse.ok) {
@@ -1685,7 +1748,10 @@ export default function ClientelesPage() {
     setDossiers((prev) => ({
       ...prev,
       [clientId]: {
-        cinImageUrl: imageUrl,
+        ...prev[clientId],
+        cinImageUrl: side === 'recto' ? imageUrl : prev[clientId]?.cinImageRectoUrl || prev[clientId]?.cinImageUrl,
+        cinImageRectoUrl: side === 'recto' ? imageUrl : prev[clientId]?.cinImageRectoUrl || prev[clientId]?.cinImageUrl,
+        cinImageVersoUrl: side === 'verso' ? imageUrl : prev[clientId]?.cinImageVersoUrl,
         extraPhones: prev[clientId]?.extraPhones || [],
         extraEmails: prev[clientId]?.extraEmails || [],
         interactions: prev[clientId]?.interactions || [],
@@ -1693,14 +1759,14 @@ export default function ClientelesPage() {
     }));
   };
 
-  const handleCinFileChange = async (event: React.ChangeEvent<HTMLInputElement>, clientId: string) => {
+  const handleCinFileChange = async (event: React.ChangeEvent<HTMLInputElement>, clientId: string, side: 'recto' | 'verso') => {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      await handleUploadCinImage(clientId, file);
-      toast.success("Image de la carte d'identite ajoutee");
+      await handleUploadCinImage(clientId, file, side);
+      toast.success(`Image CIN ${side === 'recto' ? 'recto' : 'verso'} ajoutee`);
     } catch {
-      toast.error("Erreur lors de l'upload de la carte d'identite");
+      toast.error(`Erreur lors de l'upload de l'image CIN ${side === 'recto' ? 'recto' : 'verso'}`);
     } finally {
       event.target.value = '';
     }
@@ -1781,7 +1847,7 @@ export default function ClientelesPage() {
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
               {filteredClients.map((client) => {
-                const dossierImage = client.cinImageUrl || dossiers[client.id]?.cinImageUrl;
+                const dossierImage = client.cinImageRectoUrl || client.cinImageUrl || dossiers[client.id]?.cinImageRectoUrl || dossiers[client.id]?.cinImageUrl;
                 const clientProfile = profiles.find((profile) => profile.sourceTable === client.sourceTable && profile.sourceId === client.id)
                   || (client.linkedUserId ? profiles.find((profile) => profile.sourceTable === 'utilisateurs' && profile.sourceId === client.linkedUserId) : null)
                   || createEmptyProfile(client.sourceTable, client.id, client.linkedUserId, client.email);
@@ -1926,31 +1992,44 @@ export default function ClientelesPage() {
                 </div>
 
                 <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
-                  <h4 className="text-sm font-semibold text-gray-900">Image carte d'identite</h4>
-                  <div className="mt-3">
-                    {selectedClientDossier.cinImageUrl ? (
-                      <img src={selectedClientDossier.cinImageUrl} alt="Carte d'identite" className="h-44 w-full rounded-lg border border-gray-200 object-cover" />
-                    ) : (
-                      <div className="flex h-44 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-400">
-                        Aucune image de CIN
+                  <h4 className="text-sm font-semibold text-gray-900">Images carte d'identite</h4>
+                  <div className="mt-3 grid gap-4">
+                    {([
+                      { side: 'recto', label: 'Recto', image: selectedClientDossier.cinImageRectoUrl || selectedClientDossier.cinImageUrl },
+                      { side: 'verso', label: 'Verso', image: selectedClientDossier.cinImageVersoUrl },
+                    ] as const).map((item) => (
+                      <div key={item.side} className="rounded-xl border border-gray-200 p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">{item.label}</span>
+                          {item.image ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCinViewerSide(item.side);
+                                setIsCinViewerOpen(true);
+                              }}
+                              className="text-xs font-medium text-sky-700 hover:text-sky-800"
+                            >
+                              Voir en grand
+                            </button>
+                          ) : null}
+                        </div>
+                        {item.image ? (
+                          <img src={item.image} alt={`Carte d'identite ${item.label}`} className="h-40 w-full rounded-lg border border-gray-200 object-cover" />
+                        ) : (
+                          <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-400">
+                            Aucune image {item.label.toLowerCase()}
+                          </div>
+                        )}
+                        <div className="mt-3">
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
+                            <Upload className="h-4 w-4" />
+                            Upload {item.label}
+                            <input type="file" accept="image/*" className="hidden" onChange={(event) => void handleCinFileChange(event, selectedClient.id, item.side)} />
+                          </label>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {selectedClientDossier.cinImageUrl ? (
-                      <button
-                        type="button"
-                        onClick={() => setIsCinViewerOpen(true)}
-                        className="inline-flex items-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
-                      >
-                        Voir en grand
-                      </button>
-                    ) : null}
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
-                      <Upload className="h-4 w-4" />
-                      Upload image CIN
-                      <input type="file" accept="image/*" className="hidden" onChange={(event) => void handleCinFileChange(event, selectedClient.id)} />
-                    </label>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2334,11 +2413,13 @@ export default function ClientelesPage() {
         </div>
       )}
 
-      {selectedClient && isCinViewerOpen && selectedClientDossier.cinImageUrl && (
+      {selectedClient && isCinViewerOpen && (cinViewerSide === 'recto'
+        ? (selectedClientDossier.cinImageRectoUrl || selectedClientDossier.cinImageUrl)
+        : selectedClientDossier.cinImageVersoUrl) && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
           <div className="relative w-full max-w-5xl rounded-2xl bg-white p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">Carte d'identite - vue complete</h3>
+              <h3 className="text-sm font-semibold text-gray-900">Carte d'identite {cinViewerSide === 'recto' ? 'recto' : 'verso'} - vue complete</h3>
               <button
                 type="button"
                 onClick={() => setIsCinViewerOpen(false)}
@@ -2349,8 +2430,10 @@ export default function ClientelesPage() {
             </div>
             <div className="max-h-[80vh] overflow-auto rounded-xl border border-gray-200 bg-gray-50 p-2">
               <img
-                src={selectedClientDossier.cinImageUrl}
-                alt="Carte d'identite complete"
+                src={cinViewerSide === 'recto'
+                  ? (selectedClientDossier.cinImageRectoUrl || selectedClientDossier.cinImageUrl)
+                  : selectedClientDossier.cinImageVersoUrl}
+                alt={`Carte d'identite ${cinViewerSide}`}
                 className="mx-auto h-auto max-w-full rounded-lg object-contain"
               />
             </div>

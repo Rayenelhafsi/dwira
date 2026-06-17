@@ -16,7 +16,7 @@ import {
   resolveStayAvailability,
 } from "../utils/availability";
 import { getReservationMinStayRequirement, validateReservationWeekdayRule } from "../utils/seasonalPricing";
-import { getPropertyFlashOffer, type PropertyFlashOffer } from "../utils/flashOffers";
+import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashOffers";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -2395,8 +2395,8 @@ export default function PropertiesPage() {
     const regularRows: PrimaryDisplayResult[] = [];
     sortedScoredResults.forEach((row) => {
       const baseParams = new URLSearchParams(searchParams.toString());
-      const flashOffer = getPropertyFlashOffer(row.property);
-      if (flashOffer) {
+      const flashOffers = getPropertyFlashOffers(row.property);
+      flashOffers.forEach((flashOffer) => {
         const flashParams = new URLSearchParams(baseParams.toString());
         flashParams.set("mode", "location_saisonniere");
         flashParams.set("checkIn", flashOffer.start);
@@ -2415,14 +2415,20 @@ export default function PropertiesPage() {
         if (flashOffer.title) {
           flashParams.set("flashTitle", flashOffer.title);
         }
+        if (flashOffer.id) {
+          flashParams.set("flashId", flashOffer.id);
+        }
+        if (flashOffer.expiresAt) {
+          flashParams.set("flashExpiresAt", flashOffer.expiresAt);
+        }
         flashRows.push({
           ...row,
-          displayKey: `${row.property.id}-flash-${flashOffer.start}-${flashOffer.end}`,
+          displayKey: `${row.property.id}-flash-${flashOffer.id || `${flashOffer.start}-${flashOffer.end}`}`,
           cardVariant: "flash",
           flashOffer,
           searchParams: flashParams.toString(),
         });
-      }
+      });
       regularRows.push({
         ...row,
         displayKey: String(row.property.id),

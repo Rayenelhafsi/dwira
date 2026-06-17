@@ -24347,6 +24347,9 @@ app.get('/api/utilisateurs', requireAdminSession, async (req, res) => {
 app.post('/api/utilisateurs', requireAdminSession, async (req, res) => {
   try {
     const { id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url } = req.body;
+    const cinImageUrl = String(cin_image_url || req.body?.cinImageUrl || '').trim() || null;
+    const cinImageRectoUrl = String(req.body?.cin_image_recto_url || req.body?.cinImageRectoUrl || cinImageUrl || '').trim() || null;
+    const cinImageVersoUrl = String(req.body?.cin_image_verso_url || req.body?.cinImageVersoUrl || '').trim() || null;
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!nom || !normalizedEmail) {
       return res.status(400).json({ error: 'nom and email are required' });
@@ -24358,9 +24361,9 @@ app.post('/api/utilisateurs', requireAdminSession, async (req, res) => {
     const newId = id || 'u' + Date.now();
     const created_at = getAgencyLocalDate();
     await pool.query(
-      `INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [newId, nom, normalizedEmail, role || 'user', avatar || null, telephone || null, client_type || null, cin || null, cin_image_url || null, created_at]
+      `INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, cin_image_recto_url, cin_image_verso_url, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, nom, normalizedEmail, role || 'user', avatar || null, telephone || null, client_type || null, cin || null, cinImageRectoUrl || cinImageUrl, cinImageRectoUrl || cinImageUrl, cinImageVersoUrl, created_at]
     );
     const [newUser] = await pool.query('SELECT * FROM utilisateurs WHERE id = ?', [newId]);
     res.status(201).json(newUser[0]);
@@ -24373,9 +24376,12 @@ app.post('/api/utilisateurs', requireAdminSession, async (req, res) => {
 app.put('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
   try {
     const { nom, email, role, avatar, telephone, client_type, cin, cin_image_url } = req.body;
+    const cinImageUrl = String(cin_image_url || req.body?.cinImageUrl || '').trim() || null;
+    const cinImageRectoUrl = String(req.body?.cin_image_recto_url || req.body?.cinImageRectoUrl || cinImageUrl || '').trim() || null;
+    const cinImageVersoUrl = String(req.body?.cin_image_verso_url || req.body?.cinImageVersoUrl || '').trim() || null;
     await pool.query(
       `UPDATE utilisateurs
-       SET nom = ?, email = ?, role = ?, avatar = ?, telephone = ?, client_type = ?, cin = ?, cin_image_url = ?, updated_at = ?
+       SET nom = ?, email = ?, role = ?, avatar = ?, telephone = ?, client_type = ?, cin = ?, cin_image_url = ?, cin_image_recto_url = ?, cin_image_verso_url = ?, updated_at = ?
        WHERE id = ?`,
       [
         nom,
@@ -24385,7 +24391,9 @@ app.put('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
         telephone || null,
         client_type || null,
         cin || null,
-        cin_image_url || null,
+        cinImageRectoUrl || cinImageUrl,
+        cinImageRectoUrl || cinImageUrl,
+        cinImageVersoUrl,
         getAgencySqlDateTime(),
         req.params.id,
       ]

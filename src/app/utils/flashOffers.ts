@@ -3,12 +3,16 @@ import type { Property } from "../data/properties";
 export type PropertyFlashOfferMode = "percentage" | "fixed_amount";
 
 export type PropertyFlashOffer = {
+  id?: string;
   title: string | null;
   mode: PropertyFlashOfferMode;
   discountPercent: number | null;
   fixedNightlyAmount: number | null;
   start: string;
   end: string;
+  expirationHours?: number | null;
+  createdAt?: string | null;
+  expiresAt?: string | null;
 };
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -38,36 +42,68 @@ function isFlashAlreadyBooked(property: Property, start: string, end: string) {
   });
 }
 
-export function getPropertyFlashOffer(property?: Property | null): PropertyFlashOffer | null {
-  if (!property || String(property.mode || "").trim() !== "location_saisonniere") return null;
-  const config = property.seasonalConfig || null;
-  if (!config?.venteFlashActive) return null;
+function parseFutureIsoTimestamp(value: unknown): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const timestamp = Date.parse(text);
+  if (!Number.isFinite(timestamp)) return null;
+  return new Date(timestamp).toISOString();
+}
 
-  const start = String(config.venteFlashStart || "").trim();
-  const end = String(config.venteFlashEnd || "").trim();
+function normalizeFlashOfferCandidate(raw: any, fallbackId: string): PropertyFlashOffer | null {
+  const active = raw?.active !== false;
+  if (!active) return null;
+  const start = String(raw?.start ?? raw?.start_date ?? "").trim();
+  const end = String(raw?.end ?? raw?.end_date ?? "").trim();
   if (!isValidDateOnly(start) || !isValidDateOnly(end) || end < start) return null;
-  if (isFlashAlreadyBooked(property, start, end)) return null;
-
-  const mode: PropertyFlashOfferMode = config.venteFlashMode === "montant_tnd" ? "fixed_amount" : "percentage";
+  const mode: PropertyFlashOfferMode = raw?.mode === "montant_tnd" || raw?.mode === "fixed_amount" ? "fixed_amount" : "percentage";
   const discountPercent = mode === "percentage"
-    ? Math.max(0, Math.min(95, Number(config.venteFlashDiscountPercent || 0)))
+    ? Math.max(0, Math.min(95, Number(raw?.discountPercent ?? raw?.discount_percent ?? 0)))
     : null;
   const fixedNightlyAmount = mode === "fixed_amount"
-    ? normalizeAmount(config.venteFlashFixedAmount)
+    ? normalizeAmount(raw?.fixedNightlyAmount ?? raw?.fixed_amount_tnd)
     : null;
-
   if (mode === "percentage" && (!Number.isFinite(discountPercent) || Number(discountPercent) <= 0)) return null;
   if (mode === "fixed_amount" && (!Number.isFinite(fixedNightlyAmount) || Number(fixedNightlyAmount) <= 0)) return null;
-
-  const title = String(config.venteFlashTitle || "").trim() || null;
+  const expiresAt = parseFutureIsoTimestamp(raw?.expiresAt ?? raw?.expires_at);
+  if (expiresAt && Date.parse(expiresAt) <= Date.now()) return null;
   return {
-    title,
+    id: String(raw?.id || fallbackId),
+    title: String(raw?.title || "").trim() || null,
     mode,
     discountPercent,
     fixedNightlyAmount,
     start,
     end,
+    expirationHours: raw?.expirationHours ?? raw?.expiration_hours ?? null,
+    createdAt: parseFutureIsoTimestamp(raw?.createdAt ?? raw?.created_at) || null,
+    expiresAt,
   };
+}
+
+export function getPropertyFlashOffers(property?: Property | null): PropertyFlashOffer[] {
+  if (!property || String(property.mode || "").trim() !== "location_saisonniere") return [];
+  const config = property.seasonalConfig || null;
+  const rawOffers = Array.isArray(config?.venteFlashOffers) && config.venteFlashOffers.length > 0
+    ? config.venteFlashOffers
+    : (config?.venteFlashActive ? [{
+        id: `${property.id}-legacy-flash`,
+        active: config.venteFlashActive,
+        title: config.venteFlashTitle,
+        mode: config.venteFlashMode,
+        discountPercent: config.venteFlashDiscountPercent,
+        fixedNightlyAmount: config.venteFlashFixedAmount,
+        start: config.venteFlashStart,
+        end: config.venteFlashEnd,
+      }] : []);
+  return rawOffers
+    .map((offer, index) => normalizeFlashOfferCandidate(offer, `${property.id}-flash-${index}`))
+    .filter((offer): offer is PropertyFlashOffer => Boolean(offer))
+    .filter((offer) => !isFlashAlreadyBooked(property, offer.start, offer.end));
+}
+
+export function getPropertyFlashOffer(property?: Property | null): PropertyFlashOffer | null {
+  return getPropertyFlashOffers(property)[0] || null;
 }
 
 export function getFlashNightlyAmount(amount: number, offer?: Pick<PropertyFlashOffer, "mode" | "discountPercent" | "fixedNightlyAmount"> | null) {

@@ -733,6 +733,21 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
       matelasSupplementairesMax: bien.location_saisonniere_config?.matelas_supplementaires_max ?? null,
       avancePourcentage: bien.location_saisonniere_config?.avance_pourcentage ?? 30,
       reservationInstantanee: Boolean((bien.location_saisonniere_config as any)?.reservation_instantanee),
+      venteFlashOffers: Array.isArray((bien.location_saisonniere_config as any)?.ventes_flash)
+        ? (bien.location_saisonniere_config as any).ventes_flash.map((item: any, index: number) => ({
+            id: String(item?.id || `${bien.id}-flash-${index}`),
+            active: item?.active !== false,
+            title: String(item?.title || '').trim() || null,
+            mode: item?.mode === 'montant_tnd' ? 'montant_tnd' : 'pourcentage',
+            discountPercent: item?.discount_percent ?? null,
+            fixedNightlyAmount: item?.fixed_amount_tnd ?? null,
+            start: String(item?.start_date || '').trim() || null,
+            end: String(item?.end_date || '').trim() || null,
+            expirationHours: item?.expiration_hours ?? null,
+            createdAt: String(item?.created_at || '').trim() || null,
+            expiresAt: String(item?.expires_at || '').trim() || null,
+          }))
+        : [],
       venteFlashActive: Boolean((bien.location_saisonniere_config as any)?.vente_flash_active),
       venteFlashTitle: String((bien.location_saisonniere_config as any)?.vente_flash_titre || '').trim() || null,
       venteFlashMode: (((bien.location_saisonniere_config as any)?.vente_flash_mode === 'montant_tnd')

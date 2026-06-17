@@ -3,7 +3,7 @@ import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, Chevr
 import { toast } from 'sonner';
 import { Link } from 'react-router';
 import { mockZones } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien, VenteFlashConfig } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -446,12 +446,79 @@ const DEFAULT_LOCATION_SAISONNIERE_CONFIG: LocationSaisonniereConfig = {
   vente_flash_montant_tnd: null,
   vente_flash_date_debut: null,
   vente_flash_date_fin: null,
+  ventes_flash: [],
   frais_menage_disponible: false,
   frais_menage: 0,
   frais_service_disponible: false,
   frais_service: 0,
   services_payants: buildDefaultPaidServices(),
   google_maps_embed_url: null,
+};
+const buildFlashOfferExpiry = (hours?: number | null) => {
+  const safeHours = Math.max(1, Number(hours || 24));
+  return new Date(Date.now() + (safeHours * 60 * 60 * 1000)).toISOString();
+};
+const buildDefaultFlashOffer = (): VenteFlashConfig => ({
+  id: `flash_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  active: true,
+  title: 'Vente flash',
+  mode: 'pourcentage',
+  discount_percent: 15,
+  fixed_amount_tnd: null,
+  start_date: null,
+  end_date: null,
+  expiration_hours: 24,
+  created_at: new Date().toISOString(),
+  expires_at: buildFlashOfferExpiry(24),
+});
+const normalizeFlashOffers = (config?: LocationSaisonniereConfig | null): VenteFlashConfig[] => {
+  const rawOffers = Array.isArray(config?.ventes_flash) && config?.ventes_flash.length > 0
+    ? config.ventes_flash
+    : (config?.vente_flash_active ? [{
+        id: 'flash_legacy',
+        active: config.vente_flash_active,
+        title: config.vente_flash_titre || 'Vente flash',
+        mode: config.vente_flash_mode || 'pourcentage',
+        discount_percent: config.vente_flash_taux_reduction ?? 15,
+        fixed_amount_tnd: config.vente_flash_montant_tnd ?? null,
+        start_date: config.vente_flash_date_debut ?? null,
+        end_date: config.vente_flash_date_fin ?? null,
+        expiration_hours: 24,
+        created_at: new Date().toISOString(),
+        expires_at: buildFlashOfferExpiry(24),
+      }] : []);
+  return rawOffers.map((item, index) => {
+    const safeHours = Math.max(1, Number(item?.expiration_hours || 24));
+    const createdAt = String(item?.created_at || '').trim() || new Date().toISOString();
+    const expiresAt = String(item?.expires_at || '').trim() || buildFlashOfferExpiry(safeHours);
+    return {
+      id: String(item?.id || `flash_${index}_${Date.now()}`),
+      active: item?.active !== false,
+      title: String(item?.title || '').trim() || 'Vente flash',
+      mode: item?.mode === 'montant_tnd' ? 'montant_tnd' : 'pourcentage',
+      discount_percent: item?.mode === 'montant_tnd' ? null : Math.max(1, Math.min(95, Number(item?.discount_percent ?? 15))),
+      fixed_amount_tnd: item?.mode === 'montant_tnd'
+        ? (Math.max(1, Number(item?.fixed_amount_tnd || 0)) || null)
+        : null,
+      start_date: item?.start_date || null,
+      end_date: item?.end_date || null,
+      expiration_hours: safeHours,
+      created_at: createdAt,
+      expires_at: expiresAt,
+    };
+  });
+};
+const buildLegacyFlashPatch = (offers: VenteFlashConfig[]): Partial<LocationSaisonniereConfig> => {
+  const primaryOffer = offers.find((item) => item.active !== false) || offers[0] || null;
+  return {
+    vente_flash_active: offers.some((item) => item.active !== false),
+    vente_flash_titre: primaryOffer?.title || 'Vente flash',
+    vente_flash_mode: primaryOffer?.mode === 'montant_tnd' ? 'montant_tnd' : 'pourcentage',
+    vente_flash_taux_reduction: primaryOffer?.mode === 'pourcentage' ? (primaryOffer.discount_percent ?? 15) : null,
+    vente_flash_montant_tnd: primaryOffer?.mode === 'montant_tnd' ? (primaryOffer.fixed_amount_tnd ?? null) : null,
+    vente_flash_date_debut: primaryOffer?.start_date || null,
+    vente_flash_date_fin: primaryOffer?.end_date || null,
+  };
 };
 const TERRAIN_ONAS_OPTIONS = [
   { value: 'disponible', label: 'Disponible' },
@@ -1992,6 +2059,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
   };
+  const saisonFlashOffers = useMemo(
+    () => normalizeFlashOffers(saisonConfig),
+    [saisonConfig]
+  );
   const selectedZone = zones.find((item) => item.id === formData.zone_id);
   const toOuiNon = (value: boolean | null | undefined) => value ? 'Oui' : 'Non';
   const normalizeMapsInput = (raw?: string | null) => {
@@ -2021,6 +2092,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         ...patch,
       },
     }));
+  };
+  const updateFlashOffers = (offers: VenteFlashConfig[]) => {
+    updateSaisonConfig({
+      ...buildLegacyFlashPatch(offers),
+      ventes_flash: offers,
+    });
   };
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
@@ -3179,6 +3256,35 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     if (!nextServices[index]) return;
     nextServices.splice(index, 1);
     updateSaisonConfig({ services_payants: nextServices });
+  };
+  const addFlashOffer = () => {
+    updateFlashOffers([...saisonFlashOffers, buildDefaultFlashOffer()]);
+  };
+  const updateFlashOffer = (offerId: string, patch: Partial<VenteFlashConfig>, options?: { resetExpiry?: boolean }) => {
+    const nextOffers = saisonFlashOffers.map((offer) => {
+      if (offer.id !== offerId) return offer;
+      const nextMode = patch.mode === 'montant_tnd' ? 'montant_tnd' : (patch.mode === 'pourcentage' ? 'pourcentage' : offer.mode);
+      const nextHours = Math.max(1, Number(patch.expiration_hours ?? offer.expiration_hours ?? 24));
+      const shouldResetExpiry = Boolean(options?.resetExpiry);
+      return {
+        ...offer,
+        ...patch,
+        mode: nextMode,
+        discount_percent: nextMode === 'pourcentage'
+          ? Math.max(1, Math.min(95, Number(patch.discount_percent ?? offer.discount_percent ?? 15)))
+          : null,
+        fixed_amount_tnd: nextMode === 'montant_tnd'
+          ? (Math.max(1, Number(patch.fixed_amount_tnd ?? offer.fixed_amount_tnd ?? 0)) || null)
+          : null,
+        expiration_hours: nextHours,
+        created_at: shouldResetExpiry ? new Date().toISOString() : offer.created_at,
+        expires_at: shouldResetExpiry ? buildFlashOfferExpiry(nextHours) : (offer.expires_at || buildFlashOfferExpiry(nextHours)),
+      };
+    });
+    updateFlashOffers(nextOffers);
+  };
+  const removeFlashOffer = (offerId: string) => {
+    updateFlashOffers(saisonFlashOffers.filter((offer) => offer.id !== offerId));
   };
   const updateCatalogueDraft = (serviceId: string, patch: Partial<ServicePayantBien>) => {
     const normalizedId = String(serviceId || '').trim();
@@ -8399,88 +8505,133 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                             <div>
                               <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">
                                 <Flame className="h-4 w-4" />
-                                Vente flash
+                                Ventes flash
                               </label>
                               <p className="mt-1 text-[11px] text-orange-700/80">
-                                Duplique le bien côté client avec une offre limitée sur une période de séjour fixe.
+                                Ajoutez plusieurs cartes flash. Chaque offre a sa propre période de séjour et sa propre expiration.
                               </p>
                             </div>
-                            <label className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(saisonConfig.vente_flash_active)}
-                                onChange={(e) => updateSaisonConfig({ vente_flash_active: e.target.checked })}
-                                className="h-4 w-4"
-                              />
-                              Active
-                            </label>
+                            <button
+                              type="button"
+                              onClick={addFlashOffer}
+                              className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Ajouter une vente flash
+                            </button>
                           </div>
-                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                            <div>
-                              <label className="mb-1 block text-xs text-gray-600">Titre affiché</label>
-                              <input
-                                type="text"
-                                value={saisonConfig.vente_flash_titre || 'Vente flash'}
-                                onChange={(e) => updateSaisonConfig({ vente_flash_titre: e.target.value })}
-                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
-                                placeholder="Vente flash"
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs text-gray-600">Réduction (%)</label>
-                              <select
-                                value={saisonConfig.vente_flash_mode || 'pourcentage'}
-                                onChange={(e) => updateSaisonConfig({ vente_flash_mode: e.target.value === 'montant_tnd' ? 'montant_tnd' : 'pourcentage' })}
-                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
-                              >
-                                <option value="pourcentage">Par pourcentage</option>
-                                <option value="montant_tnd">Par montant TND</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs text-gray-600">
-                                {saisonConfig.vente_flash_mode === 'montant_tnd' ? 'Montant flash / nuit (TND)' : 'Reduction (%)'}
-                              </label>
-                              {saisonConfig.vente_flash_mode === 'montant_tnd' ? (
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={saisonConfig.vente_flash_montant_tnd ?? ''}
-                                  onChange={(e) => updateSaisonConfig({ vente_flash_montant_tnd: Math.max(1, Number(e.target.value || 0)) || null })}
-                                  className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
-                                />
-                              ) : (
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={95}
-                                  value={saisonConfig.vente_flash_taux_reduction ?? 15}
-                                  onChange={(e) => updateSaisonConfig({ vente_flash_taux_reduction: Math.max(1, Math.min(95, Number(e.target.value || 0))) })}
-                                  className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
-                                />
-                              )}
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs text-gray-600">Début du séjour flash</label>
-                              <input
-                                type="date"
-                                value={saisonConfig.vente_flash_date_debut || ''}
-                                onChange={(e) => updateSaisonConfig({ vente_flash_date_debut: e.target.value || null })}
-                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs text-gray-600">Fin du séjour flash</label>
-                              <input
-                                type="date"
-                                value={saisonConfig.vente_flash_date_fin || ''}
-                                onChange={(e) => updateSaisonConfig({ vente_flash_date_fin: e.target.value || null })}
-                                className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
-                              />
-                            </div>
+                          <div className="mt-3 space-y-3">
+                            {saisonFlashOffers.length === 0 ? (
+                              <div className="rounded-xl border border-dashed border-orange-200 bg-white/70 px-4 py-5 text-sm text-orange-700/80">
+                                Aucune vente flash. Ajoutez une offre pour afficher une carte flash avec compteur côté client.
+                              </div>
+                            ) : saisonFlashOffers.map((offer, index) => (
+                              <div key={offer.id} className="rounded-xl border border-orange-200 bg-white/90 p-3 shadow-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div>
+                                    <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">Offre flash {index + 1}</p>
+                                    <p className="mt-1 text-[11px] text-gray-500">
+                                      Expire le {offer.expires_at ? new Date(offer.expires_at).toLocaleString('fr-FR') : '-'}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <label className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+                                      <input
+                                        type="checkbox"
+                                        checked={offer.active !== false}
+                                        onChange={(e) => updateFlashOffer(offer.id, { active: e.target.checked })}
+                                        className="h-4 w-4"
+                                      />
+                                      Active
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeFlashOffer(offer.id)}
+                                      className="rounded-full border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+                                    >
+                                      Supprimer
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                                  <div>
+                                    <label className="mb-1 block text-xs text-gray-600">Titre affiché</label>
+                                    <input
+                                      type="text"
+                                      value={offer.title || 'Vente flash'}
+                                      onChange={(e) => updateFlashOffer(offer.id, { title: e.target.value })}
+                                      className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                      placeholder="Vente flash"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs text-gray-600">Mode remise</label>
+                                    <select
+                                      value={offer.mode || 'pourcentage'}
+                                      onChange={(e) => updateFlashOffer(offer.id, { mode: e.target.value === 'montant_tnd' ? 'montant_tnd' : 'pourcentage' })}
+                                      className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                    >
+                                      <option value="pourcentage">Par pourcentage</option>
+                                      <option value="montant_tnd">Par montant TND</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs text-gray-600">
+                                      {offer.mode === 'montant_tnd' ? 'Montant flash / nuit (TND)' : 'Réduction (%)'}
+                                    </label>
+                                    {offer.mode === 'montant_tnd' ? (
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={offer.fixed_amount_tnd ?? ''}
+                                        onChange={(e) => updateFlashOffer(offer.id, { fixed_amount_tnd: Math.max(1, Number(e.target.value || 0)) || null })}
+                                        className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                      />
+                                    ) : (
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={95}
+                                        value={offer.discount_percent ?? 15}
+                                        onChange={(e) => updateFlashOffer(offer.id, { discount_percent: Math.max(1, Math.min(95, Number(e.target.value || 0))) })}
+                                        className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                      />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs text-gray-600">Début du séjour flash</label>
+                                    <input
+                                      type="date"
+                                      value={offer.start_date || ''}
+                                      onChange={(e) => updateFlashOffer(offer.id, { start_date: e.target.value || null })}
+                                      className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs text-gray-600">Fin du séjour flash</label>
+                                    <input
+                                      type="date"
+                                      value={offer.end_date || ''}
+                                      onChange={(e) => updateFlashOffer(offer.id, { end_date: e.target.value || null })}
+                                      className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs text-gray-600">Expiration (heures)</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={offer.expiration_hours ?? 24}
+                                      onChange={(e) => updateFlashOffer(offer.id, { expiration_hours: Math.max(1, Number(e.target.value || 1)) }, { resetExpiry: true })}
+                                      className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                           <p className="mt-3 text-[11px] text-orange-700/85">
-                            Le bien principal reste visible normalement. Une deuxième carte spéciale sera affichée en haut avec le prix barré et le tarif flash, et le client sera verrouillé sur cette période.
+                            Chaque offre flash crée une carte dédiée côté client avec prix barré, tarif flash et compteur de temps restant avant expiration.
                           </p>
                         </div>
                         <div><label className="block text-xs text-gray-600 mb-1">Voyageurs max (total)</label><input type="number" min={1} value={saisonConfig.limite_personnes_nuit ?? 1} onChange={(e) => updateSaisonConfig({ limite_personnes_nuit: Math.max(1, Number(e.target.value || 1)) })} className="block w-full rounded-lg border-gray-300 border p-2" /></div>

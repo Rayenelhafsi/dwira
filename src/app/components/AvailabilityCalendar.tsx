@@ -202,15 +202,20 @@ export default function AvailabilityCalendar({
     const isCurrentMonth = isSameMonth(date, currentMonth);
     const dateStatus = getDateStatus(date);
     const isSelected = isDateSelected(date);
+    const flashLocked = Boolean(normalizedAllowedRange);
 
     let className = "w-full aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative overflow-hidden ";
     
     if (!isCurrentMonth) {
       className += "text-gray-300 ";
     } else if (isOutsideAllowedRange(date)) {
-      className += "bg-slate-100 text-slate-300 cursor-not-allowed opacity-80 ";
+      className += flashLocked
+        ? "bg-white text-slate-300 cursor-not-allowed border border-slate-100 "
+        : "bg-slate-100 text-slate-300 cursor-not-allowed opacity-80 ";
     } else if (dateStatus === 'past') {
-      className += "text-gray-300 cursor-not-allowed ";
+      className += flashLocked
+        ? "bg-white text-slate-300 cursor-not-allowed border border-slate-100 "
+        : "text-gray-300 cursor-not-allowed ";
     } else if (dateStatus === 'blocked') {
       // Black for Bloqué/Non disponible
       className += "bg-gray-900 text-white cursor-not-allowed ";
@@ -227,8 +232,9 @@ export default function AvailabilityCalendar({
       // Dark Green for Sélectionné (entire selected period)
       className += "bg-emerald-600 text-white font-bold ";
     } else {
-      // Light Green for Disponible
-      className += "bg-green-100 text-green-700 hover:bg-green-200 hover:scale-110 ";
+      className += flashLocked
+        ? "bg-white text-slate-400 border border-slate-100 "
+        : "bg-green-100 text-green-700 hover:bg-green-200 hover:scale-110 ";
     }
 
     return className;
@@ -238,7 +244,7 @@ export default function AvailabilityCalendar({
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
     const selectedClass = "bg-emerald-600";
-    const availableClass = "bg-green-100";
+    const availableClass = normalizedAllowedRange ? "bg-white" : "bg-green-100";
     if (isEnd) {
       return { enabled: true, leftClass: selectedClass, rightClass: availableClass };
     }

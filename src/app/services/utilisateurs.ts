@@ -22,6 +22,8 @@ export interface CreateUtilisateurInput {
   telephone?: string | null;
   cin?: string | null;
   cin_image_url?: string | null;
+  cin_image_recto_url?: string | null;
+  cin_image_verso_url?: string | null;
   created_at: string;
 }
 
@@ -34,6 +36,8 @@ export interface UpdateUtilisateurInput {
   telephone?: string | null;
   cin?: string | null;
   cin_image_url?: string | null;
+  cin_image_recto_url?: string | null;
+  cin_image_verso_url?: string | null;
 }
 
 // ============================================
@@ -72,8 +76,8 @@ export async function getUtilisateurByEmail(email: string): Promise<Utilisateur 
  */
 export async function createUtilisateur(data: CreateUtilisateurInput): Promise<number> {
   const sql = `
-    INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO utilisateurs (id, nom, email, role, avatar, telephone, client_type, cin, cin_image_url, cin_image_recto_url, cin_image_verso_url, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const result = await execute(sql, [
     data.id,
@@ -85,6 +89,8 @@ export async function createUtilisateur(data: CreateUtilisateurInput): Promise<n
     data.client_type || null,
     data.cin || null,
     data.cin_image_url || null,
+    data.cin_image_recto_url || data.cin_image_url || null,
+    data.cin_image_verso_url || null,
     data.created_at
   ]);
   return result.affectedRows;
@@ -128,6 +134,14 @@ export async function updateUtilisateur(id: string, data: UpdateUtilisateurInput
   if (data.cin_image_url !== undefined) {
     fields.push('cin_image_url = ?');
     values.push(data.cin_image_url);
+  }
+  if (data.cin_image_recto_url !== undefined) {
+    fields.push('cin_image_recto_url = ?');
+    values.push(data.cin_image_recto_url);
+  }
+  if (data.cin_image_verso_url !== undefined) {
+    fields.push('cin_image_verso_url = ?');
+    values.push(data.cin_image_verso_url);
   }
 
   if (fields.length === 0) return 0;

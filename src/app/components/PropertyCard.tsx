@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle, Zap, Flame } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
 import { SmartImage } from "./SmartImage";
@@ -88,6 +88,21 @@ const formatFlashDateLabel = (start?: string | null, end?: string | null) => {
     return `${start} - ${end}`;
   }
 };
+const formatFlashCountdown = (expiresAt?: string | null, nowMs?: number) => {
+  const targetMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  if (!Number.isFinite(targetMs)) return null;
+  const remainingMs = Math.max(0, targetMs - (nowMs || Date.now()));
+  if (remainingMs <= 0) return "Expiree";
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return days > 0
+    ? `${days}j ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
+    : `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+};
 
 export function PropertyCard({
   property,
@@ -95,6 +110,7 @@ export function PropertyCard({
   cardVariant = "default",
   flashOffer = null,
 }: PropertyCardProps) {
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const baseDetailPath = buildPropertyDetailsPath(property);
   const linkTo = searchParams 
     ? `${baseDetailPath}?${searchParams}`
@@ -140,6 +156,7 @@ export function PropertyCard({
     : displayedWeeklyPrice;
   const flashDateLabel = isFlashCard ? formatFlashDateLabel(flashOffer?.start, flashOffer?.end) : "";
   const flashBadgeLabel = isFlashCard ? getFlashBadgeLabel(flashOffer) : "";
+  const flashCountdownLabel = isFlashCard ? formatFlashCountdown(flashOffer?.expiresAt, countdownNow) : null;
   const mainTypeLabel = resolveMainTypeLabel(property.category || "", property.title || "");
   const subTypeLabel = resolveSubTypeLabel(
     property.category || "",
@@ -154,6 +171,13 @@ export function PropertyCard({
   const residenceBadgeLabel = String(property.residenceName || "").trim();
   const visualNightlyPrice = isFlashCard ? flashNightlyPrice : displayedNightlyPrice;
   const visualWeeklyPrice = isFlashCard ? flashWeeklyPrice : displayedWeeklyPrice;
+  useEffect(() => {
+    if (!isFlashCard || !flashOffer?.expiresAt) return;
+    const intervalId = window.setInterval(() => {
+      setCountdownNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [flashOffer?.expiresAt, isFlashCard]);
 
   const handleMessengerClick = () => {
     void trackMetaEvent({
@@ -311,6 +335,11 @@ export function PropertyCard({
                     {String(flashOffer?.title || "Vente flash")}
                   </p>
                   <p className="mt-1 text-xs font-semibold sm:text-sm">{flashDateLabel}</p>
+                  {flashCountdownLabel ? (
+                    <p className="mt-1 text-[11px] font-semibold text-white/80">
+                      Expire dans {flashCountdownLabel}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] uppercase tracking-[0.22em] text-white/70">Prix flash</p>
@@ -382,6 +411,9 @@ export function PropertyCard({
                 <div className="min-w-0">
                   <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-red-600">Sejour flash</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">{flashDateLabel}</p>
+                  {flashCountdownLabel ? (
+                    <p className="mt-1 text-xs font-semibold text-red-600">Expire dans {flashCountdownLabel}</p>
+                  ) : null}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-xs text-slate-500 line-through">{formatTnd(displayedNightlyPrice)} TND</p>

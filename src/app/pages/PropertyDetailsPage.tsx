@@ -1360,21 +1360,22 @@ out body 40;
     }
 
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
-    const minStayForSelection = getReservationMinStayRequirement({
+    const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
+    const minStayForSelection = skipLockedFlashStayRules ? 1 : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
-    if (nights < minStayForSelection) {
+    if (!skipLockedFlashStayRules && nights < minStayForSelection) {
       return { valid: false, message: `Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).` };
     }
-    if (nights > maxStay) {
+    if (!skipLockedFlashStayRules && nights > maxStay) {
       return { valid: false, message: `Sejour maximum autorise: ${maxStay} nuit(s).` };
     }
 
-    const weekdayRuleCheck = validateReservationWeekdayRule({
+    const weekdayRuleCheck = skipLockedFlashStayRules ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
@@ -2519,23 +2520,24 @@ out body 40;
       }
       const nights = Math.max(0, Math.abs(differenceInDays(orderedEnd, orderedStart)));
 
-      const minStayForSelection = getReservationMinStayRequirement({
+      const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
+      const minStayForSelection = skipLockedFlashStayRules ? 1 : getReservationMinStayRequirement({
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
         fallbackMinStay: minStay,
         amicaleId: pricingAmicaleId,
       });
-      if (nights < minStayForSelection) {
+      if (!skipLockedFlashStayRules && nights < minStayForSelection) {
         failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
         return;
       }
-      if (nights > maxStay) {
+      if (!skipLockedFlashStayRules && nights > maxStay) {
         failRule(`Sejour maximum: ${maxStay} nuit(s).`);
         return;
       }
 
-      const weekdayRuleCheck = validateReservationWeekdayRule({
+      const weekdayRuleCheck = skipLockedFlashStayRules ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
@@ -2815,28 +2817,29 @@ out body 40;
       return;
     }
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
-    const minStayForSelection = getReservationMinStayRequirement({
+    const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
+    const minStayForSelection = skipLockedFlashStayRules ? 1 : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
-    if (!isSaleProperty && nights < minStayForSelection) {
+    if (!isSaleProperty && !skipLockedFlashStayRules && nights < minStayForSelection) {
       failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
       return;
     }
-    if (!isSaleProperty && nights > maxStay) {
+    if (!isSaleProperty && !skipLockedFlashStayRules && nights > maxStay) {
       failRule(`Sejour maximum: ${maxStay} nuit(s).`);
       return;
     }
-    const weekdayRuleCheck = validateReservationWeekdayRule({
+    const weekdayRuleCheck = skipLockedFlashStayRules ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
       amicaleId: pricingAmicaleId,
     });
-    if (!isSaleProperty && !weekdayRuleCheck.ok) {
+    if (!isSaleProperty && !skipLockedFlashStayRules && !weekdayRuleCheck.ok) {
       const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
       const checkoutMessage = weekdayRuleCheck.requiredCheckoutDay ? `check-out: ${weekdayRuleCheck.requiredCheckoutDay}` : null;
       const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(' | ');
@@ -4230,14 +4233,14 @@ out body 40;
               <p className="text-gray-600 mb-6">
                 Sélectionnez vos dates pour voir les disponibilités et réserver votre séjour.
               </p>
-              {!isSaleProperty && (
+              {!isSaleProperty && !lockedFlashOffer && (
                 <p className="text-sm text-emerald-700 mb-2">
                   {selectedStart
                     ? `Duree autorisee pour la periode ${activeStayRuleLabel || 'selectionnee'}: minimum ${displayedMinStay} nuit(s), maximum ${maxStay} nuit(s).`
                     : 'Selectionnez une date de sejour pour que vous puissiez voir le minimum de nuitees pour la periode.'}
                 </p>
               )}
-              {!isSaleProperty && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
+              {!isSaleProperty && !lockedFlashOffer && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
                 <p className="text-sm text-emerald-700 mb-4">
                   Regle periode: check-in {activeWeekdayRule.requiredCheckinDay || 'libre'} | check-out {activeWeekdayRule.requiredCheckoutDay || 'libre'}.
                 </p>
