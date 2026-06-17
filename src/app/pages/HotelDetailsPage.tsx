@@ -226,18 +226,54 @@ export default function HotelDetailsPage() {
     };
   }, [params.id, searchParams]);
 
-  const gallery = useMemo(() => getHotelAlbum(hotel), [hotel]);
-  const activeHotel = searchHotel || hotel;
+  const returnToParam = String(searchParams.get("returnTo") || "").trim();
+  const safeReturnTo = returnToParam.startsWith("/") ? returnToParam : "";
+  const activeHotel = useMemo<HotelDetail | null>(() => {
+    if (!hotel && !searchHotel) return null;
+    return {
+      ...(searchHotel || {}),
+      ...(hotel || {}),
+      Price: searchHotel?.Price ?? hotel?.Price,
+      Promotion: searchHotel?.Promotion ?? hotel?.Promotion,
+      Recommended: searchHotel?.Recommended ?? hotel?.Recommended,
+      Facilities:
+        Array.isArray(hotel?.Facilities) && hotel.Facilities.length > 0
+          ? hotel.Facilities
+          : searchHotel?.Facilities ?? null,
+      City: hotel?.City || searchHotel?.City || null,
+      Category: hotel?.Category || searchHotel?.Category || null,
+      Star: hotel?.Star ?? searchHotel?.Star ?? null,
+      Adress: hotel?.Adress || searchHotel?.Adress || null,
+      Image: hotel?.Image || searchHotel?.Image || null,
+      ShortDescription: hotel?.ShortDescription || searchHotel?.ShortDescription || null,
+      HotelDescription: hotel?.HotelDescription || searchHotel?.HotelDescription || null,
+    } as HotelDetail;
+  }, [hotel, searchHotel]);
+  const gallery = useMemo(() => getHotelAlbum(activeHotel), [activeHotel]);
   const minPrice = useMemo(() => extractHotelMinPrice(activeHotel), [activeHotel]);
   const boardings = useMemo(() => extractHotelBoardingNames(activeHotel), [activeHotel]);
-  const facilities = useMemo(() => getHotelFacilityTitles(hotel?.Facilities, 24), [hotel]);
-  const tags = useMemo(() => getHotelTagTitles(hotel, 16), [hotel]);
-  const options = useMemo(() => getHotelOptionTitles(hotel, 8), [hotel]);
-  const presentationParagraphs = useMemo(
-    () => splitHotelTextParagraphs(hotel?.LongDescription || hotel?.ShortDescription || ""),
-    [hotel]
-  );
-  const practicalNote = useMemo(() => renderHotelRichText(hotel?.Note || ""), [hotel]);
+  const facilities = useMemo(() => getHotelFacilityTitles(activeHotel?.Facilities, 24), [activeHotel]);
+  const tags = useMemo(() => getHotelTagTitles(activeHotel, 16), [activeHotel]);
+  const options = useMemo(() => getHotelOptionTitles(activeHotel, 8), [activeHotel]);
+  const presentationParagraphs = useMemo(() => {
+    const sources = [
+      activeHotel?.LongDescription,
+      activeHotel?.HotelDescription,
+      activeHotel?.ShortDescription,
+    ];
+    const seen = new Set<string>();
+    const paragraphs: string[] = [];
+    sources.forEach((source) => {
+      splitHotelTextParagraphs(source).forEach((paragraph) => {
+        const key = paragraph.toLowerCase().replace(/\s+/g, " ").trim();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        paragraphs.push(paragraph);
+      });
+    });
+    return paragraphs;
+  }, [activeHotel]);
+  const practicalNote = useMemo(() => renderHotelRichText(activeHotel?.Note || ""), [activeHotel]);
   const preferredBoardingId = Math.max(0, Number(searchParams.get("boardingId") || 0) || 0);
   const preferredRoomId = Math.max(0, Number(searchParams.get("roomId") || 0) || 0);
   const shouldAutoOpenReserve = String(searchParams.get("reserve") || "") === "1";
@@ -254,42 +290,60 @@ export default function HotelDetailsPage() {
     });
   }, [searchHotel, preferredBoardingId, preferredRoomId]);
   const activeRequestOffer = requestOfferIndex !== null ? roomOffers[requestOfferIndex] || null : null;
-  const mapsLink = useMemo(() => buildMapsLink(hotel), [hotel]);
+  const mapsLink = useMemo(() => buildMapsLink(activeHotel), [activeHotel]);
   const backParams = new URLSearchParams(searchParams);
+  backParams.delete("returnTo");
   backParams.set("mode", "hotellerie");
-  const backHref = `/?${backParams.toString()}`;
+  const backHref = safeReturnTo || `/?${backParams.toString()}`;
+  const canNavigateBack = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    if (window.history.length <= 1) return false;
+    try {
+      if (!document.referrer) return false;
+      return new URL(document.referrer).origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  }, []);
+  const handleBackToResults = () => {
+    if (canNavigateBack) {
+      navigate(-1);
+      return;
+    }
+    navigate(backHref);
+  };
   const infoCards = useMemo(
     () => [
       {
         key: "category",
         label: "Categorie",
-        value: hotel?.Category?.Title || hotel?.Type || "-",
+        value: activeHotel?.Category?.Title || activeHotel?.Type || "-",
         icon: <Star size={16} className="text-amber-600" />,
         tone: "bg-amber-50 text-amber-700",
       },
       {
         key: "checkin",
         label: "Check-in / out",
-        value: hotel?.CheckIn || hotel?.CheckOut ? `${hotel?.CheckIn || "-"} / ${hotel?.CheckOut || "-"}` : "-",
+        value: activeHotel?.CheckIn || activeHotel?.CheckOut ? `${activeHotel?.CheckIn || "-"} / ${activeHotel?.CheckOut || "-"}` : "-",
         icon: <Clock3 size={16} className="text-sky-600" />,
         tone: "bg-sky-50 text-sky-700",
       },
       {
         key: "phone",
         label: "Telephone",
-        value: hotel?.Phone || "-",
+        value: activeHotel?.Phone || "-",
         icon: <Phone size={16} className="text-emerald-600" />,
         tone: "bg-emerald-50 text-emerald-700",
       },
       {
         key: "email",
         label: "Email",
-        value: hotel?.Email || "-",
+        value: activeHotel?.Email || "-",
         icon: <Mail size={16} className="text-violet-600" />,
         tone: "bg-violet-50 text-violet-700",
       },
     ],
-    [hotel]
+    [activeHotel]
   );
 
   useEffect(() => {
@@ -676,10 +730,10 @@ export default function HotelDetailsPage() {
           <AlertCircle className="mx-auto h-10 w-10 text-amber-600" />
           <h1 className="mt-5 text-3xl font-semibold text-slate-900">Detail hotel indisponible</h1>
           <p className="mt-3 text-sm leading-6 text-slate-500">{error || "Aucune donnee detaillee n'est disponible pour cet hotel pour le moment."}</p>
-          <Link to={backHref} className="mt-6 inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-700">
+          <button type="button" onClick={handleBackToResults} className="mt-6 inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-700">
             <ChevronLeft size={16} />
             Retour a la recherche
-          </Link>
+          </button>
         </div>
       </div>
     );
@@ -690,27 +744,27 @@ export default function HotelDetailsPage() {
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.2),transparent_32%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.28),transparent_30%),linear-gradient(135deg,rgba(15,23,42,0.92),rgba(12,74,110,0.88))]" />
         <div className="relative container mx-auto px-4 py-14 md:px-6">
-          <Link to={backHref} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white/92 backdrop-blur transition hover:bg-white/16">
+          <button type="button" onClick={handleBackToResults} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white/92 backdrop-blur transition hover:bg-white/16">
             <ChevronLeft size={16} />
             Retour a la recherche hotels
-          </Link>
+          </button>
 
           <div className="mt-8 grid gap-8 lg:grid-cols-[1.1fr,0.9fr]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-100">
-                {hotel.City?.Name || "Destination"}
-                {hotel.Category?.Title ? ` - ${hotel.Category.Title}` : ""}
+                {activeHotel?.City?.Name || "Destination"}
+                {activeHotel?.Category?.Title ? ` - ${activeHotel.Category.Title}` : ""}
               </p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white md:text-6xl">{hotel.Name}</h1>
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white md:text-6xl">{activeHotel?.Name || hotel.Name}</h1>
               <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-sky-50/88">
                 <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 backdrop-blur">
                   <Star size={15} className="fill-current" />
-                  {formatHotelStarLabel(hotel.Star)}
+                  {formatHotelStarLabel(activeHotel?.Star)}
                 </span>
-                {hotel.Adress && (
+                {activeHotel?.Adress && (
                   <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 backdrop-blur">
                     <MapPin size={15} />
-                    {hotel.Adress}
+                    {activeHotel.Adress}
                   </span>
                 )}
                 {boardings.slice(0, 3).map((boarding) => (
@@ -979,7 +1033,7 @@ export default function HotelDetailsPage() {
                     <MapPin size={14} />
                     Adresse
                   </span>
-                  <p className="mt-2 text-sm font-medium leading-6 text-slate-800">{hotel.Adress || hotel.City?.Name || "-"}</p>
+                  <p className="mt-2 text-sm font-medium leading-6 text-slate-800">{activeHotel?.Adress || activeHotel?.City?.Name || "-"}</p>
                 </div>
                 {infoCards.map((item) => (
                   <div key={item.key} className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">

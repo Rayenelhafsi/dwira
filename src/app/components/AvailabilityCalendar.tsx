@@ -248,6 +248,11 @@ export default function AvailabilityCalendar({
     };
   };
 
+  const bookedHatchClass =
+    "bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.34)_0px,rgba(255,255,255,0.34)_6px,rgba(255,255,255,0.08)_6px,rgba(255,255,255,0.08)_12px)]";
+
+  const isBookedDay = (date: Date) => getDateStatus(date) === "booked";
+
   const getDayLabel = (date: Date): string | null => {
     if (selectedStart && isSameDay(date, selectedStart)) {
       return "Arrivée";
@@ -310,6 +315,9 @@ export default function AvailabilityCalendar({
         {days.map((day, idx) => {
           const label = getDayLabel(day);
           const splitVisual = getSplitDayVisual(day);
+          const isBooked = isBookedDay(day);
+          const splitLeftBooked = splitVisual.enabled && splitVisual.leftClass.includes("bg-red-500");
+          const splitRightBooked = splitVisual.enabled && splitVisual.rightClass.includes("bg-red-500");
           return (
             <div key={idx} onClick={() => handleDateClick(day)}>
               <div className={getDayClassName(day)}>
@@ -317,7 +325,16 @@ export default function AvailabilityCalendar({
                   <>
                     <span className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 rounded-l-lg ${splitVisual.leftClass}`} />
                     <span className={`pointer-events-none absolute inset-y-0 right-0 w-1/2 rounded-r-lg ${splitVisual.rightClass}`} />
+                    {splitLeftBooked && (
+                      <span className={`pointer-events-none absolute inset-y-0 left-0 z-[1] w-1/2 rounded-l-lg ${bookedHatchClass}`} />
+                    )}
+                    {splitRightBooked && (
+                      <span className={`pointer-events-none absolute inset-y-0 right-0 z-[1] w-1/2 rounded-r-lg ${bookedHatchClass}`} />
+                    )}
                   </>
+                )}
+                {!splitVisual.enabled && isBooked && (
+                  <span className={`pointer-events-none absolute inset-0 z-[1] rounded-lg ${bookedHatchClass}`} />
                 )}
                 <div className={`relative z-10 flex h-full w-full flex-col items-center justify-center ${splitVisual.enabled ? "text-gray-900" : ""}`}>
                   <span className={splitVisual.enabled ? "rounded-full bg-white/90 px-1.5 text-[13px] font-semibold text-gray-900" : ""}>
@@ -354,7 +371,7 @@ export default function AvailabilityCalendar({
           <span className="text-gray-600">En attente (sélectionné)</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-red-500 rounded"></div>
+          <div className={`w-4 h-4 bg-red-500 rounded ${bookedHatchClass}`}></div>
           <span className="text-gray-600">Réservé</span>
         </div>
         <div className="flex items-center gap-2">

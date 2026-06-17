@@ -5252,14 +5252,20 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                     });
                     const isAvailabilityVerified = hotelAvailabilitySignatureByHotel[hotelId] === availabilitySignature;
                     const availabilityActionLabel = isAvailabilityVerified ? "Réserver" : "Vérifier disponibilité";
-                    const detailParams = new URLSearchParams();
+                    const detailParams = applyAmicaleParam(new URLSearchParams(searchParams));
+                    detailParams.set("mode", "hotellerie");
                     if (hotelCityId > 0) detailParams.set("cityId", String(hotelCityId));
-                    detailParams.set("checkIn", hotelCheckIn);
-                    detailParams.set("checkOut", hotelCheckOut);
+                    else detailParams.delete("cityId");
+                    if (hotelCheckIn) detailParams.set("checkIn", hotelCheckIn);
+                    else detailParams.delete("checkIn");
+                    if (hotelCheckOut) detailParams.set("checkOut", hotelCheckOut);
+                    else detailParams.delete("checkOut");
                     detailParams.set("adults", String(totalRoomAdults));
                     if (totalRoomChildren > 0) detailParams.set("children", flattenHotelRoomChildAges(roomTravellers).join(","));
+                    else detailParams.delete("children");
                     if (resolvedRoomChoices[0]?.selectedBoardingOption?.boardingId) detailParams.set("boardingId", String(resolvedRoomChoices[0].selectedBoardingOption.boardingId));
                     if (resolvedRoomChoices[0]?.selectedRoomOption?.roomId) detailParams.set("roomId", String(resolvedRoomChoices[0].selectedRoomOption.roomId));
+                    detailParams.set("returnTo", `${location.pathname}${location.search}`);
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
                     return (
                       <article

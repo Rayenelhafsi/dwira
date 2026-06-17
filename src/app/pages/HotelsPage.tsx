@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import {
   AlertCircle,
   BedDouble,
@@ -122,6 +122,7 @@ function normalizeHotelSearchInputToken(value: string | null | undefined) {
 
 export default function HotelsPage() {
   const defaults = useMemo(() => buildDefaultSearch(), []);
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialHasSearchParams = useMemo(
     () => Boolean(searchParams.get("cityId") && searchParams.get("checkIn") && searchParams.get("checkOut")),
@@ -700,6 +701,7 @@ export default function HotelsPage() {
                 if (!detailParams.get("cityId") && hotel.City?.Id) {
                   detailParams.set("cityId", String(hotel.City.Id));
                 }
+                detailParams.set("returnTo", `${location.pathname}${location.search}`);
                 const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
 
                 return (
