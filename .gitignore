@@ -75,3 +75,5 @@ Chatbot/backend/*.err.log
 Chatbot/backend/*.out.log
 Chatbot/backend/.tmp-*.log
 dist.tar.gz
+contrat_template_site.pdf
+contrat-vide.pdf

@@ -1557,10 +1557,18 @@ out body 40;
     () => new Set((Array.isArray(sourceBien?.caracteristique_ids) ? sourceBien?.caracteristique_ids : []).map((item) => String(item))),
     [sourceBien?.caracteristique_ids]
   );
-  const selectedFeatureNames = useMemo(
-    () => new Set((Array.isArray(sourceBien?.caracteristiques) ? sourceBien?.caracteristiques : []).map((item) => normalizeFeatureName(String(item)))),
-    [sourceBien?.caracteristiques]
-  );
+  const selectedFeatureNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const rawItem of (Array.isArray(sourceBien?.caracteristiques) ? sourceBien.caracteristiques : [])) {
+      const text = String(rawItem || '').trim();
+      if (!text) continue;
+      const separatorIndex = text.indexOf(':');
+      const label = separatorIndex >= 0 ? text.slice(0, separatorIndex).trim() : text;
+      const normalizedLabel = normalizeFeatureName(label);
+      if (normalizedLabel) names.add(normalizedLabel);
+    }
+    return names;
+  }, [sourceBien?.caracteristiques]);
   const characteristicValuesFromLines = useMemo(() => {
     const exact = new Map<string, string[]>();
     const implied = new Map<string, string[]>();
