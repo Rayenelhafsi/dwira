@@ -980,6 +980,7 @@ export default function PropertyDetailsPage() {
   const stayInfoSectionRef = useRef<HTMLDivElement | null>(null);
   const locationSectionRef = useRef<HTMLDivElement | null>(null);
   const calendarSectionRef = useRef<HTMLDivElement | null>(null);
+  const priceSectionRef = useRef<HTMLDivElement | null>(null);
   const googlePlacesUnsupportedRef = useRef(false);
   const nearbyPlacesCacheRef = useRef<Record<string, NearbyPlace[]>>({});
   const nearbyPlacesFailureRef = useRef<Record<string, true>>({});
@@ -3600,6 +3601,68 @@ out body 40;
                 </div>
               </div>
             )}
+            <div className="border-b border-gray-100 py-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(calendarSectionRef.current)}
+                  className="group relative overflow-hidden rounded-[1.6rem] border border-emerald-200 bg-[linear-gradient(135deg,#f3fff8_0%,#e3f8ef_52%,#d8f2ea_100%)] p-4 text-left shadow-[0_16px_40px_rgba(16,185,129,0.12)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_50px_rgba(16,185,129,0.18)]"
+                >
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.8),transparent_48%)]" />
+                  <Calendar
+                    size={84}
+                    className="pointer-events-none absolute -right-3 -bottom-5 text-emerald-300/45 transition-transform duration-300 group-hover:scale-105"
+                  />
+                  <div className="relative flex items-start gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/90 text-emerald-700 shadow-[0_10px_24px_rgba(255,255,255,0.6)] ring-1 ring-white/80">
+                      <Calendar size={22} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/6 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">
+                        Calendrier
+                      </span>
+                      <p className="mt-3 text-lg font-semibold text-slate-950">Voir disponibilité</p>
+                      <p className="mt-1 max-w-[18rem] text-sm leading-6 text-slate-600">
+                        Descendez directement vers le calendrier pour choisir vos dates de séjour.
+                      </p>
+                    </div>
+                    <span className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/85 text-emerald-700 transition-transform duration-200 group-hover:translate-y-0.5">
+                      <ChevronDown size={18} />
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(priceSectionRef.current)}
+                  className="group relative overflow-hidden rounded-[1.6rem] border border-sky-200 bg-[linear-gradient(135deg,#f8fbff_0%,#ebf5ff_48%,#dcecff_100%)] p-4 text-left shadow-[0_16px_40px_rgba(59,130,246,0.12)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_50px_rgba(59,130,246,0.18)]"
+                >
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.86),transparent_48%)]" />
+                  <Wallet
+                    size={84}
+                    className="pointer-events-none absolute -right-3 -bottom-5 text-sky-300/45 transition-transform duration-300 group-hover:scale-105"
+                  />
+                  <div className="relative flex items-start gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/90 text-sky-700 shadow-[0_10px_24px_rgba(255,255,255,0.6)] ring-1 ring-white/80">
+                      <Wallet size={22} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-sky-950/6 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">
+                        Tarifs
+                      </span>
+                      <p className="mt-3 text-lg font-semibold text-slate-950">Voir prix</p>
+                      <p className="mt-1 max-w-[18rem] text-sm leading-6 text-slate-600">
+                        Accédez tout de suite au bloc tarifaire et au récapitulatif de réservation.
+                      </p>
+                    </div>
+                    <span className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-white/85 text-sky-700 transition-transform duration-200 group-hover:translate-y-0.5">
+                      <ChevronDown size={18} />
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
             <div className="flex items-start justify-between gap-4 py-6 border-b border-gray-100">
                <div className="min-w-0 flex-1">
                  <h2 className="mb-1 flex items-center gap-2 text-xl font-bold">
@@ -4103,7 +4166,7 @@ out body 40;
 
           {/* Right Column: Booking Card */}
           <div className="lg:col-span-1">
-            <div className="sticky top-24 bg-white rounded-xl shadow-xl border border-gray-100 p-6">
+            <div ref={priceSectionRef} className="sticky top-24 bg-white rounded-xl shadow-xl border border-gray-100 p-6">
               <div className="flex justify-between items-baseline mb-6">
                 <div>
                   <span className="text-2xl font-bold text-gray-900">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
