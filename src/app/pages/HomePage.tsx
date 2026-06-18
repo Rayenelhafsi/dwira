@@ -2264,12 +2264,15 @@ export default function HomePage({
     }
     const defaultMode = orderedModeTabs.find((tab) => !tab.comingSoon)?.value || "location_saisonniere";
     setSelectedMode(defaultMode);
+    if (publicPartnerSlug) {
+      return;
+    }
     const next = applyAmicaleParam(new URLSearchParams(searchParams));
     if (next.get("mode") !== defaultMode) {
       next.set("mode", defaultMode);
       setSearchParams(next, { replace: true });
     }
-  }, [activeAmicaleId, loading, orderedModeTabs, searchParams, setSearchParams]);
+  }, [activeAmicaleId, loading, orderedModeTabs, publicPartnerSlug, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!isHotelMode) return;
