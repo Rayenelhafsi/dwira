@@ -37,6 +37,14 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    force: true,
+    include: [
+      'leaflet',
+      '@radix-ui/react-slot',
+      'class-variance-authority',
+    ],
+  },
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],

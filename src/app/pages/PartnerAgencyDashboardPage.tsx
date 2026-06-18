@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, Link, useNavigate } from "react-router";
-import { CheckCircle2, FileText, LogOut, RefreshCw, Upload, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, LogOut, RefreshCw, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { ReservationDemand, ReservationDemandStatus } from "../admin/types";
 
@@ -77,8 +77,8 @@ function demandStatusTone(status?: ReservationDemandStatus | null) {
 }
 
 function buildPropertyPath(demand: ReservationDemand) {
-  const token = String(demand.bien_reference || demand.bien_id || "").trim();
-  return token ? `/properties/${encodeURIComponent(token)}` : "/logements";
+  const bienId = String(demand.bien_id || "").trim();
+  return bienId ? `/admin/biens?editBien=${encodeURIComponent(bienId)}` : "/admin/biens";
 }
 
 export default function PartnerAgencyDashboardPage() {
@@ -88,7 +88,6 @@ export default function PartnerAgencyDashboardPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [marginPercent, setMarginPercent] = useState("0");
-  const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const navigate = useNavigate();
 
@@ -122,7 +121,6 @@ export default function PartnerAgencyDashboardPage() {
         setSession(data?.session || null);
         const nextMultiplier = Number(data?.session?.marginMultiplier || 1);
         setMarginPercent(String(Math.max(0, ((nextMultiplier - 1) * 100).toFixed(2))));
-        setLogoPreviewUrl(String(data?.session?.partnerAgencyLogoUrl || "").trim());
       } finally {
         setIsLoading(false);
       }
@@ -182,23 +180,7 @@ export default function PartnerAgencyDashboardPage() {
     }
   };
 
-  const handleLogoUpload = async (file?: File | null) => {
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("image", file);
-    const response = await fetch(`${API_URL}/partner-agency/logo-upload`, {
-      method: "POST",
-      credentials: "include",
-      body: formData,
-    });
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(String(data?.error || "Upload logo impossible"));
-    }
-    return String(data?.url || data?.imageUrl || "").trim();
-  };
-
-  const handleSaveSettings = async (file?: File | null) => {
+  const handleSaveSettings = async () => {
     const numericMarginPercent = Number(marginPercent);
     if (!Number.isFinite(numericMarginPercent) || numericMarginPercent < 0) {
       toast.error("La marge ne peut pas etre inferieure a 0%.");
@@ -206,17 +188,12 @@ export default function PartnerAgencyDashboardPage() {
     }
     setIsSavingSettings(true);
     try {
-      let nextLogoUrl = logoPreviewUrl.trim() || null;
-      if (file) {
-        nextLogoUrl = (await handleLogoUpload(file)) || null;
-      }
       const response = await fetch(`${API_URL}/partner-agency/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           margin_percent: numericMarginPercent,
-          logo_url: nextLogoUrl,
         }),
       });
       const data = await response.json().catch(() => null);
@@ -224,7 +201,6 @@ export default function PartnerAgencyDashboardPage() {
         throw new Error(String(data?.error || "Mise a jour impossible"));
       }
       setSession(data?.session || null);
-      setLogoPreviewUrl(String(data?.session?.partnerAgencyLogoUrl || nextLogoUrl || "").trim());
       const nextMultiplier = Number(data?.session?.marginMultiplier || 1);
       setMarginPercent(String(Math.max(0, ((nextMultiplier - 1) * 100).toFixed(2))));
       toast.success("Parametres agence mis a jour.");
@@ -343,36 +319,23 @@ export default function PartnerAgencyDashboardPage() {
                 <span className="block text-sm font-medium text-gray-700">Logo agence</span>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
-                    {logoPreviewUrl ? (
-                      <img src={logoPreviewUrl} alt={session.partnerAgencyName} className="h-full w-full object-contain" />
+                    {session.partnerAgencyLogoUrl ? (
+                      <img src={session.partnerAgencyLogoUrl} alt={session.partnerAgencyName} className="h-full w-full object-contain" />
                     ) : (
                       <span className="text-xs text-gray-400">Aucun logo</span>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                      <Upload size={16} />
-                      Upload logo
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0] || null;
-                          void handleSaveSettings(file);
-                          event.target.value = "";
-                        }}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={isSavingSettings}
-                      onClick={() => void handleSaveSettings()}
-                      className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                    >
-                      {isSavingSettings ? "Enregistrement..." : "Enregistrer marge"}
-                    </button>
+                  <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500">
+                    Le logo est gere par l admin.
                   </div>
+                  <button
+                    type="button"
+                    disabled={isSavingSettings}
+                    onClick={() => void handleSaveSettings()}
+                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {isSavingSettings ? "Enregistrement..." : "Enregistrer marge"}
+                  </button>
                 </div>
               </div>
             </div>

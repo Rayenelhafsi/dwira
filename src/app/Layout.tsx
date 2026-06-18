@@ -17,6 +17,7 @@ export function Layout() {
   const { user, isLoading: authLoading } = useAuth();
   const [maintenance, setMaintenance] = useState<SiteMaintenanceStatus | null>(() => readCachedSiteMaintenanceStatus());
   const [showPartnersLogoMarquee, setShowPartnersLogoMarquee] = useState(false);
+  const hidePublicChrome = location.pathname.startsWith("/partner-agency/dashboard");
 
   useEffect(() => {
     let cancelled = false;
@@ -120,17 +121,17 @@ export function Layout() {
   return (
     <div className="flex flex-col min-h-screen">
       <ScrollToTop />
-      <Header />
+      {!hidePublicChrome ? <Header /> : null}
       <main className="flex-grow">
         <Outlet />
       </main>
-      {showPartnersLogoMarquee ? (
+      {!hidePublicChrome && showPartnersLogoMarquee ? (
         <Suspense fallback={null}>
           <LazyPartnersLogoMarquee />
         </Suspense>
       ) : null}
-      <Footer />
-      <CookieConsentBanner />
+      {!hidePublicChrome ? <Footer /> : null}
+      {!hidePublicChrome ? <CookieConsentBanner /> : null}
     </div>
   );
 }

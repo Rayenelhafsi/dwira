@@ -179,6 +179,7 @@ export function PropertyCard({
   const titleText = String(property.title || "").trim();
   const referenceLabel = buildReferenceLabel(property.reference);
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
+  const isGoldInstantCard = hasInstantReservation && !isFlashCard;
   const residenceBadgeLabel = String(property.residenceName || "").trim();
   const visualNightlyPrice = isFlashCard ? flashNightlyPrice : displayedNightlyPrice;
   const visualWeeklyPrice = isFlashCard ? flashWeeklyPrice : displayedWeeklyPrice;
@@ -237,8 +238,28 @@ export function PropertyCard({
   };
     
   return (
-    <div className={`dwira-property-card group transition-shadow duration-200 ${isFlashCard ? 'dwira-flash-card rounded-[31px] p-[3px]' : `overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'} ${hasInstantReservation ? 'border-emerald-200' : ''}`}`}>
-      <div className={isFlashCard ? "dwira-flash-card__inner overflow-hidden rounded-[28px] border border-white/80 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] transition-shadow duration-200 group-hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)]" : ""}>
+    <div className={`dwira-property-card group transition-shadow duration-200 ${
+      isFlashCard
+        ? 'dwira-flash-card rounded-[31px] p-[3px]'
+        : isGoldInstantCard
+          ? 'rounded-[31px] bg-[linear-gradient(135deg,rgba(120,53,15,0.98)_0%,rgba(180,83,9,0.98)_14%,rgba(255,239,171,1)_48%,rgba(255,248,220,1)_58%,rgba(217,119,6,0.98)_100%)] p-[3px] shadow-[0_0_0_1px_rgba(255,239,171,0.78),0_0_28px_rgba(245,158,11,0.26),0_20px_42px_rgba(120,53,15,0.16)]'
+          : `overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'}`
+    }`}>
+      <div
+        className={
+          isFlashCard
+            ? "dwira-flash-card__inner overflow-hidden rounded-[28px] border border-white/80 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] transition-shadow duration-200 group-hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)]"
+            : isGoldInstantCard
+              ? "relative overflow-hidden rounded-[28px] border border-[#fff1b8] bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] transition-shadow duration-200 group-hover:shadow-[0_24px_48px_rgba(180,83,9,0.18)]"
+              : ""
+        }
+      >
+        {isGoldInstantCard ? (
+          <>
+            <span className="pointer-events-none absolute inset-[1.5px] rounded-[26px] border border-white/55" />
+            <span className="pointer-events-none absolute left-0 top-8 h-24 w-12 -rotate-12 bg-white/40 blur-xl" />
+          </>
+        ) : null}
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <SmartImage
@@ -263,9 +284,27 @@ export function PropertyCard({
               </div>
             ) : null}
             {hasInstantReservation ? (
-              <div className="dwira-instant-badge inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200/85 bg-white/92 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-700 shadow-sm backdrop-blur-md sm:text-[11px] sm:tracking-[0.12em]">
-                <Zap size={12} className="shrink-0 text-amber-500" />
-                <span className="truncate">Reservation rapide</span>
+              <div className="dwira-instant-badge-wrap relative max-w-full">
+                <span className="pointer-events-none absolute -left-1.5 -top-1.5 z-[1] rounded-full border border-amber-300/90 bg-[#fff8d9] p-1 shadow-[0_0_18px_rgba(245,158,11,0.45)]">
+                  <Zap size={9} className="text-amber-600" fill="currentColor" />
+                </span>
+                <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-[1] rounded-full border border-amber-300/90 bg-[#fff8d9] p-1 shadow-[0_0_18px_rgba(245,158,11,0.45)]">
+                  <Zap size={9} className="text-amber-600" fill="currentColor" />
+                </span>
+                <span className="pointer-events-none absolute -bottom-1.5 -left-1.5 z-[1] rounded-full border border-amber-300/90 bg-[#fff8d9] p-1 shadow-[0_0_18px_rgba(245,158,11,0.45)]">
+                  <Zap size={9} className="text-amber-600" fill="currentColor" />
+                </span>
+                <span className="pointer-events-none absolute -bottom-1.5 -right-1.5 z-[1] rounded-full border border-amber-300/90 bg-[#fff8d9] p-1 shadow-[0_0_18px_rgba(245,158,11,0.45)]">
+                  <Zap size={9} className="text-amber-600" fill="currentColor" />
+                </span>
+                <div className="dwira-instant-badge relative inline-flex max-w-full items-center gap-2 overflow-hidden rounded-full border border-[#f6d36a] bg-[linear-gradient(135deg,rgba(120,53,15,0.92)_0%,rgba(180,83,9,0.96)_16%,rgba(255,239,171,0.98)_47%,rgba(255,248,220,0.98)_58%,rgba(217,119,6,0.96)_100%)] px-3.5 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-amber-950 shadow-[0_0_0_1px_rgba(255,239,171,0.68),0_0_24px_rgba(245,158,11,0.36),0_10px_24px_rgba(120,53,15,0.22)] backdrop-blur-md sm:text-[11px] sm:tracking-[0.18em]">
+                  <span className="pointer-events-none absolute inset-[1.5px] rounded-full border border-white/45" />
+                  <span className="pointer-events-none absolute -left-8 top-0 h-full w-10 rotate-[18deg] bg-white/45 blur-md" />
+                  <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-200/80 bg-amber-50/90 text-amber-600 shadow-[0_0_12px_rgba(245,158,11,0.42)]">
+                    <Zap size={12} className="shrink-0" fill="currentColor" />
+                  </span>
+                  <span className="relative truncate">Reservation rapide</span>
+                </div>
               </div>
             ) : null}
           </div>

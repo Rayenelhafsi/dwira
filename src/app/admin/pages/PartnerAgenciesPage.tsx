@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Building2, CheckCircle2, RefreshCw, Trash2, XCircle } from "lucide-react";
+import { Building2, CheckCircle2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { createPartnerAgencyApi, deletePartnerAgencyApi, fetchPartnerAgenciesAdmin, type PartnerAgencyItem } from "../../utils/partnerAgencies";
+import { createPartnerAgencyApi, deletePartnerAgencyApi, fetchPartnerAgenciesAdmin, updatePartnerAgencyApi, type PartnerAgencyItem } from "../../utils/partnerAgencies";
 import type { ReservationDemand, ReservationDemandStatus } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -131,6 +131,39 @@ export default function PartnerAgenciesPage() {
     }
   };
 
+  const handleLogoUpload = async (agency: PartnerAgencyItem, file?: File | null) => {
+    if (!file) return;
+    setSavingId(agency.id);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const uploadResponse = await fetch(`${API_URL}/admin/upload`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const uploadData = await uploadResponse.json().catch(() => null);
+      if (!uploadResponse.ok) {
+        throw new Error(String(uploadData?.error || "Upload logo impossible"));
+      }
+      const uploadedUrl = String(uploadData?.url || uploadData?.imageUrl || "").trim();
+      if (!uploadedUrl) {
+        throw new Error("URL logo manquante");
+      }
+      await updatePartnerAgencyApi(agency.id, {
+        name: agency.name,
+        slug: agency.slug,
+        logoUrl: uploadedUrl,
+      });
+      await loadData();
+      toast.success("Logo agence mis a jour.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Mise a jour logo impossible");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -194,16 +227,33 @@ export default function PartnerAgenciesPage() {
                         <p className="font-semibold text-gray-900">{agency.name}</p>
                         <p className="text-xs text-gray-500">/{agency.slug}</p>
                         <p className="mt-1 text-sm text-emerald-700">Marge {(((Math.max(1, Number(agency.marginMultiplier || 1)) - 1) * 100)).toFixed(2)}%</p>
+                        <p className="mt-1 text-xs text-gray-500">Logo gere par l admin.</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(agency.id)}
-                      disabled={savingId === agency.id}
-                      className="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                        <Upload size={15} />
+                        Logo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            void handleLogoUpload(agency, file);
+                            event.target.value = "";
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(agency.id)}
+                        disabled={savingId === agency.id}
+                        className="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))

@@ -10,7 +10,12 @@ const CHUNK_RELOAD_KEY = "dwira_chunk_reload_once";
 
 function isChunkLoadError(error: unknown) {
   const message = String((error as any)?.message || error || "").toLowerCase();
-  return message.includes("failed to fetch dynamically imported module") || message.includes("importing a module script failed");
+  return (
+    message.includes("failed to fetch dynamically imported module")
+    || message.includes("importing a module script failed")
+    || message.includes("outdated optimize dep")
+    || message.includes("fetch dynamically")
+  );
 }
 
 const lazyPage = (loader: () => Promise<{ default: React.ComponentType<any> }>) => async () => {

@@ -106,6 +106,24 @@ export async function createPartnerAgencyApi(payload: { name: string; slug?: str
   return normalizeApiRow(await response.json());
 }
 
+export async function updatePartnerAgencyApi(id: string, payload: { name: string; slug?: string; logoUrl?: string | null }) {
+  const response = await fetch(`${API_URL}/partner-agencies/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      name: payload.name,
+      slug: payload.slug || undefined,
+      logo_url: payload.logoUrl || null,
+    }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(String(data?.error || "Mise a jour agence partenaire impossible"));
+  }
+  return normalizeApiRow(await response.json());
+}
+
 export async function deletePartnerAgencyApi(id: string) {
   const response = await fetch(`${API_URL}/partner-agencies/${encodeURIComponent(id)}`, {
     method: "DELETE",

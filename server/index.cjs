@@ -22739,6 +22739,22 @@ app.post('/api/agent-amicale/reservation-demands/:id/reject', requireAgentAmical
   }
 });
 
+app.post('/api/admin/upload', requireAdminSession, uploadMediaMiddleware, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    return res.json({
+      url: `/uploads/${req.file.filename}`,
+      imageUrl: `/uploads/${req.file.filename}`,
+      filename: req.file.filename,
+    });
+  } catch (error) {
+    console.error('Admin upload error:', error);
+    return res.status(500).json({ error: 'Upload admin impossible' });
+  }
+});
+
 app.post('/api/auth/partner-agency/login', authLoginRateLimit, async (req, res) => {
   try {
     const username = String(req.body?.username || '').trim();
@@ -22814,22 +22830,6 @@ app.post('/api/auth/partner-agency/logout', async (req, res) => {
   return res.json({ success: true });
 });
 
-app.post('/api/partner-agency/logo-upload', requirePartnerAgencySession, uploadMediaMiddleware, async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-    return res.json({
-      url: `/uploads/${req.file.filename}`,
-      imageUrl: `/uploads/${req.file.filename}`,
-      filename: req.file.filename,
-    });
-  } catch (error) {
-    console.error('Error uploading partner agency logo:', error);
-    return res.status(500).json({ error: 'Upload logo agence partenaire impossible' });
-  }
-});
-
 app.put('/api/partner-agency/settings', requirePartnerAgencySession, async (req, res) => {
   try {
     const partnerAgencyId = String(req.partnerAgencySession?.partnerAgencyId || '').trim();
@@ -22837,7 +22837,6 @@ app.put('/api/partner-agency/settings', requirePartnerAgencySession, async (req,
       return res.status(400).json({ error: 'Agence partenaire introuvable' });
     }
 
-    const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
     const marginPercentInput = req.body?.margin_percent ?? req.body?.marginPercent;
     const marginMultiplierInput = req.body?.margin_multiplier ?? req.body?.marginMultiplier;
     const hasMarginPercent = marginPercentInput !== undefined && marginPercentInput !== null && String(marginPercentInput).trim() !== '';
@@ -22848,9 +22847,9 @@ app.put('/api/partner-agency/settings', requirePartnerAgencySession, async (req,
 
     await pool.query(
       `UPDATE partner_agencies
-       SET margin_multiplier = ?, logo_url = ?, updated_at = ?
+       SET margin_multiplier = ?, updated_at = ?
        WHERE id = ?`,
-      [nextMarginMultiplier, logoUrl, now, partnerAgencyId]
+      [nextMarginMultiplier, now, partnerAgencyId]
     );
 
     const [rows] = await pool.query(
@@ -25182,6 +25181,7 @@ app.put('/api/partner-agencies/:id', requireAdminSession, async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     const name = String(req.body?.name || '').trim();
+    const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
     const requestedSlug = String(req.body?.slug || '').trim();
     const slug = normalizePartnerSlug(requestedSlug || name);
     if (!id) return res.status(400).json({ error: 'id is required' });
@@ -25189,9 +25189,9 @@ app.put('/api/partner-agencies/:id', requireAdminSession, async (req, res) => {
     const now = getAgencySqlDateTime();
     await pool.query(
       `UPDATE partner_agencies
-       SET name = ?, slug = ?, updated_at = ?
+       SET name = ?, slug = ?, logo_url = ?, updated_at = ?
        WHERE id = ?`,
-      [name, slug, now, id]
+      [name, slug, logoUrl, now, id]
     );
     const [rows] = await pool.query('SELECT * FROM partner_agencies WHERE id = ? LIMIT 1', [id]);
     res.json(rows?.[0] || null);
