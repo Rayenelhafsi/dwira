@@ -811,14 +811,6 @@ out body 20;
                           )}
                         </MapContainer>
                       ) : null}
-                      <a
-                        href={googleEmbedUrl.replace("output=embed&ll=", "q=").replace("&z=14&t=k", "")}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="absolute left-3 top-3 z-[1000] rounded bg-white/95 px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow"
-                      >
-                        Ouvrir dans Maps
-                      </a>
                     </div>
                     <div className="border-t border-gray-100 p-4">
                       {!displayLocation ? <p className="mb-2 text-xs text-gray-500">Position approximative de la zone.</p> : null}

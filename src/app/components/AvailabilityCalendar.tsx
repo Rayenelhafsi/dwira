@@ -62,8 +62,10 @@ export default function AvailabilityCalendar({
     const key = toDayKey(date);
     return key < normalizedAllowedRange.start || key > normalizedAllowedRange.end;
   };
+  const flashLocked = Boolean(normalizedAllowedRange);
 
   const getBlockingStatusForDay = (day: Date): 'blocked' | 'booked' | null => {
+    if (flashLocked) return null;
     const key = toDayKey(day);
     const blocking = unavailableDates.find((range) => {
       const status = String(range.status || '').toLowerCase();
@@ -78,6 +80,12 @@ export default function AvailabilityCalendar({
   };
 
   const getDateStatus = (date: Date): 'available' | 'blocked' | 'pending' | 'booked' | 'past' => {
+    if (flashLocked) {
+      if (isOutsideAllowedRange(date)) {
+        return 'blocked';
+      }
+      return 'available';
+    }
     if (isOutsideAllowedRange(date)) {
       return 'blocked';
     }
@@ -101,6 +109,7 @@ export default function AvailabilityCalendar({
   };
 
   const isDateUnavailable = (date: Date) => {
+    if (flashLocked) return isOutsideAllowedRange(date);
     if (isOutsideAllowedRange(date)) return true;
     if (isBefore(date, today)) return true;
     const blockingStatus = getBlockingStatusForDay(date);
@@ -147,6 +156,9 @@ export default function AvailabilityCalendar({
   };
 
   const handleDateClick = (date: Date) => {
+    if (flashLocked) {
+      return;
+    }
     if (isOutsideAllowedRange(date)) {
       return;
     }
@@ -202,7 +214,6 @@ export default function AvailabilityCalendar({
     const isCurrentMonth = isSameMonth(date, currentMonth);
     const dateStatus = getDateStatus(date);
     const isSelected = isDateSelected(date);
-    const flashLocked = Boolean(normalizedAllowedRange);
 
     let className = "w-full aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative overflow-hidden ";
     
@@ -241,6 +252,9 @@ export default function AvailabilityCalendar({
   };
 
   const getSplitDayVisual = (date: Date): { enabled: boolean; leftClass: string; rightClass: string } => {
+    if (flashLocked) {
+      return { enabled: false, leftClass: "", rightClass: "" };
+    }
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
     const selectedClass = "bg-emerald-600";
@@ -304,7 +318,7 @@ export default function AvailabilityCalendar({
   const weekDays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
   return (
-    <div className="w-full max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white p-3 sm:p-4 md:p-6">
+    <div className={`w-full max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white p-3 sm:p-4 md:p-6 ${flashLocked ? "dwira-calendar--flash" : ""}`}>
       <div className="mb-4 flex items-center justify-between gap-2 sm:mb-6">
         <button
           onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
@@ -341,7 +355,7 @@ export default function AvailabilityCalendar({
         {days.map((day, idx) => {
           const label = getDayLabel(day);
           const splitVisual = getSplitDayVisual(day);
-          const isBooked = isBookedDay(day);
+          const isBooked = flashLocked ? false : isBookedDay(day);
           const splitLeftBooked = splitVisual.enabled && splitVisual.leftClass.includes("bg-red-500");
           const splitRightBooked = splitVisual.enabled && splitVisual.rightClass.includes("bg-red-500");
           return (
@@ -379,7 +393,11 @@ export default function AvailabilityCalendar({
       </div>
 
       {/* Legend */}
-      <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 border-t border-gray-100 pt-4 text-xs sm:mt-6 sm:grid-cols-2 sm:pt-6 lg:grid-cols-3">
+      <div className="dwira-calendar-legend mt-4 grid grid-cols-1 gap-x-4 gap-y-3 border-t border-gray-100 pt-4 text-xs sm:mt-6 sm:grid-cols-2 sm:pt-6 lg:grid-cols-3">
+        <div className="dwira-calendar-legend-flash hidden items-center gap-2">
+          <div className="w-4 h-4 bg-emerald-600 rounded"></div>
+          <span className="text-gray-600">Periode vente flash</span>
+        </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-green-100 rounded border border-green-200"></div>
           <span className="text-gray-600">Disponible</span>

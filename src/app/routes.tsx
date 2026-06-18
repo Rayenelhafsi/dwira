@@ -84,6 +84,8 @@ export const router = createBrowserRouter([
       { path: "hotels", Component: HotelsSearchRedirect },
       { path: "hotels/:id", lazy: lazyPage(() => import("./pages/HotelDetailsPage")) },
       { path: "logements", lazy: lazyPage(() => import("./pages/PropertiesPage")) },
+      { path: "ventes_flash", Component: HomePage },
+      { path: "ventes_flash/properties/:slug", lazy: lazyPage(() => import("./pages/PropertyDetailsPage")) },
       ...packsRoutes,
       { path: "properties/:slug", lazy: lazyPage(() => import("./pages/PropertyDetailsPage")) },
       { path: "reservation/confirmation/:slug", lazy: lazyPage(() => import("./pages/ReservationConfirmationPage")) },

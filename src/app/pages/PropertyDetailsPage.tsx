@@ -4164,14 +4164,6 @@ out body 40;
                        pathOptions={{ color: "#34d399", weight: 2, fillColor: "#10b981", fillOpacity: 0.34 }}
                      />
                    </MapContainer>
-                   <a
-                     href={googleEmbedUrl.replace("output=embed&ll=", "q=").replace("&z=14&t=k", "")}
-                     target="_blank"
-                     rel="noreferrer"
-                     className="absolute left-3 top-3 z-[1000] rounded bg-white/95 px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow"
-                   >
-                     Ouvrir dans Maps
-                   </a>
                  </div>
                ) : (
                  <div className="bg-gray-100 rounded-xl h-[300px] flex items-center justify-center relative overflow-hidden">

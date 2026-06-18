@@ -9,7 +9,6 @@ import { buildPropertyDetailsPath } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
 import { trackMetaEvent } from "../utils/metaConversions";
 import { getFlashBadgeLabel, getFlashNightlyAmount, type PropertyFlashOffer } from "../utils/flashOffers";
-import LightningBorder from "./LightningBorder";
 
 interface PropertyCardProps {
   property: Property;
@@ -111,7 +110,11 @@ export function PropertyCard({
   flashOffer = null,
 }: PropertyCardProps) {
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
-  const baseDetailPath = buildPropertyDetailsPath(property);
+  const rawDetailPath = buildPropertyDetailsPath(property);
+  const baseDetailPath =
+    cardVariant === "flash" && rawDetailPath.startsWith("/properties/")
+      ? `/ventes_flash${rawDetailPath}`
+      : rawDetailPath;
   const linkTo = searchParams 
     ? `${baseDetailPath}?${searchParams}`
     : baseDetailPath;
@@ -226,41 +229,14 @@ export function PropertyCard({
   };
     
   return (
-    <LightningBorder enabled={isFlashCard} className="rounded-[28px]">
-    <div className={`dwira-property-card group overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_20px_48px_rgba(15,23,42,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_62px_rgba(15,23,42,0.16)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'} ${hasInstantReservation ? 'dwira-instant-card' : ''}`}>
-      {hasInstantReservation ? (
-        <span aria-hidden="true" className="dwira-electric-frame">
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-            <defs>
-              <filter id="dwira-electric-jitter" x="-40%" y="-40%" width="180%" height="180%">
-                <feTurbulence type="fractalNoise" baseFrequency="0.018 0.35" numOctaves="2" seed="3" result="noise">
-                  <animate attributeName="baseFrequency" values="0.018 0.35;0.024 0.42;0.015 0.31;0.018 0.35" dur="0.38s" repeatCount="indefinite" />
-                </feTurbulence>
-                <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.8" xChannelSelector="R" yChannelSelector="G" />
-              </filter>
-              <filter id="dwira-electric-glow" x="-100%" y="-100%" width="300%" height="300%">
-                <feGaussianBlur stdDeviation="2.2" result="blur1" />
-                <feGaussianBlur stdDeviation="5.4" result="blur2" />
-                <feGaussianBlur stdDeviation="8.2" result="blur3" />
-                <feMerge>
-                  <feMergeNode in="blur3" />
-                  <feMergeNode in="blur2" />
-                  <feMergeNode in="blur1" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <rect className="dwira-electric-path dwira-electric-path--glow" x="1.8" y="1.8" width="96.4" height="96.4" rx="9.5" ry="9.5" pathLength="1000" />
-            <rect className="dwira-electric-path dwira-electric-path--core" x="1.8" y="1.8" width="96.4" height="96.4" rx="9.5" ry="9.5" pathLength="1000" />
-          </svg>
-        </span>
-      ) : null}
+    <div className={`dwira-property-card group transition-shadow duration-200 ${isFlashCard ? 'dwira-flash-card rounded-[31px] p-[3px]' : `overflow-hidden rounded-[28px] border bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)] ${property.isFeatured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-100'} ${hasInstantReservation ? 'border-emerald-200' : ''}`}`}>
+      <div className={isFlashCard ? "dwira-flash-card__inner overflow-hidden rounded-[28px] border border-white/80 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] transition-shadow duration-200 group-hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)]" : ""}>
       <Link to={linkTo} className="block">
         <div className="relative aspect-[4/3] overflow-hidden">
           <SmartImage
             src={property.images?.[0] || PROPERTY_CARD_FALLBACK_IMAGE}
             alt={property.title}
-            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+            className="h-full w-full object-cover"
             loading="lazy"
             decoding="async"
             fetchPriority="low"
@@ -464,7 +440,7 @@ export function PropertyCard({
           </button>
         </div>
       </div>
+      </div>
     </div>
-    </LightningBorder>
   );
 }

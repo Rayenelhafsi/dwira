@@ -67,7 +67,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .dwira-attention-tab,
   .dwira-attention-badge,
-  .dwira-fab-bubble {
+  .dwira-fab-bubble,
+  .dwira-flash-card {
     animation: none;
   }
 }
@@ -77,8 +78,72 @@ body {
   contain-intrinsic-size: 560px;
 }
 
+@keyframes dwira-flash-ring-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dwira-flash-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    0 12px 28px rgba(249, 115, 22, 0.14);
+}
+
+.dwira-flash-card::before {
+  content: "";
+  position: absolute;
+  inset: -45%;
+  border-radius: 999px;
+  background:
+    conic-gradient(
+      from 0deg,
+      rgba(239, 68, 68, 1) 0deg,
+      rgba(249, 115, 22, 1) 72deg,
+      rgba(251, 191, 36, 0.98) 140deg,
+      rgba(244, 63, 94, 1) 220deg,
+      rgba(253, 186, 116, 0.98) 300deg,
+      rgba(239, 68, 68, 1) 360deg
+    );
+  animation: dwira-flash-ring-spin 3.6s linear infinite;
+  box-shadow:
+    0 0 28px rgba(249, 115, 22, 0.18);
+  pointer-events: none;
+}
+
+.dwira-flash-card__inner {
+  position: relative;
+  z-index: 1;
+}
+
+.dwira-flash-card:hover {
+  box-shadow:
+    0 22px 44px rgba(15, 23, 42, 0.12),
+    0 18px 38px rgba(249, 115, 22, 0.2);
+}
+
+.dwira-flash-card:hover::before {
+  box-shadow:
+    0 0 40px rgba(249, 115, 22, 0.24);
+}
+
 .dwira-property-title {
   text-wrap: balance;
+}
+
+.dwira-calendar--flash .dwira-calendar-legend > div {
+  display: none;
+}
+
+.dwira-calendar--flash .dwira-calendar-legend > .dwira-calendar-legend-flash {
+  display: flex;
 }
 
 @keyframes dwira-admin-progress {
@@ -194,6 +259,12 @@ body.dwira-scroll-active .dwira-electric-path--core {
 @media (max-width: 767px) {
   .dwira-property-card {
     contain-intrinsic-size: 520px;
+  }
+
+  .dwira-flash-card {
+    box-shadow:
+      0 12px 28px rgba(15, 23, 42, 0.08),
+      0 10px 22px rgba(249, 115, 22, 0.1);
   }
 
   .dwira-instant-card {

@@ -1,3 +1,5 @@
+import { getSessionUser, type AuthUser } from "../services/auth";
+
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const META_PIXEL_ID = String(import.meta.env.VITE_META_PIXEL_ID || "").trim();
 
@@ -19,7 +21,83 @@ function readCookie(name: string) {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
-export function initMetaPixel() {
+function normalizeEmail(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function normalizePhone(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return undefined;
+  const hasLeadingPlus = raw.startsWith("+");
+  const digits = raw.replace(/\D+/g, "");
+  if (!digits) return undefined;
+  return hasLeadingPlus ? `+${digits}` : digits;
+}
+
+function normalizeName(value?: string | null) {
+  const normalized = String(value || "").trim();
+  return normalized || undefined;
+}
+
+function buildSessionUserData(user?: AuthUser | null) {
+  if (!user) return null;
+  const firstName = normalizeName(user.firstName);
+  const lastName = normalizeName(user.lastName);
+  const fallbackName = normalizeName(user.name);
+  const fallbackParts = fallbackName ? fallbackName.split(/\s+/).filter(Boolean) : [];
+  const resolvedFirstName = firstName || fallbackParts.slice(0, -1).join(" ") || fallbackParts[0] || undefined;
+  const resolvedLastName = lastName || (fallbackParts.length > 1 ? fallbackParts[fallbackParts.length - 1] : undefined);
+  const externalId = normalizeName(user.providerUserId) || normalizeName(user.id);
+
+  return {
+    email: normalizeEmail(user.email),
+    phone: normalizePhone(user.telephone),
+    externalId,
+    firstName: resolvedFirstName,
+    lastName: resolvedLastName,
+    fbLoginId: normalizeName(user.providerUserId),
+  };
+}
+
+function mergeUserData(
+  sessionUserData: ReturnType<typeof buildSessionUserData>,
+  explicitUserData?: {
+    email?: string;
+    phone?: string;
+    externalId?: string;
+    firstName?: string;
+    lastName?: string;
+    fbLoginId?: string;
+  }
+) {
+  return {
+    email: normalizeEmail(explicitUserData?.email) || sessionUserData?.email,
+    phone: normalizePhone(explicitUserData?.phone) || sessionUserData?.phone,
+    externalId: normalizeName(explicitUserData?.externalId) || sessionUserData?.externalId,
+    firstName: normalizeName(explicitUserData?.firstName) || sessionUserData?.firstName,
+    lastName: normalizeName(explicitUserData?.lastName) || sessionUserData?.lastName,
+    fbLoginId: normalizeName(explicitUserData?.fbLoginId) || sessionUserData?.fbLoginId,
+  };
+}
+
+async function resolveMetaUserData(
+  explicitUserData?: {
+    email?: string;
+    phone?: string;
+    externalId?: string;
+    firstName?: string;
+    lastName?: string;
+    fbLoginId?: string;
+  },
+  eventName?: "PageView" | "ViewContent" | "Lead" | "InitiateCheckout" | "Purchase" | "Contact"
+) {
+  const needsSessionFallback = eventName !== "PageView";
+  const sessionUser = needsSessionFallback ? await getSessionUser() : null;
+  return mergeUserData(buildSessionUserData(sessionUser), explicitUserData);
+}
+
+export async function initMetaPixel() {
   if (typeof window === "undefined" || !META_PIXEL_ID || window.fbq) return;
   ((f: any, b: Document, e: string, v: string, n?: any, t?: HTMLScriptElement, s?: HTMLElement) => {
     if (f.fbq) return;
@@ -37,7 +115,20 @@ export function initMetaPixel() {
     s = b.getElementsByTagName(e)[0];
     s?.parentNode?.insertBefore(t, s);
   })(window, document, "script", "https://connect.facebook.net/en_US/fbevents.js");
-  window.fbq?.("init", META_PIXEL_ID);
+  const resolvedUserData = await resolveMetaUserData(undefined, "PageView");
+  const advancedMatchingData = {
+    em: resolvedUserData.email,
+    ph: resolvedUserData.phone,
+    fn: resolvedUserData.firstName,
+    ln: resolvedUserData.lastName,
+    external_id: resolvedUserData.externalId,
+  };
+  const hasAdvancedData = Object.values(advancedMatchingData).some(Boolean);
+  if (hasAdvancedData) {
+    window.fbq?.("init", META_PIXEL_ID, advancedMatchingData);
+  } else {
+    window.fbq?.("init", META_PIXEL_ID);
+  }
 }
 
 export function startMetaTracking() {
@@ -47,7 +138,7 @@ export function startMetaTracking() {
   const boot = () => {
     if (started) return;
     started = true;
-    initMetaPixel();
+    void initMetaPixel();
     trackMetaPageViewOncePerPath();
     window.removeEventListener("pointerdown", boot);
     window.removeEventListener("keydown", boot);
@@ -97,6 +188,7 @@ export async function trackMetaEvent({
   };
 }) {
   const finalEventId = String(eventId || randomId(`meta_${eventName.toLowerCase()}`)).trim();
+  const resolvedUserData = await resolveMetaUserData(userData, eventName);
 
   if (typeof window !== "undefined" && window.fbq && META_PIXEL_ID) {
     window.fbq("track", eventName, customData || {}, { eventID: finalEventId });
@@ -112,12 +204,12 @@ export async function trackMetaEvent({
         event_id: finalEventId,
         event_source_url: typeof window !== "undefined" ? window.location.href : undefined,
         user_data: {
-          email: String(userData?.email || "").trim().toLowerCase() || undefined,
-          phone: String(userData?.phone || "").trim() || undefined,
-          external_id: String(userData?.externalId || "").trim() || undefined,
-          first_name: String(userData?.firstName || "").trim() || undefined,
-          last_name: String(userData?.lastName || "").trim() || undefined,
-          fb_login_id: String(userData?.fbLoginId || "").trim() || undefined,
+          email: resolvedUserData.email,
+          phone: resolvedUserData.phone,
+          external_id: resolvedUserData.externalId,
+          first_name: resolvedUserData.firstName,
+          last_name: resolvedUserData.lastName,
+          fb_login_id: resolvedUserData.fbLoginId,
           fbp: readCookie("_fbp") || undefined,
           fbc: readCookie("_fbc") || undefined,
         },

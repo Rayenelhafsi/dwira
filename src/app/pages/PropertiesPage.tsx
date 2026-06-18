@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
-import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw, Share2 } from "lucide-react";
+import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw, Share2, Flame } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import type { Property } from "../data/properties";
@@ -2439,11 +2439,19 @@ export default function PropertiesPage() {
     });
     return [...flashRows, ...regularRows];
   }, [searchParams, sortedScoredResults]);
-  const visibleDisplayedPrimaryResults = useMemo(
-    () => (showAllResults ? displayedPrimaryResults : displayedPrimaryResults.slice(0, visibleCount)),
-    [displayedPrimaryResults, showAllResults, visibleCount]
+  const flashDisplayResults = useMemo(
+    () => displayedPrimaryResults.filter((row) => row.cardVariant === "flash"),
+    [displayedPrimaryResults]
   );
-  const hasMoreResults = !showAllResults && displayedPrimaryResults.length > visibleCount;
+  const regularDisplayResults = useMemo(
+    () => displayedPrimaryResults.filter((row) => row.cardVariant !== "flash"),
+    [displayedPrimaryResults]
+  );
+  const visibleRegularDisplayResults = useMemo(
+    () => (showAllResults ? regularDisplayResults : regularDisplayResults.slice(0, visibleCount)),
+    [regularDisplayResults, showAllResults, visibleCount]
+  );
+  const hasMoreResults = !showAllResults && regularDisplayResults.length > visibleCount;
   const isLoadingInitialResults = loading && properties.length === 0 && biens.length === 0;
 
   useEffect(() => {
@@ -3245,8 +3253,11 @@ export default function PropertiesPage() {
                 ) : (
                   <>
                     <span className="font-medium text-gray-500">
-                      {displayedPrimaryResults.length} resultat{displayedPrimaryResults.length !== 1 ? "s" : ""} trouve{displayedPrimaryResults.length !== 1 ? "s" : ""}
+                      {regularDisplayResults.length} resultat{regularDisplayResults.length !== 1 ? "s" : ""} trouve{regularDisplayResults.length !== 1 ? "s" : ""}
                     </span>
+                    {flashDisplayResults.length > 0 && (
+                      <span className="text-sm font-medium text-orange-600">{flashDisplayResults.length} vente{flashDisplayResults.length !== 1 ? "s" : ""} flash</span>
+                    )}
                     {alternativeScoredResults.length > 0 && <span className="text-sm text-gray-500">{alternativeScoredResults.length} choix alternatives</span>}
                   </>
                 )}
@@ -3280,18 +3291,53 @@ export default function PropertiesPage() {
                   </div>
                 ))}
               </div>
-            ) : displayedPrimaryResults.length > 0 ? (
-              <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-                {visibleDisplayedPrimaryResults.map((row) => (
-                  <div key={row.displayKey} className="space-y-2">
-                    <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} />
-                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-                      {row.hints.length > 0 && (
-                        <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
-                      )}
+            ) : (regularDisplayResults.length > 0 || flashDisplayResults.length > 0) ? (
+              <div className="space-y-8">
+                {flashDisplayResults.length > 0 && (
+                  <div className="rounded-[30px] border border-orange-100 bg-[linear-gradient(135deg,#fff7ed,#fff1f2)] px-4 py-5 shadow-[0_18px_44px_rgba(249,115,22,0.08)] md:px-6 md:py-7">
+                    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <h3 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+                          <Flame className="text-orange-500" size={24} />
+                          Ventes flash
+                        </h3>
+                        <p className="mt-2 max-w-2xl text-sm text-slate-600">
+                          Offres limitées séparées du catalogue principal pour une navigation plus claire.
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700">
+                        {flashDisplayResults.length} offre{flashDisplayResults.length > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                      {flashDisplayResults.map((row) => (
+                        <div key={row.displayKey} className="space-y-2">
+                          <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} />
+                          <div className="rounded-xl border border-orange-100 bg-white/80 p-3">
+                            {row.hints.length > 0 && (
+                              <p className="text-xs text-orange-800">{row.hints.join(" | ")}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
+                )}
+
+                {regularDisplayResults.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                    {visibleRegularDisplayResults.map((row) => (
+                      <div key={row.displayKey} className="space-y-2">
+                        <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} />
+                        <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                          {row.hints.length > 0 && (
+                            <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="rounded-2xl border border-gray-100 bg-white py-20 text-center shadow-sm">
@@ -3310,7 +3356,7 @@ export default function PropertiesPage() {
                 </button>
               </div>
             )}
-            {displayedPrimaryResults.length > PAGE_SIZE && (
+            {regularDisplayResults.length > PAGE_SIZE && (
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 {hasMoreResults && (
                   <button

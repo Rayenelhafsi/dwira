@@ -32,6 +32,9 @@ function resolveRouteMode(pathname: string, search: string) {
   if (pathname.startsWith("/ventes") || pathname.startsWith("/vente/")) {
     return "vente";
   }
+  if (pathname.startsWith("/ventes_flash")) {
+    return "location_saisonniere";
+  }
   if (pathname.startsWith("/hotels")) {
     return "hotellerie";
   }
@@ -48,7 +51,7 @@ function resolveRouteMode(pathname: string, search: string) {
 }
 
 function isPropertyDetailsPath(pathname: string) {
-  return pathname.startsWith("/properties/");
+  return pathname.startsWith("/properties/") || pathname.startsWith("/ventes_flash/properties/");
 }
 
 const ACTIONABLE_STATUS_PRIORITY: Record<string, number> = {

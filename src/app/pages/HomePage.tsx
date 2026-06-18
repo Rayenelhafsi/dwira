@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload, CheckCircle2, CircleDollarSign, UtensilsCrossed, ExternalLink, LayoutGrid, Rows3 } from "lucide-react";
+import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload, CheckCircle2, CircleDollarSign, UtensilsCrossed, ExternalLink, LayoutGrid, Rows3, Flame, Building2, Palmtree } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -62,8 +62,15 @@ type PropertyDisplayCard = {
 const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean }> = [
   { value: "location_saisonniere", label: "Location saisonniere", comingSoon: false },
   { value: "hotellerie", label: "Hotellerie", comingSoon: false },
-  { value: "vente", label: "Vente", comingSoon: PUBLIC_COMING_SOON.ventes },
-  { value: "location_annuelle", label: "Location annuelle", comingSoon: PUBLIC_COMING_SOON.locationAnnuelle },
+];
+const HERO_TABS: Array<{
+  key: "location_saisonniere" | "hotellerie" | "ventes_flash";
+  label: string;
+  icon: typeof Palmtree;
+}> = [
+  { key: "location_saisonniere", label: "Location saisonniere", icon: Palmtree },
+  { key: "hotellerie", label: "Hotellerie", icon: Building2 },
+  { key: "ventes_flash", label: "Ventes flash", icon: Flame },
 ];
 
 const ZONE_FALLBACK_IMAGE =
@@ -882,6 +889,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
   const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const resultsRef = useRef<HTMLDivElement>(null);
+  const flashSectionRef = useRef<HTMLDivElement>(null);
   const filterControlsRef = useRef<HTMLDivElement>(null);
   const locationDesktopPopupRef = useRef<HTMLDivElement>(null);
   const locationMobilePopupRef = useRef<HTMLDivElement>(null);
@@ -1134,6 +1142,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
       ),
     [modePriorities]
   );
+  const isFlashLanding = routerLocation.pathname === "/ventes_flash";
   const isHotelMode = selectedMode === "hotellerie";
   const selectedHotelCity = useMemo(
     () => hotelCities.find((item) => Number(item.Id) === Number(hotelCityId)) || null,
@@ -3443,11 +3452,28 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     });
     return [...flashCards, ...regularCards];
   }, [basePropertySearchParams, filteredProperties]);
-  const visibleFilteredPropertyCards = useMemo(
-    () => (showAllProperties ? filteredPropertyCards : filteredPropertyCards.slice(0, visiblePropertiesCount)),
-    [filteredPropertyCards, showAllProperties, visiblePropertiesCount]
+  const flashPropertyCards = useMemo(
+    () => filteredPropertyCards.filter((card) => card.cardVariant === "flash"),
+    [filteredPropertyCards]
   );
-  const hasMoreFilteredProperties = !showAllProperties && filteredPropertyCards.length > visiblePropertiesCount;
+  const regularPropertyCards = useMemo(
+    () => filteredPropertyCards.filter((card) => card.cardVariant !== "flash"),
+    [filteredPropertyCards]
+  );
+  const visibleRegularPropertyCards = useMemo(
+    () => (showAllProperties ? regularPropertyCards : regularPropertyCards.slice(0, visiblePropertiesCount)),
+    [regularPropertyCards, showAllProperties, visiblePropertiesCount]
+  );
+  const hasMoreFilteredProperties = !showAllProperties && regularPropertyCards.length > visiblePropertiesCount;
+
+  useEffect(() => {
+    if (routerLocation.pathname !== "/ventes_flash") return;
+    if (flashPropertyCards.length === 0) return;
+    const timeoutId = window.setTimeout(() => {
+      flashSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(timeoutId);
+  }, [flashPropertyCards.length, routerLocation.pathname]);
 
   useEffect(() => {
     setVisiblePropertiesCount(INITIAL_VISIBLE_PROPERTIES);
@@ -3600,37 +3626,48 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
           </div>
           
           <p className="text-lg md:text-xl mb-8 max-w-2xl mx-auto drop-shadow-md text-gray-100">
-            Achat • Vente • Location • Gestion personnalisée
+            Location saisonniere • Hotellerie • Ventes flash
           </p>
 
           {/* Filter Bar */}
           <div className="relative z-10 -mb-3 px-4 pb-0 md:px-6">
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            {orderedModeTabs.map((tab) => (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {HERO_TABS.map((tab) => {
+              const Icon = tab.icon;
+              const isSelected =
+                tab.key === "ventes_flash"
+                  ? isFlashLanding
+                  : !isFlashLanding && selectedMode === tab.key;
+              return (
               <button
-                key={tab.value}
+                key={tab.key}
                 type="button"
-                disabled={Boolean(tab.comingSoon)}
                 onClick={() => {
-                  if (tab.comingSoon) return;
-                  setSelectedMode(tab.value);
+                  if (tab.key === "ventes_flash") {
+                    navigate("/ventes_flash");
+                    return;
+                  }
+                  setSelectedMode(tab.key);
                   setHasSearched(false);
                   const next = applyAmicaleParam(new URLSearchParams(searchParams));
-                  next.set("mode", tab.value);
+                  next.set("mode", tab.key);
                   setSearchParams(next, { replace: true });
+                  if (routerLocation.pathname === "/ventes_flash") {
+                    navigate(`/?${next.toString()}`, { replace: true });
+                  }
                 }}
                 className={`relative min-w-0 rounded-[18px] border px-2 py-3 text-xs font-semibold leading-tight transition-all duration-200 sm:px-3 sm:text-sm md:rounded-[22px] md:px-5 ${
-                  selectedMode === tab.value
+                  isSelected
                     ? "z-10 border-white/70 bg-white/78 text-emerald-800 shadow-[0_10px_30px_rgba(15,23,42,0.18)] backdrop-blur-xl"
-                    : tab.comingSoon
-                      ? "border-white/18 bg-white/8 text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl opacity-80 cursor-not-allowed"
-                      : "border-white/18 bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl hover:bg-white/20"
+                    : "border-white/18 bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl hover:bg-white/20"
                 }`}
               >
-                <span className="block">{tab.label}</span>
-                {tab.comingSoon && <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-amber-200">Bientot</span>}
+                <span className="flex items-center justify-center gap-2">
+                  <Icon size={16} className={isSelected ? "text-emerald-600" : "text-white"} />
+                  <span>{tab.label}</span>
+                </span>
               </button>
-            ))}
+            )})}
             </div>
           </div>
 
@@ -4884,7 +4921,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 {isHotelMode
                   ? "Consultez une sélection d'hôtels avec leurs disponibilités, leurs informations pratiques et leurs tarifs."
                   : hasSearched
-                    ? `${filteredPropertyCards.length} bien${filteredPropertyCards.length !== 1 ? 's' : ''} trouvé${filteredPropertyCards.length !== 1 ? 's' : ''} selon vos critères`
+                    ? `${regularPropertyCards.length} bien${regularPropertyCards.length !== 1 ? 's' : ''} trouvé${regularPropertyCards.length !== 1 ? 's' : ''} selon vos critères`
                     : `Affichage du mode ${orderedModeTabs.find((tab) => tab.value === selectedMode)?.label.toLowerCase()}. Les biens en vedette apparaissent en premier.`}
               </p>
             </div>
@@ -5967,9 +6004,43 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             </div>
           )}
 
+          {!isSelectedModeComingSoon && !isHotelMode && flashPropertyCards.length > 0 && (
+            <div
+              ref={flashSectionRef}
+              id="ventes-flash-section"
+              className="mb-8 rounded-[30px] border border-orange-100 bg-[linear-gradient(135deg,#fff7ed,#fff1f2)] px-4 py-5 shadow-[0_18px_44px_rgba(249,115,22,0.08)] md:px-6 md:py-7"
+            >
+              <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <h3 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+                    <Flame className="text-orange-500" size={24} />
+                    Ventes flash
+                  </h3>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-600">
+                    Offres limitées avec compteur actif. Chaque carte correspond à une période flash distincte.
+                  </p>
+                </div>
+                <span className="inline-flex items-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700">
+                  {flashPropertyCards.length} offre{flashPropertyCards.length > 1 ? "s" : ""}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                {flashPropertyCards.map((card) => (
+                  <PropertyCard
+                    key={card.key}
+                    property={card.property}
+                    searchParams={card.searchParams}
+                    cardVariant={card.cardVariant}
+                    flashOffer={card.flashOffer}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           {!isSelectedModeComingSoon && !isHotelMode && (<div className="rounded-[30px] border border-gray-100 bg-white px-4 py-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] md:px-6 md:py-7">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-              {visibleFilteredPropertyCards.map((card) => (
+              {visibleRegularPropertyCards.map((card) => (
                 <PropertyCard
                   key={card.key}
                   property={card.property}
@@ -5994,7 +6065,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
                 </div>
               ))}
             </div>
-            {filteredPropertyCards.length > INITIAL_VISIBLE_PROPERTIES && (
+            {regularPropertyCards.length > INITIAL_VISIBLE_PROPERTIES && (
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 {hasMoreFilteredProperties && (
                   <button
@@ -6026,7 +6097,7 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
             )}
           </div>)}
           
-          {filteredPropertyCards.length === 0 && hasSearched && !isSelectedModeComingSoon && !isHotelMode && (
+          {regularPropertyCards.length === 0 && hasSearched && !isSelectedModeComingSoon && !isHotelMode && (
             <div className="text-center py-16">
               <p className="text-gray-500 text-lg mb-4">Aucun bien ne correspond à vos critères pour ce mode</p>
               <button 
