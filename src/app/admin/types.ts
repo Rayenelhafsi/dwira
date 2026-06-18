@@ -6,7 +6,7 @@ export interface Utilisateur {
   email: string;
   role: UserRole;
   avatar?: string;
-  client_type?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | null;
+  client_type?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | 'agence_partenaire' | null;
   telephone?: string | null;
   cin?: string | null;
   cin_image_url?: string | null;
@@ -605,9 +605,11 @@ export type ReservationDemandStatus =
   | 'client_procede_vers_paiement_en_cours'
   | 'reponse_negative_autre_proposition_meme_bien'
   | 'reponse_negative_autre_proposition_bien_similaire'
+  | 'attente_validation_agence_partenaire'
   | 'attente_validation_amicale'
   | 'attente_validation_par_agence'
   | 'voucher_en_cours'
+  | 'rejete_par_agence_partenaire'
   | 'rejete_par_amicale'
   | 'rejete_par_agence'
   | 'demande_rejetee_admin'
@@ -647,6 +649,11 @@ export interface ReservationDemand {
   adult_guests?: number;
   child_guests?: number;
   payment_mode?: 'avance' | 'totalite' | 'amicale' | null;
+  partner_agency_id?: string | null;
+  partner_agency_name?: string | null;
+  partner_agency_slug?: string | null;
+  partner_agency_logo_url?: string | null;
+  partner_agency_margin_multiplier?: number | null;
   pricing_amicale_id?: string | null;
   amicale_matricule?: string | null;
   amicale_phone?: string | null;
@@ -666,6 +673,7 @@ export interface ReservationDemand {
   variable_services_quote?: Array<ServicePayantBien & { prix_saisi?: number | null }>;
   variable_services_quote_total?: number | null;
   variable_services_quote_status?: 'aucun' | 'a_traiter' | 'devis_envoye' | 'accepte' | 'paye' | null;
+  partner_agency_validation_at?: string | null;
   amicale_validation_at?: string | null;
   agency_validation_at?: string | null;
   voucher_id?: string | null;
@@ -721,7 +729,7 @@ export interface ReservationDemandHistory {
   id: string;
   demand_id: string;
   status: ReservationDemandStatus;
-  actor_type: 'client' | 'admin' | 'system' | 'proprietaire' | 'agent_amicale';
+  actor_type: 'client' | 'admin' | 'system' | 'proprietaire' | 'agent_amicale' | 'agence_partenaire';
   actor_id?: string | null;
   note?: string | null;
   created_at: string;

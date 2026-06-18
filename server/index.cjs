@@ -91,6 +91,7 @@ const R2_SECRET_ACCESS_KEY = String(process.env.R2_SECRET_ACCESS_KEY || '').trim
 const R2_PUBLIC_BASE_URL = String(process.env.R2_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
 const SESSION_COOKIE_NAME = 'dwira_session';
 const AGENT_SESSION_COOKIE_NAME = 'dwira_agent_session';
+const PARTNER_AGENCY_SESSION_COOKIE_NAME = 'dwira_partner_agency_session';
 const DEVICE_COOKIE_NAME = 'dwira_device';
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEVICE_COOKIE_DURATION_MS = 180 * 24 * 60 * 60 * 1000;
@@ -3060,6 +3061,86 @@ function setAgentSessionCookie(req, res, sessionPayload) {
 
 function clearAgentSessionCookie(req, res) {
   res.cookie(AGENT_SESSION_COOKIE_NAME, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
+    maxAge: 0,
+  });
+}
+
+function createSignedPartnerAgencySessionToken(sessionPayload) {
+  const now = Date.now();
+  const payload = {
+    v: 1,
+    iat: now,
+    exp: now + SESSION_DURATION_MS,
+    role: 'agence_partenaire',
+    userId: String(sessionPayload?.userId || '').trim(),
+    username: String(sessionPayload?.username || '').trim(),
+    displayName: String(sessionPayload?.displayName || '').trim(),
+    partnerAgencyId: String(sessionPayload?.partnerAgencyId || '').trim(),
+    partnerAgencyName: String(sessionPayload?.partnerAgencyName || '').trim(),
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const signature = signSessionPayload(encodedPayload);
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifySignedPartnerAgencySessionToken(token) {
+  const raw = String(token || '').trim();
+  if (!raw || !raw.includes('.')) return null;
+  const [encodedPayload, signature] = raw.split('.');
+  if (!encodedPayload || !signature) return null;
+  const expectedSignature = signSessionPayload(encodedPayload);
+  try {
+    const providedBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    if (providedBuffer.length !== expectedBuffer.length) return null;
+    if (!crypto.timingSafeEqual(providedBuffer, expectedBuffer)) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    if (!payload || typeof payload !== 'object') return null;
+    if (Number(payload.exp || 0) <= Date.now()) return null;
+    if (String(payload.role || '') !== 'agence_partenaire') return null;
+    if (!payload.userId || !payload.username || !payload.partnerAgencyId) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function getPartnerAgencySessionFromRequest(req) {
+  const cookies = parseCookies(req.headers?.cookie);
+  const token = cookies[PARTNER_AGENCY_SESSION_COOKIE_NAME];
+  return verifySignedPartnerAgencySessionToken(token);
+}
+
+function requirePartnerAgencySession(req, res, next) {
+  const session = getPartnerAgencySessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Session agence partenaire invalide' });
+  }
+  req.partnerAgencySession = session;
+  return next();
+}
+
+function setPartnerAgencySessionCookie(req, res, sessionPayload) {
+  const token = createSignedPartnerAgencySessionToken(sessionPayload);
+  res.cookie(PARTNER_AGENCY_SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
+    maxAge: SESSION_DURATION_MS,
+  });
+}
+
+function clearPartnerAgencySessionCookie(req, res) {
+  res.cookie(PARTNER_AGENCY_SESSION_COOKIE_NAME, '', {
     httpOnly: true,
     sameSite: 'lax',
     secure: isSecureRequest(req),
@@ -6679,11 +6760,11 @@ async function ensureAuthSchema() {
 
   if (!(await columnExists('utilisateurs', 'client_type'))) {
     await pool.query(
-      "ALTER TABLE utilisateurs ADD COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur', 'agent_amicale') NULL"
+      "ALTER TABLE utilisateurs ADD COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur', 'agent_amicale', 'agence_partenaire') NULL"
     );
   }
   await pool.query(
-    "ALTER TABLE utilisateurs MODIFY COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur', 'agent_amicale') NULL"
+    "ALTER TABLE utilisateurs MODIFY COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur', 'agent_amicale', 'agence_partenaire') NULL"
   );
 
   if (!(await indexExists('utilisateurs', 'uq_provider_user'))) {
@@ -6713,6 +6794,31 @@ async function ensureAuthSchema() {
       updated_at DATETIME NOT NULL,
       INDEX idx_agent_amicale_amicale (amicale_id),
       INDEX idx_agent_amicale_username (username)
+    )`
+  );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS partner_agencies (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL UNIQUE,
+      slug VARCHAR(255) NOT NULL UNIQUE,
+      margin_multiplier DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
+      logo_url LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )`
+  );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS partner_agency_profiles (
+      user_id VARCHAR(64) PRIMARY KEY,
+      partner_agency_id VARCHAR(64) NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      password_text VARCHAR(255) NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      INDEX idx_partner_agency_profile_agency (partner_agency_id),
+      INDEX idx_partner_agency_profile_username (username)
     )`
   );
 
@@ -7795,7 +7901,7 @@ function isLegalIdentityProfileCompleted(user) {
   const cinImageVersoUrl = String(user?.cin_image_verso_url || user?.cinImageVersoUrl || '').trim();
   const clientType = String(user?.client_type || user?.clientType || '').trim().toLowerCase();
   const profileCompletedAt = String(user?.profile_completed_at || '').trim();
-  const hasValidClientType = ['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType);
+  const hasValidClientType = ['proprietaire', 'locataire', 'acheteur', 'agent_amicale', 'agence_partenaire'].includes(clientType);
   const hasLegacyCinImage = Boolean(cinImageUrl);
   const hasDualCinImages = Boolean(cinImageRectoUrl && cinImageVersoUrl);
   return Boolean(fullName && phone && address && cin && (hasDualCinImages || hasLegacyCinImage) && hasValidClientType && profileCompletedAt);
@@ -8420,9 +8526,11 @@ const RESERVATION_DEMAND_STATUSES = new Set([
   'client_procede_vers_paiement_en_cours',
   'reponse_negative_autre_proposition_meme_bien',
   'reponse_negative_autre_proposition_bien_similaire',
+  'attente_validation_agence_partenaire',
   'attente_validation_amicale',
   'attente_validation_par_agence',
   'voucher_en_cours',
+  'rejete_par_agence_partenaire',
   'rejete_par_amicale',
   'rejete_par_agence',
   'demande_rejetee_admin',
@@ -9852,6 +9960,12 @@ function formatReservationDemandRow(row) {
     ...row,
     request_type: row.request_type === 'visite' ? 'visite' : 'reservation',
     payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
+    partner_agency_id: row.partner_agency_id || null,
+    partner_agency_name: row.partner_agency_name || null,
+    partner_agency_slug: row.partner_agency_slug || null,
+    partner_agency_logo_url: row.partner_agency_logo_url || null,
+    partner_agency_margin_multiplier: row.partner_agency_margin_multiplier === null || row.partner_agency_margin_multiplier === undefined ? null : Number(row.partner_agency_margin_multiplier),
+    partner_agency_validation_at: row.partner_agency_validation_at || null,
     pricing_amicale_id: row.pricing_amicale_id || null,
     amicale_matricule: row.amicale_matricule || null,
     amicale_phone: row.amicale_phone || null,
@@ -9920,6 +10034,9 @@ async function fetchReservationDemandDetailsById(demandId) {
        b.reference AS bien_reference,
        b.mode AS bien_mode,
        p.nom AS proprietaire_nom,
+       pa.name AS partner_agency_name,
+       pa.slug AS partner_agency_slug,
+       pa.logo_url AS partner_agency_logo_url,
        a.name AS amicale_name,
        a.logo_url AS amicale_logo_url,
        COALESCE(
@@ -9936,6 +10053,7 @@ async function fetchReservationDemandDetailsById(demandId) {
            LIMIT 1
          )
        ) AS resolved_identity_document_image_url,
+       DATE_FORMAT(d.partner_agency_validation_at, '%Y-%m-%d %H:%i:%s') AS partner_agency_validation_at,
        DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
        DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
        DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
@@ -9954,6 +10072,7 @@ async function fetchReservationDemandDetailsById(demandId) {
      FROM reservation_demands d
      LEFT JOIN biens b ON b.id = d.bien_id
      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+     LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id
      LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
      WHERE d.id = ?
      LIMIT 1`,
@@ -17482,6 +17601,9 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
         b.reference AS bien_reference,
         b.mode AS bien_mode,
         p.nom AS proprietaire_nom,
+        pa.name AS partner_agency_name,
+        pa.slug AS partner_agency_slug,
+        pa.logo_url AS partner_agency_logo_url,
         c.url_pdf AS contract_url,
         c.owner_url_pdf AS owner_contract_url,
         COALESCE(
@@ -17498,6 +17620,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
             LIMIT 1
           )
         ) AS resolved_identity_document_image_url,
+        DATE_FORMAT(d.partner_agency_validation_at, '%Y-%m-%d %H:%i:%s') AS partner_agency_validation_at,
         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
@@ -17512,6 +17635,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
       FROM reservation_demands d
       LEFT JOIN biens b ON b.id = d.bien_id
       LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id
       LEFT JOIN contrats c ON c.id = d.contract_id
       ${where.length > 0 ? `WHERE ${where.join(' OR ')}` : ''}
       ORDER BY d.created_at DESC
@@ -17626,6 +17750,8 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       selected_variable_services,
       client_note,
       request_type,
+      partner_agency_id,
+      partner_agency_margin_multiplier,
       pricing_amicale_id,
       amicale_name,
       amicale_matricule,
@@ -17636,15 +17762,21 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     } = req.body || {};
 
     const normalizedPaymentMode = normalizePaymentMode(payment_mode, 'avance');
+    const normalizedPartnerAgencyId = String(partner_agency_id || req.body?.partnerAgencyId || req.body?.partnerAgencySelectionId || req.body?.partner || '').trim() || null;
+    const requestedPartnerAgencyMarginMultiplier = Number(partner_agency_margin_multiplier ?? req.body?.partnerAgencyMarginMultiplier ?? req.body?.partnerMarginMultiplier);
     const normalizedPricingAmicaleId = String(pricing_amicale_id || req.body?.pricingAmicaleId || req.body?.amicale_id || req.body?.amicaleSelectionId || '').trim() || null;
     const normalizedAmicaleName = String(amicale_name || req.body?.amicaleName || client_name || '').trim() || null;
     const normalizedAmicaleMatricule = String(amicale_matricule || req.body?.amicaleMatricule || '').trim() || null;
     const normalizedAmicalePhone = normalizePhoneNumber(amicale_phone || req.body?.amicalePhone || '');
     const normalizedAmicaleCode = String(amicale_code || req.body?.amicaleCode || '').trim() || null;
     const isAmicaleFlow = normalizedPaymentMode === 'amicale';
+    const isPartnerAgencyFlow = Boolean(normalizedPartnerAgencyId);
 
     if (!requester && !isAmicaleFlow) {
       return res.status(401).json({ error: 'Authentification requise' });
+    }
+    if (isPartnerAgencyFlow && !requester) {
+      return res.status(401).json({ error: 'Connexion client requise pour une reservation agence partenaire' });
     }
     if (isAmicaleFlow && !normalizedPricingAmicaleId) {
       return res.status(400).json({ error: 'Amicale cible requise' });
@@ -17712,6 +17844,26 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     const bien = bienRows[0];
     if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
     let amicaleRow = null;
+    let partnerAgencyRow = null;
+    let normalizedPartnerAgencyMarginMultiplier = null;
+    if (isPartnerAgencyFlow) {
+      const [partnerAgencyRows] = await pool.query(
+        'SELECT id, name, slug, margin_multiplier, logo_url FROM partner_agencies WHERE id = ? LIMIT 1',
+        [normalizedPartnerAgencyId]
+      );
+      partnerAgencyRow = partnerAgencyRows?.[0] || null;
+      if (!partnerAgencyRow) {
+        return res.status(400).json({ error: 'Agence partenaire selectionnee introuvable' });
+      }
+      normalizedPartnerAgencyMarginMultiplier = Number(partnerAgencyRow.margin_multiplier || 1);
+      if (
+        Number.isFinite(requestedPartnerAgencyMarginMultiplier)
+        && requestedPartnerAgencyMarginMultiplier > 0
+        && Math.abs(requestedPartnerAgencyMarginMultiplier - normalizedPartnerAgencyMarginMultiplier) > 0.0001
+      ) {
+        return res.status(400).json({ error: 'Marge agence partenaire invalide' });
+      }
+    }
     if (isAmicaleFlow) {
       if (!normalizedAmicaleName) {
         return res.status(400).json({ error: 'Nom et prenom obligatoires pour une reservation amicale' });
@@ -17942,11 +18094,14 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     const balancedAdultGuests = normalizedAdultGuests;
     const balancedChildGuests = normalizedChildGuests;
     const instantReservationEnabled = !isAmicaleFlow
+      && !isPartnerAgencyFlow
       && requestType === 'reservation'
       && Boolean(saisonCfg?.reservation_instantanee || saisonCfg?.reservationInstantanee);
-    const initialDemandStatus = isAmicaleFlow
+    const initialDemandStatus = isPartnerAgencyFlow
+      ? 'attente_validation_agence_partenaire'
+      : (isAmicaleFlow
       ? 'attente_validation_amicale'
-      : (instantReservationEnabled ? 'client_procede_vers_paiement_en_cours' : 'en_attente_reponse_proprietaire');
+      : (instantReservationEnabled ? 'client_procede_vers_paiement_en_cours' : 'en_attente_reponse_proprietaire'));
     const unavailableDateId = requestType === 'reservation'
       ? `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       : null;
@@ -17954,11 +18109,11 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     await pool.query(
       `INSERT INTO reservation_demands (
         id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, adult_guests, child_guests, payment_mode, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
+        start_date, end_date, guests, adult_guests, child_guests, payment_mode, partner_agency_id, partner_agency_margin_multiplier, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
         total_amount, amount_due_now, flash_offer_json, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
-        amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, admin_note, client_note,
+        partner_agency_validation_at, amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
@@ -17975,6 +18130,8 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         balancedAdultGuests,
         balancedChildGuests,
         normalizedPaymentMode,
+        normalizedPartnerAgencyId,
+        normalizedPartnerAgencyMarginMultiplier,
         normalizedPricingAmicaleId,
         isAmicaleFlow ? normalizedAmicaleMatricule : null,
         isAmicaleFlow ? normalizedAmicalePhone : null,
@@ -17988,6 +18145,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         null,
         variableServicesQuoteStatus,
         initialDemandStatus,
+        null,
         null,
         null,
         null,
@@ -18015,7 +18173,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
           bien_id,
           start_date,
           end_date,
-          instantReservationEnabled ? 'booked' : 'pending',
+      instantReservationEnabled ? 'booked' : 'pending',
           demandId,
           instantReservationEnabled ? null : paymentDeadline,
         ]
@@ -18027,12 +18185,20 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       initialDemandStatus,
       'client',
       resolvedClientUserId || resolvedClientEmail || normalizedAmicaleMatricule || null,
-      isAmicaleFlow
+      isPartnerAgencyFlow
+        ? `Nouvelle demande agence partenaire de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
+        : isAmicaleFlow
         ? `Nouvelle demande amicale de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
         : `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
     );
 
-    if (!isAmicaleFlow && !instantReservationEnabled) {
+    if (isPartnerAgencyFlow) {
+      await createAdminNotification(
+        'warning',
+        `Nouvelle demande agence partenaire en attente validation: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${bien.reference || bien.id} (${partnerAgencyRow?.name || 'Agence partenaire'})`,
+        now
+      );
+    } else if (!isAmicaleFlow && !instantReservationEnabled) {
       await createAdminNotification(
         'warning',
         `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'}: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${bien.reference || bien.id} du ${start_date} au ${end_date}`,
@@ -21232,6 +21398,20 @@ async function ensureReservationDemandSchema() {
         );
         return String(rows?.[0]?.data_type || '').trim().toLowerCase();
       };
+      const indexExists = async (tableName, indexName) => {
+        const [rows] = await pool.query(
+          `
+          SELECT 1
+          FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND INDEX_NAME = ?
+          LIMIT 1
+          `,
+          [tableName, indexName]
+        );
+        return rows.length > 0;
+      };
 
       await pool.query(`
     CREATE TABLE IF NOT EXISTS reservation_demands (
@@ -21250,6 +21430,8 @@ async function ensureReservationDemandSchema() {
       adult_guests INT NOT NULL DEFAULT 1,
       child_guests INT NOT NULL DEFAULT 0,
       payment_mode VARCHAR(20) NULL,
+      partner_agency_id VARCHAR(64) NULL,
+      partner_agency_margin_multiplier DECIMAL(10,4) NULL,
       pricing_amicale_id VARCHAR(64) NULL,
       amicale_matricule VARCHAR(80) NULL,
       amicale_phone VARCHAR(40) NULL,
@@ -21263,6 +21445,7 @@ async function ensureReservationDemandSchema() {
       variable_services_quote_total DECIMAL(12,2) NULL,
       variable_services_quote_status VARCHAR(30) NULL,
       status VARCHAR(80) NOT NULL,
+      partner_agency_validation_at DATETIME NULL,
       amicale_validation_at DATETIME NULL,
       agency_validation_at DATETIME NULL,
       voucher_id VARCHAR(100) NULL,
@@ -21308,6 +21491,7 @@ async function ensureReservationDemandSchema() {
       updated_at DATETIME NOT NULL,
       KEY idx_reservation_demands_client (client_user_id, client_email),
       KEY idx_reservation_demands_bien (bien_id),
+      KEY idx_reservation_demands_partner_agency (partner_agency_id),
       KEY idx_reservation_demands_pricing_amicale (pricing_amicale_id),
       KEY idx_reservation_demands_amicale_status (pricing_amicale_id, status),
       KEY idx_reservation_demands_owner (proprietaire_id, owner_user_id),
@@ -21379,8 +21563,14 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'payment_mode'))) {
     await pool.query("ALTER TABLE reservation_demands ADD COLUMN payment_mode VARCHAR(20) NULL AFTER guests");
   }
+  if (!(await columnExists('reservation_demands', 'partner_agency_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN partner_agency_id VARCHAR(64) NULL AFTER payment_mode');
+  }
+  if (!(await columnExists('reservation_demands', 'partner_agency_margin_multiplier'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN partner_agency_margin_multiplier DECIMAL(10,4) NULL AFTER partner_agency_id');
+  }
   if (!(await columnExists('reservation_demands', 'pricing_amicale_id'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN pricing_amicale_id VARCHAR(64) NULL AFTER payment_mode');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN pricing_amicale_id VARCHAR(64) NULL AFTER partner_agency_margin_multiplier');
   }
   if (!(await columnExists('reservation_demands', 'amicale_matricule'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN amicale_matricule VARCHAR(80) NULL AFTER pricing_amicale_id');
@@ -21397,11 +21587,17 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'child_guests'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN child_guests INT NOT NULL DEFAULT 0 AFTER adult_guests');
   }
+  if (!(await columnExists('reservation_demands', 'partner_agency_validation_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN partner_agency_validation_at DATETIME NULL AFTER status');
+  }
   if (!(await columnExists('reservation_demands', 'amicale_validation_at'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN amicale_validation_at DATETIME NULL AFTER status');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN amicale_validation_at DATETIME NULL AFTER partner_agency_validation_at');
   }
   if (!(await columnExists('reservation_demands', 'agency_validation_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN agency_validation_at DATETIME NULL AFTER amicale_validation_at');
+  }
+  if (!(await indexExists('reservation_demands', 'idx_reservation_demands_partner_agency'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD KEY idx_reservation_demands_partner_agency (partner_agency_id)');
   }
   if (!(await columnExists('reservation_demands', 'voucher_id'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN voucher_id VARCHAR(100) NULL AFTER agency_validation_at');
@@ -22540,6 +22736,341 @@ app.post('/api/agent-amicale/reservation-demands/:id/reject', requireAgentAmical
   } catch (error) {
     console.error('Error rejecting agent amicale demand:', error);
     res.status(500).json({ error: 'Impossible de rejeter la demande amicale' });
+  }
+});
+
+app.post('/api/auth/partner-agency/login', authLoginRateLimit, async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '').trim();
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username and password are required' });
+    }
+    const [rows] = await pool.query(
+      `SELECT
+        p.user_id,
+        p.partner_agency_id,
+        p.username,
+        p.password_text,
+        u.nom AS user_nom,
+        a.name AS partner_agency_name,
+        a.slug AS partner_agency_slug,
+        a.logo_url AS partner_agency_logo_url,
+        a.margin_multiplier
+      FROM partner_agency_profiles p
+      INNER JOIN utilisateurs u ON u.id = p.user_id
+      LEFT JOIN partner_agencies a ON a.id = p.partner_agency_id
+      WHERE p.username = ?
+      LIMIT 1`,
+      [username]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return res.status(401).json({ error: 'Identifiants invalides' });
+    if (String(row.password_text || '') !== password) return res.status(401).json({ error: 'Identifiants invalides' });
+
+    const agencySession = {
+      userId: String(row.user_id || '').trim(),
+      username: String(row.username || '').trim(),
+      displayName: String(row.user_nom || '').trim(),
+      partnerAgencyId: String(row.partner_agency_id || '').trim(),
+      partnerAgencyName: String(row.partner_agency_name || '').trim(),
+      partnerAgencySlug: String(row.partner_agency_slug || '').trim(),
+      partnerAgencyLogoUrl: row.partner_agency_logo_url ? String(row.partner_agency_logo_url).trim() : null,
+      marginMultiplier: normalizePartnerAgencyMarginMultiplier(row.margin_multiplier),
+    };
+    setPartnerAgencySessionCookie(req, res, agencySession);
+    return res.json({ session: agencySession });
+  } catch (error) {
+    console.error('Error logging partner agency:', error);
+    return res.status(500).json({ error: 'Connexion agence partenaire impossible' });
+  }
+});
+
+app.get('/api/auth/partner-agency/me', async (req, res) => {
+  try {
+    const session = getPartnerAgencySessionFromRequest(req);
+    if (!session) return res.status(401).json({ error: 'Session agence partenaire invalide' });
+    const [rows] = await pool.query(
+      'SELECT slug, logo_url, margin_multiplier FROM partner_agencies WHERE id = ? LIMIT 1',
+      [String(session.partnerAgencyId || '').trim()]
+    );
+    const row = rows?.[0] || null;
+    return res.json({
+      session: {
+        ...session,
+        partnerAgencySlug: row?.slug ? String(row.slug).trim() : '',
+        partnerAgencyLogoUrl: row?.logo_url ? String(row.logo_url).trim() : null,
+        marginMultiplier: normalizePartnerAgencyMarginMultiplier(row?.margin_multiplier),
+      },
+    });
+  } catch (error) {
+    console.error('Error reading partner agency session:', error);
+    return res.status(500).json({ error: 'Lecture session agence partenaire impossible' });
+  }
+});
+
+app.post('/api/auth/partner-agency/logout', async (req, res) => {
+  clearPartnerAgencySessionCookie(req, res);
+  return res.json({ success: true });
+});
+
+app.post('/api/partner-agency/logo-upload', requirePartnerAgencySession, uploadMediaMiddleware, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    return res.json({
+      url: `/uploads/${req.file.filename}`,
+      imageUrl: `/uploads/${req.file.filename}`,
+      filename: req.file.filename,
+    });
+  } catch (error) {
+    console.error('Error uploading partner agency logo:', error);
+    return res.status(500).json({ error: 'Upload logo agence partenaire impossible' });
+  }
+});
+
+app.put('/api/partner-agency/settings', requirePartnerAgencySession, async (req, res) => {
+  try {
+    const partnerAgencyId = String(req.partnerAgencySession?.partnerAgencyId || '').trim();
+    if (!partnerAgencyId) {
+      return res.status(400).json({ error: 'Agence partenaire introuvable' });
+    }
+
+    const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
+    const marginPercentInput = req.body?.margin_percent ?? req.body?.marginPercent;
+    const marginMultiplierInput = req.body?.margin_multiplier ?? req.body?.marginMultiplier;
+    const hasMarginPercent = marginPercentInput !== undefined && marginPercentInput !== null && String(marginPercentInput).trim() !== '';
+    const nextMarginMultiplier = hasMarginPercent
+      ? normalizePartnerAgencyMarginMultiplier(1 + (normalizePartnerAgencyMarginPercent(marginPercentInput) / 100))
+      : normalizePartnerAgencyMarginMultiplier(marginMultiplierInput);
+    const now = getAgencySqlDateTime();
+
+    await pool.query(
+      `UPDATE partner_agencies
+       SET margin_multiplier = ?, logo_url = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextMarginMultiplier, logoUrl, now, partnerAgencyId]
+    );
+
+    const [rows] = await pool.query(
+      'SELECT id, name, slug, margin_multiplier, logo_url, created_at, updated_at FROM partner_agencies WHERE id = ? LIMIT 1',
+      [partnerAgencyId]
+    );
+    const agency = rows?.[0] || null;
+    if (!agency) {
+      return res.status(404).json({ error: 'Agence partenaire introuvable' });
+    }
+
+    const nextSession = {
+      ...req.partnerAgencySession,
+      partnerAgencyName: String(agency.name || req.partnerAgencySession?.partnerAgencyName || '').trim(),
+      partnerAgencySlug: String(agency.slug || '').trim(),
+      partnerAgencyLogoUrl: agency.logo_url ? String(agency.logo_url).trim() : null,
+      marginMultiplier: agency.margin_multiplier === null || agency.margin_multiplier === undefined ? 1 : Number(agency.margin_multiplier),
+    };
+    setPartnerAgencySessionCookie(req, res, nextSession);
+
+    return res.json({
+      agency,
+      session: nextSession,
+      margin_percent: Math.max(0, ((Number(nextSession.marginMultiplier || 1) - 1) * 100)),
+    });
+  } catch (error) {
+    console.error('Error updating partner agency settings:', error);
+    return res.status(500).json({ error: 'Mise a jour agence partenaire impossible' });
+  }
+});
+
+app.get('/api/partner-agency/reservation-demands', requirePartnerAgencySession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const partnerAgencyId = String(req.partnerAgencySession?.partnerAgencyId || '').trim();
+    if (!partnerAgencyId) {
+      return res.status(400).json({ error: 'Agence partenaire introuvable' });
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         d.*,
+         b.titre AS bien_titre,
+         b.reference AS bien_reference,
+         pa.name AS partner_agency_name,
+         pa.slug AS partner_agency_slug,
+         pa.logo_url AS partner_agency_logo_url,
+         DATE_FORMAT(d.partner_agency_validation_at, '%Y-%m-%d %H:%i:%s') AS partner_agency_validation_at,
+         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
+         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+         DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+         DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
+         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM reservation_demands d
+       LEFT JOIN biens b ON b.id = d.bien_id
+       LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id
+       WHERE d.partner_agency_id = ?
+       ORDER BY d.created_at DESC`,
+      [partnerAgencyId]
+    );
+    res.json((rows || []).map((row) => formatReservationDemandRow(row)));
+  } catch (error) {
+    console.error('Error fetching partner agency reservation demands:', error);
+    res.status(500).json({ error: 'Impossible de charger les demandes agence partenaire' });
+  }
+});
+
+app.post('/api/partner-agency/reservation-demands/:id/validate', requirePartnerAgencySession, reservationMutationRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    const partnerAgencyId = String(req.partnerAgencySession?.partnerAgencyId || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    const detailedCurrent = await fetchReservationDemandDetailsById(demandId);
+    if (!detailedCurrent) return res.status(404).json({ error: 'Demande introuvable' });
+    if (String(detailedCurrent.partner_agency_id || '').trim() !== partnerAgencyId) {
+      return res.status(403).json({ error: 'Demande agence partenaire non autorisee' });
+    }
+    if (String(detailedCurrent.status || '') !== 'attente_validation_agence_partenaire') {
+      return res.status(400).json({ error: 'Cette demande ne peut plus etre validee par l agence partenaire' });
+    }
+
+    const [bienRows] = await pool.query(
+      'SELECT id, titre, reference, proprietaire_id, location_saisonniere_config_json FROM biens WHERE id = ? LIMIT 1',
+      [String(detailedCurrent.bien_id || '').trim()]
+    );
+    const bien = bienRows?.[0] || null;
+    if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+    const saisonCfg = safeParseJson(bien.location_saisonniere_config_json, {});
+    const instantReservationEnabled = String(detailedCurrent.request_type || 'reservation') === 'reservation'
+      && Boolean(saisonCfg?.reservation_instantanee || saisonCfg?.reservationInstantanee);
+    const nextStatus = instantReservationEnabled
+      ? 'client_procede_vers_paiement_en_cours'
+      : 'en_attente_reponse_proprietaire';
+    const now = getAgencySqlDateTime();
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?,
+           partner_agency_validation_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, now, now, demandId]
+    );
+    if (detailedCurrent.unavailable_date_id) {
+      await pool.query(
+        'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ? AND reservation_demand_id = ?',
+        [instantReservationEnabled ? 'booked' : 'pending', instantReservationEnabled ? null : (detailedCurrent.finalization_due_at || null), detailedCurrent.unavailable_date_id, demandId]
+      );
+    }
+    await appendReservationDemandHistory(
+      demandId,
+      nextStatus,
+      'agence_partenaire',
+      String(req.partnerAgencySession?.userId || req.partnerAgencySession?.username || 'agence_partenaire').trim(),
+      'Demande validee par l agence partenaire',
+      now
+    );
+
+    if (!instantReservationEnabled) {
+      await createAdminNotification(
+        'warning',
+        `Demande agence partenaire validee: ${detailedCurrent.client_name || detailedCurrent.client_email || 'Client'} pour ${bien.reference || bien.id} du ${detailedCurrent.start_date} au ${detailedCurrent.end_date}`,
+        now
+      );
+      const ownerId = String(bien.proprietaire_id || '').trim();
+      if (ownerId) {
+        const availabilityMessage = `Confirmez la disponibilite du bien ${String(bien.titre || bien.reference || bien.id || 'bien')} pour la periode ${String(detailedCurrent.start_date || '')} -> ${String(detailedCurrent.end_date || '')}`;
+        await createOwnerMobileNotification({
+          ownerId,
+          type: 'warning',
+          message: availabilityMessage,
+          metadata: {
+            kind: 'reservation_availability_request',
+            demandId,
+            ownerId,
+            bienId: String(bien.id || '').trim(),
+            propertyTitle: String(bien.titre || bien.reference || '').trim(),
+            startDate: String(detailedCurrent.start_date || '').trim(),
+            endDate: String(detailedCurrent.end_date || '').trim(),
+            guests: Number(detailedCurrent.guests || 1),
+          },
+          createdAt: now,
+        });
+        await pushToOwnerDevices(ownerId, {
+          title: 'Demande de disponibilite',
+          body: availabilityMessage,
+          data: {
+            title: 'Demande de disponibilite',
+            body: availabilityMessage,
+            kind: 'reservation_availability_request',
+            demandId,
+            ownerId,
+            bienId: String(bien.id || '').trim(),
+          },
+        });
+        await pool.query(
+          'UPDATE reservation_demands SET owner_notified_at = ?, updated_at = ? WHERE id = ?',
+          [now, now, demandId]
+        );
+      }
+    }
+
+    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+  } catch (error) {
+    console.error('Error validating partner agency demand:', error);
+    res.status(500).json({ error: 'Impossible de valider la demande agence partenaire' });
+  }
+});
+
+app.post('/api/partner-agency/reservation-demands/:id/reject', requirePartnerAgencySession, reservationMutationRateLimit, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    const partnerAgencyId = String(req.partnerAgencySession?.partnerAgencyId || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    const detailedCurrent = await fetchReservationDemandDetailsById(demandId);
+    if (!detailedCurrent) return res.status(404).json({ error: 'Demande introuvable' });
+    if (String(detailedCurrent.partner_agency_id || '').trim() !== partnerAgencyId) {
+      return res.status(403).json({ error: 'Demande agence partenaire non autorisee' });
+    }
+    if (String(detailedCurrent.status || '') !== 'attente_validation_agence_partenaire') {
+      return res.status(400).json({ error: 'Cette demande ne peut plus etre rejetee par l agence partenaire' });
+    }
+
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?,
+           partner_agency_validation_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      ['rejete_par_agence_partenaire', now, now, demandId]
+    );
+    if (detailedCurrent.unavailable_date_id) {
+      await pool.query(
+        `DELETE FROM unavailable_dates
+         WHERE id = ?
+           AND reservation_demand_id = ?`,
+        [detailedCurrent.unavailable_date_id, demandId]
+      );
+      await pool.query(
+        'UPDATE reservation_demands SET unavailable_date_id = NULL, updated_at = ? WHERE id = ?',
+        [now, demandId]
+      );
+    }
+    await appendReservationDemandHistory(
+      demandId,
+      'rejete_par_agence_partenaire',
+      'agence_partenaire',
+      String(req.partnerAgencySession?.userId || req.partnerAgencySession?.username || 'agence_partenaire').trim(),
+      'Demande rejetee par l agence partenaire',
+      now
+    );
+    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+  } catch (error) {
+    console.error('Error rejecting partner agency demand:', error);
+    res.status(500).json({ error: 'Impossible de rejeter la demande agence partenaire' });
   }
 });
 
@@ -24243,8 +24774,8 @@ app.put('/api/auth/social/profile/:id', requireAuthenticatedSession, reservation
     if (!cin) return res.status(400).json({ error: 'Numero CIN obligatoire' });
     if (!cinImageRectoUrl) return res.status(400).json({ error: 'Photo CIN recto obligatoire' });
     if (!cinImageVersoUrl && !cinImageUrl) return res.status(400).json({ error: 'Photo CIN verso obligatoire' });
-    if (!['proprietaire', 'locataire', 'acheteur', 'agent_amicale'].includes(clientType)) {
-      return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire, acheteur ou agent_amicale)' });
+    if (!['proprietaire', 'locataire', 'acheteur', 'agent_amicale', 'agence_partenaire'].includes(clientType)) {
+      return res.status(400).json({ error: 'Type client obligatoire (proprietaire, locataire, acheteur, agent_amicale ou agence_partenaire)' });
     }
 
     const [existingRows] = await pool.query('SELECT id FROM utilisateurs WHERE id = ? LIMIT 1', [id]);
@@ -24409,6 +24940,7 @@ app.put('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
 app.delete('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
   try {
     await pool.query('DELETE FROM agent_amicale_profiles WHERE user_id = ?', [req.params.id]);
+    await pool.query('DELETE FROM partner_agency_profiles WHERE user_id = ?', [req.params.id]);
     await pool.query('DELETE FROM utilisateurs WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (error) {
@@ -24416,6 +24948,28 @@ app.delete('/api/utilisateurs/:id', requireAdminSession, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete utilisateur' });
   }
 });
+
+function normalizePartnerSlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function normalizePartnerAgencyMarginMultiplier(input) {
+  const raw = Number(input);
+  if (!Number.isFinite(raw) || raw < 1) return 1;
+  return Math.round(raw * 10000) / 10000;
+}
+
+function normalizePartnerAgencyMarginPercent(input) {
+  const raw = Number(input);
+  if (!Number.isFinite(raw) || raw < 0) return 0;
+  return Math.round(raw * 100) / 100;
+}
 
 app.get('/api/public/amicales', async (req, res) => {
   try {
@@ -24572,6 +25126,143 @@ app.post('/api/agents-amicale', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error saving agent amicale profile:', error);
     res.status(500).json({ error: 'Failed to save agent amicale profile' });
+  }
+});
+
+app.get('/api/public/partner-agencies', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, slug, margin_multiplier, logo_url, created_at, updated_at
+       FROM partner_agencies
+       ORDER BY updated_at DESC, created_at DESC`
+    );
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching public partner agencies:', error);
+    res.status(500).json({ error: 'Failed to fetch partner agencies' });
+  }
+});
+
+app.get('/api/partner-agencies', requireAdminSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, slug, margin_multiplier, logo_url, created_at, updated_at
+       FROM partner_agencies
+       ORDER BY updated_at DESC, created_at DESC`
+    );
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching partner agencies:', error);
+    res.status(500).json({ error: 'Failed to fetch partner agencies' });
+  }
+});
+
+app.post('/api/partner-agencies', requireAdminSession, async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const requestedSlug = String(req.body?.slug || '').trim();
+    const slug = normalizePartnerSlug(requestedSlug || name);
+    if (!name || !slug) return res.status(400).json({ error: 'name is required' });
+    const now = getAgencySqlDateTime();
+    const id = `partner_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO partner_agencies (id, name, slug, margin_multiplier, logo_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, slug, 1, null, now, now]
+    );
+    const [rows] = await pool.query('SELECT * FROM partner_agencies WHERE id = ? LIMIT 1', [id]);
+    res.status(201).json(rows?.[0] || null);
+  } catch (error) {
+    console.error('Error creating partner agency:', error);
+    res.status(500).json({ error: 'Failed to create partner agency' });
+  }
+});
+
+app.put('/api/partner-agencies/:id', requireAdminSession, async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const name = String(req.body?.name || '').trim();
+    const requestedSlug = String(req.body?.slug || '').trim();
+    const slug = normalizePartnerSlug(requestedSlug || name);
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    if (!name || !slug) return res.status(400).json({ error: 'name is required' });
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE partner_agencies
+       SET name = ?, slug = ?, updated_at = ?
+       WHERE id = ?`,
+      [name, slug, now, id]
+    );
+    const [rows] = await pool.query('SELECT * FROM partner_agencies WHERE id = ? LIMIT 1', [id]);
+    res.json(rows?.[0] || null);
+  } catch (error) {
+    console.error('Error updating partner agency:', error);
+    res.status(500).json({ error: 'Failed to update partner agency' });
+  }
+});
+
+app.delete('/api/partner-agencies/:id', requireAdminSession, async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    await pool.query('DELETE FROM partner_agency_profiles WHERE partner_agency_id = ?', [id]);
+    await pool.query('DELETE FROM partner_agencies WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting partner agency:', error);
+    res.status(500).json({ error: 'Failed to delete partner agency' });
+  }
+});
+
+app.get('/api/partner-agency-profiles', requireAdminSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.user_id, p.partner_agency_id, p.username, p.password_text, p.created_at, p.updated_at,
+              a.name AS partner_agency_name, a.slug AS partner_agency_slug, a.margin_multiplier, a.logo_url
+       FROM partner_agency_profiles p
+       LEFT JOIN partner_agencies a ON a.id = p.partner_agency_id
+       ORDER BY p.updated_at DESC, p.created_at DESC`
+    );
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching partner agency profiles:', error);
+    res.status(500).json({ error: 'Failed to fetch partner agency profiles' });
+  }
+});
+
+app.post('/api/partner-agency-profiles', requireAdminSession, async (req, res) => {
+  try {
+    const userId = String(req.body?.user_id || req.body?.userId || '').trim();
+    const partnerAgencyId = String(req.body?.partner_agency_id || req.body?.partnerAgencyId || '').trim();
+    const username = String(req.body?.username || '').trim();
+    const passwordText = String(req.body?.password_text || req.body?.password || '').trim();
+    if (!userId || !partnerAgencyId || !username || !passwordText) {
+      return res.status(400).json({ error: 'user_id, partner_agency_id, username and password are required' });
+    }
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO partner_agency_profiles (user_id, partner_agency_id, username, password_text, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         partner_agency_id = VALUES(partner_agency_id),
+         username = VALUES(username),
+         password_text = VALUES(password_text),
+         updated_at = VALUES(updated_at)`,
+      [userId, partnerAgencyId, username, passwordText, now, now]
+    );
+    const [rows] = await pool.query(
+      `SELECT p.user_id, p.partner_agency_id, p.username, p.password_text, p.created_at, p.updated_at,
+              a.name AS partner_agency_name, a.slug AS partner_agency_slug, a.margin_multiplier, a.logo_url
+       FROM partner_agency_profiles p
+       LEFT JOIN partner_agencies a ON a.id = p.partner_agency_id
+       WHERE p.user_id = ?
+       LIMIT 1`,
+      [userId]
+    );
+    res.status(201).json(rows?.[0] || null);
+  } catch (error) {
+    console.error('Error saving partner agency profile:', error);
+    res.status(500).json({ error: 'Failed to save partner agency profile' });
   }
 });
 

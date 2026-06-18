@@ -8,7 +8,7 @@ export interface AuthUser {
   lastName?: string | null;
   avatar?: string | null;
   role: 'admin' | 'user';
-  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | 'agence_partenaire' | null;
   telephone?: string | null;
   address?: string | null;
   cin?: string | null;
@@ -39,7 +39,7 @@ export interface CompleteSocialProfileInput {
   firstName?: string;
   lastName?: string;
   email?: string;
-  clientType?: 'proprietaire' | 'locataire' | 'acheteur';
+  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | 'agence_partenaire';
   telephone: string;
   address: string;
   cin?: string;

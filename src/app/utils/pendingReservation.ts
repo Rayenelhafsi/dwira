@@ -24,6 +24,10 @@ export type PendingReservationDraft = {
     fixedNightlyAmount?: number | null;
   } | null;
   paymentMode?: "totalite" | "avance" | "amicale";
+  partnerAgencyId?: string;
+  partnerAgencyName?: string;
+  partnerAgencySlug?: string;
+  partnerAgencyMarginMultiplier?: number;
   pricingAmicaleId?: string;
   amicaleSelectionId?: string;
   amicaleSelectionName?: string;

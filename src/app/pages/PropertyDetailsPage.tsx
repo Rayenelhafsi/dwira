@@ -27,6 +27,7 @@ import "leaflet/dist/leaflet.css";
 import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { getFlashNightlyAmount, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
 import {
   clearAuthPendingLogin,
@@ -983,6 +984,11 @@ export default function PropertyDetailsPage() {
   });
   const [pendingDraft, setPendingDraft] = useState<PendingReservationDraft | null>(null);
   const pricingAmicaleId = String(searchParams.get("amicale") || (paymentMode === "amicale" ? amicaleSelectionId : "") || pendingDraft?.pricingAmicaleId || "").trim() || null;
+  const partnerAgencyId = String(searchParams.get("partner") || pendingDraft?.partnerAgencyId || "").trim() || null;
+  const partnerAgencyMarginMultiplier = (() => {
+    const raw = Number(searchParams.get("partnerMargin") || pendingDraft?.partnerAgencyMarginMultiplier || 0);
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
+  })();
   const isAmicalePricingActive = Boolean(pricingAmicaleId) && property?.priceContext !== 'sale';
   const [liveUnavailableDates, setLiveUnavailableDates] = useState<Array<{
     start: string;
@@ -1423,8 +1429,14 @@ out body 40;
     }),
     [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
   );
-  const displayedNightlyPrice = applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive);
-  const displayedWeeklyPrice = applyAmicaleTtc(Number(currentDisplayPricing.weeklyPrice || 0), isAmicalePricingActive);
+  const displayedNightlyPrice = applyPartnerAgencyMargin(
+    applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive),
+    partnerAgencyMarginMultiplier
+  );
+  const displayedWeeklyPrice = applyPartnerAgencyMargin(
+    applyAmicaleTtc(Number(currentDisplayPricing.weeklyPrice || 0), isAmicalePricingActive),
+    partnerAgencyMarginMultiplier
+  );
   const effectiveNightlyPrice = lockedFlashOffer ? getFlashNightlyAmount(displayedNightlyPrice, lockedFlashOffer) : displayedNightlyPrice;
   const effectiveWeeklyPrice = lockedFlashOffer
     ? (lockedFlashOffer.mode === "fixed_amount" && Number(lockedFlashOffer.fixedNightlyAmount || 0) > 0
@@ -2869,6 +2881,8 @@ out body 40;
         fixedNightlyAmount: lockedFlashOffer.fixedNightlyAmount,
       } : null,
       paymentMode,
+      partnerAgencyId: partnerAgencyId || undefined,
+      partnerAgencyMarginMultiplier: partnerAgencyMarginMultiplier || undefined,
       pricingAmicaleId: pricingAmicaleId || undefined,
       amicaleSelectionId: paymentMode === "amicale" ? amicaleSelectionId : undefined,
       amicaleSelectionName: paymentMode === "amicale" ? (amicaleOptions.find((item) => item.id === amicaleSelectionId)?.name || "") : undefined,
@@ -4625,9 +4639,11 @@ out body 40;
                       <button type="button" onClick={() => setPaymentMode('totalite')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'totalite' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
                         Totalite
                       </button>
-                      <button type="button" onClick={() => setPaymentMode('amicale')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'amicale' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
-                        Amicale
-                      </button>
+                      {!partnerAgencyId && (
+                        <button type="button" onClick={() => setPaymentMode('amicale')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${paymentMode === 'amicale' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700'}`}>
+                          Amicale
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

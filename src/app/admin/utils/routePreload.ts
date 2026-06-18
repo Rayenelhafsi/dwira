@@ -3,6 +3,7 @@ const adminRoutePreloaders: Record<string, () => Promise<unknown>> = {
   "/admin/biens": () => import("../pages/BiensPage"),
   "/admin/clienteles": () => import("../pages/LocatairesPage"),
   "/admin/locataires": () => import("../pages/LocatairesPage"),
+  "/admin/agences-partenaires": () => import("../pages/PartnerAgenciesPage"),
   "/admin/contrats": () => import("../pages/ContratsPage"),
   "/admin/paiements": () => import("../pages/PaiementsPage"),
   "/admin/amicales": () => import("../pages/AmicalesPage"),

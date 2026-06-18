@@ -7,6 +7,7 @@ import { SmartImage } from "./SmartImage";
 import { resolveCurrentPricing } from "../utils/seasonalPricing";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { trackMetaEvent } from "../utils/metaConversions";
 import { getFlashBadgeLabel, getFlashNightlyAmount, type PropertyFlashOffer } from "../utils/flashOffers";
 
@@ -133,6 +134,11 @@ export function PropertyCard({
     const params = new URLSearchParams(String(searchParams || ""));
     return String(params.get("amicale") || "").trim() || null;
   }, [searchParams]);
+  const partnerAgencyMarginMultiplier = useMemo(() => {
+    const params = new URLSearchParams(String(searchParams || ""));
+    const raw = Number(params.get("partnerMargin") || 0);
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
+  }, [searchParams]);
   const currentPricing = resolveCurrentPricing({
     today: pricingAnchorDate,
     defaultNightlyPrice: Number(property.pricePerNight || 0),
@@ -149,14 +155,16 @@ export function PropertyCard({
     : currentPricing.weeklyPrice;
   const displayedNightlyPrice = applyAmicaleTtc(syncedNightlyPrice, isAmicalePricing);
   const displayedWeeklyPrice = applyAmicaleTtc(syncedWeeklyPrice, isAmicalePricing);
+  const partnerAdjustedNightlyPrice = applyPartnerAgencyMargin(displayedNightlyPrice, partnerAgencyMarginMultiplier);
+  const partnerAdjustedWeeklyPrice = applyPartnerAgencyMargin(displayedWeeklyPrice, partnerAgencyMarginMultiplier);
   const isFlashCard = cardVariant === "flash" && Boolean(flashOffer);
   const flashDiscountPercent = Math.max(0, Math.min(95, Number(flashOffer?.discountPercent || 0)));
-  const flashNightlyPrice = isFlashCard ? getFlashNightlyAmount(displayedNightlyPrice, flashOffer) : displayedNightlyPrice;
+  const flashNightlyPrice = isFlashCard ? getFlashNightlyAmount(partnerAdjustedNightlyPrice, flashOffer) : partnerAdjustedNightlyPrice;
   const flashWeeklyPrice = isFlashCard
     ? (flashOffer?.mode === "fixed_amount" && Number(flashOffer.fixedNightlyAmount || 0) > 0
         ? Math.round(Number(flashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
-        : getFlashNightlyAmount(displayedWeeklyPrice, flashOffer))
-    : displayedWeeklyPrice;
+        : getFlashNightlyAmount(partnerAdjustedWeeklyPrice, flashOffer))
+    : partnerAdjustedWeeklyPrice;
   const flashDateLabel = isFlashCard ? formatFlashDateLabel(flashOffer?.start, flashOffer?.end) : "";
   const flashBadgeLabel = isFlashCard ? getFlashBadgeLabel(flashOffer) : "";
   const flashCountdownLabel = isFlashCard ? formatFlashCountdown(flashOffer?.expiresAt, countdownNow) : null;

@@ -876,9 +876,11 @@ function hasHotelPromotion(hotel: HotelSummary) {
 
 type HomePageProps = {
   forcedAmicaleId?: string | null;
+  forcedPartnerAgencyId?: string | null;
+  forcedPartnerAgencyMarginMultiplier?: number | null;
 };
 
-export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
+export default function HomePage({ forcedAmicaleId, forcedPartnerAgencyId, forcedPartnerAgencyMarginMultiplier }: HomePageProps = {}) {
   const INITIAL_VISIBLE_PROPERTIES = 10;
   const hotelDefaults = useMemo(() => buildDefaultHotelSearch(), []);
   // Use shared context for properties
@@ -1121,11 +1123,25 @@ export default function HomePage({ forcedAmicaleId }: HomePageProps = {}) {
     };
   }, [showChatbotWidget]);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
+  const activePartnerAgencyId = String(forcedPartnerAgencyId || searchParams.get("partner") || "").trim() || null;
+  const activePartnerAgencyMarginMultiplier = (() => {
+    const raw = forcedPartnerAgencyMarginMultiplier ?? Number(searchParams.get("partnerMargin") || 0);
+    return Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
+  })();
   const applyAmicaleParam = (params: URLSearchParams) => {
     if (activeAmicaleId) {
       params.set("amicale", activeAmicaleId);
     } else {
       params.delete("amicale");
+    }
+    if (activePartnerAgencyId) {
+      params.set("partner", activePartnerAgencyId);
+      if (activePartnerAgencyMarginMultiplier) {
+        params.set("partnerMargin", String(activePartnerAgencyMarginMultiplier));
+      }
+    } else {
+      params.delete("partner");
+      params.delete("partnerMargin");
     }
     return params;
   };

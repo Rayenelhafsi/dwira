@@ -11,7 +11,7 @@ interface User {
   lastName?: string | null;
   avatar?: string;
   role: 'admin' | 'user';
-  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | null;
+  clientType?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | 'agence_partenaire' | null;
   telephone?: string | null;
   address?: string | null;
   cin?: string | null;

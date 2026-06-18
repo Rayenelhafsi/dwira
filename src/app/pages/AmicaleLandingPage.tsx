@@ -2,35 +2,45 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { LoaderCircle, AlertCircle } from "lucide-react";
 import HomePage from "./HomePage";
-import { fetchAmicalesPublic, findAmicaleBySlug, normalizeAmicaleSlug, type AmicaleItem } from "../utils/amicales";
+import { normalizeAmicaleSlug } from "../utils/amicales";
+import { resolvePublicPartnerBySlug, type PublicPartnerResolution } from "../utils/publicPartnerResolver";
 
 export default function AmicaleLandingPage() {
   const { amicaleSlug = "" } = useParams();
   const [, setSearchParams] = useSearchParams();
   const normalizedSlug = useMemo(() => normalizeAmicaleSlug(amicaleSlug), [amicaleSlug]);
   const [loading, setLoading] = useState(true);
-  const [amicale, setAmicale] = useState<AmicaleItem | null>(null);
+  const [resolution, setResolution] = useState<PublicPartnerResolution>(null);
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       setLoading(true);
       try {
-        const rows = await fetchAmicalesPublic();
-        const match = findAmicaleBySlug(normalizedSlug, rows);
+        const match = await resolvePublicPartnerBySlug(normalizedSlug);
         if (!cancelled) {
-          setAmicale(match);
+          setResolution(match);
           if (match) {
             const next = new URLSearchParams(window.location.search);
-            if (next.get("amicale") !== match.id) {
-              next.set("amicale", match.id);
-              setSearchParams(next, { replace: true });
+            if (match.kind === "amicale") {
+              if (next.get("amicale") !== match.item.id) {
+                next.set("amicale", match.item.id);
+              }
+              next.delete("partner");
+              next.delete("partnerMargin");
+            } else {
+              if (next.get("partner") !== match.item.id) {
+                next.set("partner", match.item.id);
+              }
+              next.set("partnerMargin", String(match.item.marginMultiplier));
+              next.delete("amicale");
             }
+            setSearchParams(next, { replace: true });
           }
         }
       } catch {
         if (!cancelled) {
-          setAmicale(null);
+          setResolution(null);
         }
       } finally {
         if (!cancelled) {
@@ -55,16 +65,16 @@ export default function AmicaleLandingPage() {
     );
   }
 
-  if (!amicale) {
+  if (!resolution) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center px-4">
         <div className="max-w-md rounded-3xl border border-red-100 bg-white p-6 text-center shadow-sm">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
             <AlertCircle className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">Amicale introuvable</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Partenaire introuvable</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Le lien saisi ne correspond a aucune amicale active.
+            Le lien saisi ne correspond a aucun partenaire actif.
           </p>
           <Link
             to="/"
@@ -77,5 +87,14 @@ export default function AmicaleLandingPage() {
     );
   }
 
-  return <HomePage forcedAmicaleId={amicale.id} />;
+  if (resolution.kind === "amicale") {
+    return <HomePage forcedAmicaleId={resolution.item.id} />;
+  }
+
+  return (
+    <HomePage
+      forcedPartnerAgencyId={resolution.item.id}
+      forcedPartnerAgencyMarginMultiplier={resolution.item.marginMultiplier}
+    />
+  );
 }

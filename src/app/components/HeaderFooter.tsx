@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut, ShoppingBag } from "lucide-react";
+import { Menu, X, Phone, Mail, Facebook, Instagram, MapPin, User, LogOut, ShoppingBag, Building2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
@@ -115,8 +115,10 @@ export function Header() {
   const isPropertyTopHidden = isPropertyDetailsPage && !isOpen && !isScrolled;
   const useLightText = isHomePage && !isScrolled && !isOpen;
   const useSolidHeader = !isHomePage || isScrolled || isOpen;
-  const isPublicAmicaleFlow = Boolean(new URLSearchParams(location.search).get("amicale"))
-    && !location.pathname.startsWith("/agent-amicale");
+  const partnerParams = new URLSearchParams(location.search);
+  const isPublicAmicaleFlow = (Boolean(partnerParams.get("amicale")) || Boolean(partnerParams.get("partner")))
+    && !location.pathname.startsWith("/agent-amicale")
+    && !location.pathname.startsWith("/partner-agency");
   const routeMode = resolveRouteMode(location.pathname, location.search);
   const headerContact = getPublicContactForMode(routeMode);
   const facebookUrl = `https://www.facebook.com/${encodeURIComponent(headerContact.messengerPage)}`;
@@ -504,6 +506,17 @@ export function Header() {
                     <span>Login amicale</span>
                   </Link>
                   <Link
+                    to="/partner-agency/login"
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      !useLightText
+                        ? "text-sky-700 hover:bg-sky-50 border border-sky-200"
+                        : "text-white hover:bg-white/20 border border-white/30"
+                    }`}
+                  >
+                    <Building2 size={16} />
+                    <span>Login agence partenaire</span>
+                  </Link>
+                  <Link
                     to="/login"
                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                       !useLightText
@@ -636,6 +649,13 @@ export function Header() {
                       >
                         <User size={24} />
                         <span>Login amicale</span>
+                      </Link>
+                      <Link
+                        to="/partner-agency/login"
+                        className="flex items-center gap-2 text-xl font-semibold text-sky-600 hover:text-sky-700"
+                      >
+                        <Building2 size={24} />
+                        <span>Login agence partenaire</span>
                       </Link>
                       <Link
                         to="/login"

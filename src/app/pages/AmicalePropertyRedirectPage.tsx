@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { AlertCircle, LoaderCircle } from "lucide-react";
-import { fetchAmicalesPublic, findAmicaleBySlug, normalizeAmicaleSlug, type AmicaleItem } from "../utils/amicales";
+import { normalizeAmicaleSlug } from "../utils/amicales";
+import { resolvePublicPartnerBySlug, type PublicPartnerResolution } from "../utils/publicPartnerResolver";
 
 export default function AmicalePropertyRedirectPage() {
   const navigate = useNavigate();
@@ -10,20 +11,27 @@ export default function AmicalePropertyRedirectPage() {
   const normalizedSlug = useMemo(() => normalizeAmicaleSlug(amicaleSlug), [amicaleSlug]);
   const decodedPropertyRef = useMemo(() => decodeURIComponent(String(propertyRef || "").trim()), [propertyRef]);
   const [loading, setLoading] = useState(true);
-  const [amicale, setAmicale] = useState<AmicaleItem | null>(null);
+  const [resolution, setResolution] = useState<PublicPartnerResolution>(null);
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       setLoading(true);
       try {
-        const rows = await fetchAmicalesPublic();
-        const match = findAmicaleBySlug(normalizedSlug, rows);
+        const match = await resolvePublicPartnerBySlug(normalizedSlug);
         if (cancelled) return;
-        setAmicale(match);
+        setResolution(match);
         if (match && decodedPropertyRef) {
           const next = new URLSearchParams(searchParams);
-          next.set("amicale", match.id);
+          if (match.kind === "amicale") {
+            next.set("amicale", match.item.id);
+            next.delete("partner");
+            next.delete("partnerMargin");
+          } else {
+            next.set("partner", match.item.id);
+            next.set("partnerMargin", String(match.item.marginMultiplier));
+            next.delete("amicale");
+          }
           if (!next.get("mode")) {
             next.set("mode", "location_saisonniere");
           }
@@ -32,7 +40,7 @@ export default function AmicalePropertyRedirectPage() {
         }
       } catch {
         if (!cancelled) {
-          setAmicale(null);
+          setResolution(null);
         }
       } finally {
         if (!cancelled) {
@@ -64,12 +72,12 @@ export default function AmicalePropertyRedirectPage() {
           <AlertCircle className="h-6 w-6" />
         </div>
         <h1 className="text-xl font-semibold text-gray-900">
-          {amicale ? "Reference bien introuvable" : "Amicale introuvable"}
+          {resolution ? "Reference bien introuvable" : "Partenaire introuvable"}
         </h1>
         <p className="mt-2 text-sm text-gray-600">
-          {amicale
+          {resolution
             ? "Le lien est valide mais la reference du bien est introuvable."
-            : "Le lien saisi ne correspond a aucune amicale active."}
+            : "Le lien saisi ne correspond a aucun partenaire actif."}
         </p>
         <Link
           to="/"

@@ -13,6 +13,7 @@ import { clearPendingReservationDraft, readPendingReservationDraft, savePendingR
 import { getAntiBotConfig } from "../services/auth";
 import { buildPropertyDetailsPath, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { trackMetaEvent } from "../utils/metaConversions";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
 import CenterStatusPopup from "../components/CenterStatusPopup";
@@ -129,6 +130,10 @@ export default function ReservationConfirmationPage() {
   const draftFromStorage = useMemo(() => readPendingReservationDraft(), []);
   const draft = draftFromState || draftFromStorage || null;
   const pricingAmicaleId = String(draft?.pricingAmicaleId || draft?.amicaleSelectionId || "").trim() || null;
+  const partnerAgencyId = String(draft?.partnerAgencyId || "").trim() || null;
+  const partnerAgencyMarginMultiplier = Number.isFinite(Number(draft?.partnerAgencyMarginMultiplier || 0)) && Number(draft?.partnerAgencyMarginMultiplier || 0) > 0
+    ? Number(draft?.partnerAgencyMarginMultiplier || 0)
+    : null;
   const property = properties.find((item) => propertyMatchesRouteToken(item, slug));
   const propertyCategoryLabel = useMemo(() => (property ? getResolvedPropertyCategoryLabel(property) : ""), [property]);
   const requestType = draft?.requestType === 'visite' ? 'visite' : 'reservation';
@@ -193,7 +198,7 @@ export default function ReservationConfirmationPage() {
       : 0;
     const extrasTotal = cleaningFee + serviceFee + extraMattressTotal + paidServicesTotal + productsAccueilFee;
     const total = accommodationTotal + extrasTotal;
-    const totalTtc = applyAmicaleTtc(total, isAmicalePricingActive);
+    const totalTtc = applyPartnerAgencyMargin(applyAmicaleTtc(total, isAmicalePricingActive), partnerAgencyMarginMultiplier);
     const advancePercent = Number(seasonalConfig?.avancePourcentage || 30);
     const dueNow = draft.paymentMode === 'totalite' ? totalTtc : Math.round(((totalTtc * advancePercent) / 100) * 100) / 100;
     const adultsRaw = Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1));
@@ -206,26 +211,26 @@ export default function ReservationConfirmationPage() {
       adultGuests,
       childGuests,
       nights,
-      accommodationTotal: applyAmicaleTtc(accommodationTotal, isAmicalePricingActive),
+      accommodationTotal: applyPartnerAgencyMargin(applyAmicaleTtc(accommodationTotal, isAmicalePricingActive), partnerAgencyMarginMultiplier),
       accommodationSegments: accommodationPricing.segments,
       averageNightlyPrice: accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
-      cleaningFee: applyAmicaleTtc(cleaningFee, isAmicalePricingActive),
-      serviceFee: applyAmicaleTtc(serviceFee, isAmicalePricingActive),
+      cleaningFee: applyPartnerAgencyMargin(applyAmicaleTtc(cleaningFee, isAmicalePricingActive), partnerAgencyMarginMultiplier),
+      serviceFee: applyPartnerAgencyMargin(applyAmicaleTtc(serviceFee, isAmicalePricingActive), partnerAgencyMarginMultiplier),
       extraMattresses,
-      extraMattressTotal: applyAmicaleTtc(extraMattressTotal, isAmicalePricingActive),
-      paidServicesTotal: applyAmicaleTtc(paidServicesTotal, isAmicalePricingActive),
+      extraMattressTotal: applyPartnerAgencyMargin(applyAmicaleTtc(extraMattressTotal, isAmicalePricingActive), partnerAgencyMarginMultiplier),
+      paidServicesTotal: applyPartnerAgencyMargin(applyAmicaleTtc(paidServicesTotal, isAmicalePricingActive), partnerAgencyMarginMultiplier),
       fixedPaidServices,
       variablePaidServices,
-      productsAccueilFee: applyAmicaleTtc(productsAccueilFee, isAmicalePricingActive),
-      extrasTotal: applyAmicaleTtc(extrasTotal, isAmicalePricingActive),
+      productsAccueilFee: applyPartnerAgencyMargin(applyAmicaleTtc(productsAccueilFee, isAmicalePricingActive), partnerAgencyMarginMultiplier),
+      extrasTotal: applyPartnerAgencyMargin(applyAmicaleTtc(extrasTotal, isAmicalePricingActive), partnerAgencyMarginMultiplier),
       total: totalTtc,
       dueNow,
       paymentMode: draft.paymentMode === 'totalite' ? 'totalite' : (draft.paymentMode === 'amicale' ? 'amicale' : 'avance'),
       advancePercent,
       flashOffer: draftFlashOffer,
     };
-  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, isAmicalePricingActive, maxAdultGuests, maxChildGuests, maxGuests, pricingAmicaleId, property, seasonalConfig]);
+  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, isAmicalePricingActive, maxAdultGuests, maxChildGuests, maxGuests, partnerAgencyMarginMultiplier, pricingAmicaleId, property, seasonalConfig]);
 
   useEffect(() => {
     let cancelled = false;
@@ -388,6 +393,8 @@ export default function ReservationConfirmationPage() {
           client_name: isAmicaleFlow ? String(draft.amicaleName || "").trim() : user?.name,
           start_date: draft.startDate,
           end_date: draft.endDate,
+          partner_agency_id: partnerAgencyId || undefined,
+          partner_agency_margin_multiplier: partnerAgencyMarginMultiplier || undefined,
           pricing_amicale_id: pricingAmicaleId || undefined,
           amicale_name: isAmicaleFlow ? String(draft.amicaleName || "").trim() : undefined,
           amicale_matricule: isAmicaleFlow ? String(draft.amicaleMatricule || "").trim() : undefined,
