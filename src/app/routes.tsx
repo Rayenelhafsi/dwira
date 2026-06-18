@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Navigate, createBrowserRouter, useLocation } from "react-router";
 import { Layout } from "./Layout";
 import HomePage from "./pages/HomePage";
@@ -9,6 +10,8 @@ import { useAuth } from "./context/AuthContext";
 import PacksComingSoonPage from "./pages/PacksComingSoonPage";
 
 const CHUNK_RELOAD_KEY = "dwira_chunk_reload_once";
+const PropertyPacksPreviewPage = lazy(() => import("./pages/PropertyPacksPage"));
+const PropertyPackPreviewDetailsPage = lazy(() => import("./pages/PropertyPackDetailsPage"));
 
 function isChunkLoadError(error: unknown) {
   const message = String((error as any)?.message || error || "").toLowerCase();
@@ -62,8 +65,8 @@ const ventesRoutes = PUBLIC_COMING_SOON.ventes
 
 const packsRoutes = PUBLIC_COMING_SOON.packs
   ? [
-      { path: "packs", Component: AdminAwarePacksComingSoonRedirect },
-      { path: "packs/:packId", Component: AdminAwarePacksComingSoonRedirect },
+      { path: "packs", Component: AdminAwarePacksPageGate },
+      { path: "packs/:packId", Component: AdminAwarePackDetailsGate },
     ]
   : [
       { path: "packs", lazy: lazyPage(() => import("./pages/PropertyPacksPage")) },
@@ -77,17 +80,37 @@ function HotelsSearchRedirect() {
   return <Navigate to={`/?${incoming.toString()}`} replace />;
 }
 
-function AdminAwarePacksComingSoonRedirect() {
+function AdminAwarePacksPageGate() {
   const { user, isLoading } = useAuth();
-  const location = useLocation();
 
   if (isLoading) {
     return <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>;
   }
 
   if (user?.role === "admin") {
-    const nextSearch = location.search ? location.search : "";
-    return <Navigate to={`/admin/packs${nextSearch}`} replace />;
+    return (
+      <Suspense fallback={<div className="p-10 text-center text-sm text-gray-500">Chargement...</div>}>
+        <PropertyPacksPreviewPage />
+      </Suspense>
+    );
+  }
+
+  return <PacksComingSoonPage />;
+}
+
+function AdminAwarePackDetailsGate() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>;
+  }
+
+  if (user?.role === "admin") {
+    return (
+      <Suspense fallback={<div className="p-10 text-center text-sm text-gray-500">Chargement...</div>}>
+        <PropertyPackPreviewDetailsPage />
+      </Suspense>
+    );
   }
 
   return <PacksComingSoonPage />;
