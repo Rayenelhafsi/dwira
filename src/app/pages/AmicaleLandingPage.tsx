@@ -22,20 +22,15 @@ export default function AmicaleLandingPage() {
           setResolution(match);
           if (match) {
             const next = new URLSearchParams(window.location.search);
-            if (match.kind === "amicale") {
-              if (next.get("amicale") !== match.item.id) {
-                next.set("amicale", match.item.id);
-              }
-              next.delete("partner");
-              next.delete("partnerMargin");
-            } else {
-              if (next.get("partner") !== match.item.id) {
-                next.set("partner", match.item.id);
-              }
-              next.set("partnerMargin", String(match.item.marginMultiplier));
-              next.delete("amicale");
+            next.delete("amicale");
+            next.delete("partner");
+            next.delete("partnerMargin");
+            if (next.get("mode") === "location_saisonniere") {
+              next.delete("mode");
             }
-            setSearchParams(next, { replace: true });
+            if (next.toString() !== window.location.search.replace(/^\?/, "")) {
+              setSearchParams(next, { replace: true });
+            }
           }
         }
       } catch {
@@ -88,13 +83,14 @@ export default function AmicaleLandingPage() {
   }
 
   if (resolution.kind === "amicale") {
-    return <HomePage forcedAmicaleId={resolution.item.id} />;
+    return <HomePage forcedAmicaleId={resolution.item.id} publicPartnerSlug={normalizedSlug} />;
   }
 
   return (
     <HomePage
       forcedPartnerAgencyId={resolution.item.id}
       forcedPartnerAgencyMarginMultiplier={resolution.item.marginMultiplier}
+      publicPartnerSlug={normalizedSlug}
     />
   );
 }

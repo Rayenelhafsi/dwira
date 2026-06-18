@@ -16,6 +16,9 @@ interface PropertyCardProps {
   searchParams?: string;
   cardVariant?: "default" | "flash";
   flashOffer?: PropertyFlashOffer | null;
+  pricingAmicaleId?: string | null;
+  partnerAgencyMarginMultiplier?: number | null;
+  publicPartnerSlug?: string | null;
 }
 
 const PROPERTY_CARD_FALLBACK_IMAGE =
@@ -109,6 +112,9 @@ export function PropertyCard({
   searchParams,
   cardVariant = "default",
   flashOffer = null,
+  pricingAmicaleId: forcedPricingAmicaleId = null,
+  partnerAgencyMarginMultiplier: forcedPartnerAgencyMarginMultiplier = null,
+  publicPartnerSlug = null,
 }: PropertyCardProps) {
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const rawDetailPath = buildPropertyDetailsPath(property);
@@ -116,9 +122,26 @@ export function PropertyCard({
     cardVariant === "flash" && rawDetailPath.startsWith("/properties/")
       ? `/ventes_flash${rawDetailPath}`
       : rawDetailPath;
-  const linkTo = searchParams 
-    ? `${baseDetailPath}?${searchParams}`
-    : baseDetailPath;
+  const compactSearchParams = useMemo(() => {
+    const params = new URLSearchParams(String(searchParams || ""));
+    params.delete("amicale");
+    params.delete("partner");
+    params.delete("partnerMargin");
+    if (params.get("mode") === "location_saisonniere") {
+      params.delete("mode");
+    }
+    return params.toString();
+  }, [searchParams]);
+  const publicPartnerDetailPath = useMemo(() => {
+    const normalizedSlug = String(publicPartnerSlug || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!normalizedSlug) return null;
+    const propertyToken = rawDetailPath.replace(/^\/ventes_flash\/properties\//, "").replace(/^\/properties\//, "");
+    if (!propertyToken) return null;
+    return `/${normalizedSlug}/${propertyToken}`;
+  }, [publicPartnerSlug, rawDetailPath]);
+  const linkBase = publicPartnerDetailPath || baseDetailPath;
+  const linkQuery = publicPartnerDetailPath ? compactSearchParams : String(searchParams || "");
+  const linkTo = linkQuery ? `${linkBase}?${linkQuery}` : linkBase;
   const contactConfig = getPublicContactForMode(property.mode);
   const propertyUrl = typeof window !== 'undefined' ? new URL(linkTo, window.location.origin).toString() : linkTo;
   const ratingDisplay = Number.isFinite(property.rating)
@@ -131,14 +154,18 @@ export function PropertyCard({
     return `${checkInRaw}T00:00:00`;
   }, [searchParams]);
   const pricingAmicaleId = useMemo(() => {
+    if (forcedPricingAmicaleId) return String(forcedPricingAmicaleId).trim() || null;
     const params = new URLSearchParams(String(searchParams || ""));
     return String(params.get("amicale") || "").trim() || null;
-  }, [searchParams]);
+  }, [forcedPricingAmicaleId, searchParams]);
   const partnerAgencyMarginMultiplier = useMemo(() => {
+    if (Number.isFinite(Number(forcedPartnerAgencyMarginMultiplier)) && Number(forcedPartnerAgencyMarginMultiplier) > 0) {
+      return Number(forcedPartnerAgencyMarginMultiplier);
+    }
     const params = new URLSearchParams(String(searchParams || ""));
     const raw = Number(params.get("partnerMargin") || 0);
     return Number.isFinite(raw) && raw > 0 ? raw : null;
-  }, [searchParams]);
+  }, [forcedPartnerAgencyMarginMultiplier, searchParams]);
   const currentPricing = resolveCurrentPricing({
     today: pricingAnchorDate,
     defaultNightlyPrice: Number(property.pricePerNight || 0),
@@ -181,8 +208,8 @@ export function PropertyCard({
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
   const isGoldInstantCard = hasInstantReservation && !isFlashCard;
   const residenceBadgeLabel = String(property.residenceName || "").trim();
-  const visualNightlyPrice = isFlashCard ? flashNightlyPrice : displayedNightlyPrice;
-  const visualWeeklyPrice = isFlashCard ? flashWeeklyPrice : displayedWeeklyPrice;
+  const visualNightlyPrice = isFlashCard ? flashNightlyPrice : partnerAdjustedNightlyPrice;
+  const visualWeeklyPrice = isFlashCard ? flashWeeklyPrice : partnerAdjustedWeeklyPrice;
   useEffect(() => {
     if (!isFlashCard || !flashOffer?.expiresAt) return;
     const intervalId = window.setInterval(() => {
@@ -331,9 +358,9 @@ export function PropertyCard({
             </div>
             <div className={`shrink-0 self-start rounded-2xl px-3 py-1.5 text-sm font-semibold shadow-md sm:self-auto ${isFlashCard ? 'bg-[linear-gradient(135deg,#fff7ed,#ffffff)] text-red-700 ring-1 ring-red-200' : 'bg-white text-emerald-900'}`}>
               <div>
-                {isFlashCard && displayedNightlyPrice > visualNightlyPrice ? (
+                {isFlashCard && partnerAdjustedNightlyPrice > visualNightlyPrice ? (
                   <span className="mr-2 text-xs font-semibold text-slate-400 line-through">
-                    {formatTnd(displayedNightlyPrice)} TND
+                    {formatTnd(partnerAdjustedNightlyPrice)} TND
                   </span>
                 ) : null}
                 {formatTnd(visualNightlyPrice)} TND{isAmicalePricing ? " TTC" : ""}
@@ -341,8 +368,8 @@ export function PropertyCard({
               </div>
               {property.priceContext !== 'sale' && visualWeeklyPrice > 0 ? (
                 <div className="text-[11px] font-medium text-gray-600">
-                  {isFlashCard && displayedWeeklyPrice > visualWeeklyPrice ? (
-                    <span className="mr-1 text-[10px] text-slate-400 line-through">{formatTnd(displayedWeeklyPrice)} TND</span>
+                  {isFlashCard && partnerAdjustedWeeklyPrice > visualWeeklyPrice ? (
+                    <span className="mr-1 text-[10px] text-slate-400 line-through">{formatTnd(partnerAdjustedWeeklyPrice)} TND</span>
                   ) : null}
                   {formatTnd(visualWeeklyPrice)} TND{isAmicalePricing ? " TTC" : ""} / semaine
                 </div>
@@ -383,9 +410,9 @@ export function PropertyCard({
               </div>
               <div className={`shrink-0 rounded-2xl px-3 py-1.5 text-sm font-semibold shadow-sm ${isFlashCard ? 'bg-[linear-gradient(135deg,#fff7ed,#ffffff)] text-red-700 ring-1 ring-red-200' : 'bg-white text-emerald-900 ring-1 ring-slate-200'}`}>
                 <div>
-                  {isFlashCard && displayedNightlyPrice > visualNightlyPrice ? (
+                  {isFlashCard && partnerAdjustedNightlyPrice > visualNightlyPrice ? (
                     <span className="mr-2 text-[11px] font-semibold text-slate-400 line-through">
-                      {formatTnd(displayedNightlyPrice)} TND
+                      {formatTnd(partnerAdjustedNightlyPrice)} TND
                     </span>
                   ) : null}
                   {formatTnd(visualNightlyPrice)} TND{isAmicalePricing ? " TTC" : ""}
@@ -393,8 +420,8 @@ export function PropertyCard({
                 </div>
                 {property.priceContext !== 'sale' && visualWeeklyPrice > 0 ? (
                   <div className="text-[10px] font-medium text-gray-500">
-                    {isFlashCard && displayedWeeklyPrice > visualWeeklyPrice ? (
-                      <span className="mr-1 text-[10px] text-slate-400 line-through">{formatTnd(displayedWeeklyPrice)} TND</span>
+                    {isFlashCard && partnerAdjustedWeeklyPrice > visualWeeklyPrice ? (
+                      <span className="mr-1 text-[10px] text-slate-400 line-through">{formatTnd(partnerAdjustedWeeklyPrice)} TND</span>
                     ) : null}
                     {formatTnd(visualWeeklyPrice)} TND{isAmicalePricing ? " TTC" : ""} / semaine
                   </div>
@@ -439,7 +466,7 @@ export function PropertyCard({
                   ) : null}
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-xs text-slate-500 line-through">{formatTnd(displayedNightlyPrice)} TND</p>
+                  <p className="text-xs text-slate-500 line-through">{formatTnd(partnerAdjustedNightlyPrice)} TND</p>
                   <p className="text-lg font-black text-red-600">{formatTnd(visualNightlyPrice)} TND</p>
                 </div>
               </div>

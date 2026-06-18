@@ -878,9 +878,15 @@ type HomePageProps = {
   forcedAmicaleId?: string | null;
   forcedPartnerAgencyId?: string | null;
   forcedPartnerAgencyMarginMultiplier?: number | null;
+  publicPartnerSlug?: string | null;
 };
 
-export default function HomePage({ forcedAmicaleId, forcedPartnerAgencyId, forcedPartnerAgencyMarginMultiplier }: HomePageProps = {}) {
+export default function HomePage({
+  forcedAmicaleId,
+  forcedPartnerAgencyId,
+  forcedPartnerAgencyMarginMultiplier,
+  publicPartnerSlug,
+}: HomePageProps = {}) {
   const INITIAL_VISIBLE_PROPERTIES = 10;
   const hotelDefaults = useMemo(() => buildDefaultHotelSearch(), []);
   // Use shared context for properties
@@ -1129,6 +1135,12 @@ export default function HomePage({ forcedAmicaleId, forcedPartnerAgencyId, force
     return Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
   })();
   const applyAmicaleParam = (params: URLSearchParams) => {
+    if (publicPartnerSlug) {
+      params.delete("amicale");
+      params.delete("partner");
+      params.delete("partnerMargin");
+      return params;
+    }
     if (activeAmicaleId) {
       params.set("amicale", activeAmicaleId);
     } else {
@@ -3349,7 +3361,12 @@ export default function HomePage({ forcedAmicaleId, forcedPartnerAgencyId, force
       params.set("checkOut", selectedStayRanges[0].end);
     }
     
-    navigate(selectedMode === "vente" ? `/ventes` : `/logements?${params.toString()}`);
+    const paramsQuery = params.toString();
+    if (publicPartnerSlug && selectedMode !== "vente") {
+      navigate(paramsQuery ? `/${publicPartnerSlug}?${paramsQuery}` : `/${publicPartnerSlug}`);
+    } else {
+      navigate(selectedMode === "vente" ? `/ventes` : `/logements?${paramsQuery}`);
+    }
     
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -6048,6 +6065,9 @@ export default function HomePage({ forcedAmicaleId, forcedPartnerAgencyId, force
                     searchParams={card.searchParams}
                     cardVariant={card.cardVariant}
                     flashOffer={card.flashOffer}
+                    pricingAmicaleId={activeAmicaleId}
+                    partnerAgencyMarginMultiplier={activePartnerAgencyMarginMultiplier}
+                    publicPartnerSlug={publicPartnerSlug}
                   />
                 ))}
               </div>
@@ -6063,6 +6083,9 @@ export default function HomePage({ forcedAmicaleId, forcedPartnerAgencyId, force
                   searchParams={card.searchParams}
                   cardVariant={card.cardVariant}
                   flashOffer={card.flashOffer}
+                  pricingAmicaleId={activeAmicaleId}
+                  partnerAgencyMarginMultiplier={activePartnerAgencyMarginMultiplier}
+                  publicPartnerSlug={publicPartnerSlug}
                 />
               ))}
               {loading && filteredProperties.length === 0 && Array.from({ length: 3 }).map((_, index) => (
