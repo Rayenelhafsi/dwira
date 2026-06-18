@@ -5,6 +5,8 @@ import { VentesLayout } from "./ventes/VentesLayout";
 import { AdminLayout } from "./admin/AdminLayout";
 import { PUBLIC_COMING_SOON } from "./config/publicAvailability";
 import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
+import { useAuth } from "./context/AuthContext";
+import PacksComingSoonPage from "./pages/PacksComingSoonPage";
 
 const CHUNK_RELOAD_KEY = "dwira_chunk_reload_once";
 
@@ -60,8 +62,8 @@ const ventesRoutes = PUBLIC_COMING_SOON.ventes
 
 const packsRoutes = PUBLIC_COMING_SOON.packs
   ? [
-      { path: "packs", lazy: lazyPage(() => import("./pages/PacksComingSoonPage")) },
-      { path: "packs/:packId", lazy: lazyPage(() => import("./pages/PacksComingSoonPage")) },
+      { path: "packs", Component: AdminAwarePacksComingSoonRedirect },
+      { path: "packs/:packId", Component: AdminAwarePacksComingSoonRedirect },
     ]
   : [
       { path: "packs", lazy: lazyPage(() => import("./pages/PropertyPacksPage")) },
@@ -73,6 +75,22 @@ function HotelsSearchRedirect() {
   const incoming = new URLSearchParams(location.search);
   incoming.set("mode", "hotellerie");
   return <Navigate to={`/?${incoming.toString()}`} replace />;
+}
+
+function AdminAwarePacksComingSoonRedirect() {
+  const { user, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>;
+  }
+
+  if (user?.role === "admin") {
+    const nextSearch = location.search ? location.search : "";
+    return <Navigate to={`/admin/packs${nextSearch}`} replace />;
+  }
+
+  return <PacksComingSoonPage />;
 }
 
 export const router = createBrowserRouter([
