@@ -963,7 +963,9 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
     setError(null);
     try {
-      const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+      const currentPathname = typeof window !== 'undefined' ? window.location.pathname : '';
+      const isAdminRoute = currentPathname.startsWith('/admin');
+      const shouldPrefetchAllMedia = currentPathname !== '/admin/packs';
       const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
         fetchBiensResilient(API_URL),
         fetchWithTimeout(`${API_URL}/zones`, { credentials: 'include' }, 8000),
@@ -983,17 +985,19 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
 
       const bienIds = Array.isArray(biensData) ? biensData.map((bien: any) => String(bien?.id || '').trim()).filter(Boolean) : [];
       let allMedia: any[] = [];
-      try {
-        const bulkMediaResponse = await fetchWithTimeout(
-          `${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`,
-          { credentials: 'include' },
-          7000
-        );
-        if (bulkMediaResponse.ok) {
-          allMedia = await bulkMediaResponse.json();
+      if (shouldPrefetchAllMedia && bienIds.length > 0) {
+        try {
+          const bulkMediaResponse = await fetchWithTimeout(
+            `${API_URL}/media-bulk?bien_ids=${encodeURIComponent(bienIds.join(','))}`,
+            { credentials: 'include' },
+            7000
+          );
+          if (bulkMediaResponse.ok) {
+            allMedia = await bulkMediaResponse.json();
+          }
+        } catch (e) {
+          console.warn('Failed to fetch bulk media');
         }
-      } catch (e) {
-        console.warn('Failed to fetch bulk media');
       }
 
       const mediaByBienId = new Map<string, any[]>();

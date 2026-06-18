@@ -8,7 +8,7 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '.
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { resolveMediaUrl } from '../../utils/media';
-import type { Bien, BienMode, BienStatut, PropertyPack, Zone } from '../types';
+import type { Bien, BienMode, BienStatut, Media, PropertyPack, Zone } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const ADMIN_IMAGE_FALLBACK =
@@ -54,6 +54,10 @@ const statusLabels: Record<BienStatut, string> = {
 };
 const LOCATION_CARD_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 320'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop stop-color='%23d1d5db'/%3E%3Cstop offset='1' stop-color='%239ca3af'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='320' fill='url(%23g)'/%3E%3C/svg%3E";
+const INITIAL_PACK_REFERENCE_CARD_COUNT = 12;
+const PACK_REFERENCE_CARD_LOAD_STEP = 12;
+const INITIAL_PACK_GALLERY_IMAGES_PER_BIEN = 12;
+const PACK_GALLERY_IMAGES_LOAD_STEP = 12;
 
 function normalizeLines(value: string) {
   return Array.from(
@@ -214,6 +218,9 @@ export default function PropertyPacksAdminPage() {
   const [selectedZone, setSelectedZone] = useState('');
   const [isLocationFilterOpen, setIsLocationFilterOpen] = useState(false);
   const [propertyPackActionId, setPropertyPackActionId] = useState<string | null>(null);
+  const [selectedBienMediaById, setSelectedBienMediaById] = useState<Record<string, Media[]>>({});
+  const [visiblePackBienCount, setVisiblePackBienCount] = useState(INITIAL_PACK_REFERENCE_CARD_COUNT);
+  const [galleryVisibleCountByBienId, setGalleryVisibleCountByBienId] = useState<Record<string, number>>({});
   const [galleryPreviewState, setGalleryPreviewState] = useState<{
     open: boolean;
     bienId: string;
@@ -377,6 +384,10 @@ export default function PropertyPacksAdminPage() {
     });
   }, [biens, propertyPackSearch, propertyPackLocationFilter, zonesById]);
 
+  useEffect(() => {
+    setVisiblePackBienCount(INITIAL_PACK_REFERENCE_CARD_COUNT);
+  }, [propertyPackSearch, propertyPackLocationFilter]);
+
   const propertyPackBienLookup = useMemo(
     () => new Map(biens.map((bien) => [String(bien.id), bien])),
     [biens]
@@ -485,9 +496,70 @@ export default function PropertyPacksAdminPage() {
     [propertyPackBienLookup, propertyPackEditor.bienIds]
   );
 
+  useEffect(() => {
+    const selectedIds = Array.from(new Set(selectedEditorBiens.map((bien) => String(bien.id || '').trim()).filter(Boolean)));
+    if (selectedIds.length === 0) {
+      setSelectedBienMediaById({});
+      setGalleryVisibleCountByBienId({});
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(selectedIds.join(','))}`, {
+          credentials: 'include',
+        });
+        if (!response.ok) return;
+        const rows = await response.json().catch(() => []);
+        if (cancelled) return;
+
+        const grouped: Record<string, Media[]> = {};
+        for (const rawMedia of Array.isArray(rows) ? rows : []) {
+          const media = rawMedia as Media;
+          const bienId = String(media?.bien_id || '').trim();
+          if (!bienId) continue;
+          if (!grouped[bienId]) grouped[bienId] = [];
+          grouped[bienId].push(media);
+        }
+        for (const bienId of Object.keys(grouped)) {
+          grouped[bienId] = grouped[bienId]
+            .filter((media) => String(media?.type || '').toLowerCase() !== 'video')
+            .sort((a, b) => Number(a?.position ?? 0) - Number(b?.position ?? 0));
+        }
+
+        setSelectedBienMediaById(grouped);
+        setGalleryVisibleCountByBienId((current) => {
+          const next: Record<string, number> = {};
+          for (const bienId of selectedIds) {
+            next[bienId] = current[bienId] || INITIAL_PACK_GALLERY_IMAGES_PER_BIEN;
+          }
+          return next;
+        });
+      } catch {
+        if (!cancelled) {
+          setSelectedBienMediaById({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEditorBiens]);
+
+  const selectedEditorBiensWithMedia = useMemo(
+    () =>
+      selectedEditorBiens.map((bien) => ({
+        ...bien,
+        media: selectedBienMediaById[String(bien.id || '').trim()] || [],
+      })),
+    [selectedEditorBiens, selectedBienMediaById]
+  );
+
   const editorGalleryChoices = useMemo(() => {
     const seen = new Set<string>();
-    return selectedEditorBiens.flatMap((bien) =>
+    return selectedEditorBiensWithMedia.flatMap((bien) =>
       (bien.media || [])
         .filter((media) => media.type !== 'video')
         .map((media) => {
@@ -503,11 +575,11 @@ export default function PropertyPacksAdminPage() {
         })
         .filter(Boolean) as Array<{ url: string; bienId: string; title: string; reference: string }>
     );
-  }, [selectedEditorBiens]);
+  }, [selectedEditorBiensWithMedia]);
 
   const editorGalleryGroups = useMemo(
     () =>
-      selectedEditorBiens.map((bien) => {
+      selectedEditorBiensWithMedia.map((bien) => {
         const reference = String(bien.reference || '').trim() || 'Sans reference';
         const title = String(bien.nom_bien_mobile || bien.titre || 'Bien').trim();
         const locationParts = getBienLocationParts(bien, zonesById);
@@ -528,7 +600,12 @@ export default function PropertyPacksAdminPage() {
           images,
         };
       }).filter((group) => group.images.length > 0),
-    [selectedEditorBiens, zonesById]
+    [selectedEditorBiensWithMedia, zonesById]
+  );
+
+  const visibleFilteredPackBiens = useMemo(
+    () => filteredPackBiens.slice(0, visiblePackBienCount),
+    [filteredPackBiens, visiblePackBienCount]
   );
 
   const activeGalleryPreviewGroup = useMemo(
@@ -858,20 +935,28 @@ export default function PropertyPacksAdminPage() {
           <div className="rounded-2xl border border-gray-200 bg-white p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-gray-800">References du pack</p>
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                {propertyPackEditor.bienIds.length} selection{propertyPackEditor.bienIds.length > 1 ? 's' : ''}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {filteredPackBiens.length} resultat{filteredPackBiens.length > 1 ? 's' : ''}
+                </span>
+                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                  {propertyPackEditor.bienIds.length} selection{propertyPackEditor.bienIds.length > 1 ? 's' : ''}
+                </span>
+              </div>
             </div>
             <div className="grid max-h-[38rem] grid-cols-1 gap-4 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
-              {filteredPackBiens.map((bien) => {
+              {visibleFilteredPackBiens.map((bien) => {
                 const isSelected = propertyPackEditor.bienIds.includes(String(bien.id));
+                const hydratedBien = selectedBienMediaById[String(bien.id || '').trim()]
+                  ? { ...bien, media: selectedBienMediaById[String(bien.id || '').trim()] }
+                  : bien;
                 return (
                   <PackSelectableBienCard
                     key={`pack-bien-${bien.id}`}
-                    bien={bien}
+                    bien={hydratedBien}
                     selected={isSelected}
                     onToggle={() => togglePropertyPackBien(String(bien.id))}
-                    featureLabels={getKeyFeatureLabels(bien)}
+                    featureLabels={getKeyFeatureLabels(hydratedBien)}
                   />
                 );
               })}
@@ -881,6 +966,17 @@ export default function PropertyPacksAdminPage() {
                 </div>
               ) : null}
             </div>
+            {filteredPackBiens.length > visibleFilteredPackBiens.length ? (
+              <div className="mt-3 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisiblePackBienCount((current) => current + PACK_REFERENCE_CARD_LOAD_STEP)}
+                  className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                >
+                  Charger plus de references
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-4">
@@ -1026,7 +1122,7 @@ export default function PropertyPacksAdminPage() {
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 lg:grid-cols-4">
-                        {group.images.map((image, imageIndex) => {
+                        {group.images.slice(0, galleryVisibleCountByBienId[group.bienId] || INITIAL_PACK_GALLERY_IMAGES_PER_BIEN).map((image, imageIndex) => {
                           const selected = propertyPackEditor.galleryImages.includes(image.url);
                           return (
                             <button
@@ -1076,6 +1172,22 @@ export default function PropertyPacksAdminPage() {
                           );
                         })}
                       </div>
+                      {group.images.length > (galleryVisibleCountByBienId[group.bienId] || INITIAL_PACK_GALLERY_IMAGES_PER_BIEN) ? (
+                        <div className="border-t border-slate-100 px-3 pb-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setGalleryVisibleCountByBienId((current) => ({
+                                ...current,
+                                [group.bienId]: (current[group.bienId] || INITIAL_PACK_GALLERY_IMAGES_PER_BIEN) + PACK_GALLERY_IMAGES_LOAD_STEP,
+                              }))
+                            }
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-emerald-200 hover:text-emerald-700"
+                          >
+                            Charger plus de photos ({group.images.length - (galleryVisibleCountByBienId[group.bienId] || INITIAL_PACK_GALLERY_IMAGES_PER_BIEN)} restantes)
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
