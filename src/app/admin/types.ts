@@ -720,6 +720,7 @@ export interface ReservationDemand {
   payment_id?: string | null;
   bien_titre?: string | null;
   bien_reference?: string | null;
+  bien_mode?: string | null;
   proprietaire_nom?: string | null;
   created_at: string;
   updated_at: string;

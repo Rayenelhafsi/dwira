@@ -3,6 +3,7 @@ import { Navigate, Link, useNavigate } from "react-router";
 import { CheckCircle2, FileText, LogOut, RefreshCw, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { ReservationDemand, ReservationDemandStatus } from "../admin/types";
+import { resolveMediaUrl } from "../utils/media";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -20,6 +21,14 @@ type PartnerAgencySession = {
 type PartnerAgencyDemandRow = ReservationDemand & {
   partner_agency_name?: string | null;
   partner_agency_logo_url?: string | null;
+};
+
+type MediaApi = {
+  bien_id?: string | null;
+  type?: string | null;
+  url?: string | null;
+  motif_upload?: string | null;
+  position?: number | null;
 };
 
 const statusLabels: Partial<Record<ReservationDemandStatus, string>> = {
@@ -76,9 +85,30 @@ function demandStatusTone(status?: ReservationDemandStatus | null) {
   return statusToneClasses[value] || "bg-gray-100 text-gray-700 border-gray-200";
 }
 
-function buildPropertyPath(demand: ReservationDemand) {
-  const bienId = String(demand.bien_id || "").trim();
-  return bienId ? `/admin/biens?editBien=${encodeURIComponent(bienId)}` : "/admin/biens";
+function buildPartnerPropertyPath(session: PartnerAgencySession | null, demand: ReservationDemand) {
+  const agencySlug = String(session?.partnerAgencySlug || "").trim().replace(/^\/+|\/+$/g, "");
+  const propertyToken = String(demand.bien_reference || demand.bien_id || "").trim();
+  if (!agencySlug || !propertyToken) return "/logements";
+  const params = new URLSearchParams();
+  const bienMode = String((demand as any).bien_mode || "").trim();
+  if (bienMode && bienMode !== "location_saisonniere") {
+    params.set("mode", bienMode);
+  }
+  const query = params.toString();
+  return query
+    ? `/${agencySlug}/${encodeURIComponent(propertyToken)}?${query}`
+    : `/${agencySlug}/${encodeURIComponent(propertyToken)}`;
+}
+
+function getDemandNights(demand: ReservationDemand) {
+  const start = Date.parse(`${String(demand.start_date || "").trim()}T00:00:00`);
+  const end = Date.parse(`${String(demand.end_date || "").trim()}T00:00:00`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+  return Math.max(1, Math.round((end - start) / 86400000));
+}
+
+function getDemandFallbackImage() {
+  return 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520"%3E%3Crect width="800" height="520" fill="%23ecfdf5"/%3E%3Cpath d="M0 360L180 230l110 84 120-96 180 142H0z" fill="%23a7f3d0"/%3E%3Ccircle cx="620" cy="140" r="44" fill="%236ee7b7"/%3E%3C/svg%3E';
 }
 
 export default function PartnerAgencyDashboardPage() {
@@ -89,6 +119,7 @@ export default function PartnerAgencyDashboardPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [marginPercent, setMarginPercent] = useState("0");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [bienImageById, setBienImageById] = useState<Record<string, string>>({});
   const navigate = useNavigate();
 
   const loadData = useCallback(async () => {
@@ -96,13 +127,43 @@ export default function PartnerAgencyDashboardPage() {
       const response = await fetch(`${API_URL}/partner-agency/reservation-demands`, { credentials: "include" });
       if (!response.ok) return;
       const data = await response.json().catch(() => []);
+      const rows = (Array.isArray(data) ? data : []);
       setDemandRows(
-        (Array.isArray(data) ? data : []).sort((a, b) => {
+        rows.sort((a, b) => {
           const da = new Date(String(a.updated_at || a.created_at || "")).getTime();
           const db = new Date(String(b.updated_at || b.created_at || "")).getTime();
           return db - da;
         })
       );
+      const bienIds = rows.map((row) => String(row?.bien_id || "").trim()).filter(Boolean);
+      if (bienIds.length === 0) {
+        setBienImageById({});
+        return;
+      }
+      const mediaResponse = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(Array.from(new Set(bienIds)).join(","))}`, { credentials: "include" });
+      if (!mediaResponse.ok) return;
+      const mediaRows = await mediaResponse.json().catch(() => []);
+      const grouped = new Map<string, MediaApi[]>();
+      for (const media of (Array.isArray(mediaRows) ? mediaRows : []) as MediaApi[]) {
+        const bienId = String(media?.bien_id || "").trim();
+        if (!bienId) continue;
+        const list = grouped.get(bienId) || [];
+        list.push(media);
+        grouped.set(bienId, list);
+      }
+      const nextImages: Record<string, string> = {};
+      for (const bienId of bienIds) {
+        const first = (grouped.get(bienId) || [])
+          .filter((media) => String(media?.type || "image").toLowerCase() !== "video")
+          .filter((media) => {
+            const motif = String(media?.motif_upload || "");
+            return !(motif === "preuve_type_rue" || motif === "preuve_type_papier" || motif.startsWith("preuve_type_rue|") || motif.startsWith("preuve_type_papier|"));
+          })
+          .sort((a, b) => Number(a?.position ?? 0) - Number(b?.position ?? 0))[0];
+        const imageUrl = resolveMediaUrl(String(first?.url || "").trim());
+        if (imageUrl) nextImages[bienId] = imageUrl;
+      }
+      setBienImageById(nextImages);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Chargement impossible");
     }
@@ -350,10 +411,16 @@ export default function PartnerAgencyDashboardPage() {
           ) : (
             filteredDemandRows.map((demand) => {
               const canDecide = demand.status === "attente_validation_agence_partenaire";
+              const nights = getDemandNights(demand);
+              const bienImageUrl = bienImageById[String(demand.bien_id || "").trim()] || getDemandFallbackImage();
               return (
                 <article key={demand.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-3">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="flex min-w-0 flex-1 gap-4">
+                      <div className="hidden h-36 w-52 shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 sm:block">
+                        <img src={bienImageUrl} alt={demand.bien_titre || demand.bien_reference || demand.bien_id} className="h-full w-full object-cover" />
+                      </div>
+                    <div className="min-w-0 space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${demandStatusTone(demand.status)}`}>
                           {demandStatusLabel(demand.status)}
@@ -364,20 +431,23 @@ export default function PartnerAgencyDashboardPage() {
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">{demand.bien_titre || demand.bien_reference || demand.bien_id}</h3>
-                        <p className="text-sm text-gray-500">
-                          Client: {demand.client_name || demand.client_email || "-"} | Sejour: {formatDateOnly(demand.start_date)} - {formatDateOnly(demand.end_date)}
-                        </p>
+                        <p className="mt-1 text-sm text-gray-500">Client: {demand.client_name || demand.client_email || "-"}</p>
+                        <p className="mt-1 text-sm text-gray-500">Reference: {demand.bien_reference || demand.bien_id || "-"}</p>
                       </div>
-                      <div className="grid gap-2 text-sm text-gray-600 md:grid-cols-2">
+                      <div className="grid gap-2 text-sm text-gray-600 md:grid-cols-2 xl:grid-cols-3">
+                        <p><span className="font-semibold">Periode demandee:</span> {formatDateOnly(demand.start_date)} - {formatDateOnly(demand.end_date)}</p>
+                        <p><span className="font-semibold">Duree:</span> {nights} nuit{nights > 1 ? "s" : ""}</p>
                         <p><span className="font-semibold">Voyageurs:</span> {demand.guests}</p>
                         <p><span className="font-semibold">A payer maintenant:</span> {formatCurrency(demand.amount_due_now)}</p>
+                        <p><span className="font-semibold">Reservation creee le:</span> {formatDateTime(demand.created_at)}</p>
                         <p><span className="font-semibold">Validation agence:</span> {formatDateTime(demand.partner_agency_validation_at)}</p>
                         <p><span className="font-semibold">Derniere mise a jour:</span> {formatDateTime(demand.updated_at)}</p>
                       </div>
                     </div>
+                    </div>
                     <div className="flex flex-wrap gap-2 lg:justify-end">
                       <Link
-                        to={buildPropertyPath(demand)}
+                        to={buildPartnerPropertyPath(session, demand)}
                         className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                       >
                         <FileText size={16} />
