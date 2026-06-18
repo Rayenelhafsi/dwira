@@ -1134,6 +1134,22 @@ export default function HomePage({
     const raw = forcedPartnerAgencyMarginMultiplier ?? Number(searchParams.get("partnerMargin") || 0);
     return Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
   })();
+  const publicPartnerQueryString = useMemo(() => {
+    const params = new URLSearchParams(searchParams);
+    params.delete("amicale");
+    params.delete("partner");
+    params.delete("partnerMargin");
+    if (params.get("mode") === "location_saisonniere") {
+      params.delete("mode");
+    }
+    return params.toString();
+  }, [searchParams]);
+  const publicListingLink = useMemo(() => {
+    if (!publicPartnerSlug) {
+      return `/logements?mode=${encodeURIComponent(selectedMode)}`;
+    }
+    return publicPartnerQueryString ? `/${publicPartnerSlug}?${publicPartnerQueryString}` : `/${publicPartnerSlug}`;
+  }, [publicPartnerQueryString, publicPartnerSlug, selectedMode]);
   const applyAmicaleParam = (params: URLSearchParams) => {
     if (publicPartnerSlug) {
       params.delete("amicale");
@@ -6118,7 +6134,7 @@ export default function HomePage({
                 {!showAllProperties && (
                   <>
                     <Link
-                      to="/packs"
+                      to={publicPartnerSlug ? publicListingLink : "/packs"}
                       className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-[linear-gradient(135deg,#fff8d6,#facc15)] px-5 py-2.5 text-sm font-semibold text-amber-900 shadow-[0_12px_24px_rgba(245,158,11,0.14)] transition-colors hover:brightness-105"
                     >
                       Voir nos packs
@@ -6158,7 +6174,7 @@ export default function HomePage({
           
           {!isSelectedModeComingSoon && !isHotelMode && (
             <div className="mt-12 text-center md:hidden">
-              <Link to={selectedMode === "vente" ? "/ventes" : `/logements?mode=${encodeURIComponent(selectedMode)}`} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
+              <Link to={selectedMode === "vente" ? "/ventes" : publicListingLink} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
                 Voir tous les logements <ArrowRight size={20} />
               </Link>
             </div>
