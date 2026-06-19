@@ -16,6 +16,7 @@ import { canRenderVideoInIframe, isFacebookReelUrl, isFacebookVideoUrl, isVertic
 import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
+import { buildPropertyShareImageUrl, createPropertyShareLink } from "../utils/propertyShare";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
@@ -727,6 +728,10 @@ export default function PropertyDetailsPage() {
   const isLoadingInitialProperty = loading && properties.length === 0 && biens.length === 0;
   const propertyRouteToken = property ? getPropertyRouteToken(property) : "";
   const propertyDisplayTitle = buildReferenceTitle(property?.reference, property?.title);
+  const propertyShareImageUrl = useMemo(
+    () => buildPropertyShareImageUrl(property?.images?.[0] || ""),
+    [property?.images]
+  );
   const propertyVideos = property?.videos || [];
   const [facebookDirectVideoUrls, setFacebookDirectVideoUrls] = useState<Record<string, string>>({});
   const [facebookEmbedUnavailableByUrl, setFacebookEmbedUnavailableByUrl] = useState<Record<string, boolean>>({});
@@ -2744,13 +2749,21 @@ out body 40;
         path: window.location.pathname + window.location.search,
       }).catch(() => {});
     }
-    const shareUrl = window.location.href;
+    const shareRelativeUrl = `${location.pathname}${location.search}`;
+    const shareUrl = await createPropertyShareLink({
+      relativeUrl: shareRelativeUrl,
+      title: propertyDisplayTitle || property?.title || "Logement Dwira",
+      description: property?.location
+        ? `Découvrez ${propertyDisplayTitle || property?.title || "ce logement"} à ${property.location} sur Dwira Immobilier.`
+        : `Découvrez ${propertyDisplayTitle || property?.title || "ce logement"} sur Dwira Immobilier.`,
+      imageUrl: propertyShareImageUrl,
+    });
     
     // Try Web Share API first (mobile devices)
     if (navigator.share) {
       try {
         await navigator.share({
-          title: property?.title || 'Logement',
+          title: propertyDisplayTitle || property?.title || 'Logement',
           text: `Découvrez ce logement: ${property?.title}`,
           url: shareUrl,
         });
