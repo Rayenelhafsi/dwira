@@ -10,6 +10,7 @@ import { useAuth } from "./context/AuthContext";
 import PacksComingSoonPage from "./pages/PacksComingSoonPage";
 
 const CHUNK_RELOAD_KEY = "dwira_chunk_reload_once";
+const CHUNK_RELOAD_PARAM = "__chunk_reload";
 const PropertyPacksPreviewPage = lazy(() => import("./pages/PropertyPacksPage"));
 const PropertyPackPreviewDetailsPage = lazy(() => import("./pages/PropertyPackDetailsPage"));
 
@@ -23,11 +24,27 @@ function isChunkLoadError(error: unknown) {
   );
 }
 
+function cleanupChunkReloadUrl() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(CHUNK_RELOAD_PARAM)) return;
+  url.searchParams.delete(CHUNK_RELOAD_PARAM);
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function forceChunkRecoveryReload() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.set(CHUNK_RELOAD_PARAM, String(Date.now()));
+  window.location.replace(`${url.pathname}${url.search}${url.hash}`);
+}
+
 const lazyPage = (loader: () => Promise<{ default: React.ComponentType<any> }>) => async () => {
   try {
     const module = await loader();
     if (typeof window !== "undefined") {
       sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+      cleanupChunkReloadUrl();
     }
     return { Component: module.default };
   } catch (error) {
@@ -35,7 +52,7 @@ const lazyPage = (loader: () => Promise<{ default: React.ComponentType<any> }>) 
       const alreadyReloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === "1";
       if (!alreadyReloaded) {
         sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
-        window.location.reload();
+        forceChunkRecoveryReload();
         return { Component: () => null };
       }
       sessionStorage.removeItem(CHUNK_RELOAD_KEY);
