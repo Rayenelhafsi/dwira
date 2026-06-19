@@ -18677,7 +18677,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       const value = Number(period?.minimum_nuitees || 0);
       if (Number.isFinite(value) && value > 0) {
         const normalizedValue = Math.max(1, Math.floor(value));
-        requiredMinNights = requiredMinNightsFromPeriods === null
+        requiredMinNightsFromPeriods = requiredMinNightsFromPeriods === null
           ? normalizedValue
           : Math.max(requiredMinNightsFromPeriods, normalizedValue);
       } else {
