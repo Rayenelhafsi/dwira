@@ -224,7 +224,7 @@ export default function ReservationConfirmationPage() {
       childGuests,
       nights,
       accommodationTotal: applyPartnerAgencyMargin(applyAmicaleTtc(accommodationTotal, isAmicalePricingActive), partnerAgencyMarginMultiplier),
-      accommodationSegments: isSitepAmicalePricing && nights === 7 ? [] : accommodationPricing.segments,
+      accommodationSegments: isSitepAmicalePricing && (nights === 6 || nights === 7) ? [] : accommodationPricing.segments,
       averageNightlyPrice: nights > 0 ? accommodationTotal / nights : accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
       cleaningFee: applyPartnerAgencyMargin(applyAmicaleTtc(cleaningFee, isAmicalePricingActive), partnerAgencyMarginMultiplier),

@@ -39,9 +39,11 @@ export function applySitepAccommodationRule(params: {
   fallbackTotal: number;
 }) {
   const fallbackTotal = roundCurrency(Number(params.fallbackTotal || 0));
+  const weeklyPrice = roundCurrency(Number(params.weeklyPrice || 0));
   const nightlyPrice = roundCurrency(Number(params.nightlyPrice || 0));
   const nights = Number(params.nights || 0);
   if (!params.enabled) return fallbackTotal;
+  if ((nights === 6 || nights === 7) && weeklyPrice > 0) return weeklyPrice;
   if (nights === 7 && nightlyPrice > 0) return roundCurrency(nightlyPrice * 6);
   return fallbackTotal;
 }
