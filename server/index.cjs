@@ -6903,6 +6903,7 @@ function normalizeResidenceUnits(rawUnits) {
   return (Array.isArray(rawUnits) ? rawUnits : [])
     .map((unit, index) => ({
       id: String(unit?.id || `res_unit_${index + 1}`).trim() || `res_unit_${index + 1}`,
+      main_type: normalizeBienType(unit?.main_type || unit?.mainType || unit?.type || 'appartement') === 'villa_maison' ? 'villa_maison' : 'appartement',
       sub_type: String(unit?.sub_type || unit?.subType || '').trim(),
       quantity: Math.max(1, Math.floor(Number(unit?.quantity || 1) || 1)),
       apartment_references: (Array.isArray(unit?.apartment_references) ? unit.apartment_references : [])
@@ -7803,6 +7804,9 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'residence_units_json'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN residence_units_json LONGTEXT NULL AFTER residence_unit_sub_type');
   }
+  if (!(await columnExists('biens', 'folder_id'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN folder_id VARCHAR(80) NULL AFTER proprietaire_id');
+  }
 
   await pool.query(
     "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','residence','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
@@ -7811,6 +7815,9 @@ async function ensureBiensWorkflowSchema() {
   if (!(await indexExists('biens', 'idx_biens_mode_type'))) {
     const modeColumn = (await columnExists('biens', 'mode')) ? 'mode' : 'mode_bien';
     await pool.query(`CREATE INDEX idx_biens_mode_type ON biens (${modeColumn}, type)`);
+  }
+  if (!(await indexExists('biens', 'idx_biens_folder_id'))) {
+    await pool.query('CREATE INDEX idx_biens_folder_id ON biens (folder_id)');
   }
 
   await pool.query(`
@@ -8555,6 +8562,20 @@ function isLegalIdentityProfileCompleted(user) {
   const hasLegacyCinImage = Boolean(cinImageUrl);
   const hasDualCinImages = Boolean(cinImageRectoUrl && cinImageVersoUrl);
   return Boolean(fullName && phone && address && cin && (hasDualCinImages || hasLegacyCinImage) && hasValidClientType && profileCompletedAt);
+}
+
+async function ensureBienFoldersSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bien_folders (
+      id VARCHAR(80) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      parent_id VARCHAR(80) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_bien_folders_parent (parent_id)
+    )
+  `);
+  await ensureBiensWorkflowSchemaSafe();
 }
 
 function buildPhonePlaceholderEmail(phone) {
@@ -10363,6 +10384,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
       desiredChildren.push({
         key: `${unit.id}__${index}`,
         unitId: unit.id,
+        mainType: normalizeBienType(unit.main_type || 'appartement') === 'villa_maison' ? 'villa_maison' : 'appartement',
         subType: unit.sub_type,
         index,
         apartmentName: String(apartmentMeta?.name || apartmentMobileName || unit.apartment_names?.[index - 1] || '').trim() || '',
@@ -10467,10 +10489,13 @@ async function syncResidenceChildrenForParent(parentBienId) {
       ...parent,
       ...unitTemplateBien,
     };
+    const childType = normalizeBienType(desiredChild.templateBien?.type || desiredChild.mainType || 'appartement') === 'villa_maison'
+      ? 'villa_maison'
+      : 'appartement';
     const derivedBedrooms = Math.max(1, deriveBedroomsFromConfiguration(desiredChild.subType) || Number(sourceForUnit.nb_chambres || 0) || 1);
     const generatedChildReference = await generateStructuredBienReference({
           mode: 'location_saisonniere',
-          type: 'appartement',
+          type: childType,
           titre: childTitle,
           zoneId: parent.zone_id,
           proprietaireId: desiredChild.apartmentOwnerId || sourceForUnit.proprietaire_id || parent.proprietaire_id,
@@ -10479,6 +10504,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
     const childReference = String(desiredChild.apartmentReference || existingChild?.reference || generatedChildReference).trim() || generatedChildReference;
     const childPayload = {
       ...sharedChildPayload,
+      type: childType,
       description: desiredChild.apartmentDescription || sourceForUnit.description || null,
       nb_chambres: derivedBedrooms,
       nb_salle_bain: Number(sourceForUnit.nb_salle_bain || 0),
@@ -13832,7 +13858,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
       terrain_ideal_utilisations, terrain_documents_disponibles,
       lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
-      residence_parent_bien_id, residence_parent_name, residence_unit_key, residence_unit_sub_type, residence_units,
+      residence_parent_bien_id, residence_parent_name, residence_unit_key, residence_unit_sub_type, residence_units, folder_id,
       immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     } = req.body;
 
@@ -13973,9 +13999,9 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
         proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
         syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
-        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, is_featured, ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, 
+        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, is_featured, ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, folder_id, 
         date_ajout, created_at, updated_at, admin_last_saved_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [bienId, resolvedReference, titre, normalizedNomBienMobile || null, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
@@ -13992,7 +14018,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
        resolvedIsFeatured,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
-       menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
+       menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null, String(folder_id || '').trim() || null,
        date_ajout, created_at, updated_at, updated_at]
     );
 
@@ -14086,6 +14112,71 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
   }
 });
 
+app.get('/api/bien-folders', requireAdminSession, async (_req, res) => {
+  try {
+    await ensureBienFoldersSchema();
+    const [rows] = await pool.query('SELECT * FROM bien_folders ORDER BY COALESCE(parent_id, \'\') ASC, name ASC');
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching bien folders:', error);
+    res.status(500).json({ error: 'Impossible de charger les dossiers de biens' });
+  }
+});
+
+app.post('/api/bien-folders', requireAdminSession, async (req, res) => {
+  try {
+    await ensureBienFoldersSchema();
+    const name = String(req.body?.name || '').trim();
+    const parentId = String(req.body?.parent_id || '').trim() || null;
+    if (!name) return res.status(400).json({ error: 'Nom du dossier requis' });
+
+    if (parentId) {
+      const [parentRows] = await pool.query('SELECT id FROM bien_folders WHERE id = ? LIMIT 1', [parentId]);
+      if (!Array.isArray(parentRows) || !parentRows[0]) {
+        return res.status(400).json({ error: 'Dossier parent introuvable' });
+      }
+    }
+
+    const folderId = `bf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      'INSERT INTO bien_folders (id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      [folderId, name, parentId, now, now]
+    );
+    const [rows] = await pool.query('SELECT * FROM bien_folders WHERE id = ? LIMIT 1', [folderId]);
+    res.status(201).json(rows?.[0] || { id: folderId, name, parent_id: parentId, created_at: now, updated_at: now });
+  } catch (error) {
+    console.error('Error creating bien folder:', error);
+    res.status(500).json({ error: 'Impossible de creer le dossier de biens' });
+  }
+});
+
+app.put('/api/biens/bulk-folder', requireAdminSession, async (req, res) => {
+  try {
+    await ensureBienFoldersSchema();
+    const bienIds = Array.from(new Set((Array.isArray(req.body?.bien_ids) ? req.body.bien_ids : []).map((id) => String(id || '').trim()).filter(Boolean)));
+    const folderId = String(req.body?.folder_id || '').trim() || null;
+    if (bienIds.length === 0) return res.status(400).json({ error: 'Aucun bien selectionne' });
+
+    if (folderId) {
+      const [folderRows] = await pool.query('SELECT id FROM bien_folders WHERE id = ? LIMIT 1', [folderId]);
+      if (!Array.isArray(folderRows) || !folderRows[0]) {
+        return res.status(400).json({ error: 'Dossier cible introuvable' });
+      }
+    }
+
+    const placeholders = bienIds.map(() => '?').join(', ');
+    await pool.query(
+      `UPDATE biens SET folder_id = ?, updated_at = ?, admin_last_saved_at = ? WHERE id IN (${placeholders})`,
+      [folderId, getAgencySqlDateTime(), getAgencySqlDateTime(), ...bienIds]
+    );
+    res.json({ ok: true, moved: bienIds.length, folder_id: folderId });
+  } catch (error) {
+    console.error('Error moving biens to folder:', error);
+    res.status(500).json({ error: 'Impossible de deplacer les biens dans le dossier' });
+  }
+});
+
 
 // PUT update bien
 app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
@@ -14110,7 +14201,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       terrain_ideal_utilisations, terrain_documents_disponibles,
       lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2,
       immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements, immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m,
-      residence_parent_bien_id, residence_parent_name, residence_unit_key, residence_unit_sub_type, residence_units,
+      residence_parent_bien_id, residence_parent_name, residence_unit_key, residence_unit_sub_type, residence_units, folder_id,
       immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur, immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
     } = req.body;
 
@@ -14252,7 +14343,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
         proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
         syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?, surface_local_m2 = ?, facade_m = ?, hauteur_plafond_m = ?, activite_recommandee = ?, toilette = ?, reserve_local = ?, vitrine = ?, coin_angle = ?, electricite_3_phases = ?, alarme = ?,
         type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
-        statut = ?, visible_sur_site = ?, is_featured = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, updated_at = ?, admin_last_saved_at = ?
+        statut = ?, visible_sur_site = ?, is_featured = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, folder_id = ?, updated_at = ?, admin_last_saved_at = ?
        WHERE id = ?`,
       [resolvedReference, titre, normalizedNomBienMobile || null, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
@@ -14270,7 +14361,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
        resolvedIsFeatured,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
-       menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null,
+       menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null, String(folder_id || '').trim() || null,
        updated_at, updated_at, req.params.id]
     );
 

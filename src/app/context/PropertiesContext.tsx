@@ -1,5 +1,5 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig, SeasonalPricingPeriod } from '../admin/types';
+import { Bien, BienStatut, Media, DateStatus, BienType, Zone, Proprietaire, BienMode, TypePapierAppartementVente, TypeRueAppartementVente, TypeTerrainVente, LocationSaisonniereConfig, SeasonalPricingPeriod, BienFolder } from '../admin/types';
 import { Property, PropertyFilterProfile } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
 import { extractGuestLimitsFromCharacteristicLines, resolveBienCapacity } from '../utils/bienCapacity';
@@ -255,6 +255,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     id: row.id,
     reference: row.reference,
     titre: row.titre,
+    folder_id: String((row as any).folder_id || '').trim() || null,
+    folder_name: String((row as any).folder_name || '').trim() || null,
     residence_parent_bien_id: String((row as any).residence_parent_bien_id || '').trim() || null,
     residence_parent_name: String((row as any).residence_parent_name || '').trim() || null,
     residence_unit_key: String((row as any).residence_unit_key || '').trim() || null,
@@ -811,6 +813,7 @@ function getAmenitiesFromType(type: BienType): string[] {
 
 interface PropertiesContextType {
   biens: Bien[];
+  bienFolders: BienFolder[];
   properties: Property[];
   zones: Zone[];
   proprietaires: Proprietaire[];
@@ -821,6 +824,8 @@ interface PropertiesContextType {
   addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<any>;
   updateBien: (updatedBien: Bien) => Promise<any>;
   deleteBien: (id: string) => Promise<void>;
+  createBienFolder: (payload: { name: string; parent_id?: string | null }) => Promise<BienFolder>;
+  moveBiensToFolder: (bienIds: string[], folderId?: string | null) => Promise<void>;
   saveModePriorities: (next: Record<BienMode, number>) => Promise<void>;
   getBienById: (id: string) => Bien | undefined;
   getPropertyById: (id: string) => Property | undefined;
@@ -832,6 +837,7 @@ const PROPERTIES_CACHE_KEY = 'dwira_properties_cache_v2';
 
 type PropertiesCachePayload = {
   biens: Bien[];
+  bienFolders: BienFolder[];
   zones: Zone[];
   proprietaires: Proprietaire[];
   modePriorities: Record<BienMode, number>;
@@ -846,6 +852,7 @@ function readPropertiesCache(): PropertiesCachePayload | null {
     if (!parsed || typeof parsed !== 'object') return null;
     return {
       biens: Array.isArray(parsed.biens) ? parsed.biens : [],
+      bienFolders: Array.isArray(parsed.bienFolders) ? parsed.bienFolders : [],
       zones: Array.isArray(parsed.zones) ? parsed.zones : [],
       proprietaires: Array.isArray(parsed.proprietaires) ? parsed.proprietaires : [],
       modePriorities: parsed.modePriorities || DEFAULT_MODE_PRIORITIES,
@@ -910,6 +917,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     )
   );
   const [biens, setBiens] = useState<Bien[]>(initialCache?.biens || []);
+  const [bienFolders, setBienFolders] = useState<BienFolder[]>(initialCache?.bienFolders || []);
   const [properties, setProperties] = useState<Property[]>(() => {
     const cachedBiens = initialCache?.biens || [];
     const cachedZones = initialCache?.zones || [];
@@ -925,6 +933,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
 
   const applyMappedBiens = (
     mappedBiens: Bien[],
+    folderRows: BienFolder[],
     zonesData: Zone[],
     propsData: Proprietaire[],
     modePrioritiesData: any
@@ -935,6 +944,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
 
     setBiens(mappedBiens);
+    setBienFolders(Array.isArray(folderRows) ? folderRows : []);
     setProperties(mappedBiens.filter(isPubliclyVisibleBien).map((bien) => bienToProperty(bien, zonesById)));
     setZones(Array.isArray(zonesData) ? zonesData : []);
     setProprietaires(Array.isArray(propsData) ? propsData : []);
@@ -945,6 +955,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     });
     writePropertiesCache({
       biens: mappedBiens,
+      bienFolders: Array.isArray(folderRows) ? folderRows : [],
       zones: Array.isArray(zonesData) ? zonesData : [],
       proprietaires: Array.isArray(propsData) ? propsData : [],
       modePriorities: {
@@ -966,7 +977,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       const currentPathname = typeof window !== 'undefined' ? window.location.pathname : '';
       const isAdminRoute = currentPathname.startsWith('/admin');
       const shouldPrefetchAllMedia = currentPathname !== '/admin/packs';
-      const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse] = await Promise.all([
+      const [biensResponse, zonesResponse, modePrioritiesResponse, propsResponse, foldersResponse] = await Promise.all([
         fetchBiensResilient(API_URL),
         fetchWithTimeout(`${API_URL}/zones`, { credentials: 'include' }, 8000),
         fetchWithTimeout(`${API_URL}/site-mode-priorities`, { credentials: 'include' }, 8000),
@@ -976,11 +987,18 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
               return null;
             })
           : Promise.resolve(null),
+        isAdminRoute
+          ? fetchWithTimeout(`${API_URL}/bien-folders`, { credentials: 'include' }, 8000).catch((error) => {
+              console.warn('Failed to fetch bien folders during refresh:', error?.message || error);
+              return null;
+            })
+          : Promise.resolve(null),
       ]);
       if (!biensResponse.ok) throw new Error('Failed to fetch biens');
       const biensData = await biensResponse.json();
       const zonesData = zonesResponse.ok ? await zonesResponse.json() : [];
       const propsData = propsResponse?.ok ? await propsResponse.json() : [];
+      const foldersData = foldersResponse?.ok ? await foldersResponse.json() : [];
       const modePrioritiesData = modePrioritiesResponse.ok ? await modePrioritiesResponse.json() : null;
 
       const bienIds = Array.isArray(biensData) ? biensData.map((bien: any) => String(bien?.id || '').trim()).filter(Boolean) : [];
@@ -1013,7 +1031,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         dbRowToBien(bien, mediaByBienId.get(String(bien?.id || '').trim()) || [], [])
       );
 
-      applyMappedBiens(mappedBiens, zonesData, propsData, modePrioritiesData);
+      applyMappedBiens(mappedBiens, foldersData, zonesData, propsData, modePrioritiesData);
       if (!silent) {
         setLoading(false);
       }
@@ -1048,7 +1066,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
           )
         );
 
-        applyMappedBiens(nextMappedBiens, zonesData, propsData, modePrioritiesData);
+        applyMappedBiens(nextMappedBiens, foldersData, zonesData, propsData, modePrioritiesData);
       })();
       return;
     } catch (err: any) {
@@ -1058,6 +1076,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       }
       if (initialCache?.biens?.length) {
         setBiens(initialCache.biens);
+        setBienFolders(initialCache.bienFolders || []);
         const zonesById: Record<string, Zone> = {};
         for (const zone of initialCache.zones || []) zonesById[zone.id] = zone;
         setProperties(
@@ -1191,6 +1210,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       }));
 
       setBiens(localBiens);
+      setBienFolders([]);
       setProperties(localProperties);
       setZones([
         { id: 'z1', nom: 'KÃ©libia Centre', description: 'Centre ville de KÃ©libia' },
@@ -1277,6 +1297,39 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const createBienFolder = async (payload: { name: string; parent_id?: string | null }): Promise<BienFolder> => {
+    const response = await fetch(`${API_URL}/bien-folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Creation du dossier impossible'));
+    }
+    const data = await response.json();
+    await fetchData({ silent: true });
+    return data;
+  };
+
+  const moveBiensToFolder = async (bienIds: string[], folderId?: string | null) => {
+    const normalizedBienIds = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (normalizedBienIds.length === 0) return;
+    const response = await fetch(`${API_URL}/biens/bulk-folder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        bien_ids: normalizedBienIds,
+        folder_id: String(folderId || '').trim() || null,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Deplacement des biens impossible'));
+    }
+    await fetchData({ silent: true });
+  };
+
   const saveModePriorities = async (next: Record<BienMode, number>) => {
     const response = await fetch(`${API_URL}/site-mode-priorities`, {
       method: 'PUT',
@@ -1309,6 +1362,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
 
   const value: PropertiesContextType = {
     biens,
+    bienFolders,
     properties,
     zones,
     proprietaires,
@@ -1319,6 +1373,8 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     addBien,
     updateBien,
     deleteBien,
+    createBienFolder,
+    moveBiensToFolder,
     saveModePriorities,
     getBienById,
     getPropertyById,

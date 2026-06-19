@@ -201,6 +201,7 @@ export interface ResidenceApartmentTemplate {
 
 export interface ResidenceUnitTemplate {
   id: string;
+  main_type?: 'appartement' | 'villa_maison';
   sub_type: string;
   quantity: number;
   apartment_names?: string[];
@@ -338,6 +339,8 @@ export interface Bien {
   id: string;
   reference: string;
   titre: string;
+  folder_id?: string | null;
+  folder_name?: string | null;
   nom_bien_mobile?: string | null;
   nom_application?: string | null;
   description?: string;
@@ -481,6 +484,14 @@ export interface Bien {
   caracteristiques?: string[];
   caracteristique_ids?: string[];
   caracteristique_valeurs?: Record<string, string | string[]>;
+}
+
+export interface BienFolder {
+  id: string;
+  name: string;
+  parent_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface PropertyPack {

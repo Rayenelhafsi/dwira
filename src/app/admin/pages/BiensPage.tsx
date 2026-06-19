@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy, Flame } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy, Flame, Folder, FolderOpen, FolderPlus, CheckSquare, Square, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router';
 import { mockZones } from '../data/mockData';
-import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien, VenteFlashConfig } from '../types';
+import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien, VenteFlashConfig, BienFolder } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -187,12 +187,14 @@ const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens
     const apartmentIndex = Math.max(1, Math.floor(Number(apartmentIndexPart || childIndex + 1) || childIndex + 1));
     const currentUnit = unitsById.get(unitId) || {
       id: unitId,
+      main_type: normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement',
       sub_type: rawSubType,
       quantity: 0,
       apartment_names: [],
       apartment_references: [],
       apartments: [],
       template_bien: {
+        type: normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement',
         nb_chambres: child?.nb_chambres ?? 0,
         nb_salle_bain: child?.nb_salle_bain ?? 0,
         prix_nuitee: child?.prix_nuitee ?? 0,
@@ -233,6 +235,7 @@ const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens
     };
     const apartmentTitle = String(child?.nom_bien_mobile || child?.titre || '').trim();
     currentUnit.sub_type = currentUnit.sub_type || rawSubType;
+    currentUnit.main_type = currentUnit.main_type || (normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement');
     currentUnit.quantity = Math.max(Number(currentUnit.quantity || 0), apartmentIndex);
     currentUnit.apartment_names[apartmentIndex - 1] = apartmentTitle;
     currentUnit.apartment_references[apartmentIndex - 1] = String(child?.reference || '').trim();
@@ -968,7 +971,7 @@ function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) 
 }
 
 export default function BiensPage() {
-  const { biens, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, refreshData, isLoading } = useProperties();
+  const { biens, bienFolders, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, createBienFolder, moveBiensToFolder, refreshData, isLoading } = useProperties();
   const zoneOptions = zones.length > 0 ? zones : mockZones;
   const [fallbackProprietaires, setFallbackProprietaires] = useState<Proprietaire[]>([]);
   const proprietaireOptions = (Array.isArray(proprietaires) && proprietaires.length > 0)
@@ -1001,6 +1004,12 @@ export default function BiensPage() {
   const [homeFilterImagePreview, setHomeFilterImagePreview] = useState<string>('');
   const [homeFilterImageRows, setHomeFilterImageRows] = useState<Array<{ id: string; mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [isSavingHomeFilterImage, setIsSavingHomeFilterImage] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState<string>('root');
+  const [selectedBienIds, setSelectedBienIds] = useState<string[]>([]);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderParentId, setNewFolderParentId] = useState<string>('root');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState<string>('root');
 
   useEffect(() => {
     let isMounted = true;
@@ -1049,6 +1058,27 @@ export default function BiensPage() {
     proprietaireOptions.map((owner) => [String(owner.id || '').trim(), String(owner.nom || '').trim()])
   );
 
+  const foldersByParentId = useMemo(() => {
+    const next = new Map<string, BienFolder[]>();
+    (Array.isArray(bienFolders) ? bienFolders : []).forEach((folder) => {
+      const key = String(folder.parent_id || '').trim() || 'root';
+      const bucket = next.get(key) || [];
+      bucket.push(folder);
+      next.set(key, bucket);
+    });
+    next.forEach((rows) => rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })));
+    return next;
+  }, [bienFolders]);
+
+  const folderNameById = useMemo(() => {
+    const next = new Map<string, string>();
+    (Array.isArray(bienFolders) ? bienFolders : []).forEach((folder) => {
+      const id = String(folder.id || '').trim();
+      if (id) next.set(id, String(folder.name || '').trim());
+    });
+    return next;
+  }, [bienFolders]);
+
   const filteredBiens = biens.filter((bien) => {
     const query = normalizeSearchValue(searchTerm);
     const ownerName = normalizeSearchValue(
@@ -1067,6 +1097,27 @@ export default function BiensPage() {
     const matchesMode = modeFilter === 'all' || bien.mode === modeFilter;
     return matchesQuery && matchesStatus && matchesMode;
   });
+  const displayedBiens = filteredBiens.filter((bien) => {
+    const bienFolderId = String(bien.folder_id || '').trim() || 'root';
+    return bienFolderId === selectedFolderId;
+  });
+  const selectedBienIdSet = useMemo(() => new Set(selectedBienIds), [selectedBienIds]);
+  const allDisplayedSelected = displayedBiens.length > 0 && displayedBiens.every((bien) => selectedBienIdSet.has(String(bien.id || '').trim()));
+
+  useEffect(() => {
+    const validFolderIds = new Set(['root', ...(Array.isArray(bienFolders) ? bienFolders.map((folder) => String(folder.id || '').trim()).filter(Boolean) : [])]);
+    if (!validFolderIds.has(selectedFolderId)) {
+      setSelectedFolderId('root');
+    }
+    if (!validFolderIds.has(moveTargetFolderId)) {
+      setMoveTargetFolderId('root');
+    }
+  }, [bienFolders, selectedFolderId, moveTargetFolderId]);
+
+  useEffect(() => {
+    const visibleBienIds = new Set(displayedBiens.map((bien) => String(bien.id || '').trim()).filter(Boolean));
+    setSelectedBienIds((prev) => prev.filter((id) => visibleBienIds.has(id)));
+  }, [displayedBiens]);
   const modeTabs: Array<{ value: BienMode | 'all'; label: string }> = [
     { value: 'all', label: 'Tous les biens' },
     { value: 'vente', label: 'Vente' },
@@ -1342,6 +1393,59 @@ export default function BiensPage() {
   };
 
   const handleDelete = async (id: string) => { if (window.confirm('Supprimer ce bien ?')) { try { await deleteBien(id); toast.success('Bien supprimé'); } catch { toast.error('Erreur'); } } };
+  const toggleBienSelection = (bienId: string) => {
+    const normalizedBienId = String(bienId || '').trim();
+    if (!normalizedBienId) return;
+    setSelectedBienIds((prev) => prev.includes(normalizedBienId) ? prev.filter((id) => id !== normalizedBienId) : [...prev, normalizedBienId]);
+  };
+  const toggleSelectAllDisplayed = () => {
+    const displayedIds = displayedBiens.map((bien) => String(bien.id || '').trim()).filter(Boolean);
+    if (displayedIds.length === 0) return;
+    setSelectedBienIds((prev) => {
+      if (displayedIds.every((id) => prev.includes(id))) {
+        return prev.filter((id) => !displayedIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...displayedIds]));
+    });
+  };
+  const handleCreateFolder = async () => {
+    const normalizedName = String(newFolderName || '').trim();
+    if (!normalizedName) {
+      toast.error('Nom du dossier obligatoire');
+      return;
+    }
+    setIsCreatingFolder(true);
+    try {
+      const createdFolder = await createBienFolder({
+        name: normalizedName,
+        parent_id: newFolderParentId === 'root' ? null : newFolderParentId,
+      });
+      const nextFolderId = String(createdFolder?.id || '').trim();
+      setNewFolderName('');
+      if (nextFolderId) {
+        setSelectedFolderId(nextFolderId);
+        setMoveTargetFolderId(nextFolderId);
+      }
+      toast.success('Dossier créé');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Création du dossier impossible');
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
+  const handleMoveSelectedBiens = async () => {
+    if (selectedBienIds.length === 0) {
+      toast.error('Sélectionnez au moins un bien');
+      return;
+    }
+    try {
+      await moveBiensToFolder(selectedBienIds, moveTargetFolderId === 'root' ? null : moveTargetFolderId);
+      setSelectedBienIds([]);
+      toast.success('Biens déplacés');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Déplacement impossible');
+    }
+  };
   const buildDuplicateSeed = (source: Bien): Bien => {
     const clone = JSON.parse(JSON.stringify(source)) as Bien;
     const nowIso = new Date().toISOString();
@@ -1940,10 +2044,108 @@ export default function BiensPage() {
           )}
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(normalizeBienForEditor(bien, biens) as Bien); setEditorInitialStep(isResidenceParentBien(bien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(normalizeBienForEditor(bien, biens) as Bien)} />)}
+      <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[320px,1fr]">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Dossiers biens</h2>
+              <p className="text-sm text-gray-500">Root et sous-dossiers pour organiser le portefeuille.</p>
+            </div>
+            <FolderPlus className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setSelectedFolderId('root')}
+              className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm ${selectedFolderId === 'root' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              <span className="inline-flex items-center gap-2">
+                {selectedFolderId === 'root' ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />}
+                Root
+              </span>
+              <span className="text-xs text-gray-500">{filteredBiens.filter((bien) => !String(bien.folder_id || '').trim()).length}</span>
+            </button>
+            <FolderTree
+              parentId="root"
+              selectedFolderId={selectedFolderId}
+              foldersByParentId={foldersByParentId}
+              biens={filteredBiens}
+              onSelect={setSelectedFolderId}
+              level={0}
+            />
+          </div>
+          <div className="mt-4 space-y-2 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 p-3">
+            <input
+              value={newFolderName}
+              onChange={(event) => setNewFolderName(event.target.value)}
+              placeholder="Nom du dossier"
+              className="block w-full rounded-lg border border-gray-300 p-2 text-sm"
+            />
+            <select
+              value={newFolderParentId}
+              onChange={(event) => setNewFolderParentId(event.target.value)}
+              className="block w-full rounded-lg border border-gray-300 p-2 text-sm"
+            >
+              <option value="root">Créer dans root</option>
+              {(bienFolders || []).map((folder) => (
+                <option key={folder.id} value={folder.id}>{folder.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleCreateFolder()}
+              disabled={isCreatingFolder}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FolderPlus className="h-4 w-4" />
+              {isCreatingFolder ? 'Création...' : 'Créer le dossier'}
+            </button>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">
+                {selectedFolderId === 'root' ? 'Biens dans root' : `Biens dans ${folderNameById.get(selectedFolderId) || 'dossier'}`}
+              </h2>
+              <p className="text-sm text-gray-500">{displayedBiens.length} bien(s) affiché(s).</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={toggleSelectAllDisplayed}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                {allDisplayedSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                {allDisplayedSelected ? 'Désélectionner visibles' : 'Sélectionner visibles'}
+              </button>
+              <select
+                value={moveTargetFolderId}
+                onChange={(event) => setMoveTargetFolderId(event.target.value)}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="root">Déplacer vers root</option>
+                {(bienFolders || []).map((folder) => (
+                  <option key={folder.id} value={folder.id}>{folder.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void handleMoveSelectedBiens()}
+                disabled={selectedBienIds.length === 0}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <ArrowRightLeft className="h-4 w-4" />
+                Déplacer {selectedBienIds.length > 0 ? `(${selectedBienIds.length})` : ''}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
-      {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        {displayedBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} selected={selectedBienIdSet.has(String(bien.id || '').trim())} onToggleSelect={() => toggleBienSelection(bien.id)} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(normalizeBienForEditor(bien, biens) as Bien); setEditorInitialStep(isResidenceParentBien(bien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(normalizeBienForEditor(bien, biens) as Bien)} />)}
+      </div>
+      {displayedBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé dans ce dossier</h3></div>}
       <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
         <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" /><Dialog.Content className="fixed inset-0 z-50 w-full h-full bg-white overflow-hidden flex flex-col">
           <Dialog.Description className="sr-only">Formulaire d'ajout ou de modification de bien</Dialog.Description>
@@ -1977,7 +2179,59 @@ export default function BiensPage() {
   );
 }
 
-function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onView }: { bien: Bien; zones: Zone[]; saveStatus?: { state: 'saving' | 'saved' | 'error'; at: number }; onEdit: () => void; onDuplicate: () => void; onDelete: () => void; onView: () => void; }) {
+function FolderTree({
+  parentId,
+  selectedFolderId,
+  foldersByParentId,
+  biens,
+  onSelect,
+  level,
+}: {
+  parentId: string;
+  selectedFolderId: string;
+  foldersByParentId: Map<string, BienFolder[]>;
+  biens: Bien[];
+  onSelect: (folderId: string) => void;
+  level: number;
+}) {
+  const rows = foldersByParentId.get(parentId) || [];
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {rows.map((folder) => {
+        const folderId = String(folder.id || '').trim();
+        const isSelected = selectedFolderId === folderId;
+        const folderCount = biens.filter((bien) => String(bien.folder_id || '').trim() === folderId).length;
+        return (
+          <div key={folderId}>
+            <button
+              type="button"
+              onClick={() => onSelect(folderId)}
+              className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm ${isSelected ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
+              style={{ marginLeft: level > 0 ? level * 12 : 0 }}
+            >
+              <span className="inline-flex items-center gap-2">
+                {isSelected ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />}
+                {folder.name}
+              </span>
+              <span className="text-xs text-gray-500">{folderCount}</span>
+            </button>
+            <FolderTree
+              parentId={folderId}
+              selectedFolderId={selectedFolderId}
+              foldersByParentId={foldersByParentId}
+              biens={biens}
+              onSelect={onSelect}
+              level={level + 1}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BienCard({ bien, zones, saveStatus, selected, onToggleSelect, onEdit, onDuplicate, onDelete, onView }: { bien: Bien; zones: Zone[]; saveStatus?: { state: 'saving' | 'saved' | 'error'; at: number }; selected?: boolean; onToggleSelect?: () => void; onEdit: () => void; onDuplicate: () => void; onDelete: () => void; onView: () => void; }) {
   const isResidenceChild = Boolean(String(bien.residence_parent_bien_id || '').trim());
   const hasResidenceUnits = Array.isArray(bien.residence_units) && bien.residence_units.length > 0;
   const isResidenceParent = !isResidenceChild && (normalizeLegacyType((bien.type || undefined) as BienType) === 'residence' || hasResidenceUnits);
@@ -2040,6 +2294,15 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
   return (
     <div className={`bg-white rounded-xl shadow-sm border overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col h-full group ${bien.is_featured ? 'border-amber-300 shadow-amber-100/80' : 'border-gray-200'}`}>
       <div className="relative h-44 sm:h-48 bg-gray-100 overflow-hidden">
+        {onToggleSelect && (
+          <button
+            type="button"
+            onClick={onToggleSelect}
+            className={`absolute left-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border ${selected ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-white/80 bg-white/90 text-gray-700 hover:bg-white'}`}
+          >
+            {selected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+          </button>
+        )}
         <SmartImage
           src={mainImage}
           alt={bien.titre}
@@ -2057,7 +2320,7 @@ function BienCard({ bien, zones, saveStatus, onEdit, onDuplicate, onDelete, onVi
             <div className="absolute top-3 right-3 bg-amber-500 text-white px-2.5 py-1 rounded-full text-xs font-semibold shadow-md">Vedette</div>
           </>
         )}
-        <div className="absolute top-3 left-3"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[bien.statut]}`}>{statusLabels[bien.statut]}</span></div>
+        <div className={`absolute top-3 ${onToggleSelect ? 'left-14' : 'left-3'}`}><span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[bien.statut]}`}>{statusLabels[bien.statut]}</span></div>
         {imageCount > 1 && <div className={`absolute top-3 ${bien.is_featured ? 'right-20' : 'right-3'} bg-black/50 text-white px-2 py-1 rounded-lg text-xs`}><ImageIcon className="h-3 w-3 inline" /> {imageCount}</div>}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           <button onClick={onView} className="p-2 bg-white rounded-full hover:bg-gray-100"><Eye className="h-4 w-4 text-gray-700" /></button>
@@ -2190,7 +2453,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const [featureDrafts, setFeatureDrafts] = useState<Record<string, { nom: string; type_caracteristique: 'simple' | 'choix_multiple' | 'plusieurs_choix' | 'valeur' | 'texte'; choix: string; unite: string; icon_name: string; onglet_id: string; visibilite_client: 0 | 1 }>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
   const [availableFeatures, setAvailableFeatures] = useState<Caracteristique[]>([]);
-  const [appartementSousTypeOptions, setAppartementSousTypeOptions] = useState<string[]>([]);
+  const [residenceSousTypeOptionsByMainType, setResidenceSousTypeOptionsByMainType] = useState<Record<'appartement' | 'villa_maison', string[]>>({
+    appartement: [],
+    villa_maison: [],
+  });
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>(resolvedInitialData?.caracteristique_ids || resolvedSeedData?.caracteristique_ids || []);
   const [featureChoiceValuesById, setFeatureChoiceValuesById] = useState<Record<string, string[]>>({});
   const [featureMultiChoicePickerById, setFeatureMultiChoicePickerById] = useState<Record<string, string>>({});
@@ -2653,7 +2919,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     let cancelled = false;
     const run = async () => {
       const effectiveFeatureType = selectedMode === 'location_saisonniere' && selectedType === 'residence'
-        ? 'appartement'
+        ? activeResidenceMainType
         : selectedType;
       if (selectedMode === 'location_saisonniere' && effectiveFeatureType !== 'appartement') {
         await syncSaisonniereTemplateFromAppartement(selectedMode, effectiveFeatureType);
@@ -2677,10 +2943,13 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   useEffect(() => {
     const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
     if (currentMode !== 'location_saisonniere') {
-      setAppartementSousTypeOptions([]);
+      setResidenceSousTypeOptionsByMainType({ appartement: [], villa_maison: [] });
       return;
     }
-    void loadAppartementSousTypeOptions(currentMode);
+    void Promise.all([
+      loadResidenceSousTypeOptions(currentMode, 'appartement'),
+      loadResidenceSousTypeOptions(currentMode, 'villa_maison'),
+    ]);
   }, [formData.mode]);
   useEffect(() => {
     const currentMode = (formData.mode || 'location_saisonniere') as BienMode;
@@ -2691,7 +2960,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     if (sousTypeImportType !== currentType) {
       setSousTypeImportType(currentType);
     }
-  }, [formData.mode, formData.type]);
+  }, [activeResidenceMainType, formData.mode, formData.type]);
   useEffect(() => {
     if (!Array.isArray(availableFeatures) || availableFeatures.length === 0) return;
     const allowedIds = new Set(availableFeatures.map((feature) => String(feature.id || '')));
@@ -3072,17 +3341,23 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     }
     setFormData(prev => ({ ...prev, [name]: type === 'number' ? Number(value) : value }));
   };
-  const handleResidenceUnitChange = (index: number, field: 'sub_type' | 'quantity', value: string) => {
+  const handleResidenceUnitChange = (index: number, field: 'main_type' | 'sub_type' | 'quantity', value: string) => {
     setFormData((prev) => {
       const rows = Array.isArray(prev.residence_units) ? [...prev.residence_units] : [];
-      const current = rows[index] || { id: `res_unit_${Date.now()}_${index}`, sub_type: '', quantity: 1 };
+      const current = rows[index] || { id: `res_unit_${Date.now()}_${index}`, main_type: 'appartement', sub_type: '', quantity: 1 };
       const nextQuantity = field === 'quantity' ? Math.max(1, Math.floor(Number(value || 1) || 1)) : Math.max(1, Math.floor(Number(current.quantity || 1) || 1));
       const currentApartments = Array.isArray((current as any).apartments) ? ([...(current as any).apartments] as Array<any>) : [];
       while (currentApartments.length < nextQuantity) currentApartments.push({});
       const trimmedApartments = currentApartments.slice(0, nextQuantity);
+      const nextMainType = field === 'main_type'
+        ? (value === 'villa_maison' ? 'villa_maison' : 'appartement')
+        : (((current as any).main_type === 'villa_maison' ? 'villa_maison' : 'appartement') as 'appartement' | 'villa_maison');
+      const nextSubType = field === 'sub_type' ? String(value || '').trim() : String((current as any).sub_type || '').trim();
       rows[index] = {
         ...current,
-        [field]: field === 'quantity' ? nextQuantity : value,
+        main_type: nextMainType,
+        [field]: field === 'quantity' ? nextQuantity : (field === 'main_type' ? nextMainType : value),
+        sub_type: field === 'main_type' ? '' : nextSubType,
         apartments: trimmedApartments,
       };
       return { ...prev, residence_units: rows };
@@ -3093,7 +3368,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       ...prev,
       residence_units: [
         ...(Array.isArray(prev.residence_units) ? prev.residence_units : []),
-        { id: `res_unit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, sub_type: '', quantity: 1 },
+        { id: `res_unit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, main_type: 'appartement', sub_type: '', quantity: 1 },
       ],
     }));
   };
@@ -5081,12 +5356,16 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         ? effectiveResidenceUnits
           .map((row, index) => ({
             id: String(row?.id || `res_unit_${index + 1}`),
+            main_type: (row as any)?.main_type === 'villa_maison' ? 'villa_maison' : 'appartement',
             sub_type: String(row?.sub_type || '').trim(),
             quantity: Math.max(1, Math.floor(Number(row?.quantity || 1) || 1)),
             apartment_names: (row.apartments || []).map((apartment) => String(apartment?.name || '').trim()),
             apartment_references: (row.apartments || []).map((apartment) => String(apartment?.reference || '').trim()),
             apartments: row.apartments,
-            template_bien: (row as any).template_bien || {},
+            template_bien: {
+              ...(((row as any).template_bien || {}) as Partial<Bien>),
+              type: (row as any)?.main_type === 'villa_maison' ? 'villa_maison' : 'appartement',
+            },
             template_media: (row as any).template_media || [],
             pricing_periods: (row as any).pricing_periods || [],
             feature_ids: (row as any).feature_ids || [],
@@ -5355,6 +5634,9 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const selectedTypeForUi = normalizeLegacyType((formData.type || 'appartement') as BienType);
   const isResidenceParent = selectedModeForUi === 'location_saisonniere' && selectedTypeForUi === 'residence';
   const isLocationAppartement = selectedModeForUi === 'location_saisonniere' && selectedTypeForUi !== 'residence';
+  const activeResidenceMainType: 'appartement' | 'villa_maison' = isResidenceParent
+    ? (((Array.isArray(formData.residence_units) ? formData.residence_units : []).find((row) => String((row as any)?.id || '') === String(activeResidenceUnitId || '')) as any)?.main_type === 'villa_maison' ? 'villa_maison' : 'appartement')
+    : 'appartement';
   const buildResidenceApartmentDefaultReference = useCallback((unitId: string, apartmentIndex: number) => {
     const normalizedBase = String(formData.reference || 'REF').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '') || 'REF';
     return `${normalizedBase}-${String(unitId || 'UNIT').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(-6) || 'UNIT'}-A${apartmentIndex + 1}`;
@@ -5380,6 +5662,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       return {
         ...row,
         id: String(row?.id || `res_unit_${rowIndex + 1}`),
+        main_type: ((row as any)?.main_type === 'villa_maison' ? 'villa_maison' : 'appartement') as 'appartement' | 'villa_maison',
         quantity,
         apartments,
       };
@@ -5433,6 +5716,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           apartments: nextApartments,
           template_bien: {
             ...previousTemplate,
+            type: activeResidenceUnit.main_type === 'villa_maison' ? 'villa_maison' : 'appartement',
             nom_bien_mobile: null,
             description: '',
             proprietaire_id: '',
@@ -5762,10 +6046,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     () => {
       const fromFeature = step2SousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(step2SousTypeFeature.choix_json)) : [];
       const fromConfiguration = String(formData.configuration || '').trim();
-      const fallbackOptions = isResidenceParent ? appartementSousTypeOptions : [];
+      const fallbackOptions = isResidenceParent ? (residenceSousTypeOptionsByMainType[activeResidenceMainType] || []) : [];
       return Array.from(new Set([...fromFeature, ...fallbackOptions, ...(fromConfiguration ? [fromConfiguration] : [])]));
     },
-    [appartementSousTypeOptions, formData.configuration, isResidenceParent, step2SousTypeFeature]
+    [activeResidenceMainType, formData.configuration, isResidenceParent, residenceSousTypeOptionsByMainType, step2SousTypeFeature]
   );
   const step2SousTypeSelectedValue = useMemo(() => {
     const configurationValue = String(formData.configuration || '').trim();
@@ -6035,11 +6319,11 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     return [...baseChoices, ...missing];
   };
 
-  const loadAppartementSousTypeOptions = async (mode: BienMode) => {
+  const loadResidenceSousTypeOptions = async (mode: BienMode, mainType: 'appartement' | 'villa_maison') => {
     const featureApiBases = getFeatureApiBases();
     let lastResponse: Response | null = null;
     for (const base of featureApiBases) {
-      const response = await fetch(`${base}?mode_bien=${mode}&type_bien=appartement`);
+      const response = await fetch(`${base}?mode_bien=${mode}&type_bien=${mainType}`);
       lastResponse = response;
       if (response.ok) {
         const rows = await response.json().catch(() => []);
@@ -6053,13 +6337,19 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
             || normalizedName.startsWith('configuration');
         });
         const options = sousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(sousTypeFeature.choix_json)) : [];
-        setAppartementSousTypeOptions(Array.from(new Set(options.map((item) => String(item || '').trim()).filter(Boolean))));
+        setResidenceSousTypeOptionsByMainType((prev) => ({
+          ...prev,
+          [mainType]: Array.from(new Set(options.map((item) => String(item || '').trim()).filter(Boolean))),
+        }));
         return;
       }
       if (response.status !== 404) break;
     }
     if (lastResponse && !lastResponse.ok) {
-      setAppartementSousTypeOptions([]);
+      setResidenceSousTypeOptionsByMainType((prev) => ({
+        ...prev,
+        [mainType]: [],
+      }));
     }
   };
   const renderFeatureControl = (feature: Caracteristique, keyPrefix: string) => {
@@ -6779,7 +7069,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Sous-types appartements</label>
-                    <p className="mt-1 text-xs text-gray-500">Les options reprennent les sous-types du type principal Appartement.</p>
+                    <p className="mt-1 text-xs text-gray-500">Choisissez le type principal puis le sous-type correspondant.</p>
                   </div>
                   <button type="button" onClick={handleAddResidenceUnit} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">
                     + Ajouter un sous-type
@@ -6790,14 +7080,24 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                 )}
                     {residenceUnitTemplates.map((row, index) => (
                       <div key={row.id || `res-step0-row-${index}`} className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_140px_44px]">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-[180px_minmax(0,1fr)_140px_44px]">
+                      <select
+                        value={(row as any).main_type === 'villa_maison' ? 'villa_maison' : 'appartement'}
+                        onChange={(e) => handleResidenceUnitChange(index, 'main_type', e.target.value)}
+                        className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
+                      >
+                        <option value="appartement">Appartement</option>
+                        <option value="villa_maison">Villa / Maison</option>
+                      </select>
                       <select
                         value={row.sub_type || ''}
                         onChange={(e) => handleResidenceUnitChange(index, 'sub_type', e.target.value)}
                         className="block w-full rounded-lg border-gray-300 border p-2 text-sm"
                       >
                         <option value="">Choisir un sous-type</option>
-                        {step2SousTypeOptions.map((option) => (
+                        {((residenceSousTypeOptionsByMainType[(row as any).main_type === 'villa_maison' ? 'villa_maison' : 'appartement'] || []).length > 0
+                          ? residenceSousTypeOptionsByMainType[(row as any).main_type === 'villa_maison' ? 'villa_maison' : 'appartement']
+                          : ((row as any).main_type === 'villa_maison' ? ['Villa'] : ['S+1', 'S+2', 'S+3', 'S+4'])).map((option) => (
                           <option key={`residence-unit-option-${index}-${option}`} value={option}>{option}</option>
                         ))}
                       </select>
