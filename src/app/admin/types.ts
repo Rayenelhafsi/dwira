@@ -202,6 +202,7 @@ export interface ResidenceApartmentTemplate {
 export interface ResidenceUnitTemplate {
   id: string;
   main_type?: 'appartement' | 'villa_maison';
+  shared_title?: string;
   sub_type: string;
   quantity: number;
   apartment_names?: string[];

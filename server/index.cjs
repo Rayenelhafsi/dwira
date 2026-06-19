@@ -6904,6 +6904,7 @@ function normalizeResidenceUnits(rawUnits) {
     .map((unit, index) => ({
       id: String(unit?.id || `res_unit_${index + 1}`).trim() || `res_unit_${index + 1}`,
       main_type: normalizeBienType(unit?.main_type || unit?.mainType || unit?.type || 'appartement') === 'villa_maison' ? 'villa_maison' : 'appartement',
+      shared_title: String(unit?.shared_title || unit?.sharedTitle || '').trim(),
       sub_type: String(unit?.sub_type || unit?.subType || '').trim(),
       quantity: Math.max(1, Math.floor(Number(unit?.quantity || 1) || 1)),
       apartment_references: (Array.isArray(unit?.apartment_references) ? unit.apartment_references : [])
@@ -6935,7 +6936,9 @@ function normalizeResidenceUnits(rawUnits) {
     .filter((unit) => unit.sub_type);
 }
 
-function buildResidenceChildTitle(parentTitle, subType, index) {
+function buildResidenceChildTitle(parentTitle, subType, index, sharedTitle = '') {
+  const normalizedSharedTitle = String(sharedTitle || '').trim();
+  if (normalizedSharedTitle) return normalizedSharedTitle;
   const title = String(parentTitle || '').trim() || 'Residence';
   const normalizedSubType = String(subType || '').trim();
   return normalizedSubType
@@ -10385,6 +10388,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
         key: `${unit.id}__${index}`,
         unitId: unit.id,
         mainType: normalizeBienType(unit.main_type || 'appartement') === 'villa_maison' ? 'villa_maison' : 'appartement',
+        sharedTitle: String(unit.shared_title || '').trim(),
         subType: unit.sub_type,
         index,
         apartmentName: String(apartmentMeta?.name || apartmentMobileName || unit.apartment_names?.[index - 1] || '').trim() || '',
@@ -10480,10 +10484,13 @@ async function syncResidenceChildrenForParent(parentBienId) {
     const existingChild = existingByKey.get(desiredChild.key) || null;
     const childId = existingChild?.id ? String(existingChild.id) : buildShortId('reschild', parentBienId, desiredChild.key);
     const childTitle = String(
+      desiredChild.sharedTitle
+      || ''
+    ).trim() || String(
       desiredChild.apartmentName
       || desiredChild.apartmentMobileName
       || ''
-    ).trim() || buildResidenceChildTitle(parent.titre, desiredChild.subType, desiredChild.index);
+    ).trim() || buildResidenceChildTitle(parent.titre, desiredChild.subType, desiredChild.index, desiredChild.sharedTitle);
     const unitTemplateBien = desiredChild.templateBien && typeof desiredChild.templateBien === 'object' ? desiredChild.templateBien : {};
     const sourceForUnit = {
       ...parent,
@@ -14555,7 +14562,8 @@ app.get('/api/biens-lite', async (req, res) => {
       SELECT
         id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain,
         prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured,
-        ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id,
+        ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, folder_id,
+        residence_parent_bien_id, residence_parent_name, residence_unit_key, residence_unit_sub_type, residence_units_json,
         date_ajout, created_at, updated_at, admin_last_saved_at,
         tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, prix_final, revenu_agence
       FROM biens

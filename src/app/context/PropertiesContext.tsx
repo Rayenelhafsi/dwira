@@ -874,6 +874,20 @@ function writePropertiesCache(payload: PropertiesCachePayload) {
 const isPubliclyVisibleBien = (bien: Bien) =>
   bien.visible_sur_site !== false && String(bien.type || '').trim().toLowerCase() !== 'residence';
 
+function buildPublicPropertiesFromBiens(biens: Bien[], zonesById: Record<string, Zone> = {}): Property[] {
+  const visibleBiens = (Array.isArray(biens) ? biens : []).filter(isPubliclyVisibleBien);
+  const seenResidenceSubTypes = new Set<string>();
+  return visibleBiens.filter((bien) => {
+    const residenceParentId = String((bien as any).residence_parent_bien_id || '').trim();
+    if (!residenceParentId) return true;
+    const residenceSubType = String((bien as any).residence_unit_sub_type || bien.configuration || '').trim().toLowerCase();
+    const dedupeKey = `${residenceParentId}::${residenceSubType || String(bien.type || '').trim().toLowerCase()}`;
+    if (seenResidenceSubTypes.has(dedupeKey)) return false;
+    seenResidenceSubTypes.add(dedupeKey);
+    return true;
+  }).map((bien) => bienToProperty(bien, zonesById));
+}
+
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -923,7 +937,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     const cachedZones = initialCache?.zones || [];
     const zonesById: Record<string, Zone> = {};
     for (const zone of cachedZones) zonesById[zone.id] = zone;
-    return cachedBiens.filter(isPubliclyVisibleBien).map((bien) => bienToProperty(bien, zonesById));
+    return buildPublicPropertiesFromBiens(cachedBiens, zonesById);
   });
   const [zones, setZones] = useState<Zone[]>(initialCache?.zones || []);
   const [proprietaires, setProprietaires] = useState<Proprietaire[]>(initialCache?.proprietaires || []);
@@ -945,7 +959,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
 
     setBiens(mappedBiens);
     setBienFolders(Array.isArray(folderRows) ? folderRows : []);
-    setProperties(mappedBiens.filter(isPubliclyVisibleBien).map((bien) => bienToProperty(bien, zonesById)));
+    setProperties(buildPublicPropertiesFromBiens(mappedBiens, zonesById));
     setZones(Array.isArray(zonesData) ? zonesData : []);
     setProprietaires(Array.isArray(propsData) ? propsData : []);
     setModePriorities({
@@ -1079,11 +1093,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         setBienFolders(initialCache.bienFolders || []);
         const zonesById: Record<string, Zone> = {};
         for (const zone of initialCache.zones || []) zonesById[zone.id] = zone;
-        setProperties(
-          initialCache.biens
-            .filter((bien) => bien.visible_sur_site !== false)
-            .map((bien) => bienToProperty(bien, zonesById))
-        );
+        setProperties(buildPublicPropertiesFromBiens(initialCache.biens, zonesById));
         setZones(initialCache.zones || []);
         setProprietaires(initialCache.proprietaires || []);
         setModePriorities(initialCache.modePriorities || DEFAULT_MODE_PRIORITIES);

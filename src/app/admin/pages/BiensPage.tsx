@@ -188,6 +188,7 @@ const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens
     const currentUnit = unitsById.get(unitId) || {
       id: unitId,
       main_type: normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement',
+      shared_title: String(child?.titre || '').trim(),
       sub_type: rawSubType,
       quantity: 0,
       apartment_names: [],
@@ -236,6 +237,7 @@ const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens
     const apartmentTitle = String(child?.nom_bien_mobile || child?.titre || '').trim();
     currentUnit.sub_type = currentUnit.sub_type || rawSubType;
     currentUnit.main_type = currentUnit.main_type || (normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement');
+    currentUnit.shared_title = currentUnit.shared_title || String(child?.titre || '').trim();
     currentUnit.quantity = Math.max(Number(currentUnit.quantity || 0), apartmentIndex);
     currentUnit.apartment_names[apartmentIndex - 1] = apartmentTitle;
     currentUnit.apartment_references[apartmentIndex - 1] = String(child?.reference || '').trim();
@@ -2044,26 +2046,28 @@ export default function BiensPage() {
           )}
         </div>
       </div>
-      <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[320px,1fr]">
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
+      <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[340px,1fr]">
+        <div className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/40 to-cyan-50/30 p-4 shadow-[0_18px_45px_-24px_rgba(16,185,129,0.35)]">
+          <div className="mb-4 flex items-start justify-between">
             <div>
               <h2 className="text-base font-semibold text-gray-900">Dossiers biens</h2>
-              <p className="text-sm text-gray-500">Root et sous-dossiers pour organiser le portefeuille.</p>
+              <p className="text-sm text-gray-500">Structurez le portefeuille par root et sous-dossiers.</p>
             </div>
-            <FolderPlus className="h-4 w-4 text-emerald-600" />
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+              <FolderPlus className="h-4 w-4" />
+            </span>
           </div>
           <div className="space-y-2">
             <button
               type="button"
               onClick={() => setSelectedFolderId('root')}
-              className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm ${selectedFolderId === 'root' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
+              className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition ${selectedFolderId === 'root' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-900 shadow-sm' : 'border-white/80 bg-white/90 text-gray-700 hover:bg-white'}`}
             >
               <span className="inline-flex items-center gap-2">
                 {selectedFolderId === 'root' ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />}
                 Root
               </span>
-              <span className="text-xs text-gray-500">{filteredBiens.filter((bien) => !String(bien.folder_id || '').trim()).length}</span>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 shadow-sm">{filteredBiens.filter((bien) => !String(bien.folder_id || '').trim()).length}</span>
             </button>
             <FolderTree
               parentId="root"
@@ -2074,17 +2078,21 @@ export default function BiensPage() {
               level={0}
             />
           </div>
-          <div className="mt-4 space-y-2 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 p-3">
+          <div className="mt-4 space-y-3 rounded-2xl border border-dashed border-emerald-200 bg-white/75 p-4">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Nouveau dossier</p>
+              <p className="text-xs text-gray-500">Créez un dossier puis déplacez plusieurs biens en un clic.</p>
+            </div>
             <input
               value={newFolderName}
               onChange={(event) => setNewFolderName(event.target.value)}
               placeholder="Nom du dossier"
-              className="block w-full rounded-lg border border-gray-300 p-2 text-sm"
+              className="block w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm"
             />
             <select
               value={newFolderParentId}
               onChange={(event) => setNewFolderParentId(event.target.value)}
-              className="block w-full rounded-lg border border-gray-300 p-2 text-sm"
+              className="block w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm"
             >
               <option value="root">Créer dans root</option>
               {(bienFolders || []).map((folder) => (
@@ -2095,26 +2103,31 @@ export default function BiensPage() {
               type="button"
               onClick={() => void handleCreateFolder()}
               disabled={isCreatingFolder}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <FolderPlus className="h-4 w-4" />
               {isCreatingFolder ? 'Création...' : 'Créer le dossier'}
             </button>
           </div>
         </div>
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.32)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-gray-900">
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                <span>Dossier actif</span>
+                <span className="h-1 w-1 rounded-full bg-slate-400" />
+                <span>{selectedFolderId === 'root' ? 'Root' : (folderNameById.get(selectedFolderId) || 'Dossier')}</span>
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900">
                 {selectedFolderId === 'root' ? 'Biens dans root' : `Biens dans ${folderNameById.get(selectedFolderId) || 'dossier'}`}
               </h2>
               <p className="text-sm text-gray-500">{displayedBiens.length} bien(s) affiché(s).</p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50 p-2">
               <button
                 type="button"
                 onClick={toggleSelectAllDisplayed}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-slate-100"
               >
                 {allDisplayedSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
                 {allDisplayedSelected ? 'Désélectionner visibles' : 'Sélectionner visibles'}
@@ -2122,7 +2135,7 @@ export default function BiensPage() {
               <select
                 value={moveTargetFolderId}
                 onChange={(event) => setMoveTargetFolderId(event.target.value)}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                className="min-w-[220px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
               >
                 <option value="root">Déplacer vers root</option>
                 {(bienFolders || []).map((folder) => (
@@ -2133,7 +2146,7 @@ export default function BiensPage() {
                 type="button"
                 onClick={() => void handleMoveSelectedBiens()}
                 disabled={selectedBienIds.length === 0}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <ArrowRightLeft className="h-4 w-4" />
                 Déplacer {selectedBienIds.length > 0 ? `(${selectedBienIds.length})` : ''}
@@ -3359,6 +3372,17 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         [field]: field === 'quantity' ? nextQuantity : (field === 'main_type' ? nextMainType : value),
         sub_type: field === 'main_type' ? '' : nextSubType,
         apartments: trimmedApartments,
+      };
+      return { ...prev, residence_units: rows };
+    });
+  };
+  const handleResidenceUnitSharedTitleChange = (index: number, value: string) => {
+    setFormData((prev) => {
+      const rows = Array.isArray(prev.residence_units) ? [...prev.residence_units] : [];
+      const current = rows[index] || { id: `res_unit_${Date.now()}_${index}`, main_type: 'appartement', sub_type: '', quantity: 1 };
+      rows[index] = {
+        ...current,
+        shared_title: String(value || ''),
       };
       return { ...prev, residence_units: rows };
     });
@@ -5357,6 +5381,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           .map((row, index) => ({
             id: String(row?.id || `res_unit_${index + 1}`),
             main_type: (row as any)?.main_type === 'villa_maison' ? 'villa_maison' : 'appartement',
+            shared_title: String((row as any)?.shared_title || '').trim(),
             sub_type: String(row?.sub_type || '').trim(),
             quantity: Math.max(1, Math.floor(Number(row?.quantity || 1) || 1)),
             apartment_names: (row.apartments || []).map((apartment) => String(apartment?.name || '').trim()),
@@ -5663,6 +5688,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         ...row,
         id: String(row?.id || `res_unit_${rowIndex + 1}`),
         main_type: ((row as any)?.main_type === 'villa_maison' ? 'villa_maison' : 'appartement') as 'appartement' | 'villa_maison',
+        shared_title: String((row as any)?.shared_title || '').trim(),
         quantity,
         apartments,
       };
@@ -5713,6 +5739,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         }));
         return {
           ...row,
+          shared_title: String((row as any)?.shared_title || '').trim(),
           apartments: nextApartments,
           template_bien: {
             ...previousTemplate,
@@ -6654,10 +6681,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       }
       const invalidNamesRow = validResidenceUnits.find((row) => {
         const names = Array.isArray(row?.apartment_names) ? row.apartment_names : [];
+        const sharedTitle = String((row as any)?.shared_title || '').trim();
+        if (sharedTitle) return false;
         return names.length > 0 && names.length !== Number(row.quantity || 0);
       });
       if (invalidNamesRow) {
-        issues.push(createValidationIssue(0, 'residence_units', 'Noms appartements', 'Le nombre de noms doit correspondre a la quantite du sous-type'));
+        issues.push(createValidationIssue(0, 'residence_units', 'Noms appartements', 'Le nombre de noms doit correspondre a la quantite du sous-type si aucun titre commun n est defini'));
       }
     }
 
@@ -7102,6 +7131,13 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                         ))}
                       </select>
                       <input
+                        type="text"
+                        value={String((row as any).shared_title || '')}
+                        onChange={(e) => handleResidenceUnitSharedTitleChange(index, e.target.value)}
+                        placeholder="Titre commun affiche au client"
+                        className="block w-full rounded-lg border-gray-300 border p-2 text-sm md:col-span-2"
+                      />
+                      <input
                         type="number"
                         min={1}
                         value={Math.max(1, Number(row.quantity || 1))}
@@ -7113,7 +7149,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                       </button>
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs font-medium text-gray-600">Nom de chaque appartement</label>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">Nom de chaque appartement / villa</label>
+                          <p className="mb-2 text-xs text-gray-500">Optionnel si vous utilisez le titre commun du sous-type pour l affichage client.</p>
                           <div className="space-y-2">
                             {Array.from({ length: Math.max(1, Number(row.quantity || 1)) }, (_, apartmentIndex) => (
                               <div key={`residence-apartment-name-${index}-${apartmentIndex}`} className="grid gap-2 md:grid-cols-2">
