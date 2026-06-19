@@ -27,7 +27,7 @@ import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
-import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { applyAmicaleTtc, applySitepWeeklyEquivalentForFiveNights, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { getFlashNightlyAmount, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
 import {
@@ -995,6 +995,17 @@ export default function PropertyDetailsPage() {
     return Number.isFinite(raw) && raw > 0 ? raw : null;
   })();
   const isAmicalePricingActive = Boolean(pricingAmicaleId) && property?.priceContext !== 'sale';
+  const selectedAmicaleOption = useMemo(
+    () => amicaleOptions.find((item) => item.id === amicaleSelectionId) || null,
+    [amicaleOptions, amicaleSelectionId]
+  );
+  const isSitepAmicalePricing = isAmicalePricingActive && isSitepAmicale({
+    code: paymentMode === "amicale" ? amicaleCode : pendingDraft?.amicaleCode,
+    name: paymentMode === "amicale" ? amicaleFullName : pendingDraft?.amicaleName,
+    selectionName: paymentMode === "amicale"
+      ? (selectedAmicaleOption?.name || "")
+      : (pendingDraft?.amicaleSelectionName || ""),
+  });
   const [liveUnavailableDates, setLiveUnavailableDates] = useState<Array<{
     start: string;
     end: string;
@@ -2685,7 +2696,13 @@ out body 40;
       amicaleId: pricingAmicaleId,
     });
     const nights = accommodationPricing.nights;
-    const accommodationTotal = accommodationPricing.accommodationTotal;
+    const sitepEquivalentAccommodationTotal = applySitepWeeklyEquivalentForFiveNights({
+      enabled: isSitepAmicalePricing,
+      nights,
+      weeklyPrice: accommodationPricing.segments[0]?.weeklyPrice ?? property?.pricePerWeek,
+      fallbackTotal: accommodationPricing.accommodationTotal,
+    });
+    const accommodationTotal = sitepEquivalentAccommodationTotal;
     const discountedAccommodationTotal = lockedFlashOffer
       ? (lockedFlashOffer.mode === "fixed_amount" && Number(lockedFlashOffer.fixedNightlyAmount || 0) > 0
           ? Math.round(Number(lockedFlashOffer.fixedNightlyAmount || 0) * nights * 100) / 100

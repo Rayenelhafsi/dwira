@@ -12,7 +12,7 @@ import { computeGuestLimits } from "../utils/guestLimits";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 import { getAntiBotConfig } from "../services/auth";
 import { buildPropertyDetailsPath, propertyMatchesRouteToken } from "../utils/propertyRouting";
-import { applyAmicaleTtc, formatTnd } from "../utils/amicalePricing";
+import { applyAmicaleTtc, applySitepWeeklyEquivalentForFiveNights, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { trackMetaEvent } from "../utils/metaConversions";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
@@ -141,6 +141,11 @@ export default function ReservationConfirmationPage() {
   const isInstantReservation = !isVisitRequest && Boolean((property as any)?.seasonalConfig?.reservationInstantanee);
   const isAmicaleFlow = draft?.paymentMode === 'amicale';
   const isAmicalePricingActive = Boolean(pricingAmicaleId) && isAmicaleFlow;
+  const isSitepAmicalePricing = isAmicalePricingActive && isSitepAmicale({
+    code: draft?.amicaleCode,
+    name: draft?.amicaleName,
+    selectionName: draft?.amicaleSelectionName,
+  });
   const seasonalConfig = property?.seasonalConfig;
   const fallbackMaxGuests = Math.max(1, property?.guests || seasonalConfig?.limitePersonnesNuit || 1);
   const { maxGuests, maxAdultGuests, maxChildGuests } = computeGuestLimits({
@@ -175,6 +180,12 @@ export default function ReservationConfirmationPage() {
     });
     const nights = accommodationPricing.nights;
     const draftFlashOffer = draft.flashOffer || null;
+    const sitepEquivalentAccommodationTotal = applySitepWeeklyEquivalentForFiveNights({
+      enabled: isSitepAmicalePricing,
+      nights,
+      weeklyPrice: accommodationPricing.segments[0]?.weeklyPrice ?? property?.pricePerWeek,
+      fallbackTotal: accommodationPricing.accommodationTotal,
+    });
     const flashAccommodationTotal = draftFlashOffer
       ? (draftFlashOffer.mode === "fixed_amount" && Number(draftFlashOffer.fixedNightlyAmount || 0) > 0
           ? Math.round(Number(draftFlashOffer.fixedNightlyAmount || 0) * nights * 100) / 100
@@ -183,7 +194,7 @@ export default function ReservationConfirmationPage() {
               discountPercent: draftFlashOffer.discountPercent ?? null,
               fixedNightlyAmount: draftFlashOffer.fixedNightlyAmount ?? null,
             }) * nights * 100) / 100)
-      : accommodationPricing.accommodationTotal;
+      : sitepEquivalentAccommodationTotal;
     const accommodationTotal = flashAccommodationTotal;
     const cleaningFee = hasCleaningFee && draft.includeCleaningFee ? (property.cleaningFee || 0) : 0;
     const serviceFee = hasServiceFee && draft.includeServiceFee ? (property.serviceFee || 0) : 0;
@@ -212,8 +223,8 @@ export default function ReservationConfirmationPage() {
       childGuests,
       nights,
       accommodationTotal: applyPartnerAgencyMargin(applyAmicaleTtc(accommodationTotal, isAmicalePricingActive), partnerAgencyMarginMultiplier),
-      accommodationSegments: accommodationPricing.segments,
-      averageNightlyPrice: accommodationPricing.averageNightlyPrice,
+      accommodationSegments: isSitepAmicalePricing && nights === 5 ? [] : accommodationPricing.segments,
+      averageNightlyPrice: nights > 0 ? accommodationTotal / nights : accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
       cleaningFee: applyPartnerAgencyMargin(applyAmicaleTtc(cleaningFee, isAmicalePricingActive), partnerAgencyMarginMultiplier),
       serviceFee: applyPartnerAgencyMargin(applyAmicaleTtc(serviceFee, isAmicalePricingActive), partnerAgencyMarginMultiplier),
@@ -230,7 +241,7 @@ export default function ReservationConfirmationPage() {
       advancePercent,
       flashOffer: draftFlashOffer,
     };
-  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, isAmicalePricingActive, maxAdultGuests, maxChildGuests, maxGuests, partnerAgencyMarginMultiplier, pricingAmicaleId, property, seasonalConfig]);
+  }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, isAmicalePricingActive, isSitepAmicalePricing, maxAdultGuests, maxChildGuests, maxGuests, partnerAgencyMarginMultiplier, pricingAmicaleId, property, seasonalConfig]);
 
   useEffect(() => {
     let cancelled = false;
