@@ -12,6 +12,7 @@ import PublicBienPageView from '../../ventes/components/PublicBienPageView';
 import LocationPublicBienPageView from '../../locations/components/LocationPublicBienPageView';
 import { SmartImage } from '../../components/SmartImage';
 import { FEATURE_ICON_OPTIONS, getFeatureIconElement } from '../../utils/featureIcons';
+import { buildApiUrl } from '../../utils/api';
 import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils/servicePayants';
 import { canRenderVideoInIframe, isFacebookVideoUrl, isSupportedVideoUrl, toVideoEmbedUrl, toVideoExternalUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../../utils/bienCapacity';
@@ -2477,7 +2478,9 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     });
   };
   const currentBienId = String(initialData?.id || formData.id || '').trim();
-  const airbnbExportUrl = currentBienId ? `${API_URL}/public/biens/${encodeURIComponent(currentBienId)}/calendar.ics` : '';
+  const airbnbExportUrl = currentBienId
+    ? buildApiUrl(`/public/biens/${encodeURIComponent(currentBienId)}/calendar.ics`)
+    : '';
   const [airbnbSyncing, setAirbnbSyncing] = useState(false);
   const handleCopyAirbnbExportUrl = async () => {
     if (!airbnbExportUrl) {
