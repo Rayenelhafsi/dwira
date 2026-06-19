@@ -18668,16 +18668,27 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       [bien_id, end_date, start_date]
     );
     const normalizedPeriodRules = (periodRules || []).map(normalizeReservationPeriod);
-    let requiredMinNights = cfgMinStay;
+    let requiredMinNightsFromPeriods = null;
+    let hasUncoveredNight = false;
     for (let offset = 0; offset < requestedNights; offset += 1) {
       const day = addSqlDays(start_date, offset);
       if (!day) continue;
       const period = findReservationPeriodForDate(normalizedPeriodRules, day, normalizedPricingAmicaleId);
       const value = Number(period?.minimum_nuitees || 0);
-      if (Number.isFinite(value) && value > requiredMinNights) {
-        requiredMinNights = Math.max(1, Math.floor(value));
+      if (Number.isFinite(value) && value > 0) {
+        const normalizedValue = Math.max(1, Math.floor(value));
+        requiredMinNights = requiredMinNightsFromPeriods === null
+          ? normalizedValue
+          : Math.max(requiredMinNightsFromPeriods, normalizedValue);
+      } else {
+        hasUncoveredNight = true;
       }
     }
+    const requiredMinNights = requiredMinNightsFromPeriods === null
+      ? cfgMinStay
+      : (hasUncoveredNight
+          ? Math.max(cfgMinStay, requiredMinNightsFromPeriods)
+          : requiredMinNightsFromPeriods);
     if (requestType === 'reservation' && requestedNights < requiredMinNights) {
       return res.status(400).json({ error: `Sejour minimum pour cette periode: ${requiredMinNights} nuit(s)` });
     }
