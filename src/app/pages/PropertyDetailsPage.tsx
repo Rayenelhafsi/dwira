@@ -2610,6 +2610,16 @@ out body 40;
   }, []);
 
   useEffect(() => {
+    if (isSaleProperty || partnerAgencyId) return;
+    const linkedAmicaleId = String(searchParams.get("amicale") || "").trim();
+    if (!linkedAmicaleId || !amicaleOptions.length) return;
+    const linkedAmicale = amicaleOptions.find((item) => item.id === linkedAmicaleId);
+    if (!linkedAmicale) return;
+    setPaymentMode("amicale");
+    setAmicaleSelectionId(linkedAmicale.id);
+  }, [amicaleOptions, isSaleProperty, partnerAgencyId, searchParams]);
+
+  useEffect(() => {
     if (!lockedFlashOffer || draftHydratedRef.current) return;
     const parsedStart = new Date(`${lockedFlashOffer.start}T00:00:00`);
     const parsedEnd = new Date(`${lockedFlashOffer.end}T00:00:00`);
