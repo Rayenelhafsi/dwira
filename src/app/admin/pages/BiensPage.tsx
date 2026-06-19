@@ -2476,6 +2476,79 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       ventes_flash: offers,
     });
   };
+  const currentBienId = String(initialData?.id || formData.id || '').trim();
+  const airbnbExportUrl = currentBienId ? `${API_URL}/public/biens/${encodeURIComponent(currentBienId)}/calendar.ics` : '';
+  const [airbnbSyncing, setAirbnbSyncing] = useState(false);
+  const handleCopyAirbnbExportUrl = async () => {
+    if (!airbnbExportUrl) {
+      toast.error('Sauvegardez d abord le bien pour obtenir le lien ICS');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(airbnbExportUrl);
+      toast.success('Lien ICS du site copie');
+    } catch {
+      toast.error('Copie impossible');
+    }
+  };
+  const handleAirbnbCalendarSyncNow = async () => {
+    if (!currentBienId) {
+      toast.error('Sauvegardez d abord le bien');
+      return;
+    }
+    setAirbnbSyncing(true);
+    try {
+      const response = await fetch(`${API_URL}/biens/${encodeURIComponent(currentBienId)}/calendar-sync/airbnb`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          airbnb_import_ics_url: String(saisonConfig.airbnb_import_ics_url || '').trim() || null,
+          airbnb_sync_enabled: Boolean(saisonConfig.airbnb_sync_enabled),
+          force: true,
+          sync_now: true,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error || 'Synchronisation Airbnb impossible'));
+      }
+      const nextConfig = payload?.config && typeof payload.config === 'object'
+        ? payload.config as Partial<LocationSaisonniereConfig>
+        : {};
+      updateSaisonConfig(nextConfig);
+      const normalizedDates = (Array.isArray(payload?.unavailableDates) ? payload.unavailableDates : [])
+        .map((row: any) => {
+          const start = String(row?.start_date || row?.start || '').slice(0, 10);
+          const end = String(row?.end_date || row?.end || '').slice(0, 10);
+          const rawStatus = String(row?.status || '').trim().toLowerCase();
+          const status: 'blocked' | 'pending' | 'booked' = rawStatus === 'booked' || rawStatus === 'pending' || rawStatus === 'blocked'
+            ? rawStatus
+            : 'blocked';
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || end < start) return null;
+          return {
+            id: row?.id ? String(row.id) : undefined,
+            start,
+            end,
+            status,
+            color: String(row?.color || '').trim() || (status === 'booked' ? '#ef4444' : status === 'pending' ? '#f97316' : '#111827'),
+            paymentDeadline: row?.paymentDeadline || row?.payment_deadline || undefined,
+            reservationDemandId: row?.reservation_demand_id ? String(row.reservation_demand_id) : null,
+            sync_source: row?.sync_source ? String(row.sync_source) : null,
+            sync_uid: row?.sync_uid ? String(row.sync_uid) : null,
+          } satisfies DateStatus;
+        })
+        .filter((row: DateStatus | null): row is DateStatus => Boolean(row));
+      setUnavailableDates(normalizedDates);
+      const successMessage = String(nextConfig.airbnb_last_sync_message || '').trim()
+        || `${Number(payload?.importedEvents || 0)} evenement(s) synchronises`;
+      toast.success(successMessage);
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Synchronisation Airbnb impossible'));
+    } finally {
+      setAirbnbSyncing(false);
+    }
+  };
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
   const [proprietaireOptions, setProprietaireOptions] = useState<Proprietaire[]>(proprietaires);
   const [images, setImages] = useState<Media[]>(resolvedInitialData?.media || resolvedSeedData?.media || []);
@@ -2908,9 +2981,11 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
               start,
               end,
               status,
-              color: status === 'booked' ? '#ef4444' : status === 'pending' ? '#f97316' : '#111827',
+              color: String(row?.color || '').trim() || (status === 'booked' ? '#ef4444' : status === 'pending' ? '#f97316' : '#111827'),
               paymentDeadline: row?.paymentDeadline || row?.payment_deadline || undefined,
               reservationDemandId: row?.reservation_demand_id ? String(row.reservation_demand_id) : null,
+              sync_source: row?.sync_source ? String(row.sync_source) : null,
+              sync_uid: row?.sync_uid ? String(row.sync_uid) : null,
             } satisfies DateStatus;
           })
           .filter((row): row is DateStatus => Boolean(row));
@@ -9654,6 +9729,79 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
               defaultNightlyPrice={Number(formData.prix_nuitee || 0)}
               defaultWeeklyPrice={formData.prix_semaine === null || formData.prix_semaine === undefined ? null : Number(formData.prix_semaine || 0)}
             />
+            <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="text-base font-semibold text-gray-900">Synchronisation Airbnb</h4>
+                  <p className="text-sm text-gray-600">
+                    Exportez le calendrier Dwira vers Airbnb et importez ici le lien `.ics` genere par Airbnb pour la synchro retour.
+                  </p>
+                </div>
+                {isResidenceParent && (
+                  <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                    Pour une residence, configurez Airbnb sur chaque bien enfant.
+                  </span>
+                )}
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-4">
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-emerald-700">Lien ICS du site a mettre dans Airbnb</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={airbnbExportUrl || 'Sauvegardez le bien pour generer le lien ICS'}
+                      className="w-full rounded-lg border border-emerald-200 bg-white p-2 text-sm text-gray-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyAirbnbExportUrl()}
+                      disabled={!airbnbExportUrl}
+                      className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copier
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-600">Dans Airbnb: Calendrier, disponibilite, connecter un autre site web, Etape 1.</p>
+                </div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-blue-700">Lien `.ics` Airbnb a coller sur Dwira</label>
+                  <input
+                    type="url"
+                    value={String(saisonConfig.airbnb_import_ics_url || '')}
+                    onChange={(e) => updateSaisonConfig({ airbnb_import_ics_url: e.target.value })}
+                    placeholder="https://...airbnb....ics"
+                    className="w-full rounded-lg border border-blue-200 bg-white p-2 text-sm text-gray-700"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(saisonConfig.airbnb_sync_enabled)}
+                        onChange={(e) => updateSaisonConfig({ airbnb_sync_enabled: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-emerald-600"
+                      />
+                      Activer la synchro Airbnb
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleAirbnbCalendarSyncNow()}
+                      disabled={!currentBienId || airbnbSyncing || !String(saisonConfig.airbnb_import_ics_url || '').trim()}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {airbnbSyncing ? 'Synchronisation...' : 'Synchroniser maintenant'}
+                    </button>
+                  </div>
+                  <div className="mt-3 text-xs text-gray-600">
+                    <p>Dans Airbnb: Etape 2, collez le lien `.ics` fourni par Airbnb ici.</p>
+                    <p>Derniere synchro: {saisonConfig.airbnb_last_sync_at || 'Jamais'}</p>
+                    <p>Statut: {saisonConfig.airbnb_last_sync_status || 'idle'}</p>
+                    <p>{saisonConfig.airbnb_last_sync_message || 'Aucune synchronisation effectuee pour le moment.'}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

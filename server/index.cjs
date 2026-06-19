@@ -76,6 +76,9 @@ const META_CAPI_ACCESS_TOKEN = String(process.env.META_CAPI_ACCESS_TOKEN || '').
 const META_CAPI_TEST_EVENT_CODE = String(process.env.META_CAPI_TEST_EVENT_CODE || '').trim();
 const META_CAPI_DEBUG = ['1', 'true', 'yes', 'on'].includes(String(process.env.META_CAPI_DEBUG || '').trim().toLowerCase());
 const MEDIA_UPLOAD_PROVIDER = String(process.env.MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
+const AIRBNB_ICAL_SYNC_INTERVAL_MS = Number.isFinite(Number(process.env.AIRBNB_ICAL_SYNC_INTERVAL_MS))
+  ? Math.max(5 * 60 * 1000, Number(process.env.AIRBNB_ICAL_SYNC_INTERVAL_MS))
+  : 15 * 60 * 1000;
 const MEDIA_REQUIRED_UPLOAD = String(
   process.env.MEDIA_REQUIRED_UPLOAD || process.env.CLOUDINARY_REQUIRED_UPLOAD || ''
 ).trim().toLowerCase() === 'true';
@@ -3206,6 +3209,338 @@ function resolvePublicApiBase(req) {
   const isLocalHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host);
   const protocol = isLocalHost ? String(req?.protocol || 'http') : 'https';
   return `${protocol}://${host}`;
+}
+
+function normalizeAirbnbCalendarSyncConfig(rawConfig) {
+  const config = rawConfig && typeof rawConfig === 'object' ? { ...rawConfig } : {};
+  return {
+    ...config,
+    airbnb_sync_enabled: config.airbnb_sync_enabled === true || String(config.airbnb_sync_enabled || '').trim().toLowerCase() === 'true',
+    airbnb_import_ics_url: String(config.airbnb_import_ics_url || '').trim() || null,
+    airbnb_last_sync_at: String(config.airbnb_last_sync_at || '').trim() || null,
+    airbnb_last_sync_status: (() => {
+      const value = String(config.airbnb_last_sync_status || '').trim().toLowerCase();
+      return value === 'success' || value === 'error' || value === 'idle' ? value : null;
+    })(),
+    airbnb_last_sync_message: String(config.airbnb_last_sync_message || '').trim() || null,
+    airbnb_last_sync_event_count: Number.isFinite(Number(config.airbnb_last_sync_event_count))
+      ? Math.max(0, Math.floor(Number(config.airbnb_last_sync_event_count)))
+      : null,
+  };
+}
+
+function getBienCalendarExportUrl(req, bienId) {
+  const base = resolvePublicApiBase(req);
+  return `${base}/api/public/biens/${encodeURIComponent(String(bienId || '').trim())}/calendar.ics`;
+}
+
+function isSelfCalendarImportUrl(rawUrl, bienId) {
+  const value = String(rawUrl || '').trim();
+  const safeBienId = String(bienId || '').trim();
+  if (!value || !safeBienId) return false;
+  return value.includes(`/api/public/biens/${encodeURIComponent(safeBienId)}/calendar.ics`)
+    || value.includes(`/api/public/biens/${safeBienId}/calendar.ics`);
+}
+
+function foldIcsContentLine(line) {
+  const raw = String(line || '');
+  if (raw.length <= 75) return raw;
+  const parts = [];
+  let cursor = 0;
+  while (cursor < raw.length) {
+    parts.push(`${cursor === 0 ? '' : ' '}${raw.slice(cursor, cursor + 75)}`);
+    cursor += 75;
+  }
+  return parts.join('\r\n');
+}
+
+function escapeIcsText(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, '\\n')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,');
+}
+
+function formatIcsDateOnly(value) {
+  const normalized = toSqlDateOnly(value);
+  if (!normalized) return '';
+  return normalized.replace(/-/g, '');
+}
+
+function formatIcsUtcTimestamp(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+}
+
+function unfoldIcsLines(icsText) {
+  const rawLines = String(icsText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const lines = [];
+  for (const rawLine of rawLines) {
+    if (!rawLine) continue;
+    if ((rawLine.startsWith(' ') || rawLine.startsWith('\t')) && lines.length > 0) {
+      lines[lines.length - 1] += rawLine.slice(1);
+    } else {
+      lines.push(rawLine);
+    }
+  }
+  return lines;
+}
+
+function extractIcsPropertyValue(rawLine) {
+  const line = String(rawLine || '');
+  const separatorIndex = line.indexOf(':');
+  if (separatorIndex < 0) return '';
+  return line.slice(separatorIndex + 1).trim();
+}
+
+function parseIcsDateOnlyValue(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return null;
+  const dateOnlyMatch = value.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (dateOnlyMatch) {
+    return `${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}`;
+  }
+  const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i);
+  if (dateTimeMatch) {
+    const isoValue = `${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}T${dateTimeMatch[4]}:${dateTimeMatch[5]}:${dateTimeMatch[6]}${/z$/i.test(value) ? 'Z' : ''}`;
+    const parsed = new Date(isoValue);
+    if (Number.isNaN(parsed.getTime())) {
+      return `${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`;
+    }
+    return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`;
+  }
+  return null;
+}
+
+function addDaysToSqlDate(value, days) {
+  const normalized = toSqlDateOnly(value);
+  if (!normalized) return null;
+  const parsed = new Date(`${normalized}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setUTCDate(parsed.getUTCDate() + Number(days || 0));
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`;
+}
+
+function parseIcsEvents(icsText) {
+  const lines = unfoldIcsLines(icsText);
+  const events = [];
+  let current = null;
+
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') {
+      current = {};
+      continue;
+    }
+    if (line === 'END:VEVENT') {
+      if (current) {
+        const start = parseIcsDateOnlyValue(current.dtstart);
+        let end = parseIcsDateOnlyValue(current.dtend);
+        if (!end && start) end = addDaysToSqlDate(start, 1);
+        if (start && end && end > start) {
+          events.push({
+            uid: String(current.uid || `${start}_${end}`).trim(),
+            start,
+            end,
+            summary: String(current.summary || '').trim() || null,
+          });
+        }
+      }
+      current = null;
+      continue;
+    }
+    if (!current) continue;
+
+    const upperLine = line.toUpperCase();
+    if (upperLine.startsWith('DTSTART')) current.dtstart = extractIcsPropertyValue(line);
+    else if (upperLine.startsWith('DTEND')) current.dtend = extractIcsPropertyValue(line);
+    else if (upperLine.startsWith('UID')) current.uid = extractIcsPropertyValue(line);
+    else if (upperLine.startsWith('SUMMARY')) current.summary = extractIcsPropertyValue(line);
+  }
+
+  return events;
+}
+
+function buildAvailabilityCalendarIcs({ bien, unavailableDates, req }) {
+  const safeBienId = String(bien?.id || '').trim();
+  const title = String(bien?.titre || 'Bien Dwira').trim() || 'Bien Dwira';
+  const reference = String(bien?.reference || '').trim();
+  const stamp = formatIcsUtcTimestamp(new Date());
+  const exportUrl = getBienCalendarExportUrl(req, safeBienId);
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Dwira Immobilier//Calendar Sync//FR',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    foldIcsContentLine(`X-WR-CALNAME:${escapeIcsText(title)}`),
+    foldIcsContentLine(`X-WR-CALDESC:${escapeIcsText(reference ? `${title} (${reference})` : title)}`),
+  ];
+
+  for (const item of Array.isArray(unavailableDates) ? unavailableDates : []) {
+    const start = formatIcsDateOnly(item?.start_date || item?.start);
+    const end = formatIcsDateOnly(item?.end_date || item?.end);
+    if (!start || !end) continue;
+    const uid = String(item?.id || `${safeBienId}_${start}_${end}`).trim();
+    const statusLabel = String(item?.status || '').trim().toLowerCase() === 'booked' ? 'Reservation Dwira' : 'Indisponibilite Dwira';
+    lines.push('BEGIN:VEVENT');
+    lines.push(foldIcsContentLine(`UID:${escapeIcsText(uid)}@dwiraimmobilier.com`));
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`DTSTART;VALUE=DATE:${start}`);
+    lines.push(`DTEND;VALUE=DATE:${end}`);
+    lines.push(foldIcsContentLine(`SUMMARY:${escapeIcsText(statusLabel)}`));
+    lines.push(foldIcsContentLine(`DESCRIPTION:${escapeIcsText(`Synchronise depuis Dwira Immobilier. ${exportUrl}`)}`));
+    lines.push('END:VEVENT');
+  }
+
+  lines.push('END:VCALENDAR');
+  return `${lines.join('\r\n')}\r\n`;
+}
+
+async function updateBienCalendarSyncMeta(bienId, updater) {
+  const normalizedBienId = String(bienId || '').trim();
+  if (!normalizedBienId) return null;
+  const [rows] = await pool.query(
+    'SELECT location_saisonniere_config_json FROM biens WHERE id = ? LIMIT 1',
+    [normalizedBienId]
+  );
+  const row = rows?.[0] || null;
+  const currentConfig = safeParseJson(row?.location_saisonniere_config_json, {});
+  const normalizedConfig = normalizeAirbnbCalendarSyncConfig(currentConfig);
+  const nextPatch = typeof updater === 'function' ? updater(normalizedConfig) : updater;
+  const nextConfig = {
+    ...normalizedConfig,
+    ...(nextPatch && typeof nextPatch === 'object' ? nextPatch : {}),
+  };
+  await pool.query(
+    'UPDATE biens SET location_saisonniere_config_json = ?, updated_at = ?, admin_last_saved_at = ? WHERE id = ?',
+    [JSON.stringify(nextConfig), getAgencySqlDateTime(), getAgencySqlDateTime(), normalizedBienId]
+  );
+  return nextConfig;
+}
+
+async function fetchIcsCalendarText(importUrl) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(String(importUrl || '').trim(), {
+      method: 'GET',
+      headers: {
+        Accept: 'text/calendar,text/plain;q=0.9,*/*;q=0.5',
+        'User-Agent': 'DwiraCalendarSync/1.0',
+      },
+      signal: controller.signal,
+    });
+    const text = await response.text().catch(() => '');
+    if (!response.ok) {
+      throw new Error(`Import ICS HTTP ${response.status}`);
+    }
+    if (!/BEGIN:VCALENDAR/i.test(text)) {
+      throw new Error('Fichier ICS invalide');
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function syncAirbnbCalendarImportForBien(bienId, options = {}) {
+  await ensureReservationDemandSchema();
+  const normalizedBienId = String(bienId || '').trim();
+  if (!normalizedBienId) {
+    throw new Error('bien_id requis');
+  }
+  const [rows] = await pool.query(
+    'SELECT id, titre, reference, mode, type, location_saisonniere_config_json FROM biens WHERE id = ? LIMIT 1',
+    [normalizedBienId]
+  );
+  const bien = rows?.[0] || null;
+  if (!bien) {
+    throw new Error('Bien introuvable');
+  }
+  if (String(bien.mode || '').trim() !== 'location_saisonniere') {
+    throw new Error('Synchronisation Airbnb reservee aux biens en location saisonniere');
+  }
+  const config = normalizeAirbnbCalendarSyncConfig(safeParseJson(bien.location_saisonniere_config_json, {}));
+  const importUrl = String(config.airbnb_import_ics_url || '').trim();
+  const enabled = config.airbnb_sync_enabled === true;
+  const force = options?.force === true;
+
+  if (!importUrl) {
+    const nextConfig = await updateBienCalendarSyncMeta(normalizedBienId, {
+      airbnb_last_sync_at: getAgencySqlDateTime(),
+      airbnb_last_sync_status: 'idle',
+      airbnb_last_sync_message: 'Lien ICS Airbnb manquant',
+      airbnb_last_sync_event_count: 0,
+    });
+    return { bienId: normalizedBienId, importedEvents: 0, removedEvents: 0, skipped: true, config: nextConfig };
+  }
+  if (!enabled && !force) {
+    return { bienId: normalizedBienId, importedEvents: 0, removedEvents: 0, skipped: true, config };
+  }
+  if (isSelfCalendarImportUrl(importUrl, normalizedBienId)) {
+    throw new Error('Le lien ICS importe pointe vers le meme calendrier Dwira. Utilisez le lien .ics exporte par Airbnb.');
+  }
+
+  const icsText = await fetchIcsCalendarText(importUrl);
+  const events = parseIcsEvents(icsText);
+  const externalRows = events.map((event, index) => ({
+    id: `ud_sync_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+    bien_id: normalizedBienId,
+    start_date: event.start,
+    end_date: event.end,
+    status: 'blocked',
+    color: '#2563eb',
+    sync_source: 'airbnb_ics',
+    sync_uid: String(event.uid || '').slice(0, 250) || `${event.start}_${event.end}`,
+  }));
+
+  const connection = await pool.getConnection();
+  let removedEvents = 0;
+  try {
+    await connection.beginTransaction();
+    const [deleteResult] = await connection.query(
+      'DELETE FROM unavailable_dates WHERE bien_id = ? AND sync_source = ?',
+      [normalizedBienId, 'airbnb_ics']
+    );
+    removedEvents = Number(deleteResult?.affectedRows || 0);
+    for (const row of externalRows) {
+      await connection.query(
+        `INSERT INTO unavailable_dates
+         (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline, color, sync_source, sync_uid)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+        [row.id, row.bien_id, row.start_date, row.end_date, row.status, row.color, row.sync_source, row.sync_uid]
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  const nextConfig = await updateBienCalendarSyncMeta(normalizedBienId, {
+    airbnb_sync_enabled: true,
+    airbnb_last_sync_at: getAgencySqlDateTime(),
+    airbnb_last_sync_status: 'success',
+    airbnb_last_sync_message: `${externalRows.length} evenement(s) Airbnb importes`,
+    airbnb_last_sync_event_count: externalRows.length,
+  });
+  return {
+    bienId: normalizedBienId,
+    importedEvents: externalRows.length,
+    removedEvents,
+    skipped: false,
+    config: nextConfig,
+  };
 }
 
 function toSqlDateBoundary(input, endOfDay = false) {
@@ -10326,10 +10661,12 @@ async function listUnavailableDatesForBienIds(bienIds) {
        bien_id,
        DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
        DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
-       status,
-       reservation_demand_id,
-       color,
-       DATE_FORMAT(payment_deadline, '%Y-%m-%d %H:%i:%s') AS paymentDeadline
+     status,
+     reservation_demand_id,
+     color,
+     sync_source,
+     sync_uid,
+     DATE_FORMAT(payment_deadline, '%Y-%m-%d %H:%i:%s') AS paymentDeadline
      FROM unavailable_dates
      WHERE bien_id IN (${placeholders})
      ORDER BY start_date ASC, end_date ASC`,
@@ -10343,6 +10680,8 @@ async function listUnavailableDatesForBienIds(bienIds) {
       status: String(row.status || '').trim().toLowerCase() || 'blocked',
       reservation_demand_id: row.reservation_demand_id ? String(row.reservation_demand_id).trim() : null,
       color: row.color ? String(row.color).trim() : null,
+      sync_source: row.sync_source ? String(row.sync_source).trim() : null,
+      sync_uid: row.sync_uid ? String(row.sync_uid).trim() : null,
       paymentDeadline: row.paymentDeadline || null,
     };
     if (!byBienId.has(row.bien_id)) byBienId.set(row.bien_id, []);
@@ -14197,6 +14536,97 @@ app.get('/api/bien-folders', requireAdminSession, async (_req, res) => {
   } catch (error) {
     console.error('Error fetching bien folders:', error);
     res.status(500).json({ error: 'Impossible de charger les dossiers de biens' });
+  }
+});
+
+app.get('/api/public/biens/:id/calendar.ics', async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const bienId = String(req.params.id || '').trim();
+    if (!bienId) return res.status(400).send('bien_id requis');
+    const [bienRows] = await pool.query(
+      'SELECT id, titre, reference, mode, visible_sur_site FROM biens WHERE id = ? LIMIT 1',
+      [bienId]
+    );
+    const bien = bienRows?.[0] || null;
+    if (!bien) return res.status(404).send('Bien introuvable');
+    if (String(bien.mode || '').trim() === 'vente') {
+      return res.status(400).send('Calendrier ICS indisponible pour un bien en vente');
+    }
+
+    const [rows] = await pool.query(
+      `SELECT id,
+              DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+              DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+              status,
+              sync_source
+       FROM unavailable_dates
+       WHERE bien_id = ?
+         AND status IN ('blocked', 'booked', 'pending')
+         AND (sync_source IS NULL OR sync_source <> 'airbnb_ics')
+       ORDER BY start_date ASC, end_date ASC`,
+      [bienId]
+    );
+    const ics = buildAvailabilityCalendarIcs({ bien, unavailableDates: rows || [], req });
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `inline; filename="${String(bien.reference || bien.id || 'calendar').replace(/[^a-zA-Z0-9._-]+/g, '-')}.ics"`);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.send(ics);
+  } catch (error) {
+    console.error('Error exporting bien ICS calendar:', error);
+    return res.status(500).send('Export ICS impossible');
+  }
+});
+
+app.post('/api/biens/:id/calendar-sync/airbnb', requireAdminSession, async (req, res) => {
+  try {
+    const bienId = String(req.params.id || '').trim();
+    if (!bienId) return res.status(400).json({ error: 'bien_id requis' });
+    const importUrl = req.body?.airbnb_import_ics_url;
+    const enabled = req.body?.airbnb_sync_enabled;
+    if (importUrl !== undefined || enabled !== undefined) {
+      await updateBienCalendarSyncMeta(bienId, (currentConfig) => ({
+        airbnb_import_ics_url: importUrl !== undefined ? (String(importUrl || '').trim() || null) : currentConfig.airbnb_import_ics_url,
+        airbnb_sync_enabled: enabled !== undefined
+          ? (enabled === true || String(enabled || '').trim().toLowerCase() === 'true')
+          : currentConfig.airbnb_sync_enabled,
+      }));
+    }
+    const result = await syncAirbnbCalendarImportForBien(bienId, {
+      force: req.body?.force === true || req.body?.sync_now === true,
+    });
+    const [dates] = await pool.query(
+      `SELECT id,
+              DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+              DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+              status,
+              color,
+              sync_source,
+              sync_uid,
+              reservation_demand_id,
+              DATE_FORMAT(payment_deadline, '%Y-%m-%d %H:%i:%s') AS paymentDeadline
+       FROM unavailable_dates
+       WHERE bien_id = ?
+       ORDER BY start_date ASC, end_date ASC`,
+      [bienId]
+    );
+    return res.json({
+      ok: true,
+      ...result,
+      exportUrl: getBienCalendarExportUrl(req, bienId),
+      unavailableDates: dates || [],
+    });
+  } catch (error) {
+    const bienId = String(req.params.id || '').trim();
+    if (bienId) {
+      await updateBienCalendarSyncMeta(bienId, {
+        airbnb_last_sync_at: getAgencySqlDateTime(),
+        airbnb_last_sync_status: 'error',
+        airbnb_last_sync_message: String(error?.message || 'Synchronisation Airbnb impossible'),
+      }).catch(() => {});
+    }
+    console.error('Error syncing Airbnb calendar import:', error);
+    return res.status(500).json({ error: String(error?.message || 'Synchronisation Airbnb impossible') });
   }
 });
 
@@ -22405,6 +22835,12 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('unavailable_dates', 'payment_deadline'))) {
     await pool.query('ALTER TABLE unavailable_dates ADD COLUMN payment_deadline DATETIME NULL AFTER reservation_demand_id');
   }
+  if (!(await columnExists('unavailable_dates', 'sync_source'))) {
+    await pool.query('ALTER TABLE unavailable_dates ADD COLUMN sync_source VARCHAR(40) NULL AFTER color');
+  }
+  if (!(await columnExists('unavailable_dates', 'sync_uid'))) {
+    await pool.query('ALTER TABLE unavailable_dates ADD COLUMN sync_uid VARCHAR(255) NULL AFTER sync_source');
+  }
   if (!(await columnExists('reservation_demands', 'request_type'))) {
     await pool.query("ALTER TABLE reservation_demands ADD COLUMN request_type VARCHAR(20) NOT NULL DEFAULT 'reservation' AFTER bien_id");
   }
@@ -23213,6 +23649,9 @@ app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
          end_date,
          status,
          reservation_demand_id,
+         color,
+         sync_source,
+         sync_uid,
          DATE_FORMAT(payment_deadline, '%Y-%m-%d %H:%i:%s') AS paymentDeadline
        FROM unavailable_dates
        WHERE bien_id = ?`,
@@ -26574,9 +27013,49 @@ app.use((error, req, res, next) => {
   return next(error);
 });
 
+let airbnbCalendarSyncTickRunning = false;
+async function runAirbnbCalendarSyncTick() {
+  if (airbnbCalendarSyncTickRunning) return;
+  airbnbCalendarSyncTickRunning = true;
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, mode, type, location_saisonniere_config_json
+       FROM biens
+       WHERE mode = 'location_saisonniere'
+         AND location_saisonniere_config_json IS NOT NULL`
+    );
+    for (const row of rows || []) {
+      const config = normalizeAirbnbCalendarSyncConfig(safeParseJson(row.location_saisonniere_config_json, {}));
+      if (!config.airbnb_sync_enabled) continue;
+      if (!String(config.airbnb_import_ics_url || '').trim()) continue;
+      try {
+        await syncAirbnbCalendarImportForBien(String(row.id || '').trim());
+      } catch (error) {
+        console.error(`Airbnb calendar sync failed for bien ${row.id}:`, error?.message || error);
+        await updateBienCalendarSyncMeta(String(row.id || '').trim(), {
+          airbnb_last_sync_at: getAgencySqlDateTime(),
+          airbnb_last_sync_status: 'error',
+          airbnb_last_sync_message: String(error?.message || 'Synchronisation Airbnb impossible'),
+        }).catch(() => {});
+      }
+    }
+  } catch (error) {
+    console.error('Airbnb calendar scheduler tick failed:', error);
+  } finally {
+    airbnbCalendarSyncTickRunning = false;
+  }
+}
+
 setInterval(() => {
   runOwnerCalendarPromptSchedulerTick();
 }, 60 * 1000).unref?.();
+
+setInterval(() => {
+  runAirbnbCalendarSyncTick();
+}, AIRBNB_ICAL_SYNC_INTERVAL_MS).unref?.();
+setTimeout(() => {
+  runAirbnbCalendarSyncTick();
+}, 30 * 1000).unref?.();
 
 // Start server
 app.listen(PORT, () => {

@@ -156,6 +156,8 @@ export interface DateStatus {
   color?: string;
   paymentDeadline?: string;
   reservationDemandId?: string | null;
+  sync_source?: string | null;
+  sync_uid?: string | null;
 }
 
 export interface SeasonalPricingPeriod {
@@ -327,6 +329,12 @@ export type LocationSaisonniereConfig = {
   frais_service?: number | null;
   services_payants?: ServicePayantBien[];
   google_maps_embed_url?: string | null;
+  airbnb_sync_enabled?: boolean;
+  airbnb_import_ics_url?: string | null;
+  airbnb_last_sync_at?: string | null;
+  airbnb_last_sync_status?: 'success' | 'error' | 'idle' | null;
+  airbnb_last_sync_message?: string | null;
+  airbnb_last_sync_event_count?: number | null;
   exterieur_jardin?: string[];
   confort_equipements_interieurs?: string[];
   climatisation?: boolean;
