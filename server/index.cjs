@@ -3226,7 +3226,50 @@ function normalizeAirbnbCalendarSyncConfig(rawConfig) {
     airbnb_last_sync_event_count: Number.isFinite(Number(config.airbnb_last_sync_event_count))
       ? Math.max(0, Math.floor(Number(config.airbnb_last_sync_event_count)))
       : null,
+    airbnb_sync_history: Array.isArray(config.airbnb_sync_history)
+      ? config.airbnb_sync_history
+          .map((entry) => {
+            const at = String(entry?.at || '').trim();
+            const status = String(entry?.status || '').trim().toLowerCase();
+            const source = String(entry?.source || '').trim().toLowerCase();
+            if (!at || !['success', 'error', 'idle'].includes(status)) return null;
+            return {
+              at,
+              status,
+              message: String(entry?.message || '').trim() || null,
+              event_count: Number.isFinite(Number(entry?.event_count)) ? Math.max(0, Math.floor(Number(entry.event_count))) : null,
+              removed_count: Number.isFinite(Number(entry?.removed_count)) ? Math.max(0, Math.floor(Number(entry.removed_count))) : null,
+              source: ['manual', 'scheduled', 'startup'].includes(source) ? source : null,
+            };
+          })
+          .filter(Boolean)
+      : [],
   };
+}
+
+function buildAirbnbSyncHistoryEntry({ status, message, eventCount = null, removedCount = null, source = null, at = null }) {
+  const normalizedStatus = ['success', 'error', 'idle'].includes(String(status || '').trim().toLowerCase())
+    ? String(status || '').trim().toLowerCase()
+    : 'idle';
+  const normalizedSource = ['manual', 'scheduled', 'startup'].includes(String(source || '').trim().toLowerCase())
+    ? String(source || '').trim().toLowerCase()
+    : null;
+  return {
+    at: String(at || getAgencySqlDateTime()).trim(),
+    status: normalizedStatus,
+    message: String(message || '').trim() || null,
+    event_count: Number.isFinite(Number(eventCount)) ? Math.max(0, Math.floor(Number(eventCount))) : null,
+    removed_count: Number.isFinite(Number(removedCount)) ? Math.max(0, Math.floor(Number(removedCount))) : null,
+    source: normalizedSource,
+  };
+}
+
+function appendAirbnbSyncHistoryEntries(currentConfig, entries) {
+  const currentHistory = Array.isArray(currentConfig?.airbnb_sync_history) ? currentConfig.airbnb_sync_history : [];
+  const normalizedEntries = (Array.isArray(entries) ? entries : [entries])
+    .filter(Boolean)
+    .map((entry) => buildAirbnbSyncHistoryEntry(entry));
+  return [...normalizedEntries, ...currentHistory].slice(0, 20);
 }
 
 function getBienCalendarExportUrl(req, bienId) {
@@ -3472,14 +3515,26 @@ async function syncAirbnbCalendarImportForBien(bienId, options = {}) {
   const importUrl = String(config.airbnb_import_ics_url || '').trim();
   const enabled = config.airbnb_sync_enabled === true;
   const force = options?.force === true;
+  const syncSource = ['manual', 'scheduled', 'startup'].includes(String(options?.source || '').trim().toLowerCase())
+    ? String(options.source).trim().toLowerCase()
+    : (force ? 'manual' : 'scheduled');
 
   if (!importUrl) {
-    const nextConfig = await updateBienCalendarSyncMeta(normalizedBienId, {
-      airbnb_last_sync_at: getAgencySqlDateTime(),
+    const syncAt = getAgencySqlDateTime();
+    const nextConfig = await updateBienCalendarSyncMeta(normalizedBienId, (currentConfig) => ({
+      airbnb_last_sync_at: syncAt,
       airbnb_last_sync_status: 'idle',
       airbnb_last_sync_message: 'Lien ICS Airbnb manquant',
       airbnb_last_sync_event_count: 0,
-    });
+      airbnb_sync_history: appendAirbnbSyncHistoryEntries(currentConfig, {
+        at: syncAt,
+        status: 'idle',
+        message: 'Lien ICS Airbnb manquant',
+        eventCount: 0,
+        removedCount: 0,
+        source: syncSource,
+      }),
+    }));
     return { bienId: normalizedBienId, importedEvents: 0, removedEvents: 0, skipped: true, config: nextConfig };
   }
   if (!enabled && !force) {
@@ -3527,13 +3582,22 @@ async function syncAirbnbCalendarImportForBien(bienId, options = {}) {
     connection.release();
   }
 
-  const nextConfig = await updateBienCalendarSyncMeta(normalizedBienId, {
+  const syncAt = getAgencySqlDateTime();
+  const nextConfig = await updateBienCalendarSyncMeta(normalizedBienId, (currentConfig) => ({
     airbnb_sync_enabled: true,
-    airbnb_last_sync_at: getAgencySqlDateTime(),
+    airbnb_last_sync_at: syncAt,
     airbnb_last_sync_status: 'success',
     airbnb_last_sync_message: `${externalRows.length} evenement(s) Airbnb importes`,
     airbnb_last_sync_event_count: externalRows.length,
-  });
+    airbnb_sync_history: appendAirbnbSyncHistoryEntries(currentConfig, {
+      at: syncAt,
+      status: 'success',
+      message: `${externalRows.length} evenement(s) Airbnb importes`,
+      eventCount: externalRows.length,
+      removedCount: removedEvents,
+      source: syncSource,
+    }),
+  }));
   return {
     bienId: normalizedBienId,
     importedEvents: externalRows.length,
@@ -14594,6 +14658,7 @@ app.post('/api/biens/:id/calendar-sync/airbnb', requireAdminSession, async (req,
     }
     const result = await syncAirbnbCalendarImportForBien(bienId, {
       force: req.body?.force === true || req.body?.sync_now === true,
+      source: 'manual',
     });
     const [dates] = await pool.query(
       `SELECT id,
@@ -14619,11 +14684,20 @@ app.post('/api/biens/:id/calendar-sync/airbnb', requireAdminSession, async (req,
   } catch (error) {
     const bienId = String(req.params.id || '').trim();
     if (bienId) {
-      await updateBienCalendarSyncMeta(bienId, {
-        airbnb_last_sync_at: getAgencySqlDateTime(),
+      const syncAt = getAgencySqlDateTime();
+      await updateBienCalendarSyncMeta(bienId, (currentConfig) => ({
+        airbnb_last_sync_at: syncAt,
         airbnb_last_sync_status: 'error',
         airbnb_last_sync_message: String(error?.message || 'Synchronisation Airbnb impossible'),
-      }).catch(() => {});
+        airbnb_sync_history: appendAirbnbSyncHistoryEntries(currentConfig, {
+          at: syncAt,
+          status: 'error',
+          message: String(error?.message || 'Synchronisation Airbnb impossible'),
+          eventCount: 0,
+          removedCount: 0,
+          source: 'manual',
+        }),
+      })).catch(() => {});
     }
     console.error('Error syncing Airbnb calendar import:', error);
     return res.status(500).json({ error: String(error?.message || 'Synchronisation Airbnb impossible') });
@@ -27014,7 +27088,7 @@ app.use((error, req, res, next) => {
 });
 
 let airbnbCalendarSyncTickRunning = false;
-async function runAirbnbCalendarSyncTick() {
+async function runAirbnbCalendarSyncTick(options = {}) {
   if (airbnbCalendarSyncTickRunning) return;
   airbnbCalendarSyncTickRunning = true;
   try {
@@ -27029,14 +27103,25 @@ async function runAirbnbCalendarSyncTick() {
       if (!config.airbnb_sync_enabled) continue;
       if (!String(config.airbnb_import_ics_url || '').trim()) continue;
       try {
-        await syncAirbnbCalendarImportForBien(String(row.id || '').trim());
+        await syncAirbnbCalendarImportForBien(String(row.id || '').trim(), {
+          source: options?.source || 'scheduled',
+        });
       } catch (error) {
         console.error(`Airbnb calendar sync failed for bien ${row.id}:`, error?.message || error);
-        await updateBienCalendarSyncMeta(String(row.id || '').trim(), {
-          airbnb_last_sync_at: getAgencySqlDateTime(),
+        const syncAt = getAgencySqlDateTime();
+        await updateBienCalendarSyncMeta(String(row.id || '').trim(), (currentConfig) => ({
+          airbnb_last_sync_at: syncAt,
           airbnb_last_sync_status: 'error',
           airbnb_last_sync_message: String(error?.message || 'Synchronisation Airbnb impossible'),
-        }).catch(() => {});
+          airbnb_sync_history: appendAirbnbSyncHistoryEntries(currentConfig, {
+            at: syncAt,
+            status: 'error',
+            message: String(error?.message || 'Synchronisation Airbnb impossible'),
+            eventCount: 0,
+            removedCount: 0,
+            source: options?.source || 'scheduled',
+          }),
+        })).catch(() => {});
       }
     }
   } catch (error) {
@@ -27051,10 +27136,10 @@ setInterval(() => {
 }, 60 * 1000).unref?.();
 
 setInterval(() => {
-  runAirbnbCalendarSyncTick();
+  runAirbnbCalendarSyncTick({ source: 'scheduled' });
 }, AIRBNB_ICAL_SYNC_INTERVAL_MS).unref?.();
 setTimeout(() => {
-  runAirbnbCalendarSyncTick();
+  runAirbnbCalendarSyncTick({ source: 'startup' });
 }, 30 * 1000).unref?.();
 
 // Start server

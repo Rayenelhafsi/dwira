@@ -335,6 +335,14 @@ export type LocationSaisonniereConfig = {
   airbnb_last_sync_status?: 'success' | 'error' | 'idle' | null;
   airbnb_last_sync_message?: string | null;
   airbnb_last_sync_event_count?: number | null;
+  airbnb_sync_history?: Array<{
+    at: string;
+    status: 'success' | 'error' | 'idle';
+    message?: string | null;
+    event_count?: number | null;
+    removed_count?: number | null;
+    source?: 'manual' | 'scheduled' | 'startup' | null;
+  }>;
   exterieur_jardin?: string[];
   confort_equipements_interieurs?: string[];
   climatisation?: boolean;

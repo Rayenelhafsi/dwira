@@ -2481,6 +2481,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const airbnbExportUrl = currentBienId
     ? buildApiUrl(`/public/biens/${encodeURIComponent(currentBienId)}/calendar.ics`)
     : '';
+  const airbnbSyncHistory = Array.isArray(saisonConfig.airbnb_sync_history) ? saisonConfig.airbnb_sync_history : [];
   const [airbnbSyncing, setAirbnbSyncing] = useState(false);
   const handleCopyAirbnbExportUrl = async () => {
     if (!airbnbExportUrl) {
@@ -9803,6 +9804,37 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                     <p>{saisonConfig.airbnb_last_sync_message || 'Aucune synchronisation effectuee pour le moment.'}</p>
                   </div>
                 </div>
+              </div>
+              <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <h5 className="text-sm font-semibold text-gray-900">Historique Airbnb</h5>
+                {airbnbSyncHistory.length === 0 ? (
+                  <p className="mt-2 text-xs text-gray-600">Aucun historique de synchronisation pour ce bien.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {airbnbSyncHistory.map((entry, index) => {
+                      const status = String(entry?.status || 'idle').trim().toLowerCase();
+                      const source = String(entry?.source || '').trim() || 'manual';
+                      const tone = status === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        : status === 'error'
+                          ? 'border-red-200 bg-red-50 text-red-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-800';
+                      return (
+                        <div key={`airbnb-history-${index}`} className={`rounded-lg border p-3 text-xs ${tone}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold uppercase">{status}</span>
+                            <span>{String(entry?.at || '') || 'Date inconnue'}</span>
+                          </div>
+                          <p className="mt-1">Source: {source}</p>
+                          <p className="mt-1">{String(entry?.message || '').trim() || 'Aucun message'}</p>
+                          <p className="mt-1">
+                            Evenements: {Number(entry?.event_count || 0)} | Anciennes lignes retirees: {Number(entry?.removed_count || 0)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
