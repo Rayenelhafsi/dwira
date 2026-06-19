@@ -2446,6 +2446,11 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const [pricingPeriods, setPricingPeriods] = useState<SeasonalPricingPeriod[]>(resolvedInitialData?.pricing_periods || resolvedSeedData?.pricing_periods || []);
   const [activeResidenceUnitId, setActiveResidenceUnitId] = useState<string>('');
   const [activeResidenceApartmentIndex, setActiveResidenceApartmentIndex] = useState<number>(0);
+  const activeResidenceMainType: 'appartement' | 'villa_maison' = (
+    ((Array.isArray(formData.residence_units) ? formData.residence_units : []).find((row) => String((row as any)?.id || '') === String(activeResidenceUnitId || '')) as any)?.main_type === 'villa_maison'
+      ? 'villa_maison'
+      : 'appartement'
+  );
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [removedUiBlocks, setRemovedUiBlocks] = useState<Record<string, boolean>>({});
@@ -5659,9 +5664,6 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const selectedTypeForUi = normalizeLegacyType((formData.type || 'appartement') as BienType);
   const isResidenceParent = selectedModeForUi === 'location_saisonniere' && selectedTypeForUi === 'residence';
   const isLocationAppartement = selectedModeForUi === 'location_saisonniere' && selectedTypeForUi !== 'residence';
-  const activeResidenceMainType: 'appartement' | 'villa_maison' = isResidenceParent
-    ? (((Array.isArray(formData.residence_units) ? formData.residence_units : []).find((row) => String((row as any)?.id || '') === String(activeResidenceUnitId || '')) as any)?.main_type === 'villa_maison' ? 'villa_maison' : 'appartement')
-    : 'appartement';
   const buildResidenceApartmentDefaultReference = useCallback((unitId: string, apartmentIndex: number) => {
     const normalizedBase = String(formData.reference || 'REF').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '') || 'REF';
     return `${normalizedBase}-${String(unitId || 'UNIT').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(-6) || 'UNIT'}-A${apartmentIndex + 1}`;
