@@ -2271,9 +2271,14 @@ function BienCard({ bien, zones, saveStatus, selected, onToggleSelect, onEdit, o
   const isResidenceChild = Boolean(String(bien.residence_parent_bien_id || '').trim());
   const hasResidenceUnits = Array.isArray(bien.residence_units) && bien.residence_units.length > 0;
   const isResidenceParent = !isResidenceChild && (normalizeLegacyType((bien.type || undefined) as BienType) === 'residence' || hasResidenceUnits);
+  const normalizedBienType = normalizeLegacyType((bien.type || 'appartement') as BienType);
+  const residenceChildMainTypeLabel = typeLabels[normalizedBienType] || bien.type || 'Bien';
+  const residenceChildSubTypeLabel = String(bien.residence_unit_sub_type || '').trim();
   const resolvedTypeLabel = isResidenceParent
     ? 'Residence'
-    : (isResidenceChild ? `Appartement ${String(bien.residence_unit_sub_type || '').trim() || ''}`.trim() : (typeLabels[normalizeLegacyType((bien.type || 'appartement') as BienType)] || bien.type || 'Bien'));
+    : (isResidenceChild
+      ? `${residenceChildMainTypeLabel} ${residenceChildSubTypeLabel}`.trim()
+      : (typeLabels[normalizedBienType] || bien.type || 'Bien'));
   const firstImageMedia = (bien.media || []).find((media) => media.type !== 'video');
   const firstVideoMedia = (bien.media || []).find((media) => media.type === 'video');
   const mainImage = resolveMediaUrl(firstImageMedia?.url) || toYouTubeThumbnailUrl(firstVideoMedia?.url) || ADMIN_IMAGE_FALLBACK;
