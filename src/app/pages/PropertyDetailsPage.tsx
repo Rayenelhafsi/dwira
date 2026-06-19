@@ -27,7 +27,7 @@ import { MapContainer, TileLayer, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
-import { applyAmicaleTtc, applySitepWeeklyEquivalentForFiveNights, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
+import { applyAmicaleTtc, applySitepAccommodationRule, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { getFlashNightlyAmount, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
 import {
@@ -2696,10 +2696,11 @@ out body 40;
       amicaleId: pricingAmicaleId,
     });
     const nights = accommodationPricing.nights;
-    const sitepEquivalentAccommodationTotal = applySitepWeeklyEquivalentForFiveNights({
+    const sitepEquivalentAccommodationTotal = applySitepAccommodationRule({
       enabled: isSitepAmicalePricing,
       nights,
       weeklyPrice: accommodationPricing.segments[0]?.weeklyPrice ?? property?.pricePerWeek,
+      nightlyPrice: accommodationPricing.averageNightlyPrice,
       fallbackTotal: accommodationPricing.accommodationTotal,
     });
     const accommodationTotal = sitepEquivalentAccommodationTotal;

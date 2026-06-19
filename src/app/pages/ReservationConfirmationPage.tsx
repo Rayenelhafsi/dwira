@@ -12,7 +12,7 @@ import { computeGuestLimits } from "../utils/guestLimits";
 import { clearPendingReservationDraft, readPendingReservationDraft, savePendingReservationDraft, type PendingReservationDraft } from "../utils/pendingReservation";
 import { getAntiBotConfig } from "../services/auth";
 import { buildPropertyDetailsPath, propertyMatchesRouteToken } from "../utils/propertyRouting";
-import { applyAmicaleTtc, applySitepWeeklyEquivalentForFiveNights, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
+import { applyAmicaleTtc, applySitepAccommodationRule, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { trackMetaEvent } from "../utils/metaConversions";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
@@ -180,10 +180,11 @@ export default function ReservationConfirmationPage() {
     });
     const nights = accommodationPricing.nights;
     const draftFlashOffer = draft.flashOffer || null;
-    const sitepEquivalentAccommodationTotal = applySitepWeeklyEquivalentForFiveNights({
+    const sitepEquivalentAccommodationTotal = applySitepAccommodationRule({
       enabled: isSitepAmicalePricing,
       nights,
       weeklyPrice: accommodationPricing.segments[0]?.weeklyPrice ?? property?.pricePerWeek,
+      nightlyPrice: accommodationPricing.averageNightlyPrice,
       fallbackTotal: accommodationPricing.accommodationTotal,
     });
     const flashAccommodationTotal = draftFlashOffer
@@ -223,7 +224,7 @@ export default function ReservationConfirmationPage() {
       childGuests,
       nights,
       accommodationTotal: applyPartnerAgencyMargin(applyAmicaleTtc(accommodationTotal, isAmicalePricingActive), partnerAgencyMarginMultiplier),
-      accommodationSegments: isSitepAmicalePricing && nights === 5 ? [] : accommodationPricing.segments,
+      accommodationSegments: isSitepAmicalePricing && nights === 7 ? [] : accommodationPricing.segments,
       averageNightlyPrice: nights > 0 ? accommodationTotal / nights : accommodationPricing.averageNightlyPrice,
       hasPeriodOverride: accommodationPricing.hasPeriodOverride,
       cleaningFee: applyPartnerAgencyMargin(applyAmicaleTtc(cleaningFee, isAmicalePricingActive), partnerAgencyMarginMultiplier),

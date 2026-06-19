@@ -31,16 +31,19 @@ export function isSitepAmicale(params: {
   return tokens.some((token) => token === "sitep" || token.includes("sitep"));
 }
 
-export function applySitepWeeklyEquivalentForFiveNights(params: {
+export function applySitepAccommodationRule(params: {
   enabled: boolean;
   nights: number;
   weeklyPrice?: number | null;
+  nightlyPrice?: number | null;
   fallbackTotal: number;
 }) {
   const fallbackTotal = roundCurrency(Number(params.fallbackTotal || 0));
-  const weeklyPrice = roundCurrency(Number(params.weeklyPrice || 0));
-  if (!params.enabled || Number(params.nights || 0) !== 5 || weeklyPrice <= 0) return fallbackTotal;
-  return weeklyPrice;
+  const nightlyPrice = roundCurrency(Number(params.nightlyPrice || 0));
+  const nights = Number(params.nights || 0);
+  if (!params.enabled) return fallbackTotal;
+  if (nights === 7 && nightlyPrice > 0) return roundCurrency(nightlyPrice * 6);
+  return fallbackTotal;
 }
 
 export function formatTnd(amount: number) {
