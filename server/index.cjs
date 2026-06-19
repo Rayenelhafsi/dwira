@@ -12856,7 +12856,7 @@ app.post('/api/property-packs', requireAdminSession, async (req, res) => {
     if (filteredBienIds.length === 0) {
       return res.status(400).json({ error: 'Aucune reference valide dans ce pack' });
     }
-    const id = `pack_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const id = `pack_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
     const now = getAgencySqlDateTime();
     await pool.query(
       `INSERT INTO property_packs (id, name, description, bien_ids_json, highlight_bullets_json, gallery_images_json, created_at, updated_at)
