@@ -16,12 +16,22 @@ import { getServiceTarificationLabel, normalizeServicePayant } from '../../utils
 import { canRenderVideoInIframe, isFacebookVideoUrl, isSupportedVideoUrl, toVideoEmbedUrl, toVideoExternalUrl, toYouTubeThumbnailUrl } from '../../utils/videoLinks';
 import { deriveBedroomsFromConfiguration, extractCapacityFromEntries } from '../../utils/bienCapacity';
 import { resolveCurrentPricing } from '../../utils/seasonalPricing';
-import { resolveMediaUrl } from '../../utils/media';
+import { getOptimizedMediaUrl, resolveMediaUrl } from '../../utils/media';
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const ADMIN_IMAGE_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M170 240l92-90 64 64 54-54 90 80H170z' fill='%23cbd5e1'/%3E%3Ccircle cx='250' cy='126' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
+const HEIC_IMAGE_RE = /\.hei[cf](?:$|[?#])/i;
+
+function getAdminGalleryImageSrc(url?: string | null, width = 960) {
+  const resolvedUrl = resolveMediaUrl(url);
+  if (!resolvedUrl) return ADMIN_IMAGE_FALLBACK;
+  if (HEIC_IMAGE_RE.test(resolvedUrl)) {
+    return getOptimizedMediaUrl(resolvedUrl, { width, quality: 78 }) || resolvedUrl;
+  }
+  return resolvedUrl;
+}
 const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK = (locationSaisonniereServicesData as ServicePayantBien[]).map((service) =>
   normalizeServicePayant(service)
 );
@@ -9342,7 +9352,17 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
                           {unitImages.map((img, index) => (
                             <div key={img.id} className="relative group rounded-lg overflow-hidden border border-gray-200">
-                              <SmartImage src={resolveMediaUrl(img.url)} alt={label} className="w-full h-24 object-cover" loading="lazy" decoding="async" fetchPriority="low" targetWidth={320} quality={55} />
+                              <img
+                                src={getAdminGalleryImageSrc(img.url, 720)}
+                                alt={label}
+                                className="w-full h-24 object-cover"
+                                loading="lazy"
+                                decoding="async"
+                                onError={(event) => {
+                                  event.currentTarget.onerror = null;
+                                  event.currentTarget.src = ADMIN_IMAGE_FALLBACK;
+                                }}
+                              />
                               <button
                                 type="button"
                                 onClick={() => handleRemoveImage(img.id)}
@@ -9388,15 +9408,16 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                         className={`relative group rounded-lg overflow-hidden border border-gray-200 ${draggedImageIndex === img.id ? 'opacity-60 ring-2 ring-emerald-300' : ''}`}
                         style={{ contentVisibility: 'auto', containIntrinsicSize: '180px' }}
                       >
-                        <SmartImage
-                          src={resolveMediaUrl(img.url)}
+                        <img
+                          src={getAdminGalleryImageSrc(img.url, 960)}
                           alt=""
                           className="w-full h-32 object-cover"
                           loading="lazy"
                           decoding="async"
-                          fetchPriority="low"
-                          targetWidth={360}
-                          quality={55}
+                          onError={(event) => {
+                            event.currentTarget.onerror = null;
+                            event.currentTarget.src = ADMIN_IMAGE_FALLBACK;
+                          }}
                         />
                         <div className="absolute top-2 right-2 p-1 bg-black/40 text-white rounded cursor-grab"><GripVertical className="h-3.5 w-3.5" /></div>
                         <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />

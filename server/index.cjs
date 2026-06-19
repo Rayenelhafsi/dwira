@@ -6196,7 +6196,15 @@ const upload = multer({
 function uploadMediaMiddleware(req, res, next) {
   upload.single('image')(req, res, (error) => {
     if (!error) {
-      return next();
+      normalizeUploadedImageFile(req.file)
+        .then(() => next())
+        .catch((normalizationError) => {
+          console.error('Uploaded media normalization failed:', normalizationError);
+          return res.status(400).json({
+            error: normalizationError?.message || 'Invalid file upload',
+          });
+        });
+      return;
     }
     if (error instanceof multer.MulterError) {
       if (error.code === 'LIMIT_FILE_SIZE') {
@@ -6417,6 +6425,56 @@ function createSiteMirrorPool() {
     connectionLimit: 2,
     dateStrings: ['DATE', 'DATETIME', 'TIMESTAMP'],
   });
+}
+
+function isHeicLikeUpload(file) {
+  if (!file) return false;
+  const originalName = String(file.originalname || '').toLowerCase();
+  const filename = String(file.filename || '').toLowerCase();
+  const mimetype = String(file.mimetype || '').toLowerCase();
+  return (
+    mimetype.includes('heic') ||
+    mimetype.includes('heif') ||
+    originalName.endsWith('.heic') ||
+    originalName.endsWith('.heif') ||
+    filename.endsWith('.heic') ||
+    filename.endsWith('.heif')
+  );
+}
+
+async function normalizeUploadedImageFile(file) {
+  if (!file) return file;
+  const mimetype = String(file.mimetype || '').toLowerCase();
+  if (!mimetype.startsWith('image/') && !isHeicLikeUpload(file)) {
+    return file;
+  }
+  if (!isHeicLikeUpload(file)) {
+    return file;
+  }
+
+  const sourcePath = String(file.path || '').trim();
+  if (!sourcePath) {
+    throw new Error('Uploaded file path is missing');
+  }
+
+  const parsedPath = path.parse(sourcePath);
+  const normalizedFilename = `${parsedPath.name}.jpg`;
+  const normalizedPath = path.join(parsedPath.dir, normalizedFilename);
+
+  await sharp(sourcePath)
+    .rotate()
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toFile(normalizedPath);
+
+  const normalizedStat = await fs.promises.stat(normalizedPath);
+  await fs.promises.unlink(sourcePath).catch(() => {});
+
+  file.path = normalizedPath;
+  file.filename = normalizedFilename;
+  file.mimetype = 'image/jpeg';
+  file.size = normalizedStat.size;
+  file.destination = parsedPath.dir;
+  return file;
 }
 
 function normalizeBienMode(rawMode) {
