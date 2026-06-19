@@ -10354,14 +10354,15 @@ async function syncResidenceChildrenForParent(parentBienId) {
   for (const unit of units) {
     for (let index = 1; index <= unit.quantity; index += 1) {
       const apartmentMeta = unit.apartments?.[index - 1] || null;
+      const apartmentMobileName = String(apartmentMeta?.nom_bien_mobile || '').trim() || '';
       desiredChildren.push({
         key: `${unit.id}__${index}`,
         unitId: unit.id,
         subType: unit.sub_type,
         index,
-        apartmentName: String(apartmentMeta?.name || unit.apartment_names?.[index - 1] || '').trim() || '',
+        apartmentName: String(apartmentMeta?.name || apartmentMobileName || unit.apartment_names?.[index - 1] || '').trim() || '',
         apartmentReference: String(apartmentMeta?.reference || unit.apartment_references?.[index - 1] || '').trim() || '',
-        apartmentMobileName: String(apartmentMeta?.nom_bien_mobile || '').trim() || '',
+        apartmentMobileName,
         apartmentDescription: String(apartmentMeta?.description || '').trim() || '',
         apartmentOwnerId: String(apartmentMeta?.proprietaire_id || '').trim() || '',
         templateBien: unit.template_bien && typeof unit.template_bien === 'object' ? unit.template_bien : {},
@@ -10451,7 +10452,11 @@ async function syncResidenceChildrenForParent(parentBienId) {
   for (const desiredChild of desiredChildren) {
     const existingChild = existingByKey.get(desiredChild.key) || null;
     const childId = existingChild?.id ? String(existingChild.id) : buildShortId('reschild', parentBienId, desiredChild.key);
-    const childTitle = String(desiredChild.apartmentName || '').trim() || buildResidenceChildTitle(parent.titre, desiredChild.subType, desiredChild.index);
+    const childTitle = String(
+      desiredChild.apartmentName
+      || desiredChild.apartmentMobileName
+      || ''
+    ).trim() || buildResidenceChildTitle(parent.titre, desiredChild.subType, desiredChild.index);
     const unitTemplateBien = desiredChild.templateBien && typeof desiredChild.templateBien === 'object' ? desiredChild.templateBien : {};
     const sourceForUnit = {
       ...parent,

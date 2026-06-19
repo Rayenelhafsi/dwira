@@ -5303,11 +5303,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       const apartmentNames = Array.isArray((row as any)?.apartment_names) ? ((row as any).apartment_names as string[]) : [];
       const apartments = Array.from({ length: quantity }, (_, apartmentIndex) => {
         const source = apartmentsSource[apartmentIndex] || {};
-        const name = String(source?.name || apartmentNames[apartmentIndex] || '').trim();
+        const mobileName = String(source?.nom_bien_mobile || '').trim();
+        const name = String(source?.name || mobileName || apartmentNames[apartmentIndex] || '').trim();
         return {
           name,
           reference: String(source?.reference || '').trim() || buildResidenceApartmentDefaultReference(String(row?.id || `res_unit_${rowIndex + 1}`), apartmentIndex),
-          nom_bien_mobile: String(source?.nom_bien_mobile || '').trim(),
+          nom_bien_mobile: mobileName,
           description: String(source?.description || '').trim(),
           proprietaire_id: String(source?.proprietaire_id || '').trim(),
           unavailable_dates: Array.isArray(source?.unavailable_dates) ? source.unavailable_dates : [],
