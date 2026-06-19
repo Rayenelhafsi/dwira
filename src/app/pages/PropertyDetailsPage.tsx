@@ -2650,6 +2650,19 @@ out body 40;
     const productsAccueilFee = property?.seasonalConfig?.produitsAccueilGratuits === false
       ? Number(property?.seasonalConfig?.fraisProduitsAccueil || 0)
       : 0;
+    if (!property) return {
+      nights: 0,
+      accommodationTotal: 0,
+      cleaningFee: 0,
+      serviceFee: 0,
+      extraMattressTotal: 0,
+      paidServicesTotal,
+      fixedSelectedServices,
+      variableSelectedServices,
+      productsAccueilFee,
+      extrasTotal: paidServicesTotal + productsAccueilFee,
+      total: paidServicesTotal + productsAccueilFee
+    };
     if (!selectedStart || !selectedEnd) return {
       nights: 0,
       accommodationTotal: 0,
