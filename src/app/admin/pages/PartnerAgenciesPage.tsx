@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Building2, CalendarDays, CheckCircle2, FileText, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { Building2, CalendarDays, ExternalLink, FileText, Power, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { createPartnerAgencyApi, deletePartnerAgencyApi, fetchPartnerAgenciesAdmin, updatePartnerAgencyApi, type PartnerAgencyItem } from "../../utils/partnerAgencies";
 import type { ReservationDemand, ReservationDemandStatus } from "../types";
@@ -248,6 +248,34 @@ export default function PartnerAgenciesPage() {
     }
   };
 
+  const handleToggleActive = async (agency: PartnerAgencyItem) => {
+    setSavingId(agency.id);
+    try {
+      await updatePartnerAgencyApi(agency.id, {
+        name: agency.name,
+        slug: agency.slug,
+        logoUrl: agency.logoUrl || null,
+        isActive: !agency.isActive,
+      });
+      await loadData();
+      toast.success(agency.isActive ? "Agence partenaire desactivee." : "Agence partenaire activee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleCopyPublicLink = async (agency: PartnerAgencyItem) => {
+    const value = `${window.location.origin}/${agency.slug}`;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success("Lien partenaire copie.");
+    } catch {
+      toast.error("Copie du lien impossible");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -315,12 +343,47 @@ export default function PartnerAgenciesPage() {
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{agency.name}</p>
-                        <p className="text-xs text-gray-500">/{agency.slug}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <p className="text-xs text-gray-500">/{agency.slug}</p>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${agency.isActive ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                            {agency.isActive ? "Active" : "Desactivee"}
+                          </span>
+                        </div>
                         <p className="mt-1 text-sm text-emerald-700">Marge {(((Math.max(1, Number(agency.marginMultiplier || 1)) - 1) * 100)).toFixed(2)}%</p>
                         <p className="mt-1 text-xs text-gray-500">Logo gere par l admin.</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleActive(agency)}
+                        disabled={savingId === agency.id}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm disabled:opacity-50 ${
+                          agency.isActive
+                            ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                            : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                        }`}
+                      >
+                        <Power size={15} />
+                        {agency.isActive ? "Desactiver" : "Activer"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyPublicLink(agency)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm text-sky-700 hover:bg-sky-50"
+                      >
+                        <ExternalLink size={15} />
+                        Lien /{agency.slug}
+                      </button>
+                      <a
+                        href="/partner-agency/login"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50"
+                      >
+                        <ExternalLink size={15} />
+                        Login agence
+                      </a>
                       <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
                         <Upload size={15} />
                         Logo

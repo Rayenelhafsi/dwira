@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CalendarDays, Edit2, FileText, Mail, Phone, Plus, QrCode, Search, Trash2, Upload, UserSquare2, Users, X } from 'lucide-react';
+import { CalendarDays, Edit2, ExternalLink, FileText, Mail, Phone, Plus, Power, QrCode, Search, Trash2, Upload, UserSquare2, Users, X } from 'lucide-react';
 import { Bien, ClienteleProfile, ClienteleTask, Contrat, Locataire, Maintenance, Paiement, Proprietaire, Utilisateur } from '../types';
 import { toast } from 'sonner';
 import { fetchClientInteractions } from '../../utils/clientInteractions';
 import { fetchAmicalesAdmin } from '../../utils/amicales';
-import { fetchPartnerAgenciesAdmin } from '../../utils/partnerAgencies';
+import { fetchPartnerAgenciesAdmin, updatePartnerAgencyApi } from '../../utils/partnerAgencies';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const DOSSIERS_STORAGE_KEY = 'dwira_clienteles_dossiers_v1';
@@ -100,7 +100,7 @@ type ClientelesCachePayload = {
   profiles: ClienteleProfile[];
   amicaleOptions: Array<{ id: string; name: string }>;
   agentAmicaleProfiles: Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }>;
-  partnerAgencyOptions: Array<{ id: string; name: string }>;
+  partnerAgencyOptions: Array<{ id: string; name: string; slug?: string; isActive?: boolean }>;
   partnerAgencyProfiles: Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }>;
 };
 type ClientFormState = {
@@ -397,7 +397,7 @@ export default function ClientelesPage() {
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
   const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string }>>(initialCache?.amicaleOptions || []);
   const [agentAmicaleProfiles, setAgentAmicaleProfiles] = useState<Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }>>(initialCache?.agentAmicaleProfiles || {});
-  const [partnerAgencyOptions, setPartnerAgencyOptions] = useState<Array<{ id: string; name: string }>>(initialCache?.partnerAgencyOptions || []);
+  const [partnerAgencyOptions, setPartnerAgencyOptions] = useState<Array<{ id: string; name: string; slug?: string; isActive?: boolean }>>(initialCache?.partnerAgencyOptions || []);
   const [partnerAgencyProfiles, setPartnerAgencyProfiles] = useState<Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }>>(initialCache?.partnerAgencyProfiles || {});
   const [isCinViewerOpen, setIsCinViewerOpen] = useState(false);
   const [cinViewerSide, setCinViewerSide] = useState<'recto' | 'verso'>('recto');
@@ -432,6 +432,7 @@ export default function ClientelesPage() {
   });
   const [businessProfileDraft, setBusinessProfileDraft] = useState<ClienteleProfile | null>(null);
   const [isSavingBusinessProfile, setIsSavingBusinessProfile] = useState(false);
+  const [isSavingPartnerAgencyAction, setIsSavingPartnerAgencyAction] = useState(false);
   const [pendingClientFocus, setPendingClientFocus] = useState<null | { category: ClientCategory; email: string; name: string }>(null);
 
   useEffect(() => {
@@ -538,7 +539,7 @@ export default function ClientelesPage() {
       let nextProfiles: ClienteleProfile[] = [];
       let nextAmicaleOptions: Array<{ id: string; name: string }> = [];
       let nextAgentAmicaleProfiles: Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }> = {};
-      let nextPartnerAgencyOptions: Array<{ id: string; name: string }> = [];
+      let nextPartnerAgencyOptions: Array<{ id: string; name: string; slug?: string; isActive?: boolean }> = [];
       let nextPartnerAgencyProfiles: Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }> = {};
 
       if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {
@@ -636,7 +637,7 @@ export default function ClientelesPage() {
 
       if (partnerAgenciesResult.status === 'fulfilled') {
         const rows = partnerAgenciesResult.value;
-        nextPartnerAgencyOptions = Array.isArray(rows) ? rows.map((item) => ({ id: item.id, name: item.name })) : [];
+        nextPartnerAgencyOptions = Array.isArray(rows) ? rows.map((item) => ({ id: item.id, name: item.name, slug: item.slug, isActive: item.isActive })) : [];
         setPartnerAgencyOptions(nextPartnerAgencyOptions);
       } else {
         setPartnerAgencyOptions([]);
@@ -1024,6 +1025,20 @@ export default function ClientelesPage() {
     }
     return createEmptyProfile(selectedClient.sourceTable, selectedClient.id, selectedClient.linkedUserId, selectedClient.email);
   }, [profiles, selectedClient]);
+
+  const partnerAgencyById = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; slug?: string; isActive?: boolean }>();
+    partnerAgencyOptions.forEach((item) => {
+      map.set(item.id, item);
+    });
+    return map;
+  }, [partnerAgencyOptions]);
+
+  const selectedPartnerAgency = useMemo(() => {
+    const partnerAgencyId = String(selectedClientDossier.partnerAgencyId || '').trim();
+    if (!partnerAgencyId) return null;
+    return partnerAgencyById.get(partnerAgencyId) || null;
+  }, [partnerAgencyById, selectedClientDossier.partnerAgencyId]);
 
   useEffect(() => {
     setBusinessProfileDraft(selectedClientProfile ? { ...selectedClientProfile } : null);
@@ -1455,6 +1470,42 @@ export default function ClientelesPage() {
       toast.error(error instanceof Error ? error.message : 'Impossible de sauvegarder le profil metier');
     } finally {
       setIsSavingBusinessProfile(false);
+    }
+  };
+
+  const handleToggleSelectedPartnerAgency = async () => {
+    if (!selectedPartnerAgency) return;
+    setIsSavingPartnerAgencyAction(true);
+    try {
+      await updatePartnerAgencyApi(selectedPartnerAgency.id, {
+        name: selectedPartnerAgency.name,
+        slug: selectedPartnerAgency.slug,
+        isActive: !selectedPartnerAgency.isActive,
+      });
+      const refreshed = await fetchPartnerAgenciesAdmin();
+      const nextOptions = Array.isArray(refreshed)
+        ? refreshed.map((item) => ({ id: item.id, name: item.name, slug: item.slug, isActive: item.isActive }))
+        : [];
+      setPartnerAgencyOptions(nextOptions);
+      writeClientelesCache({
+        locataires,
+        proprietaires,
+        utilisateurs,
+        contrats,
+        biens,
+        paiements,
+        maintenances,
+        profiles,
+        amicaleOptions,
+        agentAmicaleProfiles,
+        partnerAgencyOptions: nextOptions,
+        partnerAgencyProfiles,
+      });
+      toast.success(selectedPartnerAgency.isActive ? 'Agence partenaire desactivee' : 'Agence partenaire activee');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Mise a jour agence partenaire impossible');
+    } finally {
+      setIsSavingPartnerAgencyAction(false);
     }
   };
 
@@ -2134,15 +2185,27 @@ export default function ClientelesPage() {
                     <InfoRow icon={<Users className="h-4 w-4" />} label="Amicale" value={agentAmicaleProfiles[selectedClient.id]?.amicaleName || selectedClientDossier.amicaleName || '-'} />
                   )}
                   {selectedClient.category === 'agences_partenaires' && (
-                    <InfoRow
-                      icon={<Users className="h-4 w-4" />}
-                      label="Agence partenaire"
-                      value={
-                        partnerAgencyProfiles[getPartnerAgencyProfileKey(selectedClient)]?.partnerAgencyName
-                        || selectedClientDossier.partnerAgencyName
-                        || '-'
-                      }
-                    />
+                    <>
+                      <InfoRow
+                        icon={<Users className="h-4 w-4" />}
+                        label="Agence partenaire"
+                        value={
+                          partnerAgencyProfiles[getPartnerAgencyProfileKey(selectedClient)]?.partnerAgencyName
+                          || selectedClientDossier.partnerAgencyName
+                          || '-'
+                        }
+                      />
+                      <InfoRow
+                        icon={<ExternalLink className="h-4 w-4" />}
+                        label="Lien public"
+                        value={selectedPartnerAgency?.slug ? `/${selectedPartnerAgency.slug}` : '-'}
+                      />
+                      <InfoRow
+                        icon={<Power className="h-4 w-4" />}
+                        label="Etat"
+                        value={selectedPartnerAgency ? (selectedPartnerAgency.isActive ? 'Active' : 'Desactivee') : '-'}
+                      />
+                    </>
                   )}
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Statut global" value={businessInsights ? formatGlobalStatus(businessInsights.globalStatus) : 'Prospect'} />
                   <InfoRow icon={<Users className="h-4 w-4" />} label="Score" value={businessInsights ? scoreStars(businessInsights.score) : '-'} />
@@ -2154,6 +2217,41 @@ export default function ClientelesPage() {
                 </div>
 
                 <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
+                  {selectedClient.category === 'agences_partenaires' && selectedPartnerAgency ? (
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleSelectedPartnerAgency()}
+                        disabled={isSavingPartnerAgencyAction}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                          selectedPartnerAgency.isActive
+                            ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+                            : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                        }`}
+                      >
+                        <Power className="h-4 w-4" />
+                        {selectedPartnerAgency.isActive ? 'Desactiver agence' : 'Activer agence'}
+                      </button>
+                      <a
+                        href={`/${selectedPartnerAgency.slug || ''}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Ouvrir /{selectedPartnerAgency.slug}
+                      </a>
+                      <a
+                        href="/partner-agency/login"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Login agence partenaire
+                      </a>
+                    </div>
+                  ) : null}
                   <h4 className="text-sm font-semibold text-gray-900">Images carte d'identite</h4>
                   <div className="mt-3 grid gap-4">
                     {([

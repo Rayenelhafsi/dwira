@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy, Flame, Folder, FolderOpen, FolderPlus, CheckSquare, Square, ArrowRightLeft } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy, Flame, Folder, FolderOpen, FolderPlus, CheckSquare, Square, ArrowRightLeft, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router';
 import { mockZones } from '../data/mockData';
@@ -1006,6 +1006,7 @@ export default function BiensPage() {
   const [homeFilterImagePreview, setHomeFilterImagePreview] = useState<string>('');
   const [homeFilterImageRows, setHomeFilterImageRows] = useState<Array<{ id: string; mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [isSavingHomeFilterImage, setIsSavingHomeFilterImage] = useState(false);
+  const [pageTab, setPageTab] = useState<'biens' | 'parametres'>('biens');
   const [selectedFolderId, setSelectedFolderId] = useState<string>('root');
   const [selectedBienIds, setSelectedBienIds] = useState<string[]>([]);
   const [newFolderName, setNewFolderName] = useState('');
@@ -1828,13 +1829,31 @@ export default function BiensPage() {
           <Link to="/admin/packs" className="inline-flex items-center justify-center px-4 py-2 border border-amber-400 text-amber-800 text-sm font-medium rounded-md hover:bg-amber-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Packs</Link>
         </div>
       </div>
-      <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4">
+      {pageTab === 'biens' && (
+        <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4">
         <div className="relative flex-1"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-gray-400" /></div><input type="text" className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md" placeholder="Rechercher..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
         <div className="w-full sm:w-64"><select className="block w-full pl-3 pr-10 py-2 border border-gray-300 rounded-md" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as BienStatut | 'all')}><option value="all">Tous les statuts</option><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
-      </div>
+        </div>
+      )}
       <div className="bg-white p-2 sm:p-3 rounded-lg shadow-sm border border-gray-100">
         <div className="flex flex-wrap gap-2">
-          {modeTabs.map((tab) => (
+          <button
+            type="button"
+            onClick={() => setPageTab('biens')}
+            className={`px-3 py-2 text-sm rounded-md border transition-colors ${pageTab === 'biens' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+          >
+            <Home className="mr-2 inline h-4 w-4" />
+            Biens
+          </button>
+          <button
+            type="button"
+            onClick={() => setPageTab('parametres')}
+            className={`px-3 py-2 text-sm rounded-md border transition-colors ${pageTab === 'parametres' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+          >
+            <SlidersHorizontal className="mr-2 inline h-4 w-4" />
+            Parametres
+          </button>
+          {pageTab === 'biens' && modeTabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
@@ -1850,6 +1869,7 @@ export default function BiensPage() {
           ))}
         </div>
       </div>
+      {pageTab === 'parametres' && <>
       <div className="bg-white p-4 sm:p-5 rounded-lg shadow-sm border border-gray-100">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -2046,6 +2066,8 @@ export default function BiensPage() {
           )}
         </div>
       </div>
+      </>}
+      {pageTab === 'biens' && <>
       <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[340px,1fr]">
         <div className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/40 to-cyan-50/30 p-4 shadow-[0_18px_45px_-24px_rgba(16,185,129,0.35)]">
           <div className="mb-4 flex items-start justify-between">
@@ -2154,11 +2176,12 @@ export default function BiensPage() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {displayedBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} selected={selectedBienIdSet.has(String(bien.id || '').trim())} onToggleSelect={() => toggleBienSelection(bien.id)} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(normalizeBienForEditor(bien, biens) as Bien); setEditorInitialStep(isResidenceParentBien(bien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(normalizeBienForEditor(bien, biens) as Bien)} />)}
       </div>
       {displayedBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé dans ce dossier</h3></div>}
+      </>}
       <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
         <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" /><Dialog.Content className="fixed inset-0 z-50 w-full h-full bg-white overflow-hidden flex flex-col">
           <Dialog.Description className="sr-only">Formulaire d'ajout ou de modification de bien</Dialog.Description>

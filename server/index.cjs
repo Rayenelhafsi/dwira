@@ -7453,10 +7453,22 @@ async function ensureAuthSchema() {
       slug VARCHAR(255) NOT NULL UNIQUE,
       margin_multiplier DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
       logo_url LONGTEXT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL
     )`
   );
+
+  const [partnerAgencyActiveColumnRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'partner_agencies'
+       AND COLUMN_NAME = 'is_active'`
+  );
+  if (!Number(partnerAgencyActiveColumnRows?.[0]?.total || 0)) {
+    await pool.query('ALTER TABLE partner_agencies ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER logo_url');
+  }
 
   await pool.query(
     `CREATE TABLE IF NOT EXISTS partner_agency_profiles (
@@ -23574,9 +23586,11 @@ app.post('/api/auth/partner-agency/login', authLoginRateLimit, async (req, res) 
         p.username,
         p.password_text,
         u.nom AS user_nom,
+        u.actif AS user_active,
         a.name AS partner_agency_name,
         a.slug AS partner_agency_slug,
         a.logo_url AS partner_agency_logo_url,
+        a.is_active AS partner_agency_active,
         a.margin_multiplier
       FROM partner_agency_profiles p
       INNER JOIN utilisateurs u ON u.id = p.user_id
@@ -23588,6 +23602,8 @@ app.post('/api/auth/partner-agency/login', authLoginRateLimit, async (req, res) 
     const row = rows?.[0] || null;
     if (!row) return res.status(401).json({ error: 'Identifiants invalides' });
     if (String(row.password_text || '') !== password) return res.status(401).json({ error: 'Identifiants invalides' });
+    if (Number(row.user_active ?? 1) !== 1) return res.status(403).json({ error: 'Compte agence partenaire desactive' });
+    if (Number(row.partner_agency_active ?? 1) !== 1) return res.status(403).json({ error: 'Agence partenaire desactivee' });
 
     const agencySession = {
       userId: String(row.user_id || '').trim(),
@@ -23612,10 +23628,14 @@ app.get('/api/auth/partner-agency/me', async (req, res) => {
     const session = getPartnerAgencySessionFromRequest(req);
     if (!session) return res.status(401).json({ error: 'Session agence partenaire invalide' });
     const [rows] = await pool.query(
-      'SELECT slug, logo_url, margin_multiplier FROM partner_agencies WHERE id = ? LIMIT 1',
+      'SELECT slug, logo_url, margin_multiplier, is_active FROM partner_agencies WHERE id = ? LIMIT 1',
       [String(session.partnerAgencyId || '').trim()]
     );
     const row = rows?.[0] || null;
+    if (row && Number(row.is_active ?? 1) !== 1) {
+      clearPartnerAgencySessionCookie(req, res);
+      return res.status(403).json({ error: 'Agence partenaire desactivee' });
+    }
     return res.json({
       session: {
         ...session,
@@ -25937,8 +25957,9 @@ app.post('/api/agents-amicale', requireAdminSession, async (req, res) => {
 app.get('/api/public/partner-agencies', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, slug, margin_multiplier, logo_url, created_at, updated_at
+      `SELECT id, name, slug, margin_multiplier, logo_url, is_active, created_at, updated_at
        FROM partner_agencies
+       WHERE is_active = 1
        ORDER BY updated_at DESC, created_at DESC`
     );
     res.json(Array.isArray(rows) ? rows : []);
@@ -25951,7 +25972,7 @@ app.get('/api/public/partner-agencies', async (req, res) => {
 app.get('/api/partner-agencies', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, slug, margin_multiplier, logo_url, created_at, updated_at
+      `SELECT id, name, slug, margin_multiplier, logo_url, is_active, created_at, updated_at
        FROM partner_agencies
        ORDER BY updated_at DESC, created_at DESC`
     );
@@ -25971,9 +25992,9 @@ app.post('/api/partner-agencies', requireAdminSession, async (req, res) => {
     const now = getAgencySqlDateTime();
     const id = `partner_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     await pool.query(
-      `INSERT INTO partner_agencies (id, name, slug, margin_multiplier, logo_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, slug, 1, null, now, now]
+      `INSERT INTO partner_agencies (id, name, slug, margin_multiplier, logo_url, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, slug, 1, null, 1, now, now]
     );
     const [rows] = await pool.query('SELECT * FROM partner_agencies WHERE id = ? LIMIT 1', [id]);
     res.status(201).json(rows?.[0] || null);
@@ -25989,15 +26010,18 @@ app.put('/api/partner-agencies/:id', requireAdminSession, async (req, res) => {
     const name = String(req.body?.name || '').trim();
     const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
     const requestedSlug = String(req.body?.slug || '').trim();
+    const isActive = req.body?.is_active === undefined && req.body?.isActive === undefined
+      ? 1
+      : Number(req.body?.is_active ?? req.body?.isActive) === 1 ? 1 : 0;
     const slug = normalizePartnerSlug(requestedSlug || name);
     if (!id) return res.status(400).json({ error: 'id is required' });
     if (!name || !slug) return res.status(400).json({ error: 'name is required' });
     const now = getAgencySqlDateTime();
     await pool.query(
       `UPDATE partner_agencies
-       SET name = ?, slug = ?, logo_url = ?, updated_at = ?
+       SET name = ?, slug = ?, logo_url = ?, is_active = ?, updated_at = ?
        WHERE id = ?`,
-      [name, slug, logoUrl, now, id]
+      [name, slug, logoUrl, isActive, now, id]
     );
     const [rows] = await pool.query('SELECT * FROM partner_agencies WHERE id = ? LIMIT 1', [id]);
     res.json(rows?.[0] || null);
