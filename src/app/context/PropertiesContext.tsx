@@ -600,7 +600,8 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
   const isResidenceChild = Boolean(String((bien as any).residence_parent_bien_id || '').trim());
   const residenceName = String((bien as any).residence_parent_name || '').trim() || null;
   const categoryFromType = typeToCategory[bien.type] || 'Autre';
-  const mainTypeLabel = isResidenceChild ? 'Residence' : (typeToMainLabel[bien.type] || categoryFromType);
+  const rawMainTypeValue = String(bien.type || '').trim().toLowerCase() || 'appartement';
+  const mainTypeLabel = typeToMainLabel[bien.type] || categoryFromType;
   const normalizeLabelToken = (value: string) => String(value || '').toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
   const normalizedMainTypeLabel = normalizeLabelToken(mainTypeLabel);
   const normalizedConfigurationLabel = normalizeLabelToken(normalizedConfiguration);
@@ -650,11 +651,11 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
   ));
   const propertyFilterProfile: PropertyFilterProfile = {
     mode: bien.mode,
-    propertyType: String(bien.type || '').trim().toLowerCase(),
-    category: isResidenceChild && resolvedSubType ? `Residence ${resolvedSubType}` : resolvedCategory,
-    mainType: isResidenceChild ? 'residence' : String(bien.type || '').trim().toLowerCase(),
+    propertyType: rawMainTypeValue,
+    category: resolvedCategory,
+    mainType: rawMainTypeValue,
     subType: resolvedSubType || '',
-    displayCategory: isResidenceChild && resolvedSubType ? `Residence ${resolvedSubType}` : resolvedCategory,
+    displayCategory: resolvedCategory,
     residenceName: residenceName || undefined,
     locationLabel: normalizedLocationLabel,
     locationTokens,
@@ -695,7 +696,7 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     videos: videoUrls,
     description: bien.description || `Superbe ${bien.type}`,
     amenities: bien.caracteristiques && bien.caracteristiques.length > 0 ? bien.caracteristiques : getAmenitiesFromType(bien.type),
-    category: isResidenceChild && resolvedSubType ? `Residence ${resolvedSubType}` : resolvedCategory,
+    category: resolvedCategory,
     residenceName,
     residenceUnitSubType: resolvedSubType || null,
     isFeatured: bien.is_featured === true,
@@ -880,8 +881,9 @@ function buildPublicPropertiesFromBiens(biens: Bien[], zonesById: Record<string,
   return visibleBiens.filter((bien) => {
     const residenceParentId = String((bien as any).residence_parent_bien_id || '').trim();
     if (!residenceParentId) return true;
+    const residenceChildType = normalizeBienType(String((bien as any).type || '').trim() || 'appartement');
     const residenceSubType = String((bien as any).residence_unit_sub_type || bien.configuration || '').trim().toLowerCase();
-    const dedupeKey = `${residenceParentId}::${residenceSubType || String(bien.type || '').trim().toLowerCase()}`;
+    const dedupeKey = `${residenceParentId}::${String(residenceChildType || '').trim().toLowerCase()}::${residenceSubType || String(bien.type || '').trim().toLowerCase()}`;
     if (seenResidenceSubTypes.has(dedupeKey)) return false;
     seenResidenceSubTypes.add(dedupeKey);
     return true;
