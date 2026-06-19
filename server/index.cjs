@@ -301,6 +301,392 @@ function buildSharePreviewHtml({ redirectUrl, title, description, imageUrl }) {
 </html>`;
 }
 
+const SEARCH_SHARE_OG_WIDTH = 1200;
+const SEARCH_SHARE_OG_HEIGHT = 630;
+const SEARCH_SHARE_ROW_LABELS = {
+  location: 'Emplacements',
+  type: 'Types de bien',
+  dates: 'Sejour',
+  comfort: 'Confort',
+};
+const SEARCH_SHARE_MODE_LABELS = {
+  location_saisonniere: 'Location saisonniere',
+  location_annuelle: 'Location annuelle',
+  vente: 'Vente',
+};
+const SEARCH_SHARE_MAIN_TYPE_LABELS = {
+  appartement: 'Appartement',
+  residence: 'Residence',
+  villa_maison: 'Villa / Maison',
+  studio: 'Studio',
+  immeuble: 'Immeuble',
+  autre: 'Autre',
+};
+const SEARCH_SHARE_SEASIDE_LABELS = {
+  pied_dans_eau: "Pied dans l'eau",
+  vue_sur_mer: 'Vue sur mer',
+  pres_plage: 'Pres de la plage',
+};
+const SEARCH_SHARE_COMFORT_LABELS = {
+  climatise: 'Climatise',
+  piscine_privee: 'Piscine privee',
+  piscine_partagee: 'Piscine partagee',
+  rdc: 'RDC',
+  premier_etage: '1er etage',
+  toutes_pieces_climatisees: 'Toutes les pieces climatisees',
+  jardin_gazon: 'Jardin / Gazon',
+  terrasse: 'Terrasse',
+};
+
+function normalizeSearchPreviewToken(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function parseSearchPreviewCsvParam(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+function isValidSearchPreviewDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+}
+
+function formatSearchPreviewDate(value) {
+  if (!isValidSearchPreviewDate(value)) return '';
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return String(value || '').trim();
+  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' }).format(date);
+}
+
+function computeSearchPreviewNights(start, end) {
+  if (!isValidSearchPreviewDate(start) || !isValidSearchPreviewDate(end)) return null;
+  const startDate = new Date(`${start}T00:00:00Z`);
+  const endDate = new Date(`${end}T00:00:00Z`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+  const nights = Math.round((endDate.getTime() - startDate.getTime()) / 86400000);
+  return Number.isFinite(nights) && nights > 0 ? nights : null;
+}
+
+function buildSearchSharePreviewModel(queryString) {
+  const params = new URLSearchParams(String(queryString || ''));
+  const mode = String(params.get('mode') || 'location_saisonniere').trim() || 'location_saisonniere';
+  const locations = parseSearchPreviewCsvParam(params.get('locations') || params.get('location'));
+  const mainTypes = parseSearchPreviewCsvParam(params.get('mainTypes') || params.get('mainType'));
+  const categories = parseSearchPreviewCsvParam(params.get('categories'));
+  const comfortKeys = parseSearchPreviewCsvParam(params.get('comfort'));
+  const seasideKeys = parseSearchPreviewCsvParam(params.get('seaside'));
+  const checkIn = String(params.get('checkIn') || '').trim();
+  const checkOut = String(params.get('checkOut') || '').trim();
+  const datesLabel = checkIn && checkOut
+    ? `${formatSearchPreviewDate(checkIn)} - ${formatSearchPreviewDate(checkOut)}`
+    : (checkIn ? `A partir du ${formatSearchPreviewDate(checkIn)}` : 'Dates flexibles');
+  const nights = computeSearchPreviewNights(checkIn, checkOut);
+  const rowItems = {
+    location: locations.map((label) => ({ label, imageUrl: '' })),
+    type: (categories.length > 0 ? categories : mainTypes.map((key) => SEARCH_SHARE_MAIN_TYPE_LABELS[key] || key)).map((label) => ({ label, imageUrl: '' })),
+    dates: [{
+      label: datesLabel || 'Dates flexibles',
+      subtitle: nights ? `${nights} nuit${nights > 1 ? 's' : ''}` : (mode === 'location_annuelle' ? 'Location longue duree' : SEARCH_SHARE_MODE_LABELS[mode] || mode),
+      imageUrl: '',
+    }],
+    comfort: [
+      ...seasideKeys.map((key) => ({ label: SEARCH_SHARE_SEASIDE_LABELS[key] || key, imageUrl: '', filterGroup: 'seaside', optionKey: key })),
+      ...comfortKeys.map((key) => ({ label: SEARCH_SHARE_COMFORT_LABELS[key] || key, imageUrl: '', filterGroup: 'comfort', optionKey: key })),
+    ],
+  };
+  const activeCount = rowItems.location.length + rowItems.type.length + rowItems.comfort.length + (datesLabel ? 1 : 0);
+  return {
+    mode,
+    locations,
+    mainTypes,
+    categories,
+    comfortKeys,
+    seasideKeys,
+    checkIn,
+    checkOut,
+    nights,
+    datesLabel,
+    activeCount,
+    rowItems,
+  };
+}
+
+function buildSearchSharePreviewTitle(model) {
+  const parts = [];
+  if (model.locations.length > 0) parts.push(model.locations.slice(0, 2).join(' / '));
+  if (model.categories.length > 0) parts.push(model.categories.slice(0, 2).join(' / '));
+  else if (model.mainTypes.length > 0) parts.push(model.mainTypes.slice(0, 2).map((key) => SEARCH_SHARE_MAIN_TYPE_LABELS[key] || key).join(' / '));
+  if (model.datesLabel) parts.push(model.datesLabel);
+  return normalizeSharePreviewText(parts.length > 0 ? `Recherche Dwira - ${parts.join(' - ')}` : 'Recherche Dwira', 'Recherche Dwira', 160);
+}
+
+function buildSearchSharePreviewDescription(model) {
+  const parts = [];
+  if (model.locations.length > 0) parts.push(`Emplacements: ${model.locations.join(', ')}`);
+  if (model.categories.length > 0) parts.push(`Types: ${model.categories.join(', ')}`);
+  else if (model.mainTypes.length > 0) parts.push(`Types: ${model.mainTypes.map((key) => SEARCH_SHARE_MAIN_TYPE_LABELS[key] || key).join(', ')}`);
+  if (model.datesLabel) parts.push(`Sejour: ${model.datesLabel}${model.nights ? ` (${model.nights} nuit${model.nights > 1 ? 's' : ''})` : ''}`);
+  const comfortLabels = model.rowItems.comfort.map((item) => item.label);
+  if (comfortLabels.length > 0) parts.push(`Confort: ${comfortLabels.join(', ')}`);
+  return normalizeSharePreviewText(parts.join(' | '), 'Consultez cette recherche filtree sur Dwira.', 260);
+}
+
+function resolveSearchPreviewAssetUrl(value, req) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('data:')) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  try {
+    return new URL(raw.startsWith('/') ? raw : `/${raw}`, getPublicFrontendBaseUrl(req)).toString();
+  } catch {
+    return '';
+  }
+}
+
+async function fetchSearchPreviewImageBuffer(url) {
+  const target = String(url || '').trim();
+  if (!target || target.startsWith('data:')) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4500);
+  try {
+    const response = await fetch(target, { signal: controller.signal, headers: { Accept: 'image/*' } });
+    if (!response.ok) return null;
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    return buffer.length > 0 ? buffer : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildSearchPreviewTextSvg({ width, height, title, subtitle, theme }) {
+  const safeTitle = escapeHtml(title);
+  const safeSubtitle = subtitle ? escapeHtml(subtitle) : '';
+  const background = theme?.background || '#0f766e';
+  const accent = theme?.accent || '#5eead4';
+  return Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${background}" />
+          <stop offset="100%" stop-color="#0f172a" />
+        </linearGradient>
+      </defs>
+      <rect width="${width}" height="${height}" rx="18" fill="url(#bg)" />
+      <rect x="16" y="16" width="${Math.max(80, width - 32)}" height="${Math.max(48, height - 32)}" rx="14" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.10)" />
+      <circle cx="34" cy="34" r="8" fill="${accent}" opacity="0.9" />
+      <text x="28" y="${Math.max(48, Math.round(height * 0.52))}" fill="#ffffff" font-size="${Math.max(22, Math.round(width * 0.06))}" font-family="Arial, sans-serif" font-weight="700">${safeTitle}</text>
+      ${safeSubtitle ? `<text x="28" y="${Math.max(74, Math.round(height * 0.72))}" fill="rgba(255,255,255,0.86)" font-size="${Math.max(16, Math.round(width * 0.038))}" font-family="Arial, sans-serif">${safeSubtitle}</text>` : ''}
+    </svg>
+  `);
+}
+
+async function buildSearchPreviewTile({ width, height, title, subtitle, imageUrl, theme }, req) {
+  const resolvedImageUrl = resolveSearchPreviewAssetUrl(imageUrl, req);
+  const imageBuffer = resolvedImageUrl ? await fetchSearchPreviewImageBuffer(resolvedImageUrl) : null;
+  const overlay = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <defs>
+        <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="rgba(15,23,42,0.10)" />
+          <stop offset="58%" stop-color="rgba(15,23,42,0.18)" />
+          <stop offset="100%" stop-color="rgba(2,6,23,0.82)" />
+        </linearGradient>
+      </defs>
+      <rect width="${width}" height="${height}" rx="18" fill="url(#fade)" />
+      <rect x="16" y="16" width="${Math.max(80, width - 32)}" height="${Math.max(48, height - 32)}" rx="14" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.10)" />
+      <text x="22" y="${Math.max(44, height - 42)}" fill="#ffffff" font-size="26" font-family="Arial, sans-serif" font-weight="700">${escapeHtml(title)}</text>
+      ${subtitle ? `<text x="22" y="${Math.max(68, height - 16)}" fill="rgba(255,255,255,0.86)" font-size="18" font-family="Arial, sans-serif">${escapeHtml(subtitle)}</text>` : ''}
+    </svg>
+  `);
+
+  if (!imageBuffer) {
+    return sharp(buildSearchPreviewTextSvg({ width, height, title, subtitle, theme })).png().toBuffer();
+  }
+
+  const background = await sharp(imageBuffer)
+    .rotate()
+    .resize(width, height, { fit: 'cover', position: 'centre' })
+    .png()
+    .toBuffer();
+
+  return sharp(background)
+    .composite([{ input: overlay, top: 0, left: 0 }])
+    .png()
+    .toBuffer();
+}
+
+async function enrichSearchSharePreviewModel(model, req) {
+  const [zoneRows, typeRows, optionRows] = await Promise.all([
+    pool.query(
+      `SELECT nom, quartier, region, gouvernerat, pays, image_url, pays_image_url, gouvernerat_image_url, region_image_url, quartier_image_url
+       FROM zones`
+    ).then(([rows]) => Array.isArray(rows) ? rows : []).catch(() => []),
+    pool.query(
+      `SELECT mode_bien, main_type, sub_type, image_url
+       FROM type_filter_images
+       WHERE mode_bien = ?`,
+      [model.mode]
+    ).then(([rows]) => Array.isArray(rows) ? rows : []).catch(() => []),
+    pool.query(
+      `SELECT mode_bien, filter_group, option_key, image_url
+       FROM home_filter_option_images
+       WHERE mode_bien = ?`,
+      [model.mode]
+    ).then(([rows]) => Array.isArray(rows) ? rows : []).catch(() => []),
+  ]);
+
+  const normalizedZoneRows = zoneRows.map((row) => ({
+    row,
+    quartier: normalizeSearchPreviewToken(row?.quartier || row?.nom || ''),
+    region: normalizeSearchPreviewToken(row?.region || ''),
+    gouvernerat: normalizeSearchPreviewToken(row?.gouvernerat || ''),
+    pays: normalizeSearchPreviewToken(row?.pays || ''),
+  }));
+
+  model.rowItems.location = model.rowItems.location.map((item) => {
+    const target = normalizeSearchPreviewToken(item.label);
+    const match = normalizedZoneRows.find((entry) =>
+      entry.quartier === target || entry.region === target || entry.gouvernerat === target || entry.pays === target
+    );
+    const row = match?.row || null;
+    return {
+      ...item,
+      imageUrl: row
+        ? String(
+            row.quartier_image_url
+            || row.region_image_url
+            || row.gouvernerat_image_url
+            || row.pays_image_url
+            || row.image_url
+            || ''
+          ).trim()
+        : '',
+    };
+  });
+
+  const normalizedTypeRows = typeRows.map((row) => ({
+    row,
+    mainType: normalizeSearchPreviewToken(row?.main_type || ''),
+    subType: normalizeSearchPreviewToken(row?.sub_type || ''),
+  }));
+
+  model.rowItems.type = model.rowItems.type.map((item) => {
+    const target = normalizeSearchPreviewToken(item.label);
+    const match = normalizedTypeRows.find((entry) => entry.subType === target || entry.mainType === target);
+    return {
+      ...item,
+      imageUrl: String(match?.row?.image_url || '').trim(),
+    };
+  });
+
+  model.rowItems.comfort = model.rowItems.comfort.map((item) => {
+    const match = optionRows.find((row) =>
+      String(row?.filter_group || '').trim() === String(item.filterGroup || '').trim()
+      && String(row?.option_key || '').trim() === String(item.optionKey || '').trim()
+    );
+    return {
+      ...item,
+      imageUrl: String(match?.image_url || '').trim(),
+    };
+  });
+
+  return model;
+}
+
+async function renderSearchShareOgImage(model, req) {
+  const base = sharp({
+    create: {
+      width: SEARCH_SHARE_OG_WIDTH,
+      height: SEARCH_SHARE_OG_HEIGHT,
+      channels: 4,
+      background: '#f3f7f6',
+    },
+  });
+
+  const headerSvg = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="${SEARCH_SHARE_OG_WIDTH}" height="${SEARCH_SHARE_OG_HEIGHT}" viewBox="0 0 ${SEARCH_SHARE_OG_WIDTH} ${SEARCH_SHARE_OG_HEIGHT}">
+      <defs>
+        <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#115e59" />
+          <stop offset="100%" stop-color="#0f172a" />
+        </linearGradient>
+      </defs>
+      <rect width="${SEARCH_SHARE_OG_WIDTH}" height="${SEARCH_SHARE_OG_HEIGHT}" fill="#f3f7f6" />
+      <rect x="26" y="22" width="${SEARCH_SHARE_OG_WIDTH - 52}" height="86" rx="26" fill="url(#hero)" />
+      <text x="56" y="64" fill="#ffffff" font-size="40" font-family="Arial, sans-serif" font-weight="700">Recherche Dwira</text>
+      <text x="56" y="92" fill="rgba(255,255,255,0.82)" font-size="20" font-family="Arial, sans-serif">${escapeHtml(buildSearchSharePreviewDescription(model))}</text>
+      <rect x="${SEARCH_SHARE_OG_WIDTH - 250}" y="42" width="180" height="42" rx="21" fill="rgba(255,255,255,0.14)" stroke="rgba(255,255,255,0.18)" />
+      <text x="${SEARCH_SHARE_OG_WIDTH - 222}" y="69" fill="#ffffff" font-size="20" font-family="Arial, sans-serif" font-weight="700">${escapeHtml(String(model.activeCount || 0))} filtre${model.activeCount > 1 ? 's' : ''}</text>
+    </svg>
+  `);
+
+  const composites = [{ input: headerSvg, top: 0, left: 0 }];
+  const rows = [
+    { key: 'location', theme: { background: '#0f766e', accent: '#5eead4' } },
+    { key: 'type', theme: { background: '#155e75', accent: '#67e8f9' } },
+    { key: 'dates', theme: { background: '#7c2d12', accent: '#fdba74' } },
+    { key: 'comfort', theme: { background: '#4c1d95', accent: '#c4b5fd' } },
+  ];
+
+  const rowStartY = 126;
+  const rowHeight = 114;
+  const rowGap = 12;
+  const rowLabelWidth = 178;
+  const rightStartX = 220;
+  const rightWidth = SEARCH_SHARE_OG_WIDTH - rightStartX - 28;
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const rowDef = rows[rowIndex];
+    const items = (model.rowItems[rowDef.key] || []).slice(0, 3);
+    const fallbackItem = rowDef.key === 'dates'
+      ? { label: model.datesLabel || 'Dates flexibles', subtitle: model.nights ? `${model.nights} nuit${model.nights > 1 ? 's' : ''}` : 'Recherche flexible', imageUrl: '' }
+      : { label: `Tous les ${SEARCH_SHARE_ROW_LABELS[rowDef.key].toLowerCase()}`, subtitle: '', imageUrl: '' };
+    const displayItems = items.length > 0 ? items : [fallbackItem];
+    const y = rowStartY + rowIndex * (rowHeight + rowGap);
+
+    const rowLabelSvg = Buffer.from(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="${rowLabelWidth}" height="${rowHeight}" viewBox="0 0 ${rowLabelWidth} ${rowHeight}">
+        <rect width="${rowLabelWidth}" height="${rowHeight}" rx="22" fill="#ffffff" />
+        <rect x="0.5" y="0.5" width="${rowLabelWidth - 1}" height="${rowHeight - 1}" rx="21.5" fill="none" stroke="rgba(15,23,42,0.08)" />
+        <text x="18" y="44" fill="#0f172a" font-size="24" font-family="Arial, sans-serif" font-weight="700">${escapeHtml(SEARCH_SHARE_ROW_LABELS[rowDef.key])}</text>
+        <text x="18" y="74" fill="#475569" font-size="16" font-family="Arial, sans-serif">${escapeHtml(displayItems.length > 1 ? `${displayItems.length} selections` : '1 focus')}</text>
+      </svg>
+    `);
+    composites.push({ input: rowLabelSvg, top: y, left: 28 });
+
+    const itemGap = 10;
+    const itemWidth = Math.floor((rightWidth - itemGap * (displayItems.length - 1)) / displayItems.length);
+    for (let itemIndex = 0; itemIndex < displayItems.length; itemIndex += 1) {
+      const item = displayItems[itemIndex];
+      const tile = await buildSearchPreviewTile({
+        width: itemWidth,
+        height: rowHeight,
+        title: item.label,
+        subtitle: item.subtitle || '',
+        imageUrl: item.imageUrl || '',
+        theme: rowDef.theme,
+      }, req);
+      composites.push({
+        input: tile,
+        top: y,
+        left: rightStartX + itemIndex * (itemWidth + itemGap),
+      });
+    }
+  }
+
+  return base.composite(composites).png().toBuffer();
+}
+
 function resolveBienOwnerDisplayName(bien) {
   if (!bien || typeof bien !== 'object') return 'Bien';
   const saisonCfg = safeParseJson(
@@ -4553,12 +4939,57 @@ async function handleSearchShareRedirect(req, res) {
       [getAgencySqlDateTime(), shortCode]
     ).catch(() => {});
 
-    return res.redirect(302, redirectTarget);
+    const previewModel = buildSearchSharePreviewModel(String(row.target_query || ''));
+    const title = buildSearchSharePreviewTitle(previewModel);
+    const description = buildSearchSharePreviewDescription(previewModel);
+    const imageUrl = `${getPublicFrontendBaseUrl(req)}/api/og/search/${encodeURIComponent(shortCode)}.png`;
+
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.status(200).send(buildSharePreviewHtml({
+      redirectUrl: redirectTarget,
+      title,
+      description,
+      imageUrl,
+    }));
   } catch (error) {
     console.error('Error resolving search share link:', error);
     return res.status(500).send('Erreur serveur');
   }
 }
+
+app.get('/api/og/search/:code.png', async (req, res) => {
+  try {
+    await ensureSearchShareLinksSchema();
+    const shortCode = String(req.params?.code || '').trim();
+    if (!/^[a-zA-Z0-9_-]{6,16}$/.test(shortCode)) {
+      return res.status(404).send('Image introuvable');
+    }
+
+    const [rows] = await pool.query(
+      `SELECT target_query
+       FROM search_share_links
+       WHERE short_code = ?
+       LIMIT 1`,
+      [shortCode]
+    );
+    const row = rows?.[0];
+    if (!row) {
+      return res.status(404).send('Image introuvable');
+    }
+
+    const previewModel = await enrichSearchSharePreviewModel(
+      buildSearchSharePreviewModel(String(row.target_query || '')),
+      req
+    );
+    const buffer = await renderSearchShareOgImage(previewModel, req);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Error generating search share OG image:', error);
+    return res.status(500).send('Erreur serveur');
+  }
+});
 
 app.get('/api/s/:code', handleSearchShareRedirect);
 app.get('/s/:code', handleSearchShareRedirect);
