@@ -2482,6 +2482,16 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     ? buildApiUrl(`/public/biens/${encodeURIComponent(currentBienId)}/calendar.ics`)
     : '';
   const airbnbSyncHistory = Array.isArray(saisonConfig.airbnb_sync_history) ? saisonConfig.airbnb_sync_history : [];
+  const [airbnbDiagnosticLoading, setAirbnbDiagnosticLoading] = useState(false);
+  const [airbnbDiagnostic, setAirbnbDiagnostic] = useState<{
+    exportUrl?: string | null;
+    exportCount?: number;
+    exportEvents?: Array<{ id?: string; start: string; end: string; status: string }>;
+    importUrl?: string | null;
+    importPreviewCount?: number;
+    importPreviewEvents?: Array<{ uid?: string; start: string; end: string; summary?: string | null }>;
+    importPreviewError?: string | null;
+  } | null>(null);
   const [airbnbSyncing, setAirbnbSyncing] = useState(false);
   const handleCopyAirbnbExportUrl = async () => {
     if (!airbnbExportUrl) {
@@ -2521,6 +2531,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         ? payload.config as Partial<LocationSaisonniereConfig>
         : {};
       updateSaisonConfig(nextConfig);
+      setAirbnbDiagnostic((prev) => prev ? {
+        ...prev,
+        importPreviewCount: Number(payload?.importedEvents || 0),
+      } : prev);
       const normalizedDates = (Array.isArray(payload?.unavailableDates) ? payload.unavailableDates : [])
         .map((row: any) => {
           const start = String(row?.start_date || row?.start || '').slice(0, 10);
@@ -2551,6 +2565,28 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       toast.error(String(error?.message || 'Synchronisation Airbnb impossible'));
     } finally {
       setAirbnbSyncing(false);
+    }
+  };
+  const handleAirbnbDiagnosticRefresh = async () => {
+    if (!currentBienId) {
+      toast.error('Sauvegardez d abord le bien');
+      return;
+    }
+    setAirbnbDiagnosticLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/biens/${encodeURIComponent(currentBienId)}/calendar-sync/airbnb/diagnostic`, {
+        credentials: 'include',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error || 'Diagnostic Airbnb impossible'));
+      }
+      setAirbnbDiagnostic(payload);
+      toast.success('Diagnostic Airbnb mis a jour');
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Diagnostic Airbnb impossible'));
+    } finally {
+      setAirbnbDiagnosticLoading(false);
     }
   };
   const [zonesOptions, setZonesOptions] = useState<Zone[]>(zones);
@@ -9796,6 +9832,25 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                     >
                       {airbnbSyncing ? 'Synchronisation...' : 'Synchroniser maintenant'}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAirbnbDiagnosticRefresh()}
+                      disabled={!currentBienId || airbnbDiagnosticLoading}
+                      className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 disabled:opacity-50"
+                    >
+                      {airbnbDiagnosticLoading ? 'Diagnostic...' : 'Tester push/pull'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!airbnbExportUrl) return;
+                        window.open(airbnbExportUrl, '_blank', 'noopener,noreferrer');
+                      }}
+                      disabled={!airbnbExportUrl}
+                      className="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-700 disabled:opacity-50"
+                    >
+                      Ouvrir ICS Dwira
+                    </button>
                   </div>
                   <div className="mt-3 text-xs text-gray-600">
                     <p>Dans Airbnb: Etape 2, collez le lien `.ics` fourni par Airbnb ici.</p>
@@ -9805,6 +9860,47 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   </div>
                 </div>
               </div>
+              {airbnbDiagnostic && (
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+                    <h5 className="text-sm font-semibold text-emerald-800">Test push Dwira vers Airbnb</h5>
+                    <p className="mt-1 text-xs text-gray-600">Voici ce que Dwira expose actuellement dans son ICS public.</p>
+                    <p className="mt-2 text-xs text-gray-700">Evenements exportes: {Number(airbnbDiagnostic.exportCount || 0)}</p>
+                    <div className="mt-3 max-h-52 space-y-2 overflow-auto">
+                      {(airbnbDiagnostic.exportEvents || []).length === 0 ? (
+                        <p className="text-xs text-gray-500">Aucun evenement exporte.</p>
+                      ) : (
+                        (airbnbDiagnostic.exportEvents || []).map((entry, index) => (
+                          <div key={`push-event-${entry.id || index}`} className="rounded border border-emerald-100 bg-white p-2 text-xs text-gray-700">
+                            <p className="font-medium">{entry.start} {'->'} {entry.end}</p>
+                            <p>Statut: {entry.status}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4">
+                    <h5 className="text-sm font-semibold text-blue-800">Test pull Airbnb vers Dwira</h5>
+                    <p className="mt-1 text-xs text-gray-600">Voici ce que Dwira lit actuellement depuis le lien ICS Airbnb.</p>
+                    <p className="mt-2 text-xs text-gray-700">Evenements detectes: {Number(airbnbDiagnostic.importPreviewCount || 0)}</p>
+                    {airbnbDiagnostic.importPreviewError ? (
+                      <p className="mt-2 text-xs text-red-600">{airbnbDiagnostic.importPreviewError}</p>
+                    ) : null}
+                    <div className="mt-3 max-h-52 space-y-2 overflow-auto">
+                      {(airbnbDiagnostic.importPreviewEvents || []).length === 0 ? (
+                        <p className="text-xs text-gray-500">Aucun evenement detecte dans le ICS Airbnb.</p>
+                      ) : (
+                        (airbnbDiagnostic.importPreviewEvents || []).map((entry, index) => (
+                          <div key={`pull-event-${entry.uid || index}`} className="rounded border border-blue-100 bg-white p-2 text-xs text-gray-700">
+                            <p className="font-medium">{entry.start} {'->'} {entry.end}</p>
+                            <p>{entry.summary || 'Sans resume'}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
                 <h5 className="text-sm font-semibold text-gray-900">Historique Airbnb</h5>
                 {airbnbSyncHistory.length === 0 ? (

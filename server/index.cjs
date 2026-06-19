@@ -14704,6 +14704,73 @@ app.post('/api/biens/:id/calendar-sync/airbnb', requireAdminSession, async (req,
   }
 });
 
+app.get('/api/biens/:id/calendar-sync/airbnb/diagnostic', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const bienId = String(req.params.id || '').trim();
+    if (!bienId) return res.status(400).json({ error: 'bien_id requis' });
+    const [bienRows] = await pool.query(
+      'SELECT id, titre, reference, mode, location_saisonniere_config_json FROM biens WHERE id = ? LIMIT 1',
+      [bienId]
+    );
+    const bien = bienRows?.[0] || null;
+    if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+
+    const config = normalizeAirbnbCalendarSyncConfig(safeParseJson(bien.location_saisonniere_config_json, {}));
+    const [exportRows] = await pool.query(
+      `SELECT id,
+              DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+              DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+              status,
+              sync_source
+       FROM unavailable_dates
+       WHERE bien_id = ?
+         AND status IN ('blocked', 'booked', 'pending')
+         AND (sync_source IS NULL OR sync_source <> 'airbnb_ics')
+       ORDER BY start_date ASC, end_date ASC`,
+      [bienId]
+    );
+
+    let importPreview = [];
+    let importPreviewError = null;
+    const importUrl = String(config.airbnb_import_ics_url || '').trim();
+    if (importUrl) {
+      try {
+        const icsText = await fetchIcsCalendarText(importUrl);
+        importPreview = parseIcsEvents(icsText);
+      } catch (error) {
+        importPreviewError = String(error?.message || 'Lecture ICS Airbnb impossible');
+      }
+    }
+
+    return res.json({
+      bienId,
+      exportUrl: getBienCalendarExportUrl(req, bienId),
+      exportEvents: (exportRows || []).map((row) => ({
+        id: String(row.id || '').trim(),
+        start: String(row.start_date || '').trim(),
+        end: String(row.end_date || '').trim(),
+        status: String(row.status || '').trim().toLowerCase(),
+        sync_source: row.sync_source ? String(row.sync_source).trim() : null,
+      })),
+      exportCount: Array.isArray(exportRows) ? exportRows.length : 0,
+      importUrl: importUrl || null,
+      importPreviewEvents: importPreview.map((item) => ({
+        uid: String(item.uid || '').trim(),
+        start: String(item.start || '').trim(),
+        end: String(item.end || '').trim(),
+        summary: item.summary ? String(item.summary).trim() : null,
+      })),
+      importPreviewCount: importPreview.length,
+      importPreviewError,
+      config,
+    });
+  } catch (error) {
+    console.error('Error building Airbnb calendar diagnostic:', error);
+    return res.status(500).json({ error: 'Diagnostic Airbnb impossible' });
+  }
+});
+
 app.post('/api/bien-folders', requireAdminSession, async (req, res) => {
   try {
     await ensureBienFoldersSchema();
