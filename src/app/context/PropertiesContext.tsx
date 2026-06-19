@@ -818,7 +818,7 @@ interface PropertiesContextType {
   loading: boolean;
   isLoading: boolean;
   error: string | null;
-  addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<string>;
+  addBien: (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>) => Promise<any>;
   updateBien: (updatedBien: Bien) => Promise<any>;
   deleteBien: (id: string) => Promise<void>;
   saveModePriorities: (next: Record<BienMode, number>) => Promise<void>;
@@ -1216,7 +1216,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // CRUD Operations
-  const addBien = async (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>): Promise<string> => {
+  const addBien = async (newBien: Omit<Bien, 'id' | 'created_at' | 'updated_at'>): Promise<any> => {
     try {
       const response = await fetch(`${API_URL}/biens`, {
         method: 'POST',
@@ -1232,7 +1232,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
 
       const createdBien = await response.json();
       await fetchData({ silent: true }); // Refresh data
-      return String(createdBien?.id || '');
+      return createdBien;
     } catch (err: any) {
       console.error('Error creating bien:', err);
       throw err;

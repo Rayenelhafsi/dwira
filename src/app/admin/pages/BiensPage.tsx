@@ -171,14 +171,109 @@ const isResidenceParentBien = (bien?: Partial<Bien> | null): boolean => {
   if (normalizeLegacyType((bien.type || undefined) as BienType) === 'residence') return true;
   return Array.isArray(bien.residence_units) && bien.residence_units.length > 0;
 };
-const normalizeBienForEditor = (bien?: Partial<Bien> | null): Partial<Bien> | null => {
+const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens: Partial<Bien>[] = []): any[] => {
+  const parentId = String(parent?.id || '').trim();
+  if (!parentId) return [];
+  const childRows = (Array.isArray(allBiens) ? allBiens : [])
+    .filter((bien) => String(bien?.residence_parent_bien_id || '').trim() === parentId);
+  if (childRows.length === 0) return [];
+
+  const unitsById = new Map<string, any>();
+  childRows.forEach((child, childIndex) => {
+    const rawUnitKey = String(child?.residence_unit_key || '').trim();
+    const rawSubType = String(child?.residence_unit_sub_type || child?.configuration || '').trim();
+    const [unitIdPart, apartmentIndexPart] = rawUnitKey.split('__');
+    const unitId = String(unitIdPart || `res_unit_rebuilt_${rawSubType || childIndex + 1}`).trim();
+    const apartmentIndex = Math.max(1, Math.floor(Number(apartmentIndexPart || childIndex + 1) || childIndex + 1));
+    const currentUnit = unitsById.get(unitId) || {
+      id: unitId,
+      sub_type: rawSubType,
+      quantity: 0,
+      apartment_names: [],
+      apartment_references: [],
+      apartments: [],
+      template_bien: {
+        nb_chambres: child?.nb_chambres ?? 0,
+        nb_salle_bain: child?.nb_salle_bain ?? 0,
+        prix_nuitee: child?.prix_nuitee ?? 0,
+        prix_semaine: child?.prix_semaine ?? null,
+        avance: child?.avance ?? 0,
+        caution: child?.caution ?? 0,
+        statut: child?.statut || 'disponible',
+        visible_sur_site: child?.visible_sur_site ?? true,
+        is_featured: child?.is_featured ?? false,
+        superficie_m2: child?.superficie_m2 ?? null,
+        etage: child?.etage ?? null,
+        annee_construction: child?.annee_construction ?? null,
+        distance_plage_m: child?.distance_plage_m ?? null,
+        proche_plage: child?.proche_plage ?? false,
+        chauffage_central: child?.chauffage_central ?? false,
+        climatisation: child?.climatisation ?? false,
+        balcon: child?.balcon ?? false,
+        terrasse: child?.terrasse ?? false,
+        ascenseur: child?.ascenseur ?? false,
+        vue_mer: child?.vue_mer ?? false,
+        gaz_ville: child?.gaz_ville ?? false,
+        cuisine_equipee: child?.cuisine_equipee ?? false,
+        place_parking: child?.place_parking ?? false,
+        syndic: child?.syndic ?? false,
+        meuble: child?.meuble ?? false,
+        independant: child?.independant ?? false,
+        eau_puits: child?.eau_puits ?? false,
+        eau_sonede: child?.eau_sonede ?? false,
+        electricite_steg: child?.electricite_steg ?? false,
+        configuration: rawSubType || null,
+        location_saisonniere_config: child?.location_saisonniere_config || null,
+        ui_config: child?.ui_config || null,
+      },
+      template_media: Array.isArray(child?.media) ? child.media : [],
+      pricing_periods: Array.isArray(child?.pricing_periods) ? child.pricing_periods : [],
+      feature_ids: Array.isArray(child?.caracteristique_ids) ? child.caracteristique_ids : [],
+      feature_values: child?.caracteristique_valeurs && typeof child.caracteristique_valeurs === 'object' ? child.caracteristique_valeurs : {},
+    };
+    const apartmentTitle = String(child?.nom_bien_mobile || child?.titre || '').trim();
+    currentUnit.sub_type = currentUnit.sub_type || rawSubType;
+    currentUnit.quantity = Math.max(Number(currentUnit.quantity || 0), apartmentIndex);
+    currentUnit.apartment_names[apartmentIndex - 1] = apartmentTitle;
+    currentUnit.apartment_references[apartmentIndex - 1] = String(child?.reference || '').trim();
+    currentUnit.apartments[apartmentIndex - 1] = {
+      name: apartmentTitle,
+      reference: String(child?.reference || '').trim(),
+      nom_bien_mobile: String(child?.nom_bien_mobile || '').trim(),
+      description: String(child?.description || '').trim(),
+      proprietaire_id: String(child?.proprietaire_id || '').trim(),
+      unavailable_dates: Array.isArray(child?.unavailableDates) ? child.unavailableDates : [],
+    };
+    unitsById.set(unitId, currentUnit);
+  });
+
+  return Array.from(unitsById.values())
+    .map((unit) => ({
+      ...unit,
+      apartment_names: (Array.isArray(unit.apartment_names) ? unit.apartment_names : []).map((value: unknown) => String(value || '').trim()),
+      apartment_references: (Array.isArray(unit.apartment_references) ? unit.apartment_references : []).map((value: unknown) => String(value || '').trim()),
+      apartments: (Array.isArray(unit.apartments) ? unit.apartments : []).map((apartment: any) => ({
+        ...apartment,
+        name: String(apartment?.name || '').trim(),
+        reference: String(apartment?.reference || '').trim(),
+        nom_bien_mobile: String(apartment?.nom_bien_mobile || '').trim(),
+        description: String(apartment?.description || '').trim(),
+        proprietaire_id: String(apartment?.proprietaire_id || '').trim(),
+        unavailable_dates: Array.isArray(apartment?.unavailable_dates) ? apartment.unavailable_dates : [],
+      })),
+    }))
+    .filter((unit) => String(unit?.sub_type || '').trim());
+};
+const normalizeBienForEditor = (bien?: Partial<Bien> | null, allBiens: Partial<Bien>[] = []): Partial<Bien> | null => {
   if (!bien) return null;
   if (!isResidenceParentBien(bien)) return bien;
+  const existingUnits = Array.isArray(bien.residence_units) ? bien.residence_units : [];
+  const reconstructedUnits = existingUnits.length > 0 ? existingUnits : buildResidenceUnitsFromChildren(bien, allBiens);
   return {
     ...bien,
     type: 'residence',
     mode: (bien.mode || 'location_saisonniere') as BienMode,
-    residence_units: Array.isArray(bien.residence_units) ? bien.residence_units : [],
+    residence_units: reconstructedUnits,
   };
 };
 const toNonNegativeIntegerOrNull = (value: unknown): number | null => {
@@ -1065,7 +1160,7 @@ export default function BiensPage() {
     const targetBien = biens.find((item) => String(item.id || '').trim() === editBienId);
     if (!targetBien) return;
     setDuplicateSeedBien(null);
-    setEditingBien(normalizeBienForEditor(targetBien) as Bien);
+    setEditingBien(normalizeBienForEditor(targetBien, biens) as Bien);
     setEditorInitialStep(isResidenceParentBien(targetBien) ? 0 : 1);
     setEditorInitialTab(requestedTab === 'calendar' ? 'calendar' : 'general');
     setIsAddOpen(true);
@@ -1493,7 +1588,7 @@ export default function BiensPage() {
           ? hasMediaChanged(editingSnapshot?.media || [], media || [])
           : true;
         if (isEditingNow) {
-          await updateBien(bien as any);
+          const updatedBien = await updateBien(bien as any);
           if (deletedMediaIds.length > 0) {
             await deleteMediaIdsForBien(deletedMediaIds);
           }
@@ -1502,32 +1597,16 @@ export default function BiensPage() {
           }
           await syncUnavailableDatesForBien(bien.id, unavailableDates || []);
           if (isResidenceParentBien(bien)) {
-            const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(String(bien.id || ''))}/sync-residence-children`, {
-              method: 'POST',
-              credentials: 'include',
-            });
-            if (!syncResponse.ok) {
-              const payload = await syncResponse.json().catch(() => null);
-              throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
-            }
-            const syncPayload = await syncResponse.json().catch(() => null);
+            const syncPayload = updatedBien?.residence_sync || null;
             await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
           }
         } else {
-          const createdBienId = await addBien(bienData as any);
-          finalBienId = String(createdBienId || String(bienData.id || bien.id || ''));
+          const createdBien = await addBien(bienData as any);
+          finalBienId = String(createdBien?.id || String(bienData.id || bien.id || ''));
           await syncMediaForBien(finalBienId, media || []);
           await syncUnavailableDatesForBien(finalBienId, unavailableDates || []);
           if (isResidenceParentBien(bien)) {
-            const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(finalBienId)}/sync-residence-children`, {
-              method: 'POST',
-              credentials: 'include',
-            });
-            if (!syncResponse.ok) {
-              const payload = await syncResponse.json().catch(() => null);
-              throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
-            }
-            const syncPayload = await syncResponse.json().catch(() => null);
+            const syncPayload = createdBien?.residence_sync || null;
             await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
           }
         }
@@ -1545,7 +1624,7 @@ export default function BiensPage() {
               ? hasMediaChanged(editingSnapshot?.media || [], bien.media || [])
               : true;
             if (isEditingNow) {
-              await updateBien(draftBien);
+              const updatedBien = await updateBien(draftBien);
               if (deletedMediaIds.length > 0) {
                 await deleteMediaIdsForBien(deletedMediaIds);
               }
@@ -1554,33 +1633,17 @@ export default function BiensPage() {
               }
               await syncUnavailableDatesForBien(bien.id, bien.unavailableDates || []);
               if (isResidenceParentBien(bien)) {
-                const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(String(bien.id || ''))}/sync-residence-children`, {
-                  method: 'POST',
-                  credentials: 'include',
-                });
-                if (!syncResponse.ok) {
-                  const payload = await syncResponse.json().catch(() => null);
-                  throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
-                }
-                const syncPayload = await syncResponse.json().catch(() => null);
+                const syncPayload = updatedBien?.residence_sync || null;
                 await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
               }
             } else {
               const { created_at: _createdAt, updated_at: _updatedAt, media: _media, unavailableDates: _dates, ...draftBienData } = draftBien;
-              const createdBienId = await addBien(draftBienData);
-              finalBienId = String(createdBienId || String(draftBienData.id || bien.id || ''));
+              const createdBien = await addBien(draftBienData);
+              finalBienId = String(createdBien?.id || String(draftBienData.id || bien.id || ''));
               await syncMediaForBien(finalBienId, bien.media || []);
               await syncUnavailableDatesForBien(finalBienId, bien.unavailableDates || []);
               if (isResidenceParentBien(bien)) {
-                const syncResponse = await fetch(`${API_URL}/biens/${encodeURIComponent(finalBienId)}/sync-residence-children`, {
-                  method: 'POST',
-                  credentials: 'include',
-                });
-                if (!syncResponse.ok) {
-                  const payload = await syncResponse.json().catch(() => null);
-                  throw new Error(String(payload?.error || 'Synchronisation de la residence impossible'));
-                }
-                const syncPayload = await syncResponse.json().catch(() => null);
+                const syncPayload = createdBien?.residence_sync || null;
                 await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
               }
             }
@@ -1878,7 +1941,7 @@ export default function BiensPage() {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(normalizeBienForEditor(bien) as Bien); setEditorInitialStep(isResidenceParentBien(bien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(normalizeBienForEditor(bien) as Bien)} />)}
+        {filteredBiens.map((bien) => <BienCard key={bien.id} bien={bien} zones={zoneOptions} saveStatus={saveStatusByBienId[bien.id]} onEdit={() => { setDuplicateSeedBien(null); setEditingBien(normalizeBienForEditor(bien, biens) as Bien); setEditorInitialStep(isResidenceParentBien(bien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); }} onDuplicate={() => handleDuplicate(bien)} onDelete={() => handleDelete(bien.id)} onView={() => setViewingBien(normalizeBienForEditor(bien, biens) as Bien)} />)}
       </div>
       {filteredBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé</h3></div>}
       <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
@@ -1894,7 +1957,7 @@ export default function BiensPage() {
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
             ><Save className="h-4 w-4" /><span>Sauvegarder</span></button>
           </div>
-          <div className="flex-1 overflow-y-auto"><BienEditor initialData={editingBien} seedData={duplicateSeedBien} initialGeneralStep={editorInitialStep} initialTab={editorInitialTab} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
+          <div className="flex-1 overflow-y-auto"><BienEditor key={`${editingBien?.id || duplicateSeedBien?.id || 'new'}:${editorInitialStep}:${editorInitialTab}:${isAddOpen ? 'open' : 'closed'}`} initialData={editingBien} seedData={duplicateSeedBien} initialGeneralStep={editorInitialStep} initialTab={editorInitialTab} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root open={!!viewingBien} onOpenChange={() => setViewingBien(null)}>
@@ -1903,8 +1966,8 @@ export default function BiensPage() {
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
             <div className="flex items-center gap-3"><button onClick={() => setViewingBien(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">Apercu</Dialog.Title></div>
             <div className="flex items-center gap-2">
-              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 2); setEditorInitialTab('general'); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><span>Modifier visibilite</span></button>
-              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /><span>Modifier</span></button>
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien, biens) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 2); setEditorInitialTab('general'); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><span>Modifier visibilite</span></button>
+              <button onClick={() => { setViewingBien(null); if (viewingBien) { setEditingBien(normalizeBienForEditor(viewingBien, biens) as Bien); setEditorInitialStep(isResidenceParentBien(viewingBien) ? 0 : 1); setEditorInitialTab('general'); setIsAddOpen(true); } }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Edit2 className="h-4 w-4" /><span>Modifier</span></button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">{viewingBien && <BienPreview bien={viewingBien} zones={zoneOptions} onSaveVisibility={handlePreviewVisibilitySave} />}</div>

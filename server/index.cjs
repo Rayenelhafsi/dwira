@@ -14066,10 +14066,16 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     ]);
     await syncBienPricingPeriods(bienId, effectivePricingPeriods || []);
 
+    let residenceSyncResult = null;
+    if (resolvedMode === 'location_saisonniere' && resolvedType === 'residence') {
+      residenceSyncResult = await syncResidenceChildrenForParent(bienId);
+    }
+
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
     res.status(201).json({
       ...newBien[0],
       nom_bien_mobile: normalizedNomBienMobile || null,
+      residence_sync: residenceSyncResult,
     });
   } catch (error) {
     console.error('Error creating bien:', error);
@@ -14348,10 +14354,16 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       await syncBienPricingPeriods(req.params.id, effectivePricingPeriods || []);
     }
 
+    let residenceSyncResult = null;
+    if (resolvedMode === 'location_saisonniere' && resolvedType === 'residence') {
+      residenceSyncResult = await syncResidenceChildrenForParent(req.params.id);
+    }
+
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
     res.json({
       ...updatedBien[0],
       nom_bien_mobile: normalizedNomBienMobile || null,
+      residence_sync: residenceSyncResult,
     });
   } catch (error) {
     console.error('Error updating bien:', error);
