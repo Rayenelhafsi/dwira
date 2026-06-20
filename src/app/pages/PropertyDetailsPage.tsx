@@ -916,6 +916,7 @@ export default function PropertyDetailsPage() {
   const flashDiscountParam = Math.max(0, Math.min(95, Number(searchParams.get("flashDiscount") || property?.seasonalConfig?.venteFlashDiscountPercent || 0)));
   const flashAmountParam = Math.max(0, Number(searchParams.get("flashAmount") || property?.seasonalConfig?.venteFlashFixedAmount || 0));
   const flashMinNightsParam = Math.max(1, Math.floor(Number(searchParams.get("flashMinNights") || 1)));
+  const todayDateKey = format(new Date(), "yyyy-MM-dd");
   const lockedFlashOffer: PropertyFlashOffer | null = flashOfferEnabled
     && isValidDateOnly(flashStartParam)
     && isValidDateOnly(flashEndParam)
@@ -930,6 +931,12 @@ export default function PropertyDetailsPage() {
         fixedNightlyAmount: flashModeParam === "fixed_amount" && flashAmountParam > 0 ? flashAmountParam : null,
         minimumNights: flashMinNightsParam,
       }
+    : null;
+  const effectiveLockedFlashStart = lockedFlashOffer
+    ? (lockedFlashOffer.start < todayDateKey ? todayDateKey : lockedFlashOffer.start)
+    : null;
+  const effectiveLockedFlashRange = lockedFlashOffer && effectiveLockedFlashStart && effectiveLockedFlashStart <= lockedFlashOffer.end
+    ? { start: effectiveLockedFlashStart, end: lockedFlashOffer.end }
     : null;
 
   // Build query string for "Voir tout" link
@@ -1372,10 +1379,10 @@ out body 40;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
 
-    if (lockedFlashOffer && (startDate < lockedFlashOffer.start || endDate > lockedFlashOffer.end)) {
+    if (effectiveLockedFlashRange && (startDate < effectiveLockedFlashRange.start || endDate > effectiveLockedFlashRange.end)) {
       return {
         valid: false,
-        message: `Cette vente flash permet uniquement une reservation incluse entre le ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`,
+        message: `Cette vente flash permet uniquement une reservation incluse entre le ${format(new Date(`${effectiveLockedFlashRange.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${effectiveLockedFlashRange.end}T00:00:00`), "dd/MM/yyyy")}.`,
       };
     }
 
@@ -1421,7 +1428,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, isSaleProperty, lockedFlashOffer, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRange, isSaleProperty, lockedFlashOffer, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -2629,9 +2636,17 @@ out body 40;
     const parsedStart = candidate.startDate ? new Date(candidate.startDate) : null;
     const parsedEnd = candidate.endDate ? new Date(candidate.endDate) : null;
     if (!parsedStart || !parsedEnd || Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) return;
+    const candidateStartKey = format(parsedStart, "yyyy-MM-dd");
+    const candidateEndKey = format(parsedEnd, "yyyy-MM-dd");
+    const normalizedDraftStartKey = effectiveLockedFlashRange
+      ? (candidateStartKey < effectiveLockedFlashRange.start ? effectiveLockedFlashRange.start : candidateStartKey)
+      : (candidateStartKey < todayDateKey ? todayDateKey : candidateStartKey);
+    const normalizedDraftEndKey = candidateEndKey;
+    if (effectiveLockedFlashRange && normalizedDraftEndKey > effectiveLockedFlashRange.end) return;
+    if (normalizedDraftEndKey <= normalizedDraftStartKey) return;
     draftHydratedRef.current = true;
-    setSelectedStart(parsedStart);
-    setSelectedEnd(parsedEnd);
+    setSelectedStart(new Date(`${normalizedDraftStartKey}T00:00:00`));
+    setSelectedEnd(new Date(`${normalizedDraftEndKey}T00:00:00`));
     const fallbackGuests = Math.max(1, Number(candidate.guests || 1));
     const nextAdults = Math.max(1, Number((candidate as PendingReservationDraft).adultGuests ?? fallbackGuests));
     const nextChildren = Math.max(0, Number((candidate as PendingReservationDraft).childGuests ?? (fallbackGuests - nextAdults)));
@@ -2651,7 +2666,7 @@ out body 40;
     setAmicaleCode(String(candidate.amicaleCode || ""));
     setReservationNote(String(candidate.reservationNote || ""));
     setPendingDraft(candidate);
-  }, [location.state, maxAdultGuests, maxChildGuests, maxGuests, property]);
+  }, [effectiveLockedFlashRange, location.state, maxAdultGuests, maxChildGuests, maxGuests, property, todayDateKey]);
 
   // Calculate total price
   const calculateTotal = () => {
@@ -2865,8 +2880,8 @@ out body 40;
     const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
-    if (lockedFlashOffer && (startDate < lockedFlashOffer.start || endDate > lockedFlashOffer.end)) {
-      failRule(`Cette vente flash accepte uniquement une reservation comprise entre le ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`);
+    if (effectiveLockedFlashRange && (startDate < effectiveLockedFlashRange.start || endDate > effectiveLockedFlashRange.end)) {
+      failRule(`Cette vente flash accepte uniquement une reservation comprise entre le ${format(new Date(`${effectiveLockedFlashRange.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${effectiveLockedFlashRange.end}T00:00:00`), "dd/MM/yyyy")}.`);
       return;
     }
     if (startDate === endDate) {
@@ -4311,7 +4326,7 @@ out body 40;
                 onDateRangeSelect={handleDateRangeSelect}
                 selectedStart={selectedStart}
                 selectedEnd={selectedEnd}
-                allowedRange={lockedFlashOffer ? { start: lockedFlashOffer.start, end: lockedFlashOffer.end } : null}
+                allowedRange={effectiveLockedFlashRange}
               />
             </div>
           </div>
@@ -4888,7 +4903,7 @@ out body 40;
               onDateRangeSelect={handleBookingDateRangeSelect}
               selectedStart={selectedStart}
               selectedEnd={selectedEnd}
-              allowedRange={lockedFlashOffer ? { start: lockedFlashOffer.start, end: lockedFlashOffer.end } : null}
+              allowedRange={effectiveLockedFlashRange}
             />
           </div>
         </DialogContent>
