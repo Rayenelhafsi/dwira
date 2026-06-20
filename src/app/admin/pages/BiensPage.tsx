@@ -5892,6 +5892,19 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     () => normalizedResidenceUnits.find((row) => String(row.id) === String(activeResidenceUnitId)) || normalizedResidenceUnits[0] || null,
     [activeResidenceUnitId, normalizedResidenceUnits]
   );
+  const residenceSubtypeTabs = useMemo(() => {
+    const seen = new Set<string>();
+    return normalizedResidenceUnits.filter((row) => {
+      const key = `${String(row.main_type || 'appartement')}::${String(row.sub_type || '').trim().toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [normalizedResidenceUnits]);
+  const activeResidenceUnitTabKey = useMemo(
+    () => `${String(activeResidenceUnit?.main_type || 'appartement')}::${String(activeResidenceUnit?.sub_type || '').trim().toLowerCase()}`,
+    [activeResidenceUnit]
+  );
   const activeResidenceUnitIndex = activeResidenceUnit
     ? normalizedResidenceUnits.findIndex((row) => String(row.id) === String(activeResidenceUnit.id))
     : -1;
@@ -7244,12 +7257,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   <p className="text-xs text-gray-600">Chaque onglet pilote les etapes 1 a 4, les images et le calendrier du sous-type selectionne.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {normalizedResidenceUnits.map((unit) => (
+                  {residenceSubtypeTabs.map((unit) => (
                     <button
                       key={`residence-general-unit-${unit.id}`}
                       type="button"
                       onClick={() => handleResidenceUnitTabChange(String(unit.id))}
-                      className={`rounded-lg border px-3 py-2 text-sm ${String(activeResidenceUnit?.id || '') === String(unit.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                      className={`rounded-lg border px-3 py-2 text-sm ${activeResidenceUnitTabKey === `${String(unit.main_type || 'appartement')}::${String(unit.sub_type || '').trim().toLowerCase()}` ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
                     >
                       {unit.sub_type || 'Sous-type'}
                     </button>
@@ -9451,12 +9464,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                     <p className="text-xs text-gray-600">Les images ajoutees ici seront partagees par tous les appartements du sous-type selectionne.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {normalizedResidenceUnits.map((unit) => (
+                    {residenceSubtypeTabs.map((unit) => (
                       <button
                         key={`residence-images-unit-${unit.id}`}
                         type="button"
                         onClick={() => handleResidenceUnitTabChange(String(unit.id))}
-                        className={`rounded-lg border px-3 py-2 text-sm ${String(activeResidenceUnit?.id || '') === String(unit.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                        className={`rounded-lg border px-3 py-2 text-sm ${activeResidenceUnitTabKey === `${String(unit.main_type || 'appartement')}::${String(unit.sub_type || '').trim().toLowerCase()}` ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
                       >
                         {unit.sub_type || 'Sous-type'}
                       </button>
@@ -9771,12 +9784,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   <p className="text-xs text-gray-600">Choisissez un sous-type puis un appartement. Les indisponibilites restent independantes par appartement.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {normalizedResidenceUnits.map((unit) => (
+                  {residenceSubtypeTabs.map((unit) => (
                     <button
                       key={`residence-calendar-unit-${unit.id}`}
                       type="button"
                       onClick={() => handleResidenceUnitTabChange(String(unit.id))}
-                      className={`rounded-lg border px-3 py-2 text-sm ${String(activeResidenceUnit?.id || '') === String(unit.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                      className={`rounded-lg border px-3 py-2 text-sm ${activeResidenceUnitTabKey === `${String(unit.main_type || 'appartement')}::${String(unit.sub_type || '').trim().toLowerCase()}` ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700'}`}
                     >
                       {unit.sub_type || 'Sous-type'}
                     </button>
