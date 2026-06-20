@@ -6199,7 +6199,7 @@ app.post('/api/hotel-reservation-demands', async (req, res) => {
   try {
     await ensureHotelReservationDemandSchema();
 
-    const requester = req.authUser || null;
+    const requester = req.authUser || getSessionUserFromRequest(req) || null;
     const now = getAgencySqlDateTime();
     const childAges = Array.isArray(req.body?.childAges) ? req.body.childAges.map((age) => Number(age)).filter((age) => Number.isInteger(age) && age >= 0 && age <= 17) : [];
     const adults = Math.max(1, Number(req.body?.adults || 1));
@@ -16127,7 +16127,7 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
 app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
   try {
     await ensureContractsSchema();
-    const requester = req.authUser || null;
+    const requester = req.authUser || getSessionUserFromRequest(req) || null;
     const contractId = String(req.params.id || '').trim();
     if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
     const templateContext = await buildResolvedContractTemplateVars(contractId);
