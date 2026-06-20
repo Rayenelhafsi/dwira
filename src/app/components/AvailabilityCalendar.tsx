@@ -199,7 +199,7 @@ export default function AvailabilityCalendar({
     }
   };
 
-  const getDayClassName = (date: Date) => {
+  const getDayClassName = (date: Date, splitEnabled = false) => {
     const isCurrentMonth = isSameMonth(date, currentMonth);
     const dateStatus = getDateStatus(date);
     const isSelected = isDateSelected(date);
@@ -230,7 +230,9 @@ export default function AvailabilityCalendar({
       className += "bg-orange-200 text-orange-800 hover:bg-orange-300 ";
     } else if (isSelected) {
       // Dark Green for Sélectionné (entire selected period)
-      className += "bg-emerald-600 text-white font-bold ";
+      className += splitEnabled
+        ? "bg-transparent text-gray-900 font-bold border border-emerald-100 "
+        : "bg-emerald-600 text-white font-bold ";
     } else {
       className += flashLocked
         ? "bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 "
@@ -241,13 +243,10 @@ export default function AvailabilityCalendar({
   };
 
   const getSplitDayVisual = (date: Date): { enabled: boolean; leftClass: string; rightClass: string } => {
-    if (flashLocked) {
-      return { enabled: false, leftClass: "", rightClass: "" };
-    }
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
     const selectedClass = "bg-emerald-600";
-    const availableClass = normalizedAllowedRange ? "bg-white" : "bg-green-100";
+    const availableClass = normalizedAllowedRange ? "bg-emerald-50" : "bg-green-100";
     if (isEnd) {
       return { enabled: true, leftClass: selectedClass, rightClass: availableClass };
     }
@@ -349,7 +348,7 @@ export default function AvailabilityCalendar({
           const splitRightBooked = splitVisual.enabled && splitVisual.rightClass.includes("bg-red-500");
           return (
             <div key={idx} onClick={() => handleDateClick(day)}>
-              <div className={getDayClassName(day)}>
+              <div className={getDayClassName(day, splitVisual.enabled)}>
                 {splitVisual.enabled && (
                   <>
                     <span className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 rounded-l-lg ${splitVisual.leftClass}`} />
