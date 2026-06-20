@@ -1181,6 +1181,12 @@ export default function HomePage({
   }, [showChatbotWidget]);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
   const activePartnerAgencyId = String(forcedPartnerAgencyId || searchParams.get("partner") || "").trim() || null;
+  const activePublicPartnerSlug = String(publicPartnerSlug || searchParams.get("publicPartnerSlug") || "").trim() || null;
+  const activePublicPartnerKind = forcedAmicaleId
+    ? "amicale"
+    : forcedPartnerAgencyId
+      ? "partner_agency"
+      : (String(searchParams.get("publicPartnerKind") || "").trim() || null);
   const activeAmicaleHotelMarkupPercent = useMemo(() => {
     if (!activeAmicaleId) return 0;
     const matched = hotelAmicaleOptions.find((item) => item.id === activeAmicaleId) || null;
@@ -1192,15 +1198,36 @@ export default function HomePage({
   })();
   const publicPartnerQueryString = useMemo(() => {
     const params = new URLSearchParams(searchParams);
+    params.delete("amicale");
+    params.delete("partner");
+    params.delete("partnerMargin");
+    if (activePublicPartnerSlug) {
+      params.set("publicPartnerSlug", activePublicPartnerSlug);
+      if (activePublicPartnerKind) params.set("publicPartnerKind", activePublicPartnerKind);
+      else params.delete("publicPartnerKind");
+    } else {
+      params.delete("publicPartnerSlug");
+      params.delete("publicPartnerKind");
+    }
     return params.toString();
-  }, [searchParams]);
+  }, [activePublicPartnerKind, activePublicPartnerSlug, searchParams]);
   const publicListingLink = useMemo(() => {
-    if (!publicPartnerSlug) {
+    if (!activePublicPartnerSlug) {
       return `/logements?mode=${encodeURIComponent(selectedMode)}`;
     }
-    return publicPartnerQueryString ? `/${publicPartnerSlug}?${publicPartnerQueryString}` : `/${publicPartnerSlug}`;
-  }, [publicPartnerQueryString, publicPartnerSlug, selectedMode]);
+    return publicPartnerQueryString ? `/${activePublicPartnerSlug}?${publicPartnerQueryString}` : `/${activePublicPartnerSlug}`;
+  }, [activePublicPartnerSlug, publicPartnerQueryString, selectedMode]);
   const applyAmicaleParam = (params: URLSearchParams) => {
+    params.delete("amicale");
+    params.delete("partner");
+    params.delete("partnerMargin");
+    params.delete("publicPartnerSlug");
+    params.delete("publicPartnerKind");
+    if (activePublicPartnerSlug) {
+      params.set("publicPartnerSlug", activePublicPartnerSlug);
+      if (activePublicPartnerKind) params.set("publicPartnerKind", activePublicPartnerKind);
+      return params;
+    }
     if (activeAmicaleId) {
       params.set("amicale", activeAmicaleId);
     } else {
@@ -1208,12 +1235,8 @@ export default function HomePage({
     }
     if (activePartnerAgencyId) {
       params.set("partner", activePartnerAgencyId);
-      if (activePartnerAgencyMarginMultiplier) {
-        params.set("partnerMargin", String(activePartnerAgencyMarginMultiplier));
-      }
     } else {
       params.delete("partner");
-      params.delete("partnerMargin");
     }
     return params;
   };
@@ -5758,12 +5781,18 @@ export default function HomePage({
                     else detailParams.delete("children");
                     if (resolvedRoomChoices[0]?.selectedBoardingOption?.boardingId) detailParams.set("boardingId", String(resolvedRoomChoices[0].selectedBoardingOption.boardingId));
                     if (resolvedRoomChoices[0]?.selectedRoomOption?.roomId) detailParams.set("roomId", String(resolvedRoomChoices[0].selectedRoomOption.roomId));
-                    if (activeAmicaleId) detailParams.set("amicale", activeAmicaleId);
-                    if (activePartnerAgencyId) {
+                    detailParams.delete("amicale");
+                    detailParams.delete("partner");
+                    detailParams.delete("partnerMargin");
+                    detailParams.delete("publicPartnerSlug");
+                    detailParams.delete("publicPartnerKind");
+                    if (activePublicPartnerSlug) {
+                      detailParams.set("publicPartnerSlug", activePublicPartnerSlug);
+                      if (activePublicPartnerKind) detailParams.set("publicPartnerKind", activePublicPartnerKind);
+                    } else if (activeAmicaleId) {
+                      detailParams.set("amicale", activeAmicaleId);
+                    } else if (activePartnerAgencyId) {
                       detailParams.set("partner", activePartnerAgencyId);
-                      if (activePartnerAgencyMarginMultiplier) {
-                        detailParams.set("partnerMargin", String(activePartnerAgencyMarginMultiplier));
-                      }
                     }
                     detailParams.set("returnTo", `${location.pathname}${location.search}`);
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;

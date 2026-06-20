@@ -23,15 +23,11 @@ export default function AmicalePropertyRedirectPage() {
         setResolution(match);
         if (match && decodedPropertyRef) {
           const next = new URLSearchParams(searchParams);
-          if (match.kind === "amicale") {
-            next.set("amicale", match.item.id);
-            next.delete("partner");
-            next.delete("partnerMargin");
-          } else {
-            next.set("partner", match.item.id);
-            next.set("partnerMargin", String(match.item.marginMultiplier));
-            next.delete("amicale");
-          }
+          next.delete("amicale");
+          next.delete("partner");
+          next.delete("partnerMargin");
+          next.set("publicPartnerSlug", normalizedSlug);
+          next.set("publicPartnerKind", match.kind);
           if (!next.get("mode")) {
             next.set("mode", "location_saisonniere");
           }

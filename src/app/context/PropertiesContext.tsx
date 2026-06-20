@@ -4,7 +4,7 @@ import { Property, PropertyFilterProfile } from '../data/properties';
 import { toYouTubeThumbnailUrl } from '../utils/videoLinks';
 import { extractGuestLimitsFromCharacteristicLines, resolveBienCapacity } from '../utils/bienCapacity';
 import { buildPropertyDetailsPath } from '../utils/propertyRouting';
-import { normalizeDateOnlyInput } from '../utils/availability';
+import { aggregateUnavailableDatesByUnitCalendars, normalizeDateOnlyInput, type NormalizedUnavailableDateRange } from '../utils/availability';
 
 // API Base URL
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -464,7 +464,11 @@ function isValidSqlDate(value: string): boolean {
 }
 
 // Convert Bien (Admin format) to Property (Site format)
-function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Property {
+function bienToProperty(
+  bien: Bien,
+  zonesById: Record<string, Zone> = {},
+  overrideUnavailableDates?: NormalizedUnavailableDateRange[]
+): Property {
   const typeToCategory: Record<string, string> = {
     'S1': 'S+1',
     'S2': 'S+2',
@@ -559,6 +563,7 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     ?? (seasonalRawConfig as any)?.limite_personne_nuit
     ?? 0
   );
+  const effectiveUnavailableDates = overrideUnavailableDates ?? (Array.isArray(bien.unavailableDates) ? bien.unavailableDates : []);
   const guestLimits = extractGuestLimitsFromCharacteristicLines(bien.caracteristiques);
   const cfgAdultsRaw = Number(bien.location_saisonniere_config?.max_adultes);
   const cfgChildrenRaw = Number(bien.location_saisonniere_config?.max_enfants);
@@ -666,7 +671,7 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
       quartier: resolvedZone?.quartier ? String(resolvedZone.quartier) : null,
     },
     stayRules: {
-      unavailableDates: Array.isArray(bien.unavailableDates) ? bien.unavailableDates : [],
+      unavailableDates: effectiveUnavailableDates,
       pricingPeriods: Array.isArray(bien.pricing_periods) ? bien.pricing_periods : [],
       minStayNights: Math.max(1, Number(bien.location_saisonniere_config?.duree_min_sejour_nuits ?? 1)),
       maxStayNights: Math.max(
@@ -700,7 +705,7 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
     residenceName,
     residenceUnitSubType: resolvedSubType || null,
     isFeatured: bien.is_featured === true,
-    unavailableDates: bien.unavailableDates || [],
+    unavailableDates: effectiveUnavailableDates,
     pricingPeriods: Array.isArray(bien.pricing_periods) ? bien.pricing_periods : [],
     filterProfile: propertyFilterProfile,
     cleaningFee: isCleaningAvailable && seasonalCleaningFee > 0 ? seasonalCleaningFee : 0,
@@ -882,6 +887,7 @@ const isPubliclyVisibleBien = (bien: Bien) =>
 function buildPublicPropertiesFromBiens(biens: Bien[], zonesById: Record<string, Zone> = {}): Property[] {
   const visibleBiens = (Array.isArray(biens) ? biens : []).filter(isPubliclyVisibleBien);
   const selectedResidenceRepresentative = new Map<string, Bien>();
+  const residenceSubtypeGroups = new Map<string, Bien[]>();
   const standaloneBiens: Bien[] = [];
   visibleBiens.forEach((bien) => {
     const residenceParentId = String((bien as any).residence_parent_bien_id || '').trim();
@@ -892,6 +898,9 @@ function buildPublicPropertiesFromBiens(biens: Bien[], zonesById: Record<string,
     const residenceChildType = normalizeBienType(String((bien as any).type || '').trim() || 'appartement');
     const residenceSubType = String((bien as any).residence_unit_sub_type || bien.configuration || '').trim().toLowerCase();
     const dedupeKey = `${residenceParentId}::${String(residenceChildType || '').trim().toLowerCase()}::${residenceSubType || String(bien.type || '').trim().toLowerCase()}`;
+    const grouped = residenceSubtypeGroups.get(dedupeKey) || [];
+    grouped.push(bien);
+    residenceSubtypeGroups.set(dedupeKey, grouped);
     const current = selectedResidenceRepresentative.get(dedupeKey);
     const currentMediaCount = Array.isArray(current?.media) ? current.media.length : 0;
     const nextMediaCount = Array.isArray(bien?.media) ? bien.media.length : 0;
@@ -900,7 +909,20 @@ function buildPublicPropertiesFromBiens(biens: Bien[], zonesById: Record<string,
     }
   });
   return [...standaloneBiens, ...Array.from(selectedResidenceRepresentative.values())]
-    .map((bien) => bienToProperty(bien, zonesById));
+    .map((bien) => {
+      const residenceParentId = String((bien as any).residence_parent_bien_id || '').trim();
+      if (!residenceParentId) {
+        return bienToProperty(bien, zonesById);
+      }
+      const residenceChildType = normalizeBienType(String((bien as any).type || '').trim() || 'appartement');
+      const residenceSubType = String((bien as any).residence_unit_sub_type || bien.configuration || '').trim().toLowerCase();
+      const dedupeKey = `${residenceParentId}::${String(residenceChildType || '').trim().toLowerCase()}::${residenceSubType || String(bien.type || '').trim().toLowerCase()}`;
+      const groupedBiens = residenceSubtypeGroups.get(dedupeKey) || [bien];
+      const aggregatedUnavailableDates = aggregateUnavailableDatesByUnitCalendars(
+        groupedBiens.map((item) => (Array.isArray(item.unavailableDates) ? item.unavailableDates : []))
+      );
+      return bienToProperty(bien, zonesById, aggregatedUnavailableDates);
+    });
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {

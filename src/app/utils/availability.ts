@@ -4,6 +4,20 @@ export interface UnavailableDateRangeLike {
   start_date?: string | null;
   end_date?: string | null;
   status?: string | null;
+  paymentDeadline?: string | null;
+  payment_deadline?: string | null;
+  reservationDemandId?: string | null;
+  reservation_demand_id?: string | null;
+  id?: string | null;
+}
+
+export interface NormalizedUnavailableDateRange {
+  id?: string;
+  start: string;
+  end: string;
+  status: "blocked" | "pending" | "booked";
+  paymentDeadline?: string;
+  reservationDemandId?: string | null;
 }
 
 export interface StayAvailabilityAlternative {
@@ -50,6 +64,153 @@ export function parseDateOnly(value: string | Date | null | undefined): Date | n
   if (!raw) return null;
   const date = new Date(`${raw}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeUnavailableStatus(value: string | null | undefined): "blocked" | "pending" | "booked" | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "blocked" || normalized === "pending" || normalized === "booked") {
+    return normalized;
+  }
+  return null;
+}
+
+function addDaysToDateOnly(raw: string, days: number) {
+  const date = parseDateOnly(raw);
+  if (!date) return "";
+  date.setDate(date.getDate() + days);
+  return formatDateOnlyLocal(date);
+}
+
+function compareDateOnly(a: string | null | undefined, b: string | null | undefined) {
+  const left = normalizeDateOnlyInput(a);
+  const right = normalizeDateOnlyInput(b);
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function getStatusPriority(status: "blocked" | "pending" | "booked") {
+  if (status === "booked") return 3;
+  if (status === "blocked") return 2;
+  return 1;
+}
+
+export function normalizeUnavailableDateRanges(
+  ranges: UnavailableDateRangeLike[] | null | undefined
+): NormalizedUnavailableDateRange[] {
+  return (Array.isArray(ranges) ? ranges : [])
+    .map((range) => {
+      const start = normalizeDateOnlyInput(range?.start || range?.start_date);
+      const end = normalizeDateOnlyInput(range?.end || range?.end_date);
+      const status = normalizeUnavailableStatus(range?.status);
+      if (!start || !end || !status || end < start) return null;
+      return {
+        id: range?.id ? String(range.id) : undefined,
+        start,
+        end,
+        status,
+        paymentDeadline: normalizeDateOnlyInput(range?.paymentDeadline || range?.payment_deadline) || undefined,
+        reservationDemandId: range?.reservationDemandId
+          ? String(range.reservationDemandId)
+          : (range?.reservation_demand_id ? String(range.reservation_demand_id) : null),
+      } satisfies NormalizedUnavailableDateRange;
+    })
+    .filter((range): range is NormalizedUnavailableDateRange => Boolean(range))
+    .sort((a, b) => {
+      const startCompare = compareDateOnly(a.start, b.start);
+      if (startCompare !== 0) return startCompare;
+      const endCompare = compareDateOnly(a.end, b.end);
+      if (endCompare !== 0) return endCompare;
+      return getStatusPriority(b.status) - getStatusPriority(a.status);
+    });
+}
+
+function getUnitStatusForDay(
+  ranges: NormalizedUnavailableDateRange[],
+  day: string
+): NormalizedUnavailableDateRange | null {
+  let selected: NormalizedUnavailableDateRange | null = null;
+  for (const range of ranges) {
+    if (range.start <= day && day <= range.end) {
+      if (!selected || getStatusPriority(range.status) > getStatusPriority(selected.status)) {
+        selected = range;
+      }
+    }
+  }
+  return selected;
+}
+
+export function aggregateUnavailableDatesByUnitCalendars(
+  unitCalendars: Array<UnavailableDateRangeLike[] | null | undefined>
+): NormalizedUnavailableDateRange[] {
+  const normalizedCalendars = (Array.isArray(unitCalendars) ? unitCalendars : []).map((calendar) =>
+    normalizeUnavailableDateRanges(calendar)
+  );
+  const allRanges = normalizedCalendars.flat();
+  if (allRanges.length === 0) return [];
+
+  let minDay = allRanges[0].start;
+  let maxDay = allRanges[0].end;
+  for (const range of allRanges) {
+    if (range.start < minDay) minDay = range.start;
+    if (range.end > maxDay) maxDay = range.end;
+  }
+
+  const dayStatuses: Array<NormalizedUnavailableDateRange> = [];
+  for (let day = minDay; day <= maxDay; day = addDaysToDateOnly(day, 1)) {
+    const unitStatuses = normalizedCalendars.map((calendar) => getUnitStatusForDay(calendar, day));
+    if (unitStatuses.some((entry) => entry === null)) continue;
+
+    const occupiedStatuses = unitStatuses.filter((entry): entry is NormalizedUnavailableDateRange => Boolean(entry));
+    const allPending = occupiedStatuses.every((entry) => entry.status === "pending");
+    if (allPending) {
+      const deadlines = occupiedStatuses
+        .map((entry) => normalizeDateOnlyInput(entry.paymentDeadline))
+        .filter(Boolean);
+      const earliestDeadline = deadlines.length > 0 ? deadlines.sort()[0] : undefined;
+      const reservationIds = Array.from(new Set(
+        occupiedStatuses
+          .map((entry) => String(entry.reservationDemandId || "").trim())
+          .filter(Boolean)
+      ));
+      dayStatuses.push({
+        start: day,
+        end: day,
+        status: "pending",
+        paymentDeadline: earliestDeadline || undefined,
+        reservationDemandId: reservationIds.length === 1 ? reservationIds[0] : null,
+      });
+      continue;
+    }
+
+    dayStatuses.push({
+      start: day,
+      end: day,
+      status: occupiedStatuses.some((entry) => entry.status === "booked") ? "booked" : "blocked",
+    });
+  }
+
+  if (dayStatuses.length === 0) return [];
+
+  const merged: NormalizedUnavailableDateRange[] = [];
+  for (const entry of dayStatuses) {
+    const previous = merged[merged.length - 1];
+    const canMerge = previous
+      && previous.status === entry.status
+      && (previous.paymentDeadline || "") === (entry.paymentDeadline || "")
+      && (previous.reservationDemandId || "") === (entry.reservationDemandId || "")
+      && addDaysToDateOnly(previous.end, 1) === entry.start;
+    if (canMerge) {
+      previous.end = entry.end;
+      continue;
+    }
+    merged.push({ ...entry });
+  }
+
+  return merged;
 }
 
 export function isValidStayRange(startRaw: string | null | undefined, endRaw: string | null | undefined) {

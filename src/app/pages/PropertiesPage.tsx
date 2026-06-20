@@ -19,6 +19,7 @@ import { getReservationMinStayRequirement, validateReservationWeekdayRule } from
 import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashOffers";
 import { fetchPartnerAgenciesPublic, findPartnerAgencyById, normalizePartnerAgencySlug } from "../utils/partnerAgencies";
 import { fetchAmicalesPublic, findAmicaleById, normalizeAmicaleSlug } from "../utils/amicales";
+import { resolvePublicPartnerBySlug } from "../utils/publicPartnerResolver";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -687,6 +688,8 @@ export default function PropertiesPage() {
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [publicPartnerSlug, setPublicPartnerSlug] = useState<string | null>(null);
+  const [resolvedPricingAmicaleId, setResolvedPricingAmicaleId] = useState<string | null>(null);
+  const [resolvedPartnerAgencyMarginMultiplier, setResolvedPartnerAgencyMarginMultiplier] = useState<number | null>(null);
 
   const orderedModeTabs = useMemo(
     () =>
@@ -790,10 +793,13 @@ export default function PropertiesPage() {
   }, [loading, orderedModeTabs, searchParams, setSearchParams]);
   useEffect(() => {
     let cancelled = false;
+    const publicSlug = String(searchParams.get("publicPartnerSlug") || "").trim();
     const partnerId = String(searchParams.get("partner") || "").trim();
     const amicaleId = String(searchParams.get("amicale") || "").trim();
-    if (!partnerId && !amicaleId) {
+    if (!publicSlug && !partnerId && !amicaleId) {
       setPublicPartnerSlug(null);
+      setResolvedPricingAmicaleId(null);
+      setResolvedPartnerAgencyMarginMultiplier(null);
       return () => {
         cancelled = true;
       };
@@ -801,30 +807,59 @@ export default function PropertiesPage() {
 
     const resolveSlug = async () => {
       try {
+        if (publicSlug) {
+          const match = await resolvePublicPartnerBySlug(publicSlug);
+          if (cancelled) return;
+          setPublicPartnerSlug(match ? publicSlug : null);
+          if (match?.kind === "partner_agency") {
+            setResolvedPricingAmicaleId(null);
+            setResolvedPartnerAgencyMarginMultiplier(Number(match.item.marginMultiplier || 0) || null);
+            return;
+          }
+          setResolvedPricingAmicaleId(match?.kind === "amicale" ? (String(match.item.id || "").trim() || null) : null);
+          setResolvedPartnerAgencyMarginMultiplier(null);
+          return;
+        }
         if (partnerId) {
           const cached = findPartnerAgencyById(partnerId);
           if (cached) {
-            if (!cancelled) setPublicPartnerSlug(normalizePartnerAgencySlug(cached.slug || cached.name) || null);
+            if (!cancelled) {
+              setPublicPartnerSlug(normalizePartnerAgencySlug(cached.slug || cached.name) || null);
+              setResolvedPricingAmicaleId(null);
+              setResolvedPartnerAgencyMarginMultiplier(Number(cached.marginMultiplier || 0) || null);
+            }
             return;
           }
           const rows = await fetchPartnerAgenciesPublic();
           if (cancelled) return;
           const matched = (Array.isArray(rows) ? rows : []).find((item) => String(item.id || "").trim() === partnerId) || null;
           setPublicPartnerSlug(matched ? (normalizePartnerAgencySlug(matched.slug || matched.name) || null) : null);
+          setResolvedPricingAmicaleId(null);
+          setResolvedPartnerAgencyMarginMultiplier(matched ? (Number(matched.marginMultiplier || 0) || null) : null);
           return;
         }
 
         const cachedAmicale = findAmicaleById(amicaleId);
         if (cachedAmicale) {
-          if (!cancelled) setPublicPartnerSlug(normalizeAmicaleSlug(cachedAmicale.name) || null);
+          if (!cancelled) {
+            setPublicPartnerSlug(normalizeAmicaleSlug(cachedAmicale.name) || null);
+            setResolvedPricingAmicaleId(String(cachedAmicale.id || "").trim() || null);
+            setResolvedPartnerAgencyMarginMultiplier(null);
+          }
           return;
         }
         const rows = await fetchAmicalesPublic();
         if (cancelled) return;
         const matched = (Array.isArray(rows) ? rows : []).find((item) => String(item.id || "").trim() === amicaleId) || null;
         setPublicPartnerSlug(matched ? (normalizeAmicaleSlug(matched.name) || null) : null);
+        setResolvedPricingAmicaleId(matched ? (String(matched.id || "").trim() || null) : null);
+        setResolvedPartnerAgencyMarginMultiplier(null);
       } catch {
-        if (!cancelled) setPublicPartnerSlug(null);
+        if (!cancelled) {
+          setPublicPartnerSlug(null);
+          setResolvedPricingAmicaleId(null);
+          setResolvedPartnerAgencyMarginMultiplier(null);
+        }
       }
     };
 
@@ -3361,7 +3396,7 @@ export default function PropertiesPage() {
                     <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                       {flashDisplayResults.map((row) => (
                         <div key={row.displayKey} className="space-y-2">
-                          <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} publicPartnerSlug={publicPartnerSlug} />
+                          <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} pricingAmicaleId={resolvedPricingAmicaleId} partnerAgencyMarginMultiplier={resolvedPartnerAgencyMarginMultiplier} publicPartnerSlug={publicPartnerSlug} />
                           <div className="rounded-xl border border-orange-100 bg-white/80 p-3">
                             {row.hints.length > 0 && (
                               <p className="text-xs text-orange-800">{row.hints.join(" | ")}</p>
@@ -3377,7 +3412,7 @@ export default function PropertiesPage() {
                   <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                     {visibleRegularDisplayResults.map((row) => (
                       <div key={row.displayKey} className="space-y-2">
-                        <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} publicPartnerSlug={publicPartnerSlug} />
+                        <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} pricingAmicaleId={resolvedPricingAmicaleId} partnerAgencyMarginMultiplier={resolvedPartnerAgencyMarginMultiplier} publicPartnerSlug={publicPartnerSlug} />
                         <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
                           {row.hints.length > 0 && (
                             <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
@@ -3465,6 +3500,9 @@ export default function PropertiesPage() {
                                 }
                                 return params.toString();
                               })()}
+                              pricingAmicaleId={resolvedPricingAmicaleId}
+                              partnerAgencyMarginMultiplier={resolvedPartnerAgencyMarginMultiplier}
+                              publicPartnerSlug={publicPartnerSlug}
                             />
                             <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
                               <div className="space-y-1 text-xs">

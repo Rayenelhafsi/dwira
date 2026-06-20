@@ -29,7 +29,9 @@ import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, applySitepAccommodationRule, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
+import { resolvePublicPartnerBySlug } from "../utils/publicPartnerResolver";
 import { getFlashNightlyAmount, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
+import { aggregateUnavailableDatesByUnitCalendars, normalizeUnavailableDateRanges } from "../utils/availability";
 import {
   clearAuthPendingLogin,
   isAuthPendingLogin,
@@ -107,6 +109,15 @@ type UnavailableDateRow = {
   paymentDeadline?: string;
   payment_deadline?: string;
   reservation_demand_id?: string | null;
+};
+
+const normalizeResidenceMatchToken = (value: unknown) => String(value || '').trim().toLowerCase();
+const normalizeResidenceMatchType = (value: unknown) => {
+  const raw = normalizeResidenceMatchToken(value);
+  if (raw === 's1' || raw === 's2' || raw === 's3' || raw === 's4') return 'appartement';
+  if (raw === 'villa') return 'villa_maison';
+  if (raw === 'local') return 'local_commercial';
+  return raw || 'appartement';
 };
 
 type SeasonalDetailRow = { label: string; value: string };
@@ -801,43 +812,27 @@ export default function PropertyDetailsPage() {
     };
   }, [facebookEmbedUnavailableByUrl, propertyVideos]);
   useEffect(() => {
-    const bienId = String((property as any)?.id || '').trim();
-    if (!bienId) {
+    if (residenceSubtypeBienIds.length === 0) {
       setLiveUnavailableDates(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
-        if (!response.ok) return;
-        const rows = (await response.json().catch(() => [])) as UnavailableDateRow[];
-        const normalized = (Array.isArray(rows) ? rows : [])
-          .map((row) => {
-            const start = String(row?.start_date || '').slice(0, 10);
-            const end = String(row?.end_date || '').slice(0, 10);
-            const rawStatus = String(row?.status || '').trim().toLowerCase();
-            const status = rawStatus === 'booked' || rawStatus === 'pending' || rawStatus === 'blocked'
-              ? rawStatus
-              : 'blocked';
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || end < start) return null;
-            return {
-              start,
-              end,
-              status: status as 'blocked' | 'pending' | 'booked',
-              paymentDeadline: row?.paymentDeadline || row?.payment_deadline || undefined,
-              reservationDemandId: row?.reservation_demand_id ? String(row.reservation_demand_id) : null,
-            };
+        const calendars = await Promise.all(
+          residenceSubtypeBienIds.map(async (bienId) => {
+            const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
+            if (!response.ok) return null;
+            const rows = (await response.json().catch(() => [])) as UnavailableDateRow[];
+            return normalizeUnavailableDateRanges(Array.isArray(rows) ? rows : []);
           })
-          .filter((entry): entry is {
-            start: string;
-            end: string;
-            status: 'blocked' | 'pending' | 'booked';
-            paymentDeadline?: string;
-            reservationDemandId?: string | null;
-          } => Boolean(entry));
+        );
         if (!cancelled) {
-          setLiveUnavailableDates(normalized);
+          const normalizedCalendars = calendars.filter((rows): rows is ReturnType<typeof normalizeUnavailableDateRanges> => Array.isArray(rows));
+          const mergedUnavailableDates = residenceSubtypeBienIds.length > 1
+            ? aggregateUnavailableDatesByUnitCalendars(normalizedCalendars)
+            : (normalizedCalendars[0] || []);
+          setLiveUnavailableDates(mergedUnavailableDates);
         }
       } catch {
         // Keep context values as fallback.
@@ -846,7 +841,7 @@ export default function PropertyDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [property?.id]);
+  }, [residenceSubtypeBienIds]);
   const allGalleryImages = property?.images || [];
   const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>([GALLERY_FALLBACK_IMAGE]);
   const [galleryAvailabilityChecked, setGalleryAvailabilityChecked] = useState(false);
@@ -997,12 +992,51 @@ export default function PropertyDetailsPage() {
     cinImageVersoUrl: "",
   });
   const [pendingDraft, setPendingDraft] = useState<PendingReservationDraft | null>(null);
-  const pricingAmicaleId = String(searchParams.get("amicale") || (paymentMode === "amicale" ? amicaleSelectionId : "") || pendingDraft?.pricingAmicaleId || "").trim() || null;
-  const partnerAgencyId = String(searchParams.get("partner") || pendingDraft?.partnerAgencyId || "").trim() || null;
+  const [resolvedPublicPricingAmicaleId, setResolvedPublicPricingAmicaleId] = useState<string | null>(null);
+  const [resolvedPublicPartnerAgencyId, setResolvedPublicPartnerAgencyId] = useState<string | null>(null);
+  const [resolvedPublicPartnerAgencyMarginMultiplier, setResolvedPublicPartnerAgencyMarginMultiplier] = useState<number | null>(null);
+  const pricingAmicaleId = String(searchParams.get("amicale") || resolvedPublicPricingAmicaleId || (paymentMode === "amicale" ? amicaleSelectionId : "") || pendingDraft?.pricingAmicaleId || "").trim() || null;
+  const partnerAgencyId = String(searchParams.get("partner") || resolvedPublicPartnerAgencyId || pendingDraft?.partnerAgencyId || "").trim() || null;
   const partnerAgencyMarginMultiplier = (() => {
-    const raw = Number(searchParams.get("partnerMargin") || pendingDraft?.partnerAgencyMarginMultiplier || 0);
+    const raw = Number(searchParams.get("partnerMargin") || resolvedPublicPartnerAgencyMarginMultiplier || pendingDraft?.partnerAgencyMarginMultiplier || 0);
     return Number.isFinite(raw) && raw > 0 ? raw : null;
   })();
+  useEffect(() => {
+    let cancelled = false;
+    const publicPartnerSlug = String(searchParams.get("publicPartnerSlug") || "").trim();
+    if (!publicPartnerSlug) {
+      setResolvedPublicPricingAmicaleId(null);
+      setResolvedPublicPartnerAgencyId(null);
+      setResolvedPublicPartnerAgencyMarginMultiplier(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void (async () => {
+      try {
+        const match = await resolvePublicPartnerBySlug(publicPartnerSlug);
+        if (cancelled) return;
+        if (match?.kind === "partner_agency") {
+          setResolvedPublicPricingAmicaleId(null);
+          setResolvedPublicPartnerAgencyId(String(match.item.id || "").trim() || null);
+          setResolvedPublicPartnerAgencyMarginMultiplier(Number(match.item.marginMultiplier || 0) || null);
+          return;
+        }
+        setResolvedPublicPricingAmicaleId(match?.kind === "amicale" ? (String(match.item.id || "").trim() || null) : null);
+        setResolvedPublicPartnerAgencyId(null);
+        setResolvedPublicPartnerAgencyMarginMultiplier(null);
+      } catch {
+        if (!cancelled) {
+          setResolvedPublicPricingAmicaleId(null);
+          setResolvedPublicPartnerAgencyId(null);
+          setResolvedPublicPartnerAgencyMarginMultiplier(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
   const isAmicalePricingActive = Boolean(pricingAmicaleId) && property?.priceContext !== 'sale';
   const selectedAmicaleOption = useMemo(
     () => amicaleOptions.find((item) => item.id === amicaleSelectionId) || null,
@@ -1050,6 +1084,39 @@ export default function PropertyDetailsPage() {
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
     [biens, property?.id]
+  );
+  const residenceSubtypeBiens = useMemo(() => {
+    if (!property) return [];
+    const resolvedSourceBien = sourceBien || biens.find((item) => String(item.id) === String(property.id)) || null;
+    if (!resolvedSourceBien) return [];
+    const residenceParentId = normalizeResidenceMatchToken((resolvedSourceBien as any).residence_parent_bien_id);
+    if (!residenceParentId) return [resolvedSourceBien];
+    const targetType = normalizeResidenceMatchType((resolvedSourceBien as any).type || property.filterProfile?.mainType || 'appartement');
+    const targetSubType = normalizeResidenceMatchToken(
+      (resolvedSourceBien as any).residence_unit_sub_type
+      || resolvedSourceBien.configuration
+      || property.residenceUnitSubType
+      || property.filterProfile?.subType
+      || ''
+    );
+    const groupedBiens = biens.filter((candidate) => {
+      if ((candidate as any).visible_sur_site === false) return false;
+      if (normalizeResidenceMatchToken((candidate as any).residence_parent_bien_id) !== residenceParentId) return false;
+      if (normalizeResidenceMatchType((candidate as any).type) !== targetType) return false;
+      return normalizeResidenceMatchToken((candidate as any).residence_unit_sub_type || candidate.configuration || '') === targetSubType;
+    });
+    return groupedBiens.length > 0 ? groupedBiens : [resolvedSourceBien];
+  }, [biens, property, sourceBien]);
+  const residenceSubtypeBienIds = useMemo(
+    () => Array.from(new Set(residenceSubtypeBiens.map((item) => String(item.id || '').trim()).filter(Boolean))),
+    [residenceSubtypeBiens]
+  );
+  const hasResidenceSubtypeAggregation = residenceSubtypeBiens.length > 1;
+  const aggregatedResidenceUnavailableDates = useMemo(
+    () => aggregateUnavailableDatesByUnitCalendars(
+      residenceSubtypeBiens.map((item) => (Array.isArray(item.unavailableDates) ? item.unavailableDates : []))
+    ),
+    [residenceSubtypeBiens]
   );
   const selectedZone = useMemo(
     () => zones.find((item) => item.id === sourceBien?.zone_id),
@@ -2516,8 +2583,7 @@ out body 40;
       const orderedEnd = start < end ? end : start;
       const startDate = format(orderedStart, 'yyyy-MM-dd');
       const endDate = format(orderedEnd, 'yyyy-MM-dd');
-      const unavailableRows = liveUnavailableDates
-        ?? (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []);
+      const unavailableRows = effectiveUnavailableDates || [];
       const nextDayDate = format(new Date(orderedStart.getTime() + (24 * 60 * 60 * 1000)), 'yyyy-MM-dd');
       const isBlockedOrBookedDay = (day: string) => unavailableRows.some((row) => {
         const status = String(row?.status || '').toLowerCase();
@@ -2748,7 +2814,9 @@ out body 40;
   };
 
   const effectiveUnavailableDates = liveUnavailableDates
-    ?? (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []);
+    ?? (hasResidenceSubtypeAggregation
+      ? aggregatedResidenceUnavailableDates
+      : (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []));
 
   // Check if selected range includes pending dates and get the payment deadline
   const getPendingDateInfo = () => {
