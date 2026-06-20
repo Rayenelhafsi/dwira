@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, BadgeCheck, ExternalLink, Hotel, ReceiptText, TimerReset, Upload } from "lucide-react";
+import { ArrowLeft, BadgeCheck, CreditCard, Landmark, MapPin, Phone, ReceiptText, TimerReset, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import type { HotelReservationDemand } from "../services/hotels";
@@ -9,6 +9,14 @@ import { trackMetaEvent } from "../utils/metaConversions";
 import CenterStatusPopup from "../components/CenterStatusPopup";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
+
+function normalizePaymentMethodParam(value?: string | null): "clicktopay" | "receipt" | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "clicktopay" || normalized === "click_to_pay" || normalized === "click-to-pay" || normalized === "flouci") return "clicktopay";
+  if (normalized === "receipt" || normalized === "recu" || normalized === "upload" || normalized === "virement") return "receipt";
+  return null;
+}
 
 function openExternalCheckout(url: string) {
   const target = String(url || "").trim();
@@ -51,6 +59,14 @@ function resolveAssetUrl(url?: string | null) {
   return `${window.location.origin}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
+const AGENCY_BANK_DETAILS = {
+  titulaire: "DWIRA KELIBIA",
+  adresse: "Rue Ibn Khaldoun, Kelibia 8090, Nabeul",
+  rib: "14 069 0691017000664 77",
+  banque: "BH Banque",
+  contacts: ["29 879 227", "52 080 695"],
+};
+
 export default function HotelReservationPaymentPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -60,6 +76,7 @@ export default function HotelReservationPaymentPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptNote, setReceiptNote] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [startingFlouci, setStartingFlouci] = useState(false);
   const [confirmingFlouci, setConfirmingFlouci] = useState(false);
@@ -72,6 +89,7 @@ export default function HotelReservationPaymentPage() {
     message: "",
   });
   const [statusPopupShown, setStatusPopupShown] = useState(false);
+  const selectedMethod = useMemo(() => normalizePaymentMethodParam(searchParams.get("method")), [searchParams]);
 
   const fetchDemand = useCallback(async () => {
     if (!id || !user?.email) return;
@@ -264,6 +282,9 @@ export default function HotelReservationPaymentPage() {
   );
   const isFlouciActionable = canPayOnline && !startingFlouci && !confirmingFlouci;
   const isClickToPayActionable = canPayOnline && !startingClickToPay && !confirmingClickToPay;
+  const showClickToPayBlock = selectedMethod !== "receipt";
+  const showReceiptBlock = selectedMethod !== "clicktopay";
+  const visiblePaymentCardsCount = Number(showClickToPayBlock) + Number(showReceiptBlock);
 
   const handleStartFlouci = async () => {
     if (!demand) return;
@@ -363,6 +384,7 @@ export default function HotelReservationPaymentPage() {
       const formData = new FormData();
       formData.append("receipt", receiptFile);
       if (receiptNote.trim()) formData.append("payment_receipt_note", receiptNote.trim());
+      if (paymentReference.trim()) formData.append("payment_reference", paymentReference.trim());
       const response = await fetch(`${API_URL}/hotel-reservation-demands/${encodeURIComponent(demand.id)}/upload-payment-receipt`, {
         method: "POST",
         credentials: "include",
@@ -373,6 +395,7 @@ export default function HotelReservationPaymentPage() {
       setDemand(updated);
       setReceiptFile(null);
       setReceiptNote("");
+      setPaymentReference("");
       setCenterSuccess({
         open: true,
         title: "Recu envoye",
@@ -443,10 +466,12 @@ export default function HotelReservationPaymentPage() {
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
           <section className="rounded-[28px] border border-gray-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Paiement hotel</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Paiement client</p>
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Finaliser votre reservation hotel</h1>
             <p className="mt-2 text-sm text-gray-500">
-              Votre demande est bien enregistrée. Finalisez maintenant le paiement pour lancer le traitement du voucher.
+              {selectedMethod === "receipt"
+                ? "Envoyez votre recu pour verification manuelle par l'administration."
+                : "Lancez le paiement en ligne puis revenez automatiquement sur votre dossier apres verification."}
             </p>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -458,66 +483,139 @@ export default function HotelReservationPaymentPage() {
               <InfoCard label="Statut" value={String(demand.status || "-")} />
             </div>
 
-            <div className="mt-6 space-y-4">
-              <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-5">
-                <p className="text-sm font-semibold text-emerald-800">Paiement en ligne Flouci</p>
-                <p className="mt-1 text-sm text-emerald-700">Lancez le checkout Flouci. Au retour, la confirmation se fait automatiquement apres verification du statut.</p>
-                <button
-                  type="button"
-                  disabled={!isFlouciActionable}
-                  onClick={() => {
-                    void handleStartFlouci();
-                  }}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400 disabled:opacity-70"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {startingFlouci ? "Ouverture..." : confirmingFlouci ? "Verification..." : "Payer avec Flouci"}
-                </button>
-              </div>
-
-              <div className="rounded-[24px] border border-sky-200 bg-sky-50 px-5 py-5">
-                <p className="text-sm font-semibold text-sky-800">Paiement en ligne Click to Pay</p>
-                <p className="mt-1 text-sm text-sky-700">Ouvrez la passerelle bancaire puis revenez automatiquement ici après paiement. Le statut est revérifié avant validation finale.</p>
-                <button
-                  type="button"
-                  disabled={!isClickToPayActionable}
-                  onClick={() => {
-                    void handleStartClickToPay();
-                  }}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-400 disabled:opacity-70"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {startingClickToPay ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
-                </button>
-              </div>
-
-              <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-5">
-                <p className="text-sm font-semibold text-amber-800">Virement bancaire</p>
-                <p className="mt-1 text-sm text-amber-700">Envoyez votre recu pour verification manuelle par l'administration.</p>
-                <div className="mt-4 space-y-3">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,image/webp"
-                    onChange={(event) => setReceiptFile(event.target.files?.[0] || null)}
-                    className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm"
-                  />
-                  <textarea
-                    value={receiptNote}
-                    onChange={(event) => setReceiptNote(event.target.value)}
-                    rows={2}
-                    placeholder="Note (optionnelle)"
-                    className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleUploadReceipt()}
-                    disabled={uploadingReceipt}
-                    className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+            <div className="mt-6 overflow-x-auto pb-2 [scrollbar-width:thin]">
+              <div className="flex min-w-full gap-4">
+                {showClickToPayBlock ? (
+                  <div
+                    className={`relative overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#0b7a58_0%,#169b67_56%,#34d399_100%)] p-6 text-white shadow-[0_24px_80px_-32px_rgba(5,150,105,0.85)] ${
+                      visiblePaymentCardsCount > 1 ? "min-w-[320px] shrink-0 sm:min-w-[380px] lg:min-w-[440px]" : "w-full flex-1"
+                    }`}
                   >
-                    <Upload className="h-4 w-4" />
-                    {uploadingReceipt ? "Envoi..." : "Uploader mon recu"}
-                  </button>
-                </div>
+                    <div className="absolute -right-10 top-6 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
+                    <div className="relative flex h-full min-h-[260px] flex-col justify-between">
+                      <div>
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/25 bg-white/10 backdrop-blur">
+                          <CreditCard className="h-6 w-6" />
+                        </div>
+                        <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-white/80">Paiement avec carte bancaire</p>
+                        <h2 className="mt-2 text-2xl font-bold leading-tight">Reglez votre reservation en ligne</h2>
+                        <p className="mt-3 text-sm leading-6 text-emerald-50">
+                          Paiement securise via Click to Pay. La confirmation de votre dossier se fait automatiquement apres verification du statut.
+                        </p>
+                        <div className="mt-5 inline-flex rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 text-left text-white/80 backdrop-blur">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.32em]">Methode</p>
+                            <p className="mt-1 text-lg font-semibold text-white">Click to Pay</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-6 flex justify-center">
+                        <button
+                          type="button"
+                          disabled={!isClickToPayActionable}
+                          onClick={() => {
+                            void handleStartClickToPay();
+                          }}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-emerald-800 shadow-lg shadow-emerald-950/10 transition hover:-translate-y-0.5 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:min-w-[260px]"
+                        >
+                          <CreditCard className="h-4 w-4" />
+                          {startingClickToPay ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {showReceiptBlock ? (
+                  <div
+                    className={`rounded-[28px] border border-sky-200 bg-[linear-gradient(180deg,#eff9ff_0%,#f8fdff_100%)] p-6 shadow-[0_24px_80px_-40px_rgba(14,116,144,0.45)] ${
+                      visiblePaymentCardsCount > 1 ? "min-w-[320px] shrink-0 sm:min-w-[420px] lg:min-w-[520px]" : "w-full flex-1"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-sky-800">Paiement par virement et envoi de recu</p>
+                        <h2 className="mt-2 text-2xl font-bold text-slate-900">Coordonnees bancaires de l'agence</h2>
+                      </div>
+                      <div className="hidden rounded-2xl bg-sky-100 p-3 text-sky-700 sm:block">
+                        <Landmark className="h-6 w-6" />
+                      </div>
+                    </div>
+
+                    <div className="mt-5 space-y-3">
+                      <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Titulaire</p>
+                        <p className="mt-2 text-lg font-bold text-slate-900">{AGENCY_BANK_DETAILS.titulaire}</p>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-[1.45fr,1fr]">
+                        <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                          <div className="flex items-center gap-2 text-slate-500">
+                            <Landmark className="h-4 w-4" />
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em]">RIB / Compte</p>
+                          </div>
+                          <p className="mt-2 text-lg font-bold tracking-[0.08em] text-slate-900">{AGENCY_BANK_DETAILS.rib}</p>
+                          <p className="mt-1 text-sm text-slate-500">{AGENCY_BANK_DETAILS.banque}</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                          <div className="flex items-center gap-2 text-slate-500">
+                            <Phone className="h-4 w-4" />
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em]">Confirmation</p>
+                          </div>
+                          <p className="mt-2 text-lg font-bold text-slate-900">{AGENCY_BANK_DETAILS.contacts.join(" / ")}</p>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-white/70 bg-white/85 p-4 backdrop-blur">
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <MapPin className="h-4 w-4" />
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em]">Adresse agence</p>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{AGENCY_BANK_DETAILS.adresse}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 rounded-[24px] border border-sky-100 bg-white p-4 shadow-sm">
+                      <p className="text-sm font-semibold text-slate-900">Envoyer mon recu de paiement</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {demand.status === "demande_recu_paiement"
+                          ? "L'administration demande votre recu pour valider le paiement."
+                          : demand.status === "recu_paiement_envoye"
+                            ? "Recu deja envoye. Vous pouvez en renvoyer un autre si necessaire."
+                            : "Apres votre virement, ajoutez votre justificatif pour verification."}
+                      </p>
+                      <div className="mt-4 space-y-3">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,image/webp"
+                          onChange={(event) => setReceiptFile(event.target.files?.[0] || null)}
+                          className="w-full rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-sky-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+                        />
+                        <textarea
+                          value={receiptNote}
+                          onChange={(event) => setReceiptNote(event.target.value)}
+                          rows={3}
+                          placeholder="Note (optionnelle)"
+                          className="w-full rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
+                        />
+                        <input
+                          type="text"
+                          value={paymentReference}
+                          onChange={(event) => setPaymentReference(event.target.value)}
+                          placeholder="N° quittance / ID virement"
+                          className="w-full rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleUploadReceipt()}
+                          disabled={uploadingReceipt}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-900/10 transition hover:-translate-y-0.5 hover:bg-sky-700 disabled:opacity-60"
+                        >
+                          <Upload className="h-4 w-4" />
+                          {uploadingReceipt ? "Envoi..." : "Uploader mon recu"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </section>
@@ -526,17 +624,19 @@ export default function HotelReservationPaymentPage() {
             <div className="rounded-[28px] border border-gray-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700">
-                  <Hotel className="h-5 w-5" />
+                  <ReceiptText className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">Suivi de la demande</p>
-                  <p className="text-xs text-gray-500">Le voucher apparait ici apres validation admin.</p>
+                  <p className="text-sm font-semibold text-gray-900">Resume de paiement</p>
+                  <p className="text-xs text-gray-500">
+                    {selectedMethod === "receipt" ? "Verification du recu en cours de traitement manuel." : "Paiement en ligne en attente de validation automatique."}
+                  </p>
                 </div>
               </div>
               <div className="mt-5 space-y-3 text-sm">
-                <Line label="Paiement" value={demand.reservation_payment_id ? `Regle le ${formatDateTime(demand.reservation_payment_paid_at)}` : "En attente"} />
+                <Line label="Hotel a regler" value={demand.reservation_payment_id ? "Regle" : formatMoney(demand.amount_due_now || demand.total_price, demand.currency || "TND")} />
                 <Line label="Recu virement" value={demand.payment_receipt_uploaded_at ? `Envoye le ${formatDateTime(demand.payment_receipt_uploaded_at)}` : "Non envoye"} />
-                <Line label="Statut voucher" value={demand.status === "voucher_envoye" ? "Envoye" : demand.status === "voucher_en_cours" ? "En cours de traitement" : "En attente"} strong />
+                <Line label="Paiement total" value={formatMoney(demand.amount_due_now || demand.total_price, demand.currency || "TND")} strong />
               </div>
             </div>
 
