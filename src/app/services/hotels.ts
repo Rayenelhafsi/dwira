@@ -502,6 +502,14 @@ export async function uploadHotelVoucherQr(demandId: string, file: File) {
   return readApiResponse<HotelReservationDemand>(response);
 }
 
+export async function deleteHotelReservationDemand(demandId: string) {
+  const response = await fetch(buildApiUrl(`/hotel-reservation-demands/${encodeURIComponent(demandId)}`), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  return readApiResponse<{ success: boolean }>(response);
+}
+
 export async function getHotelVoucherLayout() {
   const response = await fetch(buildApiUrl("/hotel-voucher-layout"), {
     credentials: "include",

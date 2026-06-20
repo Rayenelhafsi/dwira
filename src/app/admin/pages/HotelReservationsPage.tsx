@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, Hotel, ImagePlus, LoaderCircle, MessageSquareText, Phone, RefreshCw, Save, Send, Upload, User, XCircle } from "lucide-react";
+import { CalendarDays, CheckCircle2, Hotel, ImagePlus, LoaderCircle, MessageSquareText, Phone, RefreshCw, Save, Send, Trash2, Upload, User, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { HotelReservationDemand, HotelReservationDemandStatus } from "../types";
 import {
   listHotelReservationDemands,
+  deleteHotelReservationDemand,
   updateHotelReservationDemand,
   uploadHotelVoucherQr,
 } from "../../services/hotels";
@@ -202,6 +203,21 @@ export default function HotelReservationsPage() {
       toast.error(error instanceof Error ? error.message : "Upload QR impossible");
     } finally {
       setUploadingQrId(null);
+    }
+  };
+
+  const handleDeleteDemand = async (row: HotelReservationDemand) => {
+    const confirmed = window.confirm(`Supprimer definitivement la demande hotel ${row.id} de la base de donnees ?`);
+    if (!confirmed) return;
+    setSavingId(row.id);
+    try {
+      await deleteHotelReservationDemand(row.id);
+      setRows((prev) => prev.filter((item) => item.id !== row.id));
+      toast.success("Demande hotel supprimee de la base.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Suppression impossible");
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -483,6 +499,15 @@ export default function HotelReservationsPage() {
                     >
                       {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <XCircle size={16} />}
                       Rejeter reservation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteDemand(row)}
+                      disabled={savingId === row.id}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                      Supprimer BDD
                     </button>
                   </div>
                 </div>
