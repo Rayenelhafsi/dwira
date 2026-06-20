@@ -1,19 +1,16 @@
-import { Outlet, useLocation, useNavigate, useNavigation } from 'react-router';
+import { Outlet, useNavigate, useNavigation } from 'react-router';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { AdminSidebar } from './components/AdminSidebar';
 import { Menu, X } from 'lucide-react';
 import logo from '../../../logo dwira.jpg';
 import { preloadImportantAdminRoutes } from './utils/routePreload';
-import { AdminKeepAliveViewport, getKeepAliveAdminPath } from './components/AdminKeepAliveViewport';
 
 export function AdminLayout() {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const navigation = useNavigation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const activeKeepAlivePath = getKeepAliveAdminPath(location.pathname);
 
   useEffect(() => {
     if (!isLoading) {
@@ -96,7 +93,7 @@ export function AdminLayout() {
         `}
       >
         <div className="max-w-7xl mx-auto">
-          {activeKeepAlivePath ? <AdminKeepAliveViewport /> : <Outlet />}
+          <Outlet />
         </div>
       </main>
     </div>
