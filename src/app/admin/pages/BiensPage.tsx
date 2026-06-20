@@ -984,7 +984,7 @@ function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) 
 }
 
 export default function BiensPage() {
-  const { biens, bienFolders, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, createBienFolder, moveBiensToFolder, refreshData, isLoading } = useProperties();
+  const { biens, bienFolders, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, createBienFolder, deleteBienFolder, moveBiensToFolder, refreshData, isLoading } = useProperties();
   const zoneOptions = zones.length > 0 ? zones : mockZones;
   const [fallbackProprietaires, setFallbackProprietaires] = useState<Proprietaire[]>([]);
   const proprietaireOptions = (Array.isArray(proprietaires) && proprietaires.length > 0)
@@ -1023,6 +1023,7 @@ export default function BiensPage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderParentId, setNewFolderParentId] = useState<string>('root');
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [moveTargetFolderId, setMoveTargetFolderId] = useState<string>('root');
 
   useEffect(() => {
@@ -1269,6 +1270,7 @@ export default function BiensPage() {
       uploadPayload.append('sub_type', typeImageScope === 'sub' ? typeImageSubType : '');
       const uploadResponse = await fetch(`${API_URL}/upload`, {
         method: 'POST',
+        credentials: 'include',
         body: uploadPayload,
       });
       if (!uploadResponse.ok) throw new Error('upload');
@@ -1279,6 +1281,7 @@ export default function BiensPage() {
       const saveResponse = await fetch(`${API_URL}/type-filter-images`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           mode_bien: typeImageMode,
           main_type: typeImageMainType,
@@ -1288,7 +1291,7 @@ export default function BiensPage() {
       });
       if (!saveResponse.ok) throw new Error('save');
 
-      const refreshResponse = await fetch(`${API_URL}/type-filter-images?mode=${encodeURIComponent(typeImageMode)}`);
+      const refreshResponse = await fetch(`${API_URL}/type-filter-images?mode=${encodeURIComponent(typeImageMode)}`, { credentials: 'include' });
       if (refreshResponse.ok) {
         const rows = await refreshResponse.json();
         setTypeImageRows(Array.isArray(rows) ? rows : []);
@@ -1310,9 +1313,10 @@ export default function BiensPage() {
     try {
       const response = await fetch(`${API_URL}/type-filter-images/${encodeURIComponent(normalizedId)}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
       if (!response.ok) throw new Error('delete-type-image');
-      const refreshResponse = await fetch(`${API_URL}/type-filter-images?mode=${encodeURIComponent(typeImageMode)}`);
+      const refreshResponse = await fetch(`${API_URL}/type-filter-images?mode=${encodeURIComponent(typeImageMode)}`, { credentials: 'include' });
       if (refreshResponse.ok) {
         const rows = await refreshResponse.json();
         setTypeImageRows(Array.isArray(rows) ? rows : []);
@@ -1339,7 +1343,7 @@ export default function BiensPage() {
       uploadPayload.append('mode_bien', homeFilterImageMode);
       uploadPayload.append('filter_group', homeFilterImageGroup);
       uploadPayload.append('option_key', homeFilterImageOption);
-      const uploadResponse = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadPayload });
+      const uploadResponse = await fetch(`${API_URL}/upload`, { method: 'POST', credentials: 'include', body: uploadPayload });
       if (!uploadResponse.ok) throw new Error('upload-home-filter-image');
       const uploadResult = await uploadResponse.json();
       const imageUrl = String(uploadResult?.url || '').trim();
@@ -1348,6 +1352,7 @@ export default function BiensPage() {
       const saveResponse = await fetch(`${API_URL}/home-filter-option-images`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           mode_bien: homeFilterImageMode,
           filter_group: homeFilterImageGroup,
@@ -1366,7 +1371,7 @@ export default function BiensPage() {
         }
         throw new Error(serverMessage);
       }
-      const refreshResponse = await fetch(`${API_URL}/home-filter-option-images?mode=${encodeURIComponent(homeFilterImageMode)}`);
+      const refreshResponse = await fetch(`${API_URL}/home-filter-option-images?mode=${encodeURIComponent(homeFilterImageMode)}`, { credentials: 'include' });
       if (refreshResponse.ok) {
         const rows = await refreshResponse.json();
         setHomeFilterImageRows(Array.isArray(rows) ? rows : []);
@@ -1460,6 +1465,27 @@ export default function BiensPage() {
       toast.error(error instanceof Error ? error.message : 'Déplacement impossible');
     }
   };
+  const handleDeleteSelectedFolder = async () => {
+    if (selectedFolderId === 'root') {
+      toast.error('Le dossier root ne peut pas etre supprime');
+      return;
+    }
+    const folderName = folderNameById.get(selectedFolderId) || 'ce dossier';
+    if (!window.confirm(`Supprimer ${folderName} ? Les biens seront remis dans root et les sous-dossiers rattaches au parent.`)) {
+      return;
+    }
+    setIsDeletingFolder(true);
+    try {
+      await deleteBienFolder(selectedFolderId);
+      setSelectedFolderId('root');
+      setMoveTargetFolderId('root');
+      toast.success('Dossier supprime');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Suppression du dossier impossible');
+    } finally {
+      setIsDeletingFolder(false);
+    }
+  };
   const buildDuplicateSeed = (source: Bien): Bien => {
     const clone = JSON.parse(JSON.stringify(source)) as Bien;
     const nowIso = new Date().toISOString();
@@ -1513,7 +1539,7 @@ export default function BiensPage() {
   };
 
   const syncMediaForBien = async (bienId: string, media: Media[]) => {
-    const existingResponse = await fetch(`${API_URL}/media/${bienId}`);
+    const existingResponse = await fetch(`${API_URL}/media/${bienId}`, { credentials: 'include' });
     const existingMedia = existingResponse.ok ? await existingResponse.json() : [];
     const orderedMedia = (Array.isArray(media) ? media : []).map((m, idx) => ({ ...m, position: idx }));
 
@@ -1548,13 +1574,14 @@ export default function BiensPage() {
     }
 
     for (const m of toDelete) {
-      await fetch(`${API_URL}/media/${m.id}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/media/${m.id}`, { method: 'DELETE', credentials: 'include' });
     }
 
     for (const m of toCreate) {
       const createResponse = await fetch(`${API_URL}/media`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ bien_id: bienId, type: m.type || 'image', url: m.url, motif_upload: m.motif_upload || null, position: m.position ?? 0 }),
       });
       if (!createResponse.ok) throw new Error('Failed to save media');
@@ -1563,7 +1590,7 @@ export default function BiensPage() {
   const deleteMediaIdsForBien = async (mediaIds: string[]) => {
     const uniqueIds = Array.from(new Set((Array.isArray(mediaIds) ? mediaIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
     for (const mediaId of uniqueIds) {
-      const deleteResponse = await fetch(`${API_URL}/media/${encodeURIComponent(mediaId)}`, { method: 'DELETE' });
+      const deleteResponse = await fetch(`${API_URL}/media/${encodeURIComponent(mediaId)}`, { method: 'DELETE', credentials: 'include' });
       if (!deleteResponse.ok && deleteResponse.status !== 404) {
         throw new Error(`Failed to delete media ${mediaId}`);
       }
@@ -2156,6 +2183,16 @@ export default function BiensPage() {
               </h2>
               <p className="text-sm text-gray-500">{displayedBiens.length} bien(s) affiché(s).</p>
             </div>
+              {selectedFolderId !== 'root' && (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteSelectedFolder()}
+                  disabled={isDeletingFolder}
+                  className="mt-3 inline-flex items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isDeletingFolder ? 'Suppression...' : 'Supprimer dossier'}
+                </button>
+              )}
             <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50 p-2">
               <button
                 type="button"
@@ -3365,7 +3402,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           uploadFormData.append('image', file);
           uploadFormData.append('bien_id', String(formData.id || ''));
           uploadFormData.append('bien_reference', String(formData.reference || ''));
-          const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
+          const response = await fetch(`${API_URL}/upload`, { method: 'POST', credentials: 'include', body: uploadFormData });
           if (!response.ok) {
             let errorMessage = 'Upload failed';
             const contentType = response.headers.get('content-type') || '';
@@ -3415,7 +3452,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         uploadFormData.append('image', file);
         uploadFormData.append('bien_id', String(formData.id || ''));
         uploadFormData.append('bien_reference', String(formData.reference || ''));
-        const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: uploadFormData });
+        const response = await fetch(`${API_URL}/upload`, { method: 'POST', credentials: 'include', body: uploadFormData });
         if (!response.ok) {
           continue;
         }
@@ -4898,6 +4935,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         uploadPayload.append('zone_reference', zoneReference);
         const uploadResponse = await fetch(`${API_URL}/upload`, {
           method: 'POST',
+          credentials: 'include',
           body: uploadPayload,
         });
         if (!uploadResponse.ok) throw new Error('Echec upload image zone');
@@ -4915,7 +4953,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         image_url: uploadedZoneImageUrl,
         quartier_image_url: uploadedZoneImageUrl,
       };
-      const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch(`${API_URL}/zones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) });
       if (!response.ok) throw new Error('Failed to create zone');
       const createdZone = await response.json();
       setZonesOptions([...zonesOptions, createdZone]);
@@ -4951,6 +4989,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       uploadPayload.append('zone_reference', String(zone.nom || zoneId));
       const uploadResponse = await fetch(`${API_URL}/upload`, {
         method: 'POST',
+        credentials: 'include',
         body: uploadPayload,
       });
       if (!uploadResponse.ok) throw new Error('Echec upload image zone');

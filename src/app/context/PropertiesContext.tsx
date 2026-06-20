@@ -826,6 +826,7 @@ interface PropertiesContextType {
   updateBien: (updatedBien: Bien) => Promise<any>;
   deleteBien: (id: string) => Promise<void>;
   createBienFolder: (payload: { name: string; parent_id?: string | null }) => Promise<BienFolder>;
+  deleteBienFolder: (folderId: string) => Promise<void>;
   moveBiensToFolder: (bienIds: string[], folderId?: string | null) => Promise<void>;
   saveModePriorities: (next: Record<BienMode, number>) => Promise<void>;
   getBienById: (id: string) => Bien | undefined;
@@ -979,6 +980,22 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         vente: Number(modePrioritiesData?.vente || DEFAULT_MODE_PRIORITIES.vente),
         location_annuelle: Number(modePrioritiesData?.location_annuelle || DEFAULT_MODE_PRIORITIES.location_annuelle),
       },
+    });
+  };
+
+  const persistLocalSnapshot = (
+    nextBiens: Bien[],
+    nextFolders: BienFolder[],
+    nextZones: Zone[] = zones,
+    nextProprietaires: Proprietaire[] = proprietaires,
+    nextModePriorities: Record<BienMode, number> = modePriorities
+  ) => {
+    writePropertiesCache({
+      biens: nextBiens,
+      bienFolders: nextFolders,
+      zones: nextZones,
+      proprietaires: nextProprietaires,
+      modePriorities: nextModePriorities,
     });
   };
 
@@ -1320,8 +1337,50 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       throw new Error(await getApiErrorMessage(response, 'Creation du dossier impossible'));
     }
     const data = await response.json();
-    await fetchData({ silent: true });
+    const normalizedId = String(data?.id || '').trim();
+    setBienFolders((prev) => {
+      const next = prev.some((folder) => String(folder.id || '').trim() === normalizedId)
+        ? prev
+        : [...prev, data];
+      persistLocalSnapshot(biens, next);
+      return next;
+    });
+    void fetchData({ silent: true });
     return data;
+  };
+
+  const deleteBienFolder = async (folderId: string) => {
+    const normalizedFolderId = String(folderId || '').trim();
+    if (!normalizedFolderId) return;
+    const response = await fetch(`${API_URL}/bien-folders/${encodeURIComponent(normalizedFolderId)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Suppression du dossier impossible'));
+    }
+    const payload = await response.json().catch(() => null);
+    const nextParentId = String(payload?.parent_id || '').trim() || null;
+    setBienFolders((prev) => {
+      const next = prev
+        .filter((folder) => String(folder.id || '').trim() !== normalizedFolderId)
+        .map((folder) => (
+          String(folder.parent_id || '').trim() === normalizedFolderId
+            ? { ...folder, parent_id: nextParentId }
+            : folder
+        ));
+      setBiens((currentBiens) => {
+        const nextBiens = currentBiens.map((bien) => (
+          String(bien.folder_id || '').trim() === normalizedFolderId
+            ? { ...bien, folder_id: null }
+            : bien
+        ));
+        persistLocalSnapshot(nextBiens, next);
+        return nextBiens;
+      });
+      return next;
+    });
+    void fetchData({ silent: true });
   };
 
   const moveBiensToFolder = async (bienIds: string[], folderId?: string | null) => {
@@ -1339,7 +1398,18 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response, 'Deplacement des biens impossible'));
     }
-    await fetchData({ silent: true });
+    const normalizedFolderId = String(folderId || '').trim() || null;
+    setBiens((prev) => {
+      const targetIds = new Set(normalizedBienIds);
+      const next = prev.map((bien) => (
+        targetIds.has(String(bien.id || '').trim())
+          ? { ...bien, folder_id: normalizedFolderId }
+          : bien
+      ));
+      persistLocalSnapshot(next, bienFolders);
+      return next;
+    });
+    void fetchData({ silent: true });
   };
 
   const saveModePriorities = async (next: Record<BienMode, number>) => {
@@ -1386,6 +1456,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     updateBien,
     deleteBien,
     createBienFolder,
+    deleteBienFolder,
     moveBiensToFolder,
     saveModePriorities,
     getBienById,

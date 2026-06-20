@@ -11037,7 +11037,9 @@ async function syncResidenceChildrenForParent(parentBienId) {
       eau_sonede: Number(sourceForUnit.eau_sonede || 0),
       electricite_steg: Number(sourceForUnit.electricite_steg || 0),
       statut: sourceForUnit.statut || parent.statut || 'disponible',
-      visible_sur_site: Number(sourceForUnit.visible_sur_site ?? parent.visible_sur_site ?? 0),
+      visible_sur_site: Number(parent.visible_sur_site || 0) === 0
+        ? 0
+        : Number(sourceForUnit.visible_sur_site ?? parent.visible_sur_site ?? 0),
       is_featured: Number(sourceForUnit.is_featured ?? parent.is_featured ?? 0),
       ui_config_json: unitTemplateBien.ui_config ? JSON.stringify(unitTemplateBien.ui_config) : (sourceForUnit.ui_config_json || parent.ui_config_json || null),
       location_saisonniere_config_json: unitTemplateBien.location_saisonniere_config
@@ -14796,6 +14798,48 @@ app.post('/api/bien-folders', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error creating bien folder:', error);
     res.status(500).json({ error: 'Impossible de creer le dossier de biens' });
+  }
+});
+
+app.delete('/api/bien-folders/:id', requireAdminSession, async (req, res) => {
+  let connection;
+  try {
+    await ensureBienFoldersSchema();
+    const folderId = String(req.params.id || '').trim();
+    if (!folderId) return res.status(400).json({ error: 'id dossier requis' });
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [rows] = await connection.query('SELECT id, parent_id FROM bien_folders WHERE id = ? LIMIT 1', [folderId]);
+    const currentFolder = Array.isArray(rows) ? rows[0] : null;
+    if (!currentFolder) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Dossier introuvable' });
+    }
+
+    const parentId = String(currentFolder.parent_id || '').trim() || null;
+    const now = getAgencySqlDateTime();
+    await connection.query(
+      'UPDATE biens SET folder_id = NULL, updated_at = ?, admin_last_saved_at = ? WHERE folder_id = ?',
+      [now, now, folderId]
+    );
+    await connection.query(
+      'UPDATE bien_folders SET parent_id = ?, updated_at = ? WHERE parent_id = ?',
+      [parentId, now, folderId]
+    );
+    await connection.query('DELETE FROM bien_folders WHERE id = ?', [folderId]);
+    await connection.commit();
+    return res.json({ ok: true, id: folderId, parent_id: parentId });
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch {}
+    }
+    console.error('Error deleting bien folder:', error);
+    return res.status(500).json({ error: 'Impossible de supprimer le dossier de biens' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
