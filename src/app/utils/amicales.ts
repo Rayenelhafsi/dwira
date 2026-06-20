@@ -3,6 +3,7 @@ export type AmicaleItem = {
   name: string;
   code: string;
   logoUrl?: string;
+  hotelMarkupPercent?: number;
   createdAt: string;
 };
 
@@ -11,6 +12,12 @@ const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+export function normalizeAmicaleHotelMarkupPercent(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.round((numeric + Number.EPSILON) * 100) / 100;
 }
 
 export function normalizeAmicaleSlug(value: string) {
@@ -34,9 +41,10 @@ export function readAmicales(): AmicaleItem[] {
         const name = normalizeString(row?.name);
         const code = normalizeString(row?.code);
         const logoUrl = normalizeString(row?.logoUrl);
+        const hotelMarkupPercent = normalizeAmicaleHotelMarkupPercent(row?.hotelMarkupPercent ?? row?.hotel_markup_percent);
         const createdAt = normalizeString(row?.createdAt) || new Date().toISOString();
         if (!id || !name || !code) return null;
-        return { id, name, code, logoUrl: logoUrl || undefined, createdAt } as AmicaleItem;
+        return { id, name, code, logoUrl: logoUrl || undefined, hotelMarkupPercent, createdAt } as AmicaleItem;
       })
       .filter((row): row is AmicaleItem => Boolean(row));
   } catch {
@@ -49,9 +57,10 @@ function normalizeApiRow(row: any): AmicaleItem | null {
   const name = normalizeString(row?.name);
   const code = normalizeString(row?.code);
   const logoUrl = normalizeString(row?.logo_url || row?.logoUrl);
+  const hotelMarkupPercent = normalizeAmicaleHotelMarkupPercent(row?.hotel_markup_percent ?? row?.hotelMarkupPercent);
   const createdAt = normalizeString(row?.created_at || row?.createdAt) || new Date().toISOString();
   if (!id || !name) return null;
-  return { id, name, code, logoUrl: logoUrl || undefined, createdAt };
+  return { id, name, code, logoUrl: logoUrl || undefined, hotelMarkupPercent, createdAt };
 }
 
 export async function fetchAmicalesAdmin(): Promise<AmicaleItem[]> {
@@ -71,7 +80,7 @@ export async function fetchAmicalesPublic(): Promise<AmicaleItem[]> {
   return normalized;
 }
 
-export async function createAmicaleApi(payload: { name: string; code: string; logoUrl?: string }) {
+export async function createAmicaleApi(payload: { name: string; code: string; logoUrl?: string; hotelMarkupPercent?: number }) {
   const response = await fetch(`${API_URL}/amicales`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -80,12 +89,33 @@ export async function createAmicaleApi(payload: { name: string; code: string; lo
       name: payload.name,
       code: payload.code,
       logo_url: payload.logoUrl || null,
+      hotel_markup_percent: normalizeAmicaleHotelMarkupPercent(payload.hotelMarkupPercent),
     }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => null);
     const message = String(data?.error || data?.message || "").trim();
     throw new Error(message || "Ajout amicale impossible");
+  }
+  return normalizeApiRow(await response.json());
+}
+
+export async function updateAmicaleApi(payload: { id: string; name: string; code: string; logoUrl?: string; hotelMarkupPercent?: number }) {
+  const response = await fetch(`${API_URL}/amicales/${encodeURIComponent(payload.id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      name: payload.name,
+      code: payload.code,
+      logo_url: payload.logoUrl || null,
+      hotel_markup_percent: normalizeAmicaleHotelMarkupPercent(payload.hotelMarkupPercent),
+    }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    const message = String(data?.error || data?.message || "").trim();
+    throw new Error(message || "Mise a jour amicale impossible");
   }
   return normalizeApiRow(await response.json());
 }
@@ -110,6 +140,7 @@ export function saveAmicales(items: AmicaleItem[]) {
       name,
       code,
       logoUrl: normalizeString(item.logoUrl) || undefined,
+      hotelMarkupPercent: normalizeAmicaleHotelMarkupPercent(item.hotelMarkupPercent),
       createdAt: normalizeString(item.createdAt) || new Date().toISOString(),
     });
   });

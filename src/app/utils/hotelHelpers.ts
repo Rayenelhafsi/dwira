@@ -21,20 +21,38 @@ const HOTEL_BOARDING_CODE_LABELS: Record<string, string> = {
   sc: "Logement Simple",
 };
 
+function roundHotelCurrency(value: number) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+export function normalizeHotelMarkupPercent(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return roundHotelCurrency(numeric);
+}
+
+export function applyHotelMarkupPercent(amount: number | null | undefined, hotelMarkupPercent?: number | null) {
+  const normalizedAmount = Number(amount);
+  if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) return null;
+  const normalizedPercent = normalizeHotelMarkupPercent(hotelMarkupPercent);
+  if (normalizedPercent <= 0) return roundHotelCurrency(normalizedAmount);
+  return roundHotelCurrency(normalizedAmount * (1 + normalizedPercent / 100));
+}
+
 export function formatHotelStarLabel(value?: string | number | null) {
   const normalized = String(value ?? "").trim();
   if (!normalized) return "Hotel";
   return `${normalized} etoile${normalized === "1" ? "" : "s"}`;
 }
 
-export function extractHotelMinPrice(hotel?: HotelSummary | HotelDetail | null) {
+export function extractHotelMinPrice(hotel?: HotelSummary | HotelDetail | null, hotelMarkupPercent = 0) {
   const prices: number[] = [];
   const priceNode = (hotel as any)?.Price;
 
   const pushPrice = (value: unknown) => {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric > 0) {
-      prices.push(numeric);
+    const adjusted = applyHotelMarkupPercent(Number(value), hotelMarkupPercent);
+    if (adjusted !== null) {
+      prices.push(adjusted);
     }
   };
 
@@ -261,11 +279,11 @@ export function flattenHotelRoomOffers(hotel?: HotelSummary | HotelDetail | null
   return offers;
 }
 
-export function pickHotelDisplayedPrice(value: { PriceWithAffiliateMarkup?: unknown; Price?: unknown; BasePrice?: unknown } | null | undefined) {
+export function pickHotelDisplayedPrice(value: { PriceWithAffiliateMarkup?: unknown; Price?: unknown; BasePrice?: unknown } | null | undefined, hotelMarkupPercent = 0) {
   const candidates = [value?.PriceWithAffiliateMarkup, value?.Price, value?.BasePrice];
   for (const candidate of candidates) {
     const numeric = Number(candidate);
-    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    if (Number.isFinite(numeric) && numeric > 0) return applyHotelMarkupPercent(numeric, hotelMarkupPercent);
   }
   return null;
 }

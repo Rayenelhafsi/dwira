@@ -8267,10 +8267,15 @@ async function ensureAuthSchema() {
       name VARCHAR(255) NOT NULL UNIQUE,
       code VARCHAR(255) NOT NULL,
       logo_url LONGTEXT NULL,
+      hotel_markup_percent DECIMAL(8,2) NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL
     )`
   );
+
+  if (!(await columnExists('amicales', 'hotel_markup_percent'))) {
+    await pool.query('ALTER TABLE amicales ADD COLUMN hotel_markup_percent DECIMAL(8,2) NOT NULL DEFAULT 0 AFTER logo_url');
+  }
 
   await pool.query(
     `CREATE TABLE IF NOT EXISTS agent_amicale_profiles (
@@ -27050,7 +27055,7 @@ app.get('/api/public/amicales', async (req, res) => {
   try {
     await cleanupNamelessAmicalesAndTheirDemands();
     const [rows] = await pool.query(
-      `SELECT id, name, code, logo_url
+      `SELECT id, name, code, logo_url, hotel_markup_percent
        FROM amicales
        WHERE name IS NOT NULL
          AND TRIM(name) <> ''
@@ -27067,7 +27072,7 @@ app.get('/api/amicales', requireAdminSession, async (req, res) => {
   try {
     await cleanupNamelessAmicalesAndTheirDemands();
     const [rows] = await pool.query(
-      `SELECT id, name, code, logo_url, created_at, updated_at
+      `SELECT id, name, code, logo_url, hotel_markup_percent, created_at, updated_at
        FROM amicales
        WHERE name IS NOT NULL
          AND TRIM(name) <> ''
@@ -27086,12 +27091,16 @@ app.post('/api/amicales', requireAdminSession, async (req, res) => {
     const name = String(req.body?.name || '').trim();
     const code = String(req.body?.code || '').trim();
     const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
+    const hotelMarkupPercentRaw = Number(req.body?.hotel_markup_percent ?? req.body?.hotelMarkupPercent ?? 0);
+    const hotelMarkupPercent = Number.isFinite(hotelMarkupPercentRaw) && hotelMarkupPercentRaw > 0
+      ? Math.round((hotelMarkupPercentRaw + Number.EPSILON) * 100) / 100
+      : 0;
     if (!name || !code) return res.status(400).json({ error: 'name and code are required' });
     const now = getAgencySqlDateTime();
     await pool.query(
-      `INSERT INTO amicales (id, name, code, logo_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, name, code, logoUrl, now, now]
+      `INSERT INTO amicales (id, name, code, logo_url, hotel_markup_percent, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, code, logoUrl, hotelMarkupPercent, now, now]
     );
     const [rows] = await pool.query('SELECT * FROM amicales WHERE id = ? LIMIT 1', [id]);
     res.status(201).json(rows?.[0] || null);
@@ -27110,14 +27119,18 @@ app.put('/api/amicales/:id', requireAdminSession, async (req, res) => {
     const name = String(req.body?.name || '').trim();
     const code = String(req.body?.code || '').trim();
     const logoUrl = String(req.body?.logo_url || req.body?.logoUrl || '').trim() || null;
+    const hotelMarkupPercentRaw = Number(req.body?.hotel_markup_percent ?? req.body?.hotelMarkupPercent ?? 0);
+    const hotelMarkupPercent = Number.isFinite(hotelMarkupPercentRaw) && hotelMarkupPercentRaw > 0
+      ? Math.round((hotelMarkupPercentRaw + Number.EPSILON) * 100) / 100
+      : 0;
     if (!id) return res.status(400).json({ error: 'id is required' });
     if (!name || !code) return res.status(400).json({ error: 'name and code are required' });
     const now = getAgencySqlDateTime();
     await pool.query(
       `UPDATE amicales
-       SET name = ?, code = ?, logo_url = ?, updated_at = ?
+       SET name = ?, code = ?, logo_url = ?, hotel_markup_percent = ?, updated_at = ?
        WHERE id = ?`,
-      [name, code, logoUrl, now, id]
+      [name, code, logoUrl, hotelMarkupPercent, now, id]
     );
     const [rows] = await pool.query('SELECT * FROM amicales WHERE id = ? LIMIT 1', [id]);
     res.json(rows?.[0] || null);

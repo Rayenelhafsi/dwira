@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { SmartImage } from "../components/SmartImage";
 import { getHotelConfig, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
+import { fetchAmicalesPublic } from "../utils/amicales";
 import {
   extractHotelBoardingNames,
   extractHotelMinPrice,
@@ -124,6 +125,7 @@ export default function HotelsPage() {
   const defaults = useMemo(() => buildDefaultSearch(), []);
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const linkedAmicaleId = String(searchParams.get("amicale") || "").trim() || null;
   const initialHasSearchParams = useMemo(
     () => Boolean(searchParams.get("cityId") && searchParams.get("checkIn") && searchParams.get("checkOut")),
     [searchParams]
@@ -140,6 +142,7 @@ export default function HotelsPage() {
   const [destinationQuery, setDestinationQuery] = useState("");
   const [destinationOpen, setDestinationOpen] = useState(false);
   const [travellersOpen, setTravellersOpen] = useState(false);
+  const [hotelAmicaleMarkupPercent, setHotelAmicaleMarkupPercent] = useState(0);
   const [cityHotels, setCityHotels] = useState<HotelSummary[]>([]);
   const [loadingCityHotels, setLoadingCityHotels] = useState(false);
   const [checkIn, setCheckIn] = useState(() => searchParams.get("checkIn") || defaults.checkIn);
@@ -152,6 +155,26 @@ export default function HotelsPage() {
       .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
     return parsed.length > 0 ? parsed : defaults.childAges;
   });
+
+  useEffect(() => {
+    if (!linkedAmicaleId) {
+      setHotelAmicaleMarkupPercent(0);
+      return;
+    }
+    let cancelled = false;
+    void fetchAmicalesPublic()
+      .then((rows) => {
+        if (cancelled) return;
+        const matched = (Array.isArray(rows) ? rows : []).find((item) => String(item.id || "").trim() === linkedAmicaleId) || null;
+        setHotelAmicaleMarkupPercent(Number(matched?.hotelMarkupPercent || 0));
+      })
+      .catch(() => {
+        if (!cancelled) setHotelAmicaleMarkupPercent(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedAmicaleId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -332,15 +355,15 @@ export default function HotelsPage() {
         return rightRecommended - leftRecommended;
       }
 
-      const leftPrice = extractHotelMinPrice(left) ?? Number.POSITIVE_INFINITY;
-      const rightPrice = extractHotelMinPrice(right) ?? Number.POSITIVE_INFINITY;
+      const leftPrice = extractHotelMinPrice(left, hotelAmicaleMarkupPercent) ?? Number.POSITIVE_INFINITY;
+      const rightPrice = extractHotelMinPrice(right, hotelAmicaleMarkupPercent) ?? Number.POSITIVE_INFINITY;
       if (leftPrice !== rightPrice) {
         return leftPrice - rightPrice;
       }
 
       return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
     }),
-    [results]
+    [hotelAmicaleMarkupPercent, results]
   );
 
   return (
@@ -687,10 +710,10 @@ export default function HotelsPage() {
           {!loadingResults && sortedResults.length > 0 && (
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
               {sortedResults.map((hotel) => {
-                const minPrice = extractHotelMinPrice(hotel);
+                const minPrice = extractHotelMinPrice(hotel, hotelAmicaleMarkupPercent);
                 const roomOffers = flattenHotelRoomOffers(hotel);
-                const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room) !== null) || roomOffers[0] || null;
-                const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room) : null;
+                const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, hotelAmicaleMarkupPercent) !== null) || roomOffers[0] || null;
+                const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room, hotelAmicaleMarkupPercent) : null;
                 const boardings = extractHotelBoardingNames(hotel).slice(0, 2);
                 const facilities = getHotelFacilityTitles(hotel.Facilities, 5);
                 const hasPromotion = hasHotelPromotion(hotel);

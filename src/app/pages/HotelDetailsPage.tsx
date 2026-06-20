@@ -104,7 +104,7 @@ function clearPendingHotelDraft() {
 }
 
 export default function HotelDetailsPage() {
-  const { user, login } = useAuth();
+  const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -117,7 +117,7 @@ export default function HotelDetailsPage() {
   const [requestOfferIndex, setRequestOfferIndex] = useState<number | null>(null);
   const [reservationPhone, setReservationPhone] = useState("");
   const [reservationNote, setReservationNote] = useState("");
-  const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string }>>([]);
+  const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string; hotelMarkupPercent?: number }>>([]);
   const [amicaleSelectionId, setAmicaleSelectionId] = useState("");
   const [amicaleFullName, setAmicaleFullName] = useState("");
   const [amicaleMatricule, setAmicaleMatricule] = useState("");
@@ -159,6 +159,11 @@ export default function HotelDetailsPage() {
   const childAges = parseChildAgesParam(searchParams.get("children"));
   const adults = Math.max(1, Number(searchParams.get("adults") || 2) || 2);
   const linkedAmicaleId = String(searchParams.get("amicale") || "").trim() || null;
+  const linkedAmicaleConfig = useMemo(
+    () => amicaleOptions.find((item) => item.id === linkedAmicaleId) || null,
+    [amicaleOptions, linkedAmicaleId]
+  );
+  const linkedAmicaleHotelMarkupPercent = Number(linkedAmicaleConfig?.hotelMarkupPercent || 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,7 +265,7 @@ export default function HotelDetailsPage() {
     } as HotelDetail;
   }, [hotel, searchHotel]);
   const gallery = useMemo(() => getHotelAlbum(activeHotel), [activeHotel]);
-  const minPrice = useMemo(() => extractHotelMinPrice(activeHotel), [activeHotel]);
+  const minPrice = useMemo(() => extractHotelMinPrice(activeHotel, linkedAmicaleHotelMarkupPercent), [activeHotel, linkedAmicaleHotelMarkupPercent]);
   const boardings = useMemo(() => extractHotelBoardingNames(activeHotel), [activeHotel]);
   const facilities = useMemo(() => getHotelFacilityTitles(activeHotel?.Facilities, 24), [activeHotel]);
   const tags = useMemo(() => getHotelTagTitles(activeHotel, 16), [activeHotel]);
@@ -334,6 +339,7 @@ export default function HotelDetailsPage() {
           name: String(item.name || "").trim(),
           code: String(item.code || "").trim(),
           logoUrl: item.logoUrl ? String(item.logoUrl).trim() : undefined,
+          hotelMarkupPercent: Number(item.hotelMarkupPercent || 0),
         }));
         setAmicaleOptions(mapped);
         setAmicaleSelectionId(linkedAmicaleId);
@@ -443,6 +449,10 @@ export default function HotelDetailsPage() {
 
   const openReservationRequest = (offerIndex: number) => {
     const isAmicaleFlow = Boolean(linkedAmicaleId);
+    if (!isAmicaleFlow && authLoading) {
+      toast.info("Verification de votre session en cours...");
+      return;
+    }
     if (!user || user.role !== "user" || !user.email) {
       if (isAmicaleFlow) {
         setRequestOfferIndex(offerIndex);
@@ -530,7 +540,7 @@ export default function HotelDetailsPage() {
       }
     }
 
-    const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room);
+    const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent);
     setSubmittingReservation(true);
     try {
       const created = await createHotelReservationDemand({
@@ -1011,7 +1021,7 @@ export default function HotelDetailsPage() {
                 <div className="mt-5 space-y-4">
                   {roomOffers.map((offer, index) => {
                     const room = offer.room;
-                    const displayedPrice = pickHotelDisplayedPrice(room);
+                    const displayedPrice = pickHotelDisplayedPrice(room, linkedAmicaleHotelMarkupPercent);
                     const cancellationLines = formatHotelCancellationPolicy(room?.CancellationPolicy);
                     const supplements = Array.isArray(room?.Supplement) ? room.Supplement : [];
                     const views = Array.isArray(room?.View) ? room.View : [];
@@ -1056,7 +1066,7 @@ export default function HotelDetailsPage() {
                             <div className="mt-2 text-2xl font-semibold text-slate-900">
                               {displayedPrice !== null ? `${formatPrice(displayedPrice)} TND` : "Sur demande"}
                             </div>
-                            {room?.BasePrice && Number(room?.BasePrice) > 0 && Number(room?.BasePrice) !== displayedPrice ? (
+                            {linkedAmicaleHotelMarkupPercent <= 0 && room?.BasePrice && Number(room?.BasePrice) > 0 && Number(room?.BasePrice) !== displayedPrice ? (
                               <p className="mt-1 text-xs text-slate-500">Base: {formatPrice(Number(room?.BasePrice))} TND</p>
                             ) : null}
                           </div>
@@ -1069,7 +1079,7 @@ export default function HotelDetailsPage() {
                               {views.map((view, viewIndex) => (
                                 <span key={`${room?.Id}-view-${view?.Id || viewIndex}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
                                   {String(view?.Name || "").trim() || "Vue"}
-                                  {pickHotelDisplayedPrice(view) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(view))} TND` : ""}
+                                  {pickHotelDisplayedPrice(view, linkedAmicaleHotelMarkupPercent) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(view, linkedAmicaleHotelMarkupPercent))} TND` : ""}
                                 </span>
                               ))}
                             </div>
@@ -1083,7 +1093,7 @@ export default function HotelDetailsPage() {
                               {supplements.map((supplement, supplementIndex) => (
                                 <span key={`${room?.Id}-supp-${supplement?.Id || supplementIndex}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
                                   {String(supplement?.Name || "").trim() || "Supplement"}
-                                  {pickHotelDisplayedPrice(supplement) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(supplement))} TND` : ""}
+                                  {pickHotelDisplayedPrice(supplement, linkedAmicaleHotelMarkupPercent) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(supplement, linkedAmicaleHotelMarkupPercent))} TND` : ""}
                                   {supplement?.Required ? " · obligatoire" : ""}
                                 </span>
                               ))}
@@ -1192,7 +1202,7 @@ export default function HotelDetailsPage() {
                 <span className="rounded-full bg-white px-3 py-1">{checkIn} au {checkOut}</span>
                 <span className="rounded-full bg-white px-3 py-1">{adults} adulte(s){childAges.length > 0 ? `, ${childAges.length} enfant(s)` : ""}</span>
                 <span className="rounded-full bg-white px-3 py-1">
-                  {activeRequestOffer ? (pickHotelDisplayedPrice(activeRequestOffer.room) !== null ? `${formatPrice(pickHotelDisplayedPrice(activeRequestOffer.room))} TND` : "Sur demande") : "Sur demande"}
+                  {activeRequestOffer ? (pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent) !== null ? `${formatPrice(pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent))} TND` : "Sur demande") : "Sur demande"}
                 </span>
               </div>
               </div>

@@ -1105,7 +1105,7 @@ export default function HomePage({
   });
   const [hotelSearchLoadingModal, setHotelSearchLoadingModal] = useState(false);
   const [hotelTravellerAccordionOpen, setHotelTravellerAccordionOpen] = useState("adult-0");
-  const [hotelAmicaleOptions, setHotelAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string }>>([]);
+  const [hotelAmicaleOptions, setHotelAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string; hotelMarkupPercent?: number }>>([]);
   const [hotelReserveModal, setHotelReserveModal] = useState<null | {
     hotel: HotelSummary;
     adults: number;
@@ -1181,6 +1181,11 @@ export default function HomePage({
   }, [showChatbotWidget]);
   const activeAmicaleId = String(forcedAmicaleId || searchParams.get("amicale") || "").trim() || null;
   const activePartnerAgencyId = String(forcedPartnerAgencyId || searchParams.get("partner") || "").trim() || null;
+  const activeAmicaleHotelMarkupPercent = useMemo(() => {
+    if (!activeAmicaleId) return 0;
+    const matched = hotelAmicaleOptions.find((item) => item.id === activeAmicaleId) || null;
+    return Number(matched?.hotelMarkupPercent || 0);
+  }, [activeAmicaleId, hotelAmicaleOptions]);
   const activePartnerAgencyMarginMultiplier = (() => {
     const raw = forcedPartnerAgencyMarginMultiplier ?? Number(searchParams.get("partnerMargin") || 0);
     return Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
@@ -1236,6 +1241,7 @@ export default function HomePage({
             name: String(item.name || "").trim(),
             code: String(item.code || "").trim(),
             logoUrl: item.logoUrl ? String(item.logoUrl).trim() : undefined,
+            hotelMarkupPercent: Number(item.hotelMarkupPercent || 0),
           }))
         );
       })
@@ -1336,13 +1342,13 @@ export default function HomePage({
           const leftRecommended = Number(left?.Recommended || 0);
           const rightRecommended = Number(right?.Recommended || 0);
           if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
-          const leftPrice = extractHotelMinPrice(left) ?? Number.POSITIVE_INFINITY;
-          const rightPrice = extractHotelMinPrice(right) ?? Number.POSITIVE_INFINITY;
+          const leftPrice = extractHotelMinPrice(left, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
+          const rightPrice = extractHotelMinPrice(right, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
           if (leftPrice !== rightPrice) return leftPrice - rightPrice;
           return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
         })
         .slice(0, 10),
-    [filteredHotelsByCity]
+    [activeAmicaleHotelMarkupPercent, filteredHotelsByCity]
   );
   const selectedHotelLabel = useMemo(() => {
     if (selectedHotelId <= 0) return "";
@@ -1391,18 +1397,18 @@ export default function HomePage({
   }, [hotelResults]);
   const hotelResultPriceBounds = useMemo(() => {
     const prices = hotelResults
-      .map((hotel) => extractHotelMinPrice(hotel))
+      .map((hotel) => extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent))
       .filter((price): price is number => Number.isFinite(price) && Number(price) > 0);
     if (prices.length === 0) return { min: 0, max: 0 };
     return { min: Math.min(...prices), max: Math.max(...prices) };
-  }, [hotelResults]);
+  }, [activeAmicaleHotelMarkupPercent, hotelResults]);
   const filteredHotelResults = useMemo(() => {
     const keyword = normalizeHotelResultsToken(hotelResultsSearchTerm);
     const budgetMin = hotelResultsBudgetMin ?? hotelResultPriceBounds.min;
     const budgetMax = hotelResultsBudgetMax ?? hotelResultPriceBounds.max;
 
     return hotelResults.filter((hotel) => {
-      const minPrice = extractHotelMinPrice(hotel);
+      const minPrice = extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent);
       const roomOffers = flattenHotelRoomOffers(hotel);
       const boardingNames = extractHotelBoardingNames(hotel);
       const facilityTitles = getHotelFacilityTitles(hotel.Facilities, 12);
@@ -1441,6 +1447,7 @@ export default function HomePage({
     hotelResultsOnlyWithPrice,
     hotelResultPriceBounds.max,
     hotelResultPriceBounds.min,
+    activeAmicaleHotelMarkupPercent,
     selectedHotelResultBoardings,
     selectedHotelResultFacilities,
     selectedHotelResultStars,
@@ -1454,8 +1461,8 @@ export default function HomePage({
       const rightPromotion = hasHotelPromotion(right) ? 1 : 0;
       const leftRecommended = Number(left?.Recommended || 0);
       const rightRecommended = Number(right?.Recommended || 0);
-      const leftPrice = extractHotelMinPrice(left) ?? Number.POSITIVE_INFINITY;
-      const rightPrice = extractHotelMinPrice(right) ?? Number.POSITIVE_INFINITY;
+      const leftPrice = extractHotelMinPrice(left, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
+      const rightPrice = extractHotelMinPrice(right, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
       const leftStar = Number(left?.Star || 0);
       const rightStar = Number(right?.Star || 0);
 
@@ -1486,7 +1493,7 @@ export default function HomePage({
       if (leftPrice !== rightPrice) return leftPrice - rightPrice;
       return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
     }),
-    [filteredHotelResults, hotelResultsSort, selectedHotelId]
+    [activeAmicaleHotelMarkupPercent, filteredHotelResults, hotelResultsSort, selectedHotelId]
   );
   const visibleHotelResults = useMemo(
     () => sortedHotelResults.slice(0, hotelResultsPageSize),
@@ -5632,10 +5639,10 @@ export default function HomePage({
                     const hotelId = Number(hotel.Id || 0);
                     const hotelStarCount = getHotelStarCount(hotel.Category?.Star ?? hotel.Star);
                     const isResultDetailsExpanded = effectiveHotelResultsView === "grid" || Boolean(expandedHotelResultDetailsById[hotelId]);
-                    const minPrice = extractHotelMinPrice(hotel);
+                    const minPrice = extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent);
                     const roomOffers = flattenHotelRoomOffers(hotel);
-                    const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room) !== null) || roomOffers[0] || null;
-                    const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room) : null;
+                    const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, activeAmicaleHotelMarkupPercent) !== null) || roomOffers[0] || null;
+                    const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room, activeAmicaleHotelMarkupPercent) : null;
                     const hasPromotion = hasHotelPromotion(hotel);
                     const hasRefundableOffer = roomOffers.some((offer) => !offer.room?.NotRefundable);
                     const hasOnRequestOffer = roomOffers.some((offer) => Boolean(offer.room?.OnRequest || offer.room?.StopReservation));
@@ -5648,7 +5655,7 @@ export default function HomePage({
                     const hotelAddress = String(hotel.Adress || "").trim();
                     const boardingMap = new Map<string, { key: string; boardingId: number | null; boardingName: string; price: number | null }>();
                     roomOffers.forEach((offer) => {
-                      const offerPrice = pickHotelDisplayedPrice(offer.room);
+                    const offerPrice = pickHotelDisplayedPrice(offer.room, activeAmicaleHotelMarkupPercent);
                       const fallbackBoardingName = String(offer.boardingName || "").trim() || "Offre hotel";
                       const key = offer.boardingId ? `id:${offer.boardingId}` : `name:${fallbackBoardingName.toLowerCase()}`;
                       const current = boardingMap.get(key);
@@ -5689,7 +5696,7 @@ export default function HomePage({
                         })
                         .map((offer, index) => {
                           const room = offer.room;
-                          const roomPrice = pickHotelDisplayedPrice(room);
+                          const roomPrice = pickHotelDisplayedPrice(room, activeAmicaleHotelMarkupPercent);
                           const roomId = Number(room?.Id || 0);
                           const key = roomId > 0 ? `id:${roomId}` : `idx:${index}`;
                           return {

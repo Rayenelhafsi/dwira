@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronRight, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Users } from "lucide-react";
-import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, type AmicaleItem } from "../../utils/amicales";
+import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, normalizeAmicaleHotelMarkupPercent, type AmicaleItem, updateAmicaleApi } from "../../utils/amicales";
 import type { HotelReservationDemand, ReservationDemand, ReservationDemandStatus } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -252,6 +252,7 @@ export default function AmicalesPage() {
   const [demandRows, setDemandRows] = useState<AmicaleDemandRow[]>([]);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [hotelMarkupPercent, setHotelMarkupPercent] = useState("0");
   const [logoUrl, setLogoUrl] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -261,6 +262,7 @@ export default function AmicalesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [hotelMarkupById, setHotelMarkupById] = useState<Record<string, string>>({});
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -299,6 +301,15 @@ export default function AmicalesPage() {
     }, 15000);
     return () => window.clearInterval(intervalId);
   }, [loadData]);
+
+  useEffect(() => {
+    setHotelMarkupById(
+      amicales.reduce<Record<string, string>>((acc, item) => {
+        acc[item.id] = String(normalizeAmicaleHotelMarkupPercent(item.hotelMarkupPercent));
+        return acc;
+      }, {})
+    );
+  }, [amicales]);
 
   const amicaleCounts = useMemo(() => {
     const waitingAmicale = demandRows.filter((row) => row.status === "attente_validation_amicale").length;
@@ -360,15 +371,41 @@ export default function AmicalesPage() {
       return;
     }
     try {
-      await createAmicaleApi({ name, code, logoUrl: logoUrl || undefined });
+      await createAmicaleApi({
+        name,
+        code,
+        logoUrl: logoUrl || undefined,
+        hotelMarkupPercent: normalizeAmicaleHotelMarkupPercent(hotelMarkupPercent),
+      });
       setName("");
       setCode("");
+      setHotelMarkupPercent("0");
       setLogoUrl("");
       setLogoFile(null);
       await loadData();
       toast.success("Amicale ajoutee.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Ajout impossible");
+    }
+  };
+
+  const handleSaveHotelMarkup = async (item: AmicaleItem) => {
+    const nextMarkup = normalizeAmicaleHotelMarkupPercent(hotelMarkupById[item.id]);
+    setSavingId(item.id);
+    try {
+      await updateAmicaleApi({
+        id: item.id,
+        name: item.name,
+        code: item.code,
+        logoUrl: item.logoUrl,
+        hotelMarkupPercent: nextMarkup,
+      });
+      toast.success("Majoration hotel mise a jour.");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -579,6 +616,15 @@ export default function AmicalesPage() {
                 placeholder="Code amicale"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               />
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={hotelMarkupPercent}
+                onChange={(event) => setHotelMarkupPercent(event.target.value)}
+                placeholder="Majoration hotel (%)"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
               <div className="rounded-lg border border-gray-200 p-3 md:col-span-2">
                 <p className="mb-2 text-xs font-semibold uppercase text-gray-500">Logo amicale (upload)</p>
                 <input
@@ -638,6 +684,7 @@ export default function AmicalesPage() {
                       <th className="px-3 py-2 font-semibold">Nom</th>
                       <th className="px-3 py-2 font-semibold">Logo</th>
                       <th className="px-3 py-2 font-semibold">Code</th>
+                      <th className="px-3 py-2 font-semibold">Majoration hotel</th>
                       <th className="px-3 py-2 font-semibold">Action</th>
                     </tr>
                   </thead>
@@ -654,21 +701,44 @@ export default function AmicalesPage() {
                         </td>
                         <td className="px-3 py-2 text-gray-700">{item.code}</td>
                         <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => void (async () => {
-                              try {
-                                await deleteAmicaleApi(item.id);
-                                await loadData();
-                                toast.success("Amicale supprimee.");
-                              } catch (error) {
-                                toast.error(error instanceof Error ? error.message : "Suppression impossible");
-                              }
-                            })()}
-                            className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-                          >
-                            Supprimer
-                          </button>
+                          <div className="flex min-w-[170px] items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={hotelMarkupById[item.id] ?? String(normalizeAmicaleHotelMarkupPercent(item.hotelMarkupPercent))}
+                              onChange={(event) => setHotelMarkupById((prev) => ({ ...prev, [item.id]: event.target.value }))}
+                              className="w-24 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                            />
+                            <span className="text-xs font-semibold text-gray-500">%</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={savingId === item.id}
+                              onClick={() => void handleSaveHotelMarkup(item)}
+                              className="rounded-md border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Enregistrer
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void (async () => {
+                                try {
+                                  await deleteAmicaleApi(item.id);
+                                  await loadData();
+                                  toast.success("Amicale supprimee.");
+                                } catch (error) {
+                                  toast.error(error instanceof Error ? error.message : "Suppression impossible");
+                                }
+                              })()}
+                              className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                            >
+                              Supprimer
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

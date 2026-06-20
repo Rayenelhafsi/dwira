@@ -718,7 +718,7 @@ const obfuscateLocation = (exact: LatLng, seed: string): LatLng => {
 export default function PropertyDetailsPage() {
   // Use shared context for properties
   const { properties, biens, zones, loading } = useProperties();
-  const { user, login } = useAuth();
+  const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -2983,6 +2983,11 @@ out body 40;
         toast.error("Code amicale incorrect.");
         return;
       }
+    }
+
+    if (paymentMode !== "amicale" && authLoading) {
+      toast.info("Verification de votre session en cours...");
+      return;
     }
 
     if (paymentMode !== "amicale" && (!user || user.role !== 'user' || !user.email)) {
