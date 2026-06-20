@@ -878,17 +878,26 @@ const isPubliclyVisibleBien = (bien: Bien) =>
 
 function buildPublicPropertiesFromBiens(biens: Bien[], zonesById: Record<string, Zone> = {}): Property[] {
   const visibleBiens = (Array.isArray(biens) ? biens : []).filter(isPubliclyVisibleBien);
-  const seenResidenceSubTypes = new Set<string>();
-  return visibleBiens.filter((bien) => {
+  const selectedResidenceRepresentative = new Map<string, Bien>();
+  const standaloneBiens: Bien[] = [];
+  visibleBiens.forEach((bien) => {
     const residenceParentId = String((bien as any).residence_parent_bien_id || '').trim();
-    if (!residenceParentId) return true;
+    if (!residenceParentId) {
+      standaloneBiens.push(bien);
+      return;
+    }
     const residenceChildType = normalizeBienType(String((bien as any).type || '').trim() || 'appartement');
     const residenceSubType = String((bien as any).residence_unit_sub_type || bien.configuration || '').trim().toLowerCase();
     const dedupeKey = `${residenceParentId}::${String(residenceChildType || '').trim().toLowerCase()}::${residenceSubType || String(bien.type || '').trim().toLowerCase()}`;
-    if (seenResidenceSubTypes.has(dedupeKey)) return false;
-    seenResidenceSubTypes.add(dedupeKey);
-    return true;
-  }).map((bien) => bienToProperty(bien, zonesById));
+    const current = selectedResidenceRepresentative.get(dedupeKey);
+    const currentMediaCount = Array.isArray(current?.media) ? current.media.length : 0;
+    const nextMediaCount = Array.isArray(bien?.media) ? bien.media.length : 0;
+    if (!current || nextMediaCount > currentMediaCount) {
+      selectedResidenceRepresentative.set(dedupeKey, bien);
+    }
+  });
+  return [...standaloneBiens, ...Array.from(selectedResidenceRepresentative.values())]
+    .map((bien) => bienToProperty(bien, zonesById));
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {

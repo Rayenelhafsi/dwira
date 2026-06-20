@@ -1690,28 +1690,6 @@ export default function BiensPage() {
       }
     }
   };
-  const syncResidenceChildAssets = async (
-    units: Bien['residence_units'],
-    children: Array<{ id: string; unit_id?: string | null; key?: string | null; index?: number | null }>
-  ) => {
-    const normalizedUnits = Array.isArray(units) ? units : [];
-    const childRows = Array.isArray(children) ? children : [];
-    for (const child of childRows) {
-      const unit = normalizedUnits.find((row) => String(row?.id || '') === String(child?.unit_id || ''));
-      if (!unit || !child?.id) continue;
-      const childMedia = Array.isArray(unit.template_media) ? unit.template_media : [];
-      await syncMediaForBien(String(child.id), childMedia.map((media, mediaIndex) => ({
-        ...media,
-        bien_id: String(child.id),
-        position: Number.isFinite(Number(media?.position)) ? Number(media.position) : mediaIndex,
-      })));
-      const apartmentIndex = Math.max(0, Number(child.index || 1) - 1);
-      const childDates = Array.isArray(unit.apartments?.[apartmentIndex]?.unavailable_dates)
-        ? (unit.apartments?.[apartmentIndex]?.unavailable_dates as DateStatus[])
-        : [];
-      await syncUnavailableDatesForBien(String(child.id), childDates);
-    }
-  };
   const handleSave = async (bien: Bien) => {
     const isEditingNow = Boolean(editingBien);
     const editingSnapshot = editingBien;
@@ -1733,7 +1711,7 @@ export default function BiensPage() {
           ? hasMediaChanged(editingSnapshot?.media || [], media || [])
           : true;
         if (isEditingNow) {
-          const updatedBien = await updateBien(bien as any);
+          await updateBien(bien as any);
           if (deletedMediaIds.length > 0) {
             await deleteMediaIdsForBien(deletedMediaIds);
           }
@@ -1741,19 +1719,11 @@ export default function BiensPage() {
             await syncMediaForBien(bien.id, media || []);
           }
           await syncUnavailableDatesForBien(bien.id, unavailableDates || []);
-          if (isResidenceParentBien(bien)) {
-            const syncPayload = updatedBien?.residence_sync || null;
-            await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
-          }
         } else {
           const createdBien = await addBien(bienData as any);
           finalBienId = String(createdBien?.id || String(bienData.id || bien.id || ''));
           await syncMediaForBien(finalBienId, media || []);
           await syncUnavailableDatesForBien(finalBienId, unavailableDates || []);
-          if (isResidenceParentBien(bien)) {
-            const syncPayload = createdBien?.residence_sync || null;
-            await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
-          }
         }
         await refreshData();
         if (finalBienId) {
@@ -1769,7 +1739,7 @@ export default function BiensPage() {
               ? hasMediaChanged(editingSnapshot?.media || [], bien.media || [])
               : true;
             if (isEditingNow) {
-              const updatedBien = await updateBien(draftBien);
+              await updateBien(draftBien);
               if (deletedMediaIds.length > 0) {
                 await deleteMediaIdsForBien(deletedMediaIds);
               }
@@ -1777,20 +1747,12 @@ export default function BiensPage() {
                 await syncMediaForBien(bien.id, bien.media || []);
               }
               await syncUnavailableDatesForBien(bien.id, bien.unavailableDates || []);
-              if (isResidenceParentBien(bien)) {
-                const syncPayload = updatedBien?.residence_sync || null;
-                await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
-              }
             } else {
               const { created_at: _createdAt, updated_at: _updatedAt, media: _media, unavailableDates: _dates, ...draftBienData } = draftBien;
               const createdBien = await addBien(draftBienData);
               finalBienId = String(createdBien?.id || String(draftBienData.id || bien.id || ''));
               await syncMediaForBien(finalBienId, bien.media || []);
               await syncUnavailableDatesForBien(finalBienId, bien.unavailableDates || []);
-              if (isResidenceParentBien(bien)) {
-                const syncPayload = createdBien?.residence_sync || null;
-                await syncResidenceChildAssets(bien.residence_units || [], Array.isArray(syncPayload?.children) ? syncPayload.children : []);
-              }
             }
             await refreshData();
             if (finalBienId) {

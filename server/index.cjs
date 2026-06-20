@@ -10813,16 +10813,6 @@ function pickCaracteristiqueValeurs(caracteristiqueIds, caracteristiqueValeurs) 
 }
 
 async function cloneResidenceSharedData(parentBienId, childBienId) {
-  await pool.query('DELETE FROM media WHERE bien_id = ?', [childBienId]);
-  await pool.query(
-    `INSERT INTO media (id, bien_id, type, url, motif_upload, position)
-     SELECT CONCAT('m_', REPLACE(UUID(), '-', '')), ?, type, url, motif_upload, COALESCE(position, 0)
-     FROM media
-     WHERE bien_id = ?
-     ORDER BY COALESCE(position, 0) ASC, id ASC`,
-    [childBienId, parentBienId]
-  );
-
   await pool.query('DELETE FROM bien_services_payants WHERE bien_id = ?', [childBienId]);
   await pool.query(
     `INSERT INTO bien_services_payants (
@@ -10835,6 +10825,78 @@ async function cloneResidenceSharedData(parentBienId, childBienId) {
      WHERE bien_id = ?`,
     [childBienId, parentBienId]
   );
+}
+
+function normalizeResidenceMediaItems(rawMedia) {
+  return (Array.isArray(rawMedia) ? rawMedia : [])
+    .map((media, mediaIndex) => ({
+      type: String(media?.type || '').trim() === 'video' ? 'video' : 'image',
+      url: String(media?.url || '').trim(),
+      motif_upload: String(media?.motif_upload || '').trim() || null,
+      position: Number.isFinite(Number(media?.position)) ? Number(media.position) : mediaIndex,
+    }))
+    .filter((media) => media.url);
+}
+
+async function syncResidenceChildMedia(childBienId, rawMedia) {
+  const mediaItems = normalizeResidenceMediaItems(rawMedia);
+  await pool.query('DELETE FROM media WHERE bien_id = ?', [childBienId]);
+  for (const mediaItem of mediaItems) {
+    await pool.query(
+      'INSERT INTO media (id, bien_id, type, url, motif_upload, position) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        childBienId,
+        mediaItem.type,
+        mediaItem.url,
+        mediaItem.motif_upload,
+        mediaItem.position,
+      ]
+    );
+  }
+}
+
+function normalizeResidenceUnavailableDates(rawDates) {
+  const allowedStatuses = new Set(['blocked', 'booked', 'pending']);
+  return (Array.isArray(rawDates) ? rawDates : [])
+    .map((row) => {
+      const start = toSqlDateOnly(row?.start_date || row?.start || row?.startDate);
+      const end = toSqlDateOnly(row?.end_date || row?.end || row?.endDate);
+      const status = String(row?.status || 'blocked').trim().toLowerCase();
+      if (!start || !end) return null;
+      return {
+        start,
+        end,
+        status: allowedStatuses.has(status) ? status : 'blocked',
+      };
+    })
+    .filter(Boolean);
+}
+
+async function syncResidenceChildUnavailableDates(childBienId, rawDates) {
+  const rows = normalizeResidenceUnavailableDates(rawDates);
+  await pool.query(
+    `DELETE FROM unavailable_dates
+     WHERE bien_id = ?
+       AND reservation_demand_id IS NULL
+       AND payment_deadline IS NULL
+       AND (sync_source IS NULL OR sync_source <> 'airbnb_ics')`,
+    [childBienId]
+  );
+  for (const row of rows) {
+    await pool.query(
+      'INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        childBienId,
+        row.start,
+        row.end,
+        row.status,
+        null,
+        null,
+      ]
+    );
+  }
 }
 
 async function syncResidenceChildrenForParent(parentBienId) {
@@ -10867,14 +10929,16 @@ async function syncResidenceChildrenForParent(parentBienId) {
         apartmentName: String(apartmentMeta?.name || apartmentMobileName || unit.apartment_names?.[index - 1] || '').trim() || '',
         apartmentReference: String(apartmentMeta?.reference || unit.apartment_references?.[index - 1] || '').trim() || '',
         apartmentMobileName,
-        apartmentDescription: String(apartmentMeta?.description || '').trim() || '',
-        apartmentOwnerId: String(apartmentMeta?.proprietaire_id || '').trim() || '',
-        templateBien: unit.template_bien && typeof unit.template_bien === 'object' ? unit.template_bien : {},
-        featureIds: Array.isArray(unit.feature_ids) ? unit.feature_ids : [],
-        featureValues: unit.feature_values && typeof unit.feature_values === 'object' ? unit.feature_values : {},
-        pricingPeriods: Array.isArray(unit.pricing_periods) ? unit.pricing_periods : [],
-      });
-    }
+      apartmentDescription: String(apartmentMeta?.description || '').trim() || '',
+      apartmentOwnerId: String(apartmentMeta?.proprietaire_id || '').trim() || '',
+      templateBien: unit.template_bien && typeof unit.template_bien === 'object' ? unit.template_bien : {},
+      templateMedia: normalizeResidenceMediaItems(unit.template_media),
+      featureIds: Array.isArray(unit.feature_ids) ? unit.feature_ids : [],
+      featureValues: unit.feature_values && typeof unit.feature_values === 'object' ? unit.feature_values : {},
+      pricingPeriods: Array.isArray(unit.pricing_periods) ? unit.pricing_periods : [],
+      unavailableDates: Array.isArray(apartmentMeta?.unavailable_dates) ? apartmentMeta.unavailable_dates : [],
+    });
+  }
   }
 
   const [existingRows] = await pool.query(
@@ -11078,6 +11142,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
     }
 
     await cloneResidenceSharedData(parentBienId, childId);
+    await syncResidenceChildMedia(childId, desiredChild.templateMedia);
     const allowedChildFeatureIds = await filterCaracteristiqueIdsForContext(
       'location_saisonniere',
       'appartement',
@@ -11090,6 +11155,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
       pickCaracteristiqueValeurs(allowedChildFeatureIds, desiredChild.featureValues)
     );
     await syncBienPricingPeriods(childId, desiredChild.pricingPeriods.length > 0 ? desiredChild.pricingPeriods : parentPricingPeriods);
+    await syncResidenceChildUnavailableDates(childId, desiredChild.unavailableDates);
     syncedChildren.push({
       id: childId,
       key: desiredChild.key,
@@ -23800,6 +23866,18 @@ app.delete('/api/media/:id', requireAdminSession, async (req, res) => {
     }
 
     const mediaUrl = String(row.url || '').trim();
+    const [[usageRow]] = await pool.query(
+      'SELECT COUNT(*) AS usageCount FROM media WHERE url = ? AND id <> ?',
+      [mediaUrl, req.params.id]
+    );
+    const remainingUsageCount = Number(usageRow?.usageCount || 0);
+
+    await pool.query('DELETE FROM media WHERE id = ?', [req.params.id]);
+
+    if (remainingUsageCount > 0) {
+      return res.json({ message: 'Media deleted', remoteAssetDeleted: false, sharedReferencesRemaining: remainingUsageCount });
+    }
+
     if (isCloudinaryUrl(mediaUrl)) {
       await deleteCloudinaryAssetByUrl(mediaUrl, row.type || 'image');
     } else if (isR2PublicUrl(mediaUrl)) {
@@ -23810,7 +23888,6 @@ app.delete('/api/media/:id', requireAdminSession, async (req, res) => {
       await deleteCloudflareStreamByUrl(mediaUrl);
     }
 
-    await pool.query('DELETE FROM media WHERE id = ?', [req.params.id]);
     res.json({ message: 'Media deleted' });
   } catch (error) {
     console.error('Error deleting media:', error);
