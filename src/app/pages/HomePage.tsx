@@ -3583,11 +3583,7 @@ export default function HomePage({
     }
     
     const paramsQuery = params.toString();
-    if (publicPartnerSlug && selectedMode !== "vente") {
-      navigate(paramsQuery ? `/${publicPartnerSlug}?${paramsQuery}` : `/${publicPartnerSlug}`);
-    } else {
-      navigate(selectedMode === "vente" ? `/ventes` : `/logements?${paramsQuery}`);
-    }
+    navigate(selectedMode === "vente" ? `/ventes` : `/logements?${paramsQuery}`);
     
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
