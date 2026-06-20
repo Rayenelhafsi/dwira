@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy, Flame, Folder, FolderOpen, FolderPlus, CheckSquare, Square, ArrowRightLeft, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { mockZones } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien, VenteFlashConfig, BienFolder } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -993,6 +993,8 @@ function computeVentePaiement(formData: Partial<Bien>, prixTotalClient: number) 
 
 export default function BiensPage() {
   const { biens, bienFolders, zones, proprietaires, modePriorities, saveModePriorities, addBien, updateBien, deleteBien, createBienFolder, deleteBienFolder, moveBiensToFolder, refreshData, isLoading } = useProperties();
+  const location = useLocation();
+  const navigate = useNavigate();
   const zoneOptions = zones.length > 0 ? zones : mockZones;
   const [fallbackProprietaires, setFallbackProprietaires] = useState<Proprietaire[]>([]);
   const proprietaireOptions = (Array.isArray(proprietaires) && proprietaires.length > 0)
@@ -1234,8 +1236,8 @@ export default function BiensPage() {
   }, [homeFilterImageMode]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || biens.length === 0 || isAddOpen) return;
-    const params = new URLSearchParams(window.location.search);
+    if (biens.length === 0 || isAddOpen) return;
+    const params = new URLSearchParams(location.search);
     const editBienId = String(params.get('editBien') || '').trim();
     const requestedTab = String(params.get('tab') || '').trim().toLowerCase();
     if (!editBienId) return;
@@ -1249,8 +1251,14 @@ export default function BiensPage() {
     params.delete('editBien');
     params.delete('tab');
     const nextSearch = params.toString();
-    window.history.replaceState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`);
-  }, [biens, isAddOpen]);
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true }
+    );
+  }, [biens, isAddOpen, location.pathname, location.search, navigate]);
   const handleTypeImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
     setTypeImageFile(file);
