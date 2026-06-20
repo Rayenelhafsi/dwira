@@ -235,7 +235,7 @@ export default function AvailabilityCalendar({
         : "bg-emerald-600 text-white font-bold ";
     } else {
       className += flashLocked
-        ? "bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 "
+        ? "bg-white text-emerald-700 border border-emerald-200 hover:border-emerald-300 hover:bg-emerald-50 "
         : "bg-green-100 text-green-700 hover:bg-green-200 hover:scale-110 ";
     }
 
@@ -246,7 +246,7 @@ export default function AvailabilityCalendar({
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
     const selectedClass = "bg-emerald-600";
-    const availableClass = normalizedAllowedRange ? "bg-emerald-50" : "bg-green-100";
+    const availableClass = normalizedAllowedRange ? "bg-white" : "bg-green-100";
     if (isEnd) {
       return { enabled: true, leftClass: selectedClass, rightClass: availableClass };
     }
