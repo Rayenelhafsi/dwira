@@ -3076,7 +3076,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     if (!(currentMode === 'vente' && currentType === 'terrain')) {
       setTerrainSectionTab('informations_generales');
     }
-  }, [formData.mode, formData.type]);
+  }, [activeResidenceMainType, formData.mode, formData.type]);
   useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
@@ -6118,12 +6118,31 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const visibleFeatureTabs = featureTabs.filter((tab) => !isRemovedAdminTabLabel(String(tab.nom || tab.id)));
   const uiConfig = (formData.ui_config || {}) as BienUiConfig;
   const isUiSectionVisible = (key: keyof BienUiConfig) => uiConfig[key] !== false;
+  const getLocationFeaturesForTab = (tabId: string) => {
+    const normalizedTabId = String(tabId || '').trim();
+    if (!normalizedTabId) return [];
+    const directMatches = availableFeatures.filter((feature) => String(feature.onglet_id || '').trim() === normalizedTabId);
+    if (selectedModeForUi !== 'location_saisonniere' || directMatches.length > 0) {
+      return directMatches;
+    }
+    const tabLabel = detailTabsForRender.find((tab) => tab.id === normalizedTabId)?.label
+      || visibleFeatureTabs.find((tab) => tab.id === normalizedTabId)?.nom
+      || '';
+    const canonicalKey = detectCanonicalLocationTabKey(tabLabel);
+    if (!canonicalKey) return directMatches;
+    return availableFeatures.filter((feature) => {
+      const featureTabId = String(feature.onglet_id || '').trim();
+      if (!featureTabId) return false;
+      const featureTab = featureTabs.find((tab) => String(tab.id || '').trim() === featureTabId);
+      return detectCanonicalLocationTabKey(String(featureTab?.nom || '')) === canonicalKey;
+    });
+  };
   const visibleFeaturesForSelectedTabRaw = selectedFeatureTabId
-    ? availableFeatures.filter((feature) => String(feature.onglet_id || '') === selectedFeatureTabId)
+    ? getLocationFeaturesForTab(selectedFeatureTabId)
     : [];
   const unassignedFeatures = availableFeatures.filter((feature) => !String(feature.onglet_id || '').trim());
   const terrainTabFeatures = availableFeatures.filter((feature) => (feature.onglet_id || '') === terrainSectionTab);
-  const detailTabFeaturesRaw = availableFeatures.filter((feature) => String(feature.onglet_id || '') === detailSectionTabId);
+  const detailTabFeaturesRaw = getLocationFeaturesForTab(detailSectionTabId);
   const activeDetailTabCanonicalKey = detectCanonicalLocationTabKey(detailTabsForRender.find((tab) => tab.id === detailSectionTabId)?.label || '');
   const LOCATION_TAB_FEATURE_ALLOWLIST: Record<string, string[]> = {
     informations_generales: [
@@ -6216,13 +6235,13 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     : detailTabFeaturesRaw;
   const detailTabFeatureCountById = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const feature of availableFeatures) {
-      const tabId = String(feature.onglet_id || '').trim();
+    for (const tab of detailTabsForRender) {
+      const tabId = String(tab.id || '').trim();
       if (!tabId) continue;
-      counts[tabId] = (counts[tabId] || 0) + 1;
+      counts[tabId] = getLocationFeaturesForTab(tabId).length;
     }
     return counts;
-  }, [availableFeatures]);
+  }, [availableFeatures, detailTabsForRender, featureTabs, selectedModeForUi, visibleFeatureTabs]);
   const detailTabsWithFeatures = detailTabsForRender.filter((tab) => Number(detailTabFeatureCountById[tab.id] || 0) > 0);
   const step2SousTypeFeature = useMemo(() => {
     if (!isLocationAppartement) return null;
