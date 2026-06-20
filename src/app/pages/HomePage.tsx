@@ -920,7 +920,7 @@ export default function HomePage({
   const hotelDefaults = useMemo(() => buildDefaultHotelSearch(), []);
   // Use shared context for properties
   const { properties, zones, modePriorities, loading } = useProperties();
-  const { user, login } = useAuth();
+  const { user, login, isLoading: authLoading } = useAuth();
   
   const navigate = useNavigate();
   const routerLocation = useLocation();
@@ -3345,6 +3345,10 @@ export default function HomePage({
   const submitHotelReserveFromHome = async () => {
     if (!hotelReserveModal) return;
     const isAmicaleHotelFlow = hotelReserveModal.paymentMode === "amicale";
+    if (!isAmicaleHotelFlow && authLoading) {
+      toast.info("Verification de votre session en cours...");
+      return;
+    }
     if (!isAmicaleHotelFlow && (!user || user.role !== "user" || !user.email)) {
       setLoginPromptStep("choices");
       setShowLoginPrompt(true);
