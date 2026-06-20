@@ -33,6 +33,7 @@ import { createHotelReservationDemand, getHotelDetail, searchHotels, type HotelD
 import { completeSocialProfile, getAuthProviders, loginWithPasskey, registerWithPasskey, startSocialLogin } from "../services/auth";
 import { buildApiUrl } from "../utils/api";
 import { clearAuthPendingLogin, isAuthPendingLogin, saveAuthReturnTo, markAuthPendingLogin } from "../utils/pendingReservation";
+import { fetchAmicalesPublic } from "../utils/amicales";
 import {
   extractHotelBoardingNames,
   extractHotelMinPrice,
@@ -116,6 +117,12 @@ export default function HotelDetailsPage() {
   const [requestOfferIndex, setRequestOfferIndex] = useState<number | null>(null);
   const [reservationPhone, setReservationPhone] = useState("");
   const [reservationNote, setReservationNote] = useState("");
+  const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string }>>([]);
+  const [amicaleSelectionId, setAmicaleSelectionId] = useState("");
+  const [amicaleFullName, setAmicaleFullName] = useState("");
+  const [amicaleMatricule, setAmicaleMatricule] = useState("");
+  const [amicalePhone, setAmicalePhone] = useState("");
+  const [amicaleCode, setAmicaleCode] = useState("");
   const [reservationTravellers, setReservationTravellers] = useState<{
     adults: Array<{ firstName: string; lastName: string }>;
     children: Array<{ firstName: string; lastName: string }>;
@@ -151,6 +158,7 @@ export default function HotelDetailsPage() {
   const checkOut = String(searchParams.get("checkOut") || "").trim();
   const childAges = parseChildAgesParam(searchParams.get("children"));
   const adults = Math.max(1, Number(searchParams.get("adults") || 2) || 2);
+  const linkedAmicaleId = String(searchParams.get("amicale") || "").trim() || null;
 
   useEffect(() => {
     let cancelled = false;
@@ -314,6 +322,31 @@ export default function HotelDetailsPage() {
     }
     navigate(backHref);
   };
+
+  useEffect(() => {
+    if (!linkedAmicaleId) return;
+    let cancelled = false;
+    void fetchAmicalesPublic()
+      .then((rows) => {
+        if (cancelled) return;
+        const mapped = rows.map((item) => ({
+          id: String(item.id || "").trim(),
+          name: String(item.name || "").trim(),
+          code: String(item.code || "").trim(),
+          logoUrl: item.logoUrl ? String(item.logoUrl).trim() : undefined,
+        }));
+        setAmicaleOptions(mapped);
+        setAmicaleSelectionId(linkedAmicaleId);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAmicaleOptions([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedAmicaleId]);
   const infoCards = useMemo(
     () => [
       {
@@ -409,18 +442,28 @@ export default function HotelDetailsPage() {
   };
 
   const openReservationRequest = (offerIndex: number) => {
+    const isAmicaleFlow = Boolean(linkedAmicaleId);
     if (!user || user.role !== "user" || !user.email) {
+      if (isAmicaleFlow) {
+        setRequestOfferIndex(offerIndex);
+        return;
+      }
       savePendingHotelDraft({ hotelId: Number(params.id || 0), offerIndex, returnTo: `${location.pathname}${location.search}` });
       setRequestOfferIndex(offerIndex);
       setLoginPromptStep("choices");
       setShowLoginPrompt(true);
       return;
     }
-    if (!user.profileCompleted) {
+    if (!isAmicaleFlow && !user.profileCompleted) {
       savePendingHotelDraft({ hotelId: Number(params.id || 0), offerIndex, returnTo: `${location.pathname}${location.search}` });
       setRequestOfferIndex(offerIndex);
       openProfileSetupStep(user);
       return;
+    }
+    if (isAmicaleFlow) {
+      setAmicaleSelectionId(linkedAmicaleId || "");
+      setAmicaleFullName(`${String(user.firstName || "").trim()} ${String(user.lastName || "").trim()}`.trim());
+      setAmicalePhone(String(user.telephone || "").trim());
     }
     clearPendingHotelDraft();
     setRequestOfferIndex(offerIndex);
@@ -438,14 +481,16 @@ export default function HotelDetailsPage() {
   }, [shouldAutoOpenReserve, hasAutoOpenedReserve, roomOffers, requestOfferIndex, preferredBoardingId, preferredRoomId]);
 
   const submitHotelReservationDemand = async () => {
-    if (!user || !hotel || !activeRequestOffer) {
+    const isAmicaleFlow = Boolean(linkedAmicaleId);
+    if ((!user && !isAmicaleFlow) || !hotel || !activeRequestOffer) {
       return;
     }
     if (!checkIn || !checkOut) {
       toast.error("Veuillez lancer une recherche avec vos dates avant d'envoyer une demande.");
       return;
     }
-    if (!reservationPhone.trim()) {
+    const effectivePhone = String(isAmicaleFlow ? amicalePhone : reservationPhone).trim();
+    if (!effectivePhone) {
       toast.error("Numero de telephone obligatoire.");
       return;
     }
@@ -464,6 +509,25 @@ export default function HotelDetailsPage() {
       toast.error(`Identite incomplete pour Enfant ${invalidChildIndex + 1}.`);
       setReservationTravellerAccordionOpen(`child-${invalidChildIndex}`);
       return;
+    }
+    if (isAmicaleFlow) {
+      const selectedAmicale = amicaleOptions.find((item) => item.id === amicaleSelectionId) || null;
+      if (!selectedAmicale) {
+        toast.error("Selection amicale invalide.");
+        return;
+      }
+      if (!String(amicaleFullName || "").trim()) {
+        toast.error("Nom et prenom obligatoires.");
+        return;
+      }
+      if (!String(amicaleMatricule || "").trim()) {
+        toast.error("Matricule obligatoire.");
+        return;
+      }
+      if (selectedAmicale.code !== String(amicaleCode || "").trim()) {
+        toast.error("Code amicale incorrect.");
+        return;
+      }
     }
 
     const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room);
@@ -485,10 +549,18 @@ export default function HotelDetailsPage() {
         roomName: activeRequestOffer.room?.Name || null,
         totalPrice: displayedPrice,
         currency: "TND",
-        clientPhone: reservationPhone.trim(),
+        clientPhone: effectivePhone,
         clientNote: reservationNote.trim() || null,
+        paymentMode: isAmicaleFlow ? "amicale" : "avance",
+        pricingAmicaleId: isAmicaleFlow ? amicaleSelectionId : null,
+        amicaleName: isAmicaleFlow ? String(amicaleFullName || "").trim() : null,
+        amicaleMatricule: isAmicaleFlow ? String(amicaleMatricule || "").trim() : null,
+        amicalePhone: isAmicaleFlow ? String(amicalePhone || "").trim() : null,
+        amicaleCode: isAmicaleFlow ? String(amicaleCode || "").trim() : null,
         hotelContext: {
           token: searchHotel?.Token || null,
+          publicPartnerSlug: null,
+          amicaleId: linkedAmicaleId,
           hotel,
           offer: activeRequestOffer,
           travellers: {
@@ -504,12 +576,18 @@ export default function HotelDetailsPage() {
           },
         },
       });
-      toast.success("Votre demande hotellerie a ete envoyee. Vous pouvez maintenant finaliser le paiement.");
+      if (isAmicaleFlow) {
+        toast.success("Votre demande amicale hotellerie a ete envoyee.");
+      } else {
+        toast.success("Votre demande hotellerie a ete envoyee. Vous pouvez maintenant finaliser le paiement.");
+      }
       setRequestOfferIndex(null);
       setReservationNote("");
       setReservationTravellerAccordionOpen("");
       clearPendingHotelDraft();
-      navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
+      if (!isAmicaleFlow) {
+        navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
+      }
     } catch (nextError) {
       toast.error(nextError instanceof Error ? nextError.message : "Impossible d'envoyer la demande hotellerie");
     } finally {
@@ -672,6 +750,13 @@ export default function HotelDetailsPage() {
   }, [user?.telephone]);
 
   useEffect(() => {
+    if (!linkedAmicaleId || !user) return;
+    const fullName = `${String(user.firstName || "").trim()} ${String(user.lastName || "").trim()}`.trim();
+    if (fullName) setAmicaleFullName((prev) => prev || fullName);
+    if (String(user.telephone || "").trim()) setAmicalePhone((prev) => prev || String(user.telephone || "").trim());
+  }, [linkedAmicaleId, user]);
+
+  useEffect(() => {
     if (requestOfferIndex === null) return;
     const userName = splitHumanName(user?.name || "");
     const nextAdults = Array.from({ length: adults }).map((_, index) => ({
@@ -702,13 +787,14 @@ export default function HotelDetailsPage() {
   }, [loginPromptStep, openProfileSetupStep, showLoginPrompt, user]);
 
   useEffect(() => {
+    if (linkedAmicaleId) return;
     if (!user || user.role !== "user" || !user.email || !user.profileCompleted) return;
     const draft = readPendingHotelDraft();
     if (!draft) return;
     if (Number(draft.hotelId || 0) !== Number(params.id || 0)) return;
     setRequestOfferIndex(Number(draft.offerIndex));
     clearPendingHotelDraft();
-  }, [params.id, user]);
+  }, [linkedAmicaleId, params.id, user]);
 
   useEffect(() => {
     const onAuthMessage = (event: MessageEvent) => {
@@ -1088,7 +1174,7 @@ export default function HotelDetailsPage() {
         </div>
       </section>
 
-      <Dialog open={requestOfferIndex !== null && !!user?.email && !!user?.profileCompleted} onOpenChange={(open) => !open && !submittingReservation && setRequestOfferIndex(null)}>
+      <Dialog open={requestOfferIndex !== null && (Boolean(linkedAmicaleId) || (!!user?.email && !!user?.profileCompleted))} onOpenChange={(open) => !open && !submittingReservation && setRequestOfferIndex(null)}>
         <DialogContent className="max-w-2xl rounded-[28px] border-0 p-0 shadow-2xl">
           <DialogHeader className="border-b border-slate-100 px-6 pb-4 pt-6">
             <DialogTitle className="text-2xl font-semibold text-slate-900">Demande de reservation hotellerie</DialogTitle>
@@ -1203,12 +1289,71 @@ export default function HotelDetailsPage() {
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Telephone *</label>
               <input
-                value={reservationPhone}
-                onChange={(event) => setReservationPhone(event.target.value)}
+                value={linkedAmicaleId ? amicalePhone : reservationPhone}
+                onChange={(event) => (linkedAmicaleId ? setAmicalePhone(event.target.value) : setReservationPhone(event.target.value))}
                 placeholder="+216 ..."
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
               />
             </div>
+
+            {linkedAmicaleId && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Formulaire amicale</p>
+                <div className="mt-3 grid gap-3">
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-emerald-800">Selectionner amicale</p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {amicaleOptions.map((item) => (
+                        <button
+                          key={`hotel-detail-amicale-${item.id}`}
+                          type="button"
+                          onClick={() => {
+                            setAmicaleSelectionId(item.id);
+                          }}
+                          className={`relative h-16 overflow-hidden rounded-lg border text-left transition ${
+                            amicaleSelectionId === item.id
+                              ? "border-emerald-600 ring-2 ring-emerald-300"
+                              : "border-emerald-200 hover:border-emerald-400"
+                          }`}
+                        >
+                          {item.logoUrl ? (
+                            <div
+                              className="absolute inset-0 bg-no-repeat"
+                              style={{ backgroundImage: `url(${item.logoUrl})`, backgroundSize: "100% 100%" }}
+                            />
+                          ) : (
+                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-100 to-white" />
+                          )}
+                          <div className="absolute inset-0 bg-black/25" />
+                          <div className="relative z-10 px-3 py-2 text-sm font-semibold text-white">{item.name}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={amicaleFullName}
+                    onChange={(event) => setAmicaleFullName(event.target.value)}
+                    placeholder="Nom et prenom"
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
+                  />
+                  <input
+                    type="text"
+                    value={amicaleMatricule}
+                    onChange={(event) => setAmicaleMatricule(event.target.value)}
+                    placeholder="Identifiant interne (Matricule)"
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
+                  />
+                  <input
+                    type="text"
+                    value={amicaleCode}
+                    onChange={(event) => setAmicaleCode(event.target.value)}
+                    placeholder="Code"
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
+                  />
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Message complementaire</label>
@@ -1238,7 +1383,7 @@ export default function HotelDetailsPage() {
               className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {submittingReservation ? <LoaderCircle size={16} className="animate-spin" /> : null}
-              Envoyer la demande
+              {linkedAmicaleId ? "Envoyer la demande amicale" : "Envoyer la demande"}
             </button>
           </DialogFooter>
         </DialogContent>

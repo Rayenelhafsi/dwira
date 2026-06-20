@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronRight, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Users } from "lucide-react";
 import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, type AmicaleItem } from "../../utils/amicales";
-import type { ReservationDemand, ReservationDemandStatus } from "../types";
+import type { HotelReservationDemand, ReservationDemand, ReservationDemandStatus } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -13,6 +13,15 @@ type DemandSectionTab = "actives" | "rejetees";
 type AmicaleDemandRow = ReservationDemand & {
   amicale_name?: string | null;
   amicale_logo_url?: string | null;
+  source_kind?: "property" | "hotel";
+  hotel_context?: Record<string, unknown> | null;
+  child_ages?: number[];
+  adults?: number | null;
+  boarding_name?: string | null;
+  room_name?: string | null;
+  client_phone?: string | null;
+  hotel_id?: string | null;
+  hotel_name?: string | null;
 };
 
 const statusLabels: Partial<Record<ReservationDemandStatus, string>> = {
@@ -107,6 +116,10 @@ function isRejectedAmicaleDemand(status?: ReservationDemandStatus | null) {
 }
 
 function buildPropertyPath(demand: ReservationDemand) {
+  if (String((demand as AmicaleDemandRow).source_kind || "").trim() === "hotel") {
+    const hotelToken = String((demand as AmicaleDemandRow).hotel_id || demand.bien_id || "").trim();
+    return hotelToken ? `/hotels/${encodeURIComponent(hotelToken)}` : "/hotels";
+  }
   const token = String(demand.bien_reference || demand.bien_id || "").trim();
   return token ? `/properties/${encodeURIComponent(token)}` : "/logements";
 }
@@ -119,6 +132,119 @@ function demandStatusLabel(status?: ReservationDemandStatus | null) {
 function demandStatusTone(status?: ReservationDemandStatus | null) {
   const value = String(status || "").trim() as ReservationDemandStatus;
   return statusToneClasses[value] || "bg-gray-100 text-gray-700 border-gray-200";
+}
+
+function toRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, any>) : null;
+}
+
+function mapHotelDemandToAmicaleDemandRow(row: HotelReservationDemand): AmicaleDemandRow {
+  const adultGuests = Math.max(1, Number(row.adults || 1));
+  const childAges = Array.isArray(row.child_ages) ? row.child_ages.map((age) => Number(age)).filter((age) => Number.isFinite(age) && age >= 0) : [];
+  const hotelId = String(row.hotel_id || "").trim();
+  return {
+    ...row,
+    source_kind: "hotel",
+    request_type: "reservation",
+    bien_id: hotelId,
+    bien_reference: hotelId ? `HOTEL-${hotelId}` : row.id,
+    bien_titre: row.hotel_name || null,
+    bien_mode: "hotellerie",
+    start_date: row.check_in,
+    end_date: row.check_out,
+    guests: adultGuests + childAges.length,
+    adult_guests: adultGuests,
+    child_guests: childAges.length,
+    total_amount: row.total_price ?? null,
+    amount_due_now: row.amount_due_now ?? null,
+    child_ages: childAges,
+    adults: adultGuests,
+    hotel_id: hotelId,
+    hotel_name: row.hotel_name || null,
+    boarding_name: row.boarding_name || null,
+    room_name: row.room_name || null,
+    client_phone: row.client_phone || null,
+    hotel_context: row.hotel_context || null,
+    pricing_amicale_id: row.pricing_amicale_id || null,
+    amicale_name: row.amicale_name || null,
+    amicale_matricule: row.amicale_matricule || null,
+    amicale_phone: row.amicale_phone || null,
+    amicale_code: row.amicale_code || null,
+    amicale_validation_at: row.amicale_validation_at || null,
+    agency_validation_at: row.agency_validation_at || null,
+    voucher_id: row.voucher_id || null,
+    voucher_number: row.voucher_number || null,
+    voucher_url: row.voucher_url || null,
+    voucher_generated_at: row.voucher_generated_at || null,
+    voucher_sent_at: row.voucher_sent_at || null,
+  };
+}
+
+function getHotelDemandRoomLines(demand: AmicaleDemandRow) {
+  const context = toRecord(demand.hotel_context);
+  const rawRooms = Array.isArray(context?.rooms) ? context.rooms : [];
+  const lines = rawRooms
+    .map((entry, index) => {
+      const room = toRecord(entry);
+      if (!room) return "";
+      const adults = Math.max(0, Number(room.adults || 0));
+      const children = Math.max(0, Number(room.children || 0));
+      const childAges = Array.isArray(room.childAges)
+        ? room.childAges.map((age) => Number(age)).filter((age) => Number.isFinite(age) && age >= 0)
+        : [];
+      const parts = [
+        `Chambre ${index + 1}`,
+        String(room.boardingName || room.boarding_name || "Pension non precise").trim(),
+        String(room.roomName || room.room_name || "Type chambre non precise").trim(),
+        `${adults} adulte${adults > 1 ? "s" : ""}${children > 0 ? `, ${children} enfant${children > 1 ? "s" : ""}` : ""}`,
+      ];
+      if (childAges.length > 0) {
+        parts.push(`ages: ${childAges.join(", ")} ans`);
+      }
+      return parts.join(" - ");
+    })
+    .filter(Boolean);
+  if (lines.length > 0) return lines;
+
+  const fallbackChildren = Array.isArray(demand.child_ages) ? demand.child_ages : [];
+  const fallbackAdults = Math.max(1, Number(demand.adults || demand.adult_guests || 1));
+  return [
+    [
+      "Chambre 1",
+      String(demand.boarding_name || "Pension non precise").trim(),
+      String(demand.room_name || "Type chambre non precise").trim(),
+      `${fallbackAdults} adulte${fallbackAdults > 1 ? "s" : ""}${fallbackChildren.length > 0 ? `, ${fallbackChildren.length} enfant${fallbackChildren.length > 1 ? "s" : ""}` : ""}`,
+      fallbackChildren.length > 0 ? `ages: ${fallbackChildren.join(", ")} ans` : "",
+    ].filter(Boolean).join(" - "),
+  ];
+}
+
+function getHotelDemandTravellerLines(demand: AmicaleDemandRow) {
+  const context = toRecord(demand.hotel_context);
+  const travellers = toRecord(context?.travellers);
+  const adults = Array.isArray(travellers?.adults) ? travellers.adults : [];
+  const children = Array.isArray(travellers?.children) ? travellers.children : [];
+  const adultLines = adults.map((entry, index) => {
+    const person = toRecord(entry);
+    const firstName = String(person?.firstName || "").trim();
+    const lastName = String(person?.lastName || "").trim();
+    return `${index + 1}. ${firstName || "-"} ${lastName || ""}`.trim();
+  }).filter(Boolean);
+  const childLines = children.map((entry, index) => {
+    const person = toRecord(entry);
+    const firstName = String(person?.firstName || "").trim();
+    const lastName = String(person?.lastName || "").trim();
+    const age = Number(person?.age);
+    return `${index + 1}. ${firstName || "-"} ${lastName || ""}${Number.isFinite(age) && age >= 0 ? ` (${age} ans)` : ""}`.trim();
+  }).filter(Boolean);
+  return { adultLines, childLines };
+}
+
+function buildHotelVoucherPatch(demand: AmicaleDemandRow) {
+  return {
+    voucher_id: String(demand.voucher_id || `hotel-voucher-${demand.id}`).trim(),
+    voucher_number: String(demand.voucher_number || `HTL-${String(demand.id).slice(-8).toUpperCase()}`).trim(),
+  };
 }
 
 export default function AmicalesPage() {
@@ -139,14 +265,19 @@ export default function AmicalesPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [amicalesResponse, demandsResponse] = await Promise.all([
+      const [amicalesResponse, demandsResponse, hotelDemandsResponse] = await Promise.all([
         fetchAmicalesAdmin(),
         fetch(`${API_URL}/reservation-demands`, { credentials: "include" }),
+        fetch(`${API_URL}/hotel-reservation-demands`, { credentials: "include" }),
       ]);
       const demandJson = demandsResponse.ok ? await demandsResponse.json().catch(() => []) : [];
+      const hotelDemandJson = hotelDemandsResponse.ok ? await hotelDemandsResponse.json().catch(() => []) : [];
       setAmicales(Array.isArray(amicalesResponse) ? amicalesResponse : []);
       setDemandRows(
-        (Array.isArray(demandJson) ? demandJson : [])
+        [
+          ...(Array.isArray(demandJson) ? demandJson : []),
+          ...(Array.isArray(hotelDemandJson) ? hotelDemandJson.map((row) => mapHotelDemandToAmicaleDemandRow(row as HotelReservationDemand)) : []),
+        ]
           .filter((row): row is AmicaleDemandRow => Boolean(row && isAmicaleDemand(row)))
           .sort((a, b) => {
             const da = new Date(String(a.updated_at || a.created_at || "")).getTime();
@@ -279,20 +410,37 @@ export default function AmicalesPage() {
   const handleDemandAction = async (demand: AmicaleDemandRow, nextStatus: "voucher_en_cours" | "rejete_par_agence") => {
     setSavingId(demand.id);
     try {
-      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          status: nextStatus,
-          actor_type: "admin",
-          actor_id: "admin",
-          history_note:
-            nextStatus === "voucher_en_cours"
-              ? "Agence valide la demande amicale et genere le voucher"
-              : "Agence rejette la demande amicale",
-        }),
-      });
+      const isHotel = String(demand.source_kind || "").trim() === "hotel";
+      const response = isHotel
+        ? await fetch(
+            `${API_URL}/admin/hotel-reservation-demands/${encodeURIComponent(demand.id)}/${nextStatus === "voucher_en_cours" ? "validate" : "reject"}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                ...(nextStatus === "voucher_en_cours" ? buildHotelVoucherPatch(demand) : {}),
+                admin_note:
+                  nextStatus === "voucher_en_cours"
+                    ? "Agence valide la demande amicale et genere le voucher"
+                    : "Agence rejette la demande amicale",
+              }),
+            }
+          )
+        : await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              status: nextStatus,
+              actor_type: "admin",
+              actor_id: "admin",
+              history_note:
+                nextStatus === "voucher_en_cours"
+                  ? "Agence valide la demande amicale et genere le voucher"
+                  : "Agence rejette la demande amicale",
+            }),
+          });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         throw new Error(String(data?.error || "Mise a jour impossible"));
@@ -309,10 +457,20 @@ export default function AmicalesPage() {
   const handleRegenerateVoucher = async (demand: AmicaleDemandRow) => {
     setSavingId(demand.id);
     try {
-      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/regenerate-voucher`, {
-        method: "POST",
-        credentials: "include",
-      });
+      const isHotel = String(demand.source_kind || "").trim() === "hotel";
+      const response = isHotel
+        ? await fetch(`${API_URL}/admin/hotel-reservation-demands/${encodeURIComponent(demand.id)}/regenerate-voucher`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              ...buildHotelVoucherPatch(demand),
+            }),
+          })
+        : await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/regenerate-voucher`, {
+            method: "POST",
+            credentials: "include",
+          });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         throw new Error(String(data?.error || "Regeneration impossible"));
@@ -331,7 +489,10 @@ export default function AmicalesPage() {
     if (!confirmed) return;
     setSavingId(demand.id);
     try {
-      const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
+      const endpoint = String(demand.source_kind || "").trim() === "hotel"
+        ? `${API_URL}/hotel-reservation-demands/${encodeURIComponent(demand.id)}`
+        : `${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`;
+      const response = await fetch(endpoint, {
         method: "DELETE",
         credentials: "include",
       });
@@ -592,6 +753,9 @@ export default function AmicalesPage() {
               {filteredDemands.map((demand) => {
                 const consultPath = buildPropertyPath(demand);
                 const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
+                const isHotelDemand = String(demand.source_kind || "").trim() === "hotel";
+                const roomLines = isHotelDemand ? getHotelDemandRoomLines(demand) : [];
+                const travellerLines = isHotelDemand ? getHotelDemandTravellerLines(demand) : { adultLines: [], childLines: [] };
                 return (
                   <article key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4">
                     <div className="grid gap-3 lg:grid-cols-3">
@@ -599,7 +763,23 @@ export default function AmicalesPage() {
                         <p><span className="font-semibold">Amicale:</span> {String(demand.amicale_name || amicaleNameById.get(String(demand.pricing_amicale_id || "").trim()) || "-")}</p>
                         <p><span className="font-semibold">Nom:</span> {String(demand.client_name || "-")}</p>
                         <p><span className="font-semibold">Matricule:</span> {String(demand.amicale_matricule || "-")}</p>
-                        <p><span className="font-semibold">Telephone:</span> {String(demand.amicale_phone || "-")}</p>
+                        <p><span className="font-semibold">Telephone:</span> {String(demand.amicale_phone || demand.client_phone || "-")}</p>
+                        {isHotelDemand && travellerLines.adultLines.length > 0 ? (
+                          <div className="pt-2">
+                            <p className="font-semibold text-gray-900">Voyageurs adultes</p>
+                            {travellerLines.adultLines.map((line) => (
+                              <p key={`adult-${demand.id}-${line}`} className="text-gray-600">{line}</p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {isHotelDemand && travellerLines.childLines.length > 0 ? (
+                          <div className="pt-2">
+                            <p className="font-semibold text-gray-900">Enfants</p>
+                            {travellerLines.childLines.map((line) => (
+                              <p key={`child-${demand.id}-${line}`} className="text-gray-600">{line}</p>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="space-y-1 text-sm">
                         <p className="font-semibold">{String(demand.bien_reference || demand.bien_id || "-")}</p>
@@ -607,6 +787,19 @@ export default function AmicalesPage() {
                         <p><span className="font-semibold">Periode:</span> {formatDateOnly(demand.start_date)} au {formatDateOnly(demand.end_date)}</p>
                         <p><span className="font-semibold">Total HT:</span> {formatCurrency(demand.total_amount)}</p>
                         <p><span className="font-semibold">Validation agence:</span> {demand.agency_validation_at ? formatDateTime(demand.agency_validation_at) : "-"}</p>
+                        {isHotelDemand ? (
+                          <>
+                            <p>
+                              <span className="font-semibold">Configuration:</span>{" "}
+                              {`${Math.max(1, roomLines.length)} chambre${Math.max(1, roomLines.length) > 1 ? "s" : ""} - ${Math.max(1, Number(demand.adults || demand.adult_guests || 1))} adulte${Math.max(1, Number(demand.adults || demand.adult_guests || 1)) > 1 ? "s" : ""}${Array.isArray(demand.child_ages) && demand.child_ages.length > 0 ? ` - ${demand.child_ages.length} enfant${demand.child_ages.length > 1 ? "s" : ""}` : ""}`}
+                            </p>
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                              {roomLines.map((line) => (
+                                <p key={`room-${demand.id}-${line}`} className="text-gray-700">{line}</p>
+                              ))}
+                            </div>
+                          </>
+                        ) : null}
                         <Link
                           to={consultPath}
                           className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"

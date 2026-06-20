@@ -653,6 +653,8 @@ export type ReservationDemandStatus =
 export type ReservationDemandRequestType = 'reservation' | 'visite';
 
 export type HotelReservationDemandStatus =
+  | 'attente_validation_amicale'
+  | 'attente_validation_par_agence'
   | 'nouvelle_demande'
   | 'client_procede_vers_paiement_en_cours'
   | 'demande_recu_paiement'
@@ -660,6 +662,8 @@ export type HotelReservationDemandStatus =
   | 'succes_paiement'
   | 'voucher_en_cours'
   | 'voucher_envoye'
+  | 'rejete_par_amicale'
+  | 'rejete_par_agence'
   | 'annulee';
 
 export interface ReservationDemand {
@@ -788,6 +792,14 @@ export interface HotelReservationDemand {
   total_price?: number | null;
   amount_due_now?: number | null;
   currency?: string | null;
+  payment_mode?: 'avance' | 'totalite' | 'amicale' | null;
+  pricing_amicale_id?: string | null;
+  amicale_name?: string | null;
+  amicale_matricule?: string | null;
+  amicale_phone?: string | null;
+  amicale_code?: string | null;
+  amicale_validation_at?: string | null;
+  agency_validation_at?: string | null;
   payment_method?: 'virement' | 'flouci' | 'clicktopay' | null;
   reservation_payment_id?: string | null;
   reservation_payment_paid_at?: string | null;

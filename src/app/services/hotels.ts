@@ -203,6 +203,8 @@ export type HotelBookingFilters = {
 };
 
 export type HotelReservationDemandStatus =
+  | "attente_validation_amicale"
+  | "attente_validation_par_agence"
   | "nouvelle_demande"
   | "client_procede_vers_paiement_en_cours"
   | "demande_recu_paiement"
@@ -210,6 +212,8 @@ export type HotelReservationDemandStatus =
   | "succes_paiement"
   | "voucher_en_cours"
   | "voucher_envoye"
+  | "rejete_par_amicale"
+  | "rejete_par_agence"
   | "annulee";
 
 export type HotelReservationDemand = {
@@ -235,6 +239,12 @@ export type HotelReservationDemand = {
   amount_due_now?: number | null;
   currency?: string | null;
   payment_method?: "virement" | "flouci" | "clicktopay" | null;
+  payment_mode?: "avance" | "totalite" | "amicale" | null;
+  pricing_amicale_id?: string | null;
+  amicale_name?: string | null;
+  amicale_matricule?: string | null;
+  amicale_phone?: string | null;
+  amicale_code?: string | null;
   reservation_payment_id?: string | null;
   reservation_payment_paid_at?: string | null;
   flouci_checkout_id?: string | null;
@@ -304,6 +314,12 @@ export type CreateHotelReservationDemandRequest = {
   currency?: string | null;
   clientPhone: string;
   clientNote?: string | null;
+  paymentMode?: "avance" | "totalite" | "amicale" | null;
+  pricingAmicaleId?: string | null;
+  amicaleName?: string | null;
+  amicaleMatricule?: string | null;
+  amicalePhone?: string | null;
+  amicaleCode?: string | null;
   hotelContext?: Record<string, unknown> | null;
 };
 

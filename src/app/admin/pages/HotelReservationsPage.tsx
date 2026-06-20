@@ -9,6 +9,8 @@ import {
 } from "../../services/hotels";
 
 const statusLabels: Record<HotelReservationDemandStatus, string> = {
+  attente_validation_amicale: "Attente validation amicale",
+  attente_validation_par_agence: "Attente validation agence",
   nouvelle_demande: "Nouvelle demande",
   client_procede_vers_paiement_en_cours: "Client procede vers paiement",
   demande_recu_paiement: "Demande de recu",
@@ -16,10 +18,14 @@ const statusLabels: Record<HotelReservationDemandStatus, string> = {
   succes_paiement: "Paiement succes",
   voucher_en_cours: "Voucher en cours",
   voucher_envoye: "Voucher envoye",
+  rejete_par_amicale: "Rejetee par amicale",
+  rejete_par_agence: "Rejetee par agence",
   annulee: "Annulee",
 };
 
 const statusTone: Record<HotelReservationDemandStatus, string> = {
+  attente_validation_amicale: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  attente_validation_par_agence: "bg-cyan-100 text-cyan-800 border-cyan-200",
   nouvelle_demande: "bg-amber-100 text-amber-800 border-amber-200",
   client_procede_vers_paiement_en_cours: "bg-sky-100 text-sky-800 border-sky-200",
   demande_recu_paiement: "bg-amber-100 text-amber-800 border-amber-200",
@@ -27,6 +33,8 @@ const statusTone: Record<HotelReservationDemandStatus, string> = {
   succes_paiement: "bg-emerald-100 text-emerald-800 border-emerald-200",
   voucher_en_cours: "bg-violet-100 text-violet-800 border-violet-200",
   voucher_envoye: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  rejete_par_amicale: "bg-rose-100 text-rose-800 border-rose-200",
+  rejete_par_agence: "bg-rose-100 text-rose-800 border-rose-200",
   annulee: "bg-slate-100 text-slate-700 border-slate-200",
 };
 

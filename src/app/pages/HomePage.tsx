@@ -39,6 +39,7 @@ import { fr } from "date-fns/locale";
 import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availability";
 import { resolveMediaUrl } from "../utils/media";
 import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashOffers";
+import { fetchAmicalesPublic } from "../utils/amicales";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -216,6 +217,16 @@ type CachedHomeHotelSearch = {
   hotelResultsView: HotelResultsView;
   hotelResultsSort: HotelResultsSort;
   hotelResultsPageSize: number;
+  hotelResultsSearchTerm: string;
+  selectedHotelResultBoardings: string[];
+  selectedHotelResultStars: string[];
+  selectedHotelResultFacilities: string[];
+  hotelResultsOnlyPromotions: boolean;
+  hotelResultsOnlyRefundable: boolean;
+  hotelResultsOnlyWithPrice: boolean;
+  hotelResultsOnlyOnRequest: boolean;
+  hotelResultsBudgetMin: number | null;
+  hotelResultsBudgetMax: number | null;
   hotelSearchFallbackNotice: string;
   hotelCountsByCityCache: Record<number, number>;
 };
@@ -224,12 +235,30 @@ function buildHomeHotelSearchSignature(searchParams: URLSearchParams) {
   const params = new URLSearchParams();
   params.set("mode", String(searchParams.get("mode") || "").trim());
   params.set("cityId", String(searchParams.get("cityId") || "").trim());
+  params.set("hotelId", String(searchParams.get("hotelId") || "").trim());
   params.set("checkIn", String(searchParams.get("checkIn") || "").trim());
   params.set("checkOut", String(searchParams.get("checkOut") || "").trim());
   params.set("adults", String(searchParams.get("adults") || "").trim());
   params.set("children", String(searchParams.get("children") || "").trim());
   params.set("q", String(searchParams.get("q") || "").trim());
+  params.set("hotelListQ", String(searchParams.get("hotelListQ") || "").trim());
+  params.set("hotelSort", String(searchParams.get("hotelSort") || "").trim());
+  params.set("hotelView", String(searchParams.get("hotelView") || "").trim());
+  params.set("hotelPageSize", String(searchParams.get("hotelPageSize") || "").trim());
+  params.set("hotelPromo", String(searchParams.get("hotelPromo") || "").trim());
+  params.set("hotelRefundable", String(searchParams.get("hotelRefundable") || "").trim());
+  params.set("hotelWithPrice", String(searchParams.get("hotelWithPrice") || "").trim());
+  params.set("hotelOnRequest", String(searchParams.get("hotelOnRequest") || "").trim());
+  params.set("hotelBudgetMin", String(searchParams.get("hotelBudgetMin") || "").trim());
+  params.set("hotelBudgetMax", String(searchParams.get("hotelBudgetMax") || "").trim());
+  searchParams.getAll("hotelBoarding").forEach((value) => params.append("hotelBoarding", String(value || "").trim()));
+  searchParams.getAll("hotelStar").forEach((value) => params.append("hotelStar", String(value || "").trim()));
+  searchParams.getAll("hotelFacility").forEach((value) => params.append("hotelFacility", String(value || "").trim()));
   return params.toString();
+}
+
+function readHotelFilterArray(searchParams: URLSearchParams, key: string) {
+  return searchParams.getAll(key).map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 function saveHomeHotelSearchCache(payload: CachedHomeHotelSearch) {
@@ -963,6 +992,7 @@ export default function HomePage({
   const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
   const [showAllProperties, setShowAllProperties] = useState(false);
   const hotelInitialSearchDoneRef = useRef(false);
+  const hotelDirectoryLoadedCityIdRef = useRef<number | null>(null);
   const hotelShouldAutoSearchFromUrlRef = useRef(
     String(searchParams.get("mode") || "").trim() === "hotellerie"
       && Number(searchParams.get("cityId") || 0) > 0
@@ -976,24 +1006,38 @@ export default function HomePage({
   const [hotelProviderError, setHotelProviderError] = useState("");
   const [hotelCities, setHotelCities] = useState<HotelCity[]>([]);
   const [hotelResults, setHotelResults] = useState<HotelSummary[]>([]);
-  const [hotelResultsSearchTerm, setHotelResultsSearchTerm] = useState("");
-  const [hotelResultsSort, setHotelResultsSort] = useState<HotelResultsSort>("recommended");
-  const [hotelResultsView, setHotelResultsView] = useState<HotelResultsView>("grid");
+  const [hotelResultsSearchTerm, setHotelResultsSearchTerm] = useState(() => String(searchParams.get("hotelListQ") || "").trim());
+  const [hotelResultsSort, setHotelResultsSort] = useState<HotelResultsSort>(() => {
+    const raw = String(searchParams.get("hotelSort") || "").trim();
+    return ["recommended", "price_asc", "price_desc", "stars_desc", "stars_asc", "name_asc"].includes(raw) ? raw as HotelResultsSort : "recommended";
+  });
+  const [hotelResultsView, setHotelResultsView] = useState<HotelResultsView>(() => (
+    String(searchParams.get("hotelView") || "").trim() === "list" ? "list" : "grid"
+  ));
   const [isMobileHotelResultsViewport, setIsMobileHotelResultsViewport] = useState<boolean>(() => (
     typeof window !== "undefined" ? window.innerWidth < 1024 : false
   ));
   const [expandedHotelResultDetailsById, setExpandedHotelResultDetailsById] = useState<Record<number, boolean>>({});
-  const [hotelResultsPageSize, setHotelResultsPageSize] = useState<number>(12);
+  const [hotelResultsPageSize, setHotelResultsPageSize] = useState<number>(() => {
+    const raw = Number(searchParams.get("hotelPageSize") || 12);
+    return HOTEL_RESULTS_PAGE_SIZE_OPTIONS.includes(raw) ? raw : 12;
+  });
   const [hotelResultsFilterPanel, setHotelResultsFilterPanel] = useState<HotelResultsFilterPanel>(null);
-  const [selectedHotelResultBoardings, setSelectedHotelResultBoardings] = useState<string[]>([]);
-  const [selectedHotelResultStars, setSelectedHotelResultStars] = useState<string[]>([]);
-  const [selectedHotelResultFacilities, setSelectedHotelResultFacilities] = useState<string[]>([]);
-  const [hotelResultsOnlyPromotions, setHotelResultsOnlyPromotions] = useState(false);
-  const [hotelResultsOnlyRefundable, setHotelResultsOnlyRefundable] = useState(false);
-  const [hotelResultsOnlyWithPrice, setHotelResultsOnlyWithPrice] = useState(false);
-  const [hotelResultsOnlyOnRequest, setHotelResultsOnlyOnRequest] = useState(false);
-  const [hotelResultsBudgetMin, setHotelResultsBudgetMin] = useState<number | null>(null);
-  const [hotelResultsBudgetMax, setHotelResultsBudgetMax] = useState<number | null>(null);
+  const [selectedHotelResultBoardings, setSelectedHotelResultBoardings] = useState<string[]>(() => readHotelFilterArray(searchParams, "hotelBoarding"));
+  const [selectedHotelResultStars, setSelectedHotelResultStars] = useState<string[]>(() => readHotelFilterArray(searchParams, "hotelStar"));
+  const [selectedHotelResultFacilities, setSelectedHotelResultFacilities] = useState<string[]>(() => readHotelFilterArray(searchParams, "hotelFacility"));
+  const [hotelResultsOnlyPromotions, setHotelResultsOnlyPromotions] = useState(() => String(searchParams.get("hotelPromo") || "").trim() === "1");
+  const [hotelResultsOnlyRefundable, setHotelResultsOnlyRefundable] = useState(() => String(searchParams.get("hotelRefundable") || "").trim() === "1");
+  const [hotelResultsOnlyWithPrice, setHotelResultsOnlyWithPrice] = useState(() => String(searchParams.get("hotelWithPrice") || "").trim() === "1");
+  const [hotelResultsOnlyOnRequest, setHotelResultsOnlyOnRequest] = useState(() => String(searchParams.get("hotelOnRequest") || "").trim() === "1");
+  const [hotelResultsBudgetMin, setHotelResultsBudgetMin] = useState<number | null>(() => {
+    const raw = Number(searchParams.get("hotelBudgetMin") || "");
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
+  });
+  const [hotelResultsBudgetMax, setHotelResultsBudgetMax] = useState<number | null>(() => {
+    const raw = Number(searchParams.get("hotelBudgetMax") || "");
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
+  });
   const [hotelSearchFallbackNotice, setHotelSearchFallbackNotice] = useState("");
   const [loadingHotelCities, setLoadingHotelCities] = useState(false);
   const [loadingHotelResults, setLoadingHotelResults] = useState(false);
@@ -1010,7 +1054,7 @@ export default function HomePage({
     window.addEventListener("resize", syncViewport);
     return () => window.removeEventListener("resize", syncViewport);
   }, []);
-  const [selectedHotelId, setSelectedHotelId] = useState<number>(0);
+  const [selectedHotelId, setSelectedHotelId] = useState<number>(() => Number(searchParams.get("hotelId") || 0) || 0);
   const [hotelDestinationOpen, setHotelDestinationOpen] = useState(false);
   const [hotelDestinationTab, setHotelDestinationTab] = useState<HotelDestinationTab>("destinations");
   const [hotelDestinationScopeConfirmed, setHotelDestinationScopeConfirmed] = useState(false);
@@ -1061,6 +1105,7 @@ export default function HomePage({
   });
   const [hotelSearchLoadingModal, setHotelSearchLoadingModal] = useState(false);
   const [hotelTravellerAccordionOpen, setHotelTravellerAccordionOpen] = useState("adult-0");
+  const [hotelAmicaleOptions, setHotelAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string }>>([]);
   const [hotelReserveModal, setHotelReserveModal] = useState<null | {
     hotel: HotelSummary;
     adults: number;
@@ -1080,6 +1125,12 @@ export default function HomePage({
       adults: HotelTravellerIdentity[];
       children: HotelTravellerIdentity[];
     };
+    paymentMode: "standard" | "amicale";
+    amicaleSelectionId: string;
+    amicaleFullName: string;
+    amicaleMatricule: string;
+    amicalePhone: string;
+    amicaleCode: string;
     phone: string;
     note: string;
   }>(null);
@@ -1173,6 +1224,30 @@ export default function HomePage({
     }
     return params;
   };
+  useEffect(() => {
+    if (!activeAmicaleId) return;
+    let cancelled = false;
+    void fetchAmicalesPublic()
+      .then((rows) => {
+        if (cancelled) return;
+        setHotelAmicaleOptions(
+          rows.map((item) => ({
+            id: String(item.id || "").trim(),
+            name: String(item.name || "").trim(),
+            code: String(item.code || "").trim(),
+            logoUrl: item.logoUrl ? String(item.logoUrl).trim() : undefined,
+          }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHotelAmicaleOptions([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAmicaleId]);
 
   const today = startOfDay(new Date());
   const getModeTabPriority = (mode: ListingMode) => {
@@ -2214,26 +2289,33 @@ export default function HomePage({
   }, []);
 
   useEffect(() => {
-    if (!isHotelMode) return;
-    if (hotelCityId <= 0 && hotelsByCity.length > 0) return;
+    if (!isHotelMode || !hotelDestinationOpen) return;
+    const normalizedCityId = Number(hotelCityId) > 0 ? Number(hotelCityId) : 0;
+    if (hotelDirectoryLoadedCityIdRef.current === normalizedCityId && hotelsByCity.length > 0) {
+      return;
+    }
     let cancelled = false;
     setLoadingHotelsByCity(true);
     void (async () => {
       try {
         const { listHotels } = await loadHotelsService();
-        const rows = await listHotels(Number(hotelCityId) > 0 ? hotelCityId : undefined);
+        const rows = await listHotels(normalizedCityId > 0 ? normalizedCityId : undefined);
         if (!cancelled) {
           const nextRows = Array.isArray(rows) ? rows : [];
+          hotelDirectoryLoadedCityIdRef.current = normalizedCityId;
           setHotelsByCity(nextRows);
-          if (Number(hotelCityId) > 0 && nextRows.length > 0) {
+          if (normalizedCityId > 0 && nextRows.length > 0) {
             setHotelCountsByCityCache((prev) => ({
               ...prev,
-              [Number(hotelCityId)]: nextRows.length,
+              [normalizedCityId]: nextRows.length,
             }));
           }
         }
       } catch {
-        if (!cancelled && hotelCityId > 0) setHotelsByCity([]);
+        if (!cancelled) {
+          hotelDirectoryLoadedCityIdRef.current = normalizedCityId;
+          if (normalizedCityId > 0) setHotelsByCity([]);
+        }
       } finally {
         if (!cancelled) setLoadingHotelsByCity(false);
       }
@@ -2241,7 +2323,7 @@ export default function HomePage({
     return () => {
       cancelled = true;
     };
-  }, [hotelCityId, hotelsByCity.length, isHotelMode]);
+  }, [hotelCityId, hotelDestinationOpen, hotelsByCity.length, isHotelMode]);
   useEffect(() => {
     if (selectedLocations.length === 0) {
       setLocation("");
@@ -2343,6 +2425,24 @@ export default function HomePage({
     setHotelResultsView(cachedSearch.hotelResultsView === "list" ? "list" : "grid");
     setHotelResultsSort(cachedSearch.hotelResultsSort || "recommended");
     setHotelResultsPageSize(Math.max(1, Number(cachedSearch.hotelResultsPageSize || 12)));
+    setHotelResultsSearchTerm(String(cachedSearch.hotelResultsSearchTerm || ""));
+    setSelectedHotelResultBoardings(Array.isArray(cachedSearch.selectedHotelResultBoardings) ? cachedSearch.selectedHotelResultBoardings : []);
+    setSelectedHotelResultStars(Array.isArray(cachedSearch.selectedHotelResultStars) ? cachedSearch.selectedHotelResultStars : []);
+    setSelectedHotelResultFacilities(Array.isArray(cachedSearch.selectedHotelResultFacilities) ? cachedSearch.selectedHotelResultFacilities : []);
+    setHotelResultsOnlyPromotions(Boolean(cachedSearch.hotelResultsOnlyPromotions));
+    setHotelResultsOnlyRefundable(Boolean(cachedSearch.hotelResultsOnlyRefundable));
+    setHotelResultsOnlyWithPrice(Boolean(cachedSearch.hotelResultsOnlyWithPrice));
+    setHotelResultsOnlyOnRequest(Boolean(cachedSearch.hotelResultsOnlyOnRequest));
+    setHotelResultsBudgetMin(
+      cachedSearch.hotelResultsBudgetMin === null || cachedSearch.hotelResultsBudgetMin === undefined
+        ? null
+        : Number(cachedSearch.hotelResultsBudgetMin)
+    );
+    setHotelResultsBudgetMax(
+      cachedSearch.hotelResultsBudgetMax === null || cachedSearch.hotelResultsBudgetMax === undefined
+        ? null
+        : Number(cachedSearch.hotelResultsBudgetMax)
+    );
     setHotelSearchFallbackNotice(String(cachedSearch.hotelSearchFallbackNotice || ""));
     setHotelCountsByCityCache(cachedSearch.hotelCountsByCityCache && typeof cachedSearch.hotelCountsByCityCache === "object" ? cachedSearch.hotelCountsByCityCache : {});
     hotelInitialSearchDoneRef.current = true;
@@ -2370,6 +2470,16 @@ export default function HomePage({
       hotelResultsView,
       hotelResultsSort,
       hotelResultsPageSize,
+      hotelResultsSearchTerm,
+      selectedHotelResultBoardings,
+      selectedHotelResultStars,
+      selectedHotelResultFacilities,
+      hotelResultsOnlyPromotions,
+      hotelResultsOnlyRefundable,
+      hotelResultsOnlyWithPrice,
+      hotelResultsOnlyOnRequest,
+      hotelResultsBudgetMin,
+      hotelResultsBudgetMax,
       hotelSearchFallbackNotice,
       hotelCountsByCityCache,
     });
@@ -2385,13 +2495,23 @@ export default function HomePage({
     hotelDestinationQuery,
     hotelDestinationScopeConfirmed,
     hotelResults,
+    hotelResultsBudgetMax,
+    hotelResultsBudgetMin,
+    hotelResultsOnlyOnRequest,
+    hotelResultsOnlyPromotions,
+    hotelResultsOnlyRefundable,
+    hotelResultsOnlyWithPrice,
     hotelResultsPageSize,
+    hotelResultsSearchTerm,
     hotelResultsSort,
     hotelResultsView,
     hotelSearchFallbackNotice,
     hotelAvailabilitySignatureByHotel,
     isHotelMode,
     localRoomSelectionsByHotel,
+    selectedHotelResultBoardings,
+    selectedHotelResultFacilities,
+    selectedHotelResultStars,
     selectedHotelId,
     sharedHotelRoomCount,
     sharedHotelRoomTravellers,
@@ -2869,6 +2989,8 @@ export default function HomePage({
       else nextParams.delete("checkIn");
       if (hotelCheckOut) nextParams.set("checkOut", hotelCheckOut);
       else nextParams.delete("checkOut");
+      if (selectedHotelId > 0) nextParams.set("hotelId", String(selectedHotelId));
+      else nextParams.delete("hotelId");
       if (resolvedAdults > 0) nextParams.set("adults", String(resolvedAdults));
       else nextParams.delete("adults");
       if (nextChildAges.length > 0) nextParams.set("children", nextChildAges.join(","));
@@ -2970,13 +3092,33 @@ export default function HomePage({
     }>;
     totalPrice: number | null;
   }) => {
+    const isAmicaleHotelFlow = Boolean(activeAmicaleId);
     if (!user || user.role !== "user" || !user.email) {
+      if (isAmicaleHotelFlow) {
+        setHotelReserveModal({
+          ...payload,
+          travellers: {
+            adults: Array.from({ length: Math.max(1, payload.adults) }).map(() => ({ firstName: "", lastName: "" })),
+            children: Array.from({ length: payload.childAges.length }).map(() => ({ firstName: "", lastName: "" })),
+          },
+          paymentMode: "amicale",
+          amicaleSelectionId: activeAmicaleId || "",
+          amicaleFullName: "",
+          amicaleMatricule: "",
+          amicalePhone: "",
+          amicaleCode: "",
+          phone: "",
+          note: "",
+        });
+        setHotelTravellerAccordionOpen("adult-0");
+        return;
+      }
       savePendingHomeHotelReserve(payload);
       setLoginPromptStep("choices");
       setShowLoginPrompt(true);
       return;
     }
-    if (!user.profileCompleted) {
+    if (!isAmicaleHotelFlow && !user.profileCompleted) {
       savePendingHomeHotelReserve(payload);
       openProfileSetupStep(user);
       return;
@@ -2994,6 +3136,12 @@ export default function HomePage({
     setHotelReserveModal({
       ...payload,
       travellers: { adults, children },
+      paymentMode: isAmicaleHotelFlow ? "amicale" : "standard",
+      amicaleSelectionId: activeAmicaleId || "",
+      amicaleFullName: isAmicaleHotelFlow ? `${userFirstName} ${userLastName}`.trim() : "",
+      amicaleMatricule: "",
+      amicalePhone: isAmicaleHotelFlow ? String(user.telephone || "").trim() : "",
+      amicaleCode: "",
       phone: String(user.telephone || "").trim(),
       note: "",
     });
@@ -3189,12 +3337,13 @@ export default function HomePage({
 
   const submitHotelReserveFromHome = async () => {
     if (!hotelReserveModal) return;
-    if (!user || user.role !== "user" || !user.email) {
+    const isAmicaleHotelFlow = hotelReserveModal.paymentMode === "amicale";
+    if (!isAmicaleHotelFlow && (!user || user.role !== "user" || !user.email)) {
       setLoginPromptStep("choices");
       setShowLoginPrompt(true);
       return;
     }
-    const phone = String(hotelReserveModal.phone || "").trim();
+    const phone = String(isAmicaleHotelFlow ? hotelReserveModal.amicalePhone : hotelReserveModal.phone || "").trim();
     if (!phone) {
       toast.error("Numero de telephone obligatoire.");
       return;
@@ -3208,6 +3357,25 @@ export default function HomePage({
     if (invalidChildIndex >= 0) {
       toast.error(`Nom et prenom obligatoires pour enfant ${invalidChildIndex + 1}.`);
       return;
+    }
+    if (isAmicaleHotelFlow) {
+      const selectedAmicale = hotelAmicaleOptions.find((item) => item.id === hotelReserveModal.amicaleSelectionId) || null;
+      if (!selectedAmicale) {
+        toast.error("Selection amicale invalide.");
+        return;
+      }
+      if (!String(hotelReserveModal.amicaleFullName || "").trim()) {
+        toast.error("Nom et prenom obligatoires.");
+        return;
+      }
+      if (!String(hotelReserveModal.amicaleMatricule || "").trim()) {
+        toast.error("Matricule obligatoire.");
+        return;
+      }
+      if (selectedAmicale.code !== String(hotelReserveModal.amicaleCode || "").trim()) {
+        toast.error("Code amicale incorrect.");
+        return;
+      }
     }
 
     setSubmittingHotelReserve(true);
@@ -3231,8 +3399,16 @@ export default function HomePage({
         currency: "TND",
         clientPhone: phone,
         clientNote: String(hotelReserveModal.note || "").trim() || null,
+        paymentMode: isAmicaleHotelFlow ? "amicale" : "avance",
+        pricingAmicaleId: isAmicaleHotelFlow ? hotelReserveModal.amicaleSelectionId : null,
+        amicaleName: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleFullName || "").trim() : null,
+        amicaleMatricule: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleMatricule || "").trim() : null,
+        amicalePhone: isAmicaleHotelFlow ? String(hotelReserveModal.amicalePhone || "").trim() : null,
+        amicaleCode: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleCode || "").trim() : null,
         hotelContext: {
           source: "homepage_card",
+          publicPartnerSlug: publicPartnerSlug || null,
+          amicaleId: activeAmicaleId,
           rooms: hotelReserveModal.rooms.map((room, index) => ({
             ...room,
             index,
@@ -3253,11 +3429,15 @@ export default function HomePage({
       });
       setHotelReserveModal(null);
       clearPendingHomeHotelReserve();
-      toast.success("Demande créée. Passez maintenant au paiement.");
-      navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
+      if (isAmicaleHotelFlow) {
+        toast.success("Demande amicale envoyee. Votre amicale recevra la reservation hotel.");
+      } else {
+        toast.success("Demande créée. Passez maintenant au paiement.");
+        navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible de creer la demande hotel.";
-      if (/401|auth|connect|session|acces refuse|forbidden/i.test(message)) {
+      if (!isAmicaleHotelFlow && /401|auth|connect|session|acces refuse|forbidden/i.test(message)) {
         savePendingHomeHotelReserve({
           hotel: hotelReserveModal.hotel,
           adults: hotelReserveModal.adults,
@@ -3289,6 +3469,12 @@ export default function HomePage({
         })),
         children: Array.from({ length: pending.childAges.length }).map(() => ({ firstName: "", lastName: "" })),
       },
+      paymentMode: activeAmicaleId ? "amicale" : "standard",
+      amicaleSelectionId: activeAmicaleId || "",
+      amicaleFullName: activeAmicaleId ? `${String(user.firstName || "").trim()} ${String(user.lastName || "").trim()}`.trim() : "",
+      amicaleMatricule: "",
+      amicalePhone: activeAmicaleId ? String(user.telephone || "").trim() : "",
+      amicaleCode: "",
       phone: String(user.telephone || "").trim(),
       note: "",
     });
@@ -3390,6 +3576,86 @@ export default function HomePage({
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
+  };
+
+  const handleShareHotelSearch = async () => {
+    const nextParams = new URLSearchParams(window.location.search);
+    const normalizedQuery = normalizeHotelResultsToken(hotelDestinationQuery);
+    const normalizedSelectedCity = normalizeHotelResultsToken(selectedHotelCity?.Name || "");
+    const hasCustomBudgetMin =
+      hotelResultsBudgetMin !== null
+      && Math.abs(Number(hotelResultsBudgetMin) - Number(hotelResultPriceBounds.min || 0)) > 0.01;
+    const hasCustomBudgetMax =
+      hotelResultsBudgetMax !== null
+      && Math.abs(Number(hotelResultsBudgetMax) - Number(hotelResultPriceBounds.max || 0)) > 0.01;
+    if (selectedHotelId > 0) nextParams.set("hotelId", String(selectedHotelId));
+    else nextParams.delete("hotelId");
+    if (selectedHotelId <= 0 && normalizedQuery && normalizedQuery === normalizedSelectedCity) nextParams.delete("q");
+    if (hotelResultsSearchTerm.trim()) nextParams.set("hotelListQ", hotelResultsSearchTerm.trim());
+    else nextParams.delete("hotelListQ");
+    if (hotelResultsSort && hotelResultsSort !== "recommended") nextParams.set("hotelSort", hotelResultsSort);
+    else nextParams.delete("hotelSort");
+    if (hotelResultsView === "list") nextParams.set("hotelView", "list");
+    else nextParams.delete("hotelView");
+    if (hotelResultsPageSize !== 12) nextParams.set("hotelPageSize", String(hotelResultsPageSize));
+    else nextParams.delete("hotelPageSize");
+    if (hotelResultsOnlyPromotions) nextParams.set("hotelPromo", "1");
+    else nextParams.delete("hotelPromo");
+    if (hotelResultsOnlyRefundable) nextParams.set("hotelRefundable", "1");
+    else nextParams.delete("hotelRefundable");
+    if (hotelResultsOnlyWithPrice) nextParams.set("hotelWithPrice", "1");
+    else nextParams.delete("hotelWithPrice");
+    if (hotelResultsOnlyOnRequest) nextParams.set("hotelOnRequest", "1");
+    else nextParams.delete("hotelOnRequest");
+    if (hasCustomBudgetMin) nextParams.set("hotelBudgetMin", String(hotelResultsBudgetMin));
+    else nextParams.delete("hotelBudgetMin");
+    if (hasCustomBudgetMax) nextParams.set("hotelBudgetMax", String(hotelResultsBudgetMax));
+    else nextParams.delete("hotelBudgetMax");
+    nextParams.delete("hotelBoarding");
+    selectedHotelResultBoardings.forEach((value) => nextParams.append("hotelBoarding", value));
+    nextParams.delete("hotelStar");
+    selectedHotelResultStars.forEach((value) => nextParams.append("hotelStar", value));
+    nextParams.delete("hotelFacility");
+    selectedHotelResultFacilities.forEach((value) => nextParams.append("hotelFacility", value));
+    const relativeUrl = `${window.location.pathname}${nextParams.toString() ? `?${nextParams.toString()}` : ""}`;
+    let shareUrl = `${window.location.origin}${relativeUrl}`;
+
+    try {
+      const response = await fetch(buildApiUrl("/search-share-links"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ relativeUrl }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.shortUrl) {
+        shareUrl = String(payload.shortUrl).trim();
+      }
+    } catch {
+      // Keep the full URL when short-link generation is unavailable.
+    }
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Recherche hôtellerie Dwira",
+          text: "Consultez cette recherche hôtelière sur Dwira.",
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback to clipboard.
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Lien de recherche copié.");
+    } catch {
+      toast.error("Impossible de copier le lien de recherche.");
+    }
   };
 
   const filteredProperties = useMemo(() => {
@@ -5063,6 +5329,15 @@ export default function HomePage({
                         </h3>
                         <p className="mt-2 text-sm text-sky-700">Plus de détails</p>
                       </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void handleShareHotelSearch()}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
+                        >
+                          <Upload size={16} />
+                          Partager la recherche
+                        </button>
                       <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:w-auto xl:grid-cols-2">
                         <div className="relative">
                           <button
@@ -5136,6 +5411,7 @@ export default function HomePage({
                             </div>
                           )}
                         </div>
+                      </div>
                       </div>
                     </div>
 
@@ -5470,6 +5746,13 @@ export default function HomePage({
                     else detailParams.delete("children");
                     if (resolvedRoomChoices[0]?.selectedBoardingOption?.boardingId) detailParams.set("boardingId", String(resolvedRoomChoices[0].selectedBoardingOption.boardingId));
                     if (resolvedRoomChoices[0]?.selectedRoomOption?.roomId) detailParams.set("roomId", String(resolvedRoomChoices[0].selectedRoomOption.roomId));
+                    if (activeAmicaleId) detailParams.set("amicale", activeAmicaleId);
+                    if (activePartnerAgencyId) {
+                      detailParams.set("partner", activePartnerAgencyId);
+                      if (activePartnerAgencyMarginMultiplier) {
+                        detailParams.set("partnerMargin", String(activePartnerAgencyMarginMultiplier));
+                      }
+                    }
                     detailParams.set("returnTo", `${location.pathname}${location.search}`);
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
                     return (
@@ -6724,12 +7007,87 @@ export default function HomePage({
                     <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Telephone</span>
                     <input
                       type="tel"
-                      value={hotelReserveModal.phone}
-                      onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, phone: event.target.value } : prev))}
+                      value={hotelReserveModal.paymentMode === "amicale" ? hotelReserveModal.amicalePhone : hotelReserveModal.phone}
+                      onChange={(event) =>
+                        setHotelReserveModal((prev) =>
+                          prev
+                            ? (prev.paymentMode === "amicale"
+                                ? { ...prev, amicalePhone: event.target.value }
+                                : { ...prev, phone: event.target.value })
+                            : prev
+                        )
+                      }
                       className="h-11 w-full rounded-xl border border-slate-300 px-3 text-[15px] sm:text-sm text-slate-900 outline-none focus:border-sky-500"
                       placeholder="Ex: 98 123 456"
                     />
                   </label>
+                  {hotelReserveModal.paymentMode === "amicale" && (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Formulaire amicale</p>
+                      <div className="mt-3 grid gap-2">
+                        <div>
+                          <p className="mb-2 text-xs font-semibold text-emerald-800">Selectionner amicale</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {hotelAmicaleOptions.map((item) => (
+                              <button
+                                key={`hotel-amicale-${item.id}`}
+                                type="button"
+                                onClick={() =>
+                                  setHotelReserveModal((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          amicaleSelectionId: item.id,
+                                        }
+                                      : prev
+                                  )
+                                }
+                                className={`relative h-16 overflow-hidden rounded-lg border text-left transition ${
+                                  hotelReserveModal.amicaleSelectionId === item.id
+                                    ? "border-emerald-600 ring-2 ring-emerald-300"
+                                    : "border-emerald-200 hover:border-emerald-400"
+                                }`}
+                              >
+                                {item.logoUrl ? (
+                                  <div
+                                    className="absolute inset-0 bg-no-repeat"
+                                    style={{ backgroundImage: `url(${item.logoUrl})`, backgroundSize: "100% 100%" }}
+                                  />
+                                ) : (
+                                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-100 to-white" />
+                                )}
+                                <div className="absolute inset-0 bg-black/25" />
+                                <div className="relative z-10 px-3 py-2 text-sm font-semibold text-white">
+                                  {item.name}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <input
+                          type="text"
+                          value={hotelReserveModal.amicaleFullName}
+                          onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, amicaleFullName: event.target.value } : prev))}
+                          placeholder="Nom et prenom"
+                          className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        />
+                        <input
+                          type="text"
+                          value={hotelReserveModal.amicaleMatricule}
+                          onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, amicaleMatricule: event.target.value } : prev))}
+                          placeholder="Identifiant interne (Matricule)"
+                          className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        />
+                        <input
+                          type="text"
+                          value={hotelReserveModal.amicaleCode}
+                          onChange={(event) => setHotelReserveModal((prev) => (prev ? { ...prev, amicaleCode: event.target.value } : prev))}
+                          placeholder="Code"
+                          className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
                   <label className="block">
                     <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Note (optionnel)</span>
                     <textarea
@@ -6755,7 +7113,7 @@ export default function HomePage({
                     className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   >
                     {submittingHotelReserve ? <LoaderCircle size={16} className="animate-spin" /> : null}
-                    Proceder au paiement
+                    {hotelReserveModal.paymentMode === "amicale" ? "Envoyer la demande amicale" : "Proceder au paiement"}
                   </button>
                 </div>
               </div>

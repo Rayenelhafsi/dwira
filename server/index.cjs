@@ -156,6 +156,18 @@ function getPublicFrontendBaseUrl(req) {
   return requestOrigin;
 }
 
+function resolvePublicAssetUrl(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
+  const normalizedPath = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
+  const compatPath = normalizedPath.startsWith('/api/uploads/')
+    ? normalizedPath.replace(/^\/api\/uploads\//, '/uploads/')
+    : normalizedPath;
+  const frontendBase = String(CANONICAL_FRONTEND_URL || FRONTEND_URL || 'https://www.dwiraimmobilier.com').trim().replace(/\/+$/, '');
+  return `${frontendBase}${compatPath}`;
+}
+
 function normalizeSearchShareRelativeUrl(rawValue) {
   const input = String(rawValue || '').trim();
   if (!input) return null;
@@ -185,7 +197,12 @@ function normalizeSearchShareRelativeUrl(rawValue) {
   const pathname = String(parsed.pathname || '').trim();
   if (!pathname || !pathname.startsWith('/')) return null;
   if (pathname.startsWith('/api') || pathname.startsWith('/admin')) return null;
-  if (pathname !== '/logements') return null;
+  const isSearchLandingPath =
+    pathname === '/'
+    || pathname === '/logements'
+    || pathname === '/ventes_flash'
+    || /^\/[^/]+$/.test(pathname);
+  if (!isSearchLandingPath) return null;
 
   const queryString = parsed.search ? parsed.search.slice(1) : '';
   if (queryString.length > 3500) return null;
@@ -1543,6 +1560,18 @@ async function cancelMyGoHotelBookingForDemand(demandRow) {
 }
 
 async function ensureHotelReservationDemandSchema() {
+  const indexExists = async (tableName, indexName) => {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND INDEX_NAME = ?`,
+      [tableName, indexName]
+    );
+    return Number(rows[0]?.total || 0) > 0;
+  };
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS hotel_reservation_demands (
       id VARCHAR(100) PRIMARY KEY,
@@ -1566,6 +1595,13 @@ async function ensureHotelReservationDemandSchema() {
       total_price DECIMAL(12,2) NULL,
       amount_due_now DECIMAL(12,2) NULL,
       currency VARCHAR(10) NULL,
+      payment_mode VARCHAR(20) NULL,
+      pricing_amicale_id VARCHAR(64) NULL,
+      amicale_name VARCHAR(255) NULL,
+      amicale_matricule VARCHAR(80) NULL,
+      amicale_phone VARCHAR(40) NULL,
+      amicale_code VARCHAR(80) NULL,
+      amicale_validation_at DATETIME NULL,
       payment_method VARCHAR(20) NULL,
       reservation_payment_id VARCHAR(100) NULL,
       reservation_payment_paid_at DATETIME NULL,
@@ -1605,15 +1641,76 @@ async function ensureHotelReservationDemandSchema() {
       KEY idx_hotel_reservation_demands_client (client_user_id, client_email),
       KEY idx_hotel_reservation_demands_status (status),
       KEY idx_hotel_reservation_demands_hotel (hotel_id),
-      KEY idx_hotel_reservation_demands_dates (check_in, check_out)
+      KEY idx_hotel_reservation_demands_dates (check_in, check_out),
+      KEY idx_hotel_reservation_demands_pricing_amicale (pricing_amicale_id)
     )
   `);
 
   if (!(await columnExists('hotel_reservation_demands', 'hotel_context_json'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN hotel_context_json LONGTEXT NULL AFTER admin_note');
   }
+  if (!(await columnExists('hotel_reservation_demands', 'client_phone'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN client_phone VARCHAR(40) NULL AFTER client_name');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'hotel_city_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN hotel_city_id VARCHAR(80) NULL AFTER hotel_name');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'hotel_city_name'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN hotel_city_name VARCHAR(255) NULL AFTER hotel_city_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'hotel_image_url'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN hotel_image_url VARCHAR(700) NULL AFTER hotel_city_name');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'child_ages_json'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN child_ages_json LONGTEXT NULL AFTER adults');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'boarding_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN boarding_id VARCHAR(80) NULL AFTER child_ages_json');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'boarding_name'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN boarding_name VARCHAR(255) NULL AFTER boarding_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'room_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN room_id VARCHAR(80) NULL AFTER boarding_name');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'room_name'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN room_name VARCHAR(255) NULL AFTER room_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'total_price'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN total_price DECIMAL(12,2) NULL AFTER room_name');
+  }
   if (!(await columnExists('hotel_reservation_demands', 'amount_due_now'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN amount_due_now DECIMAL(12,2) NULL AFTER total_price');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'currency'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN currency VARCHAR(10) NULL AFTER amount_due_now');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'payment_mode'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN payment_mode VARCHAR(20) NULL AFTER currency');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'pricing_amicale_id'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN pricing_amicale_id VARCHAR(64) NULL AFTER payment_mode');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'amicale_name'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN amicale_name VARCHAR(255) NULL AFTER pricing_amicale_id');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'amicale_matricule'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN amicale_matricule VARCHAR(80) NULL AFTER amicale_name');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'amicale_phone'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN amicale_phone VARCHAR(40) NULL AFTER amicale_matricule');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'amicale_code'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN amicale_code VARCHAR(80) NULL AFTER amicale_phone');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'amicale_validation_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN amicale_validation_at DATETIME NULL AFTER amicale_code');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'agency_validation_at'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN agency_validation_at DATETIME NULL AFTER amicale_validation_at');
+  }
+  if (!(await indexExists('hotel_reservation_demands', 'idx_hotel_reservation_demands_pricing_amicale'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD KEY idx_hotel_reservation_demands_pricing_amicale (pricing_amicale_id)');
   }
   if (!(await columnExists('hotel_reservation_demands', 'payment_method'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN payment_method VARCHAR(20) NULL AFTER currency');
@@ -1704,6 +1801,15 @@ async function ensureHotelReservationDemandSchema() {
   }
   if (!(await columnExists('hotel_reservation_demands', 'provider_cancel_payload_json'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN provider_cancel_payload_json LONGTEXT NULL AFTER provider_cancelled_at');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'status'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN status VARCHAR(40) NOT NULL DEFAULT \'nouvelle_demande\' AFTER provider_cancel_payload_json');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'client_note'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN client_note TEXT NULL AFTER status');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'admin_note'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN admin_note TEXT NULL AFTER client_note');
   }
 }
 
@@ -1888,6 +1994,7 @@ const DEFAULT_HOTEL_VOUCHER_LAYOUT = {
   canvasHeight: 1024,
   templateUrl: HOTEL_VOUCHER_TEMPLATE_PUBLIC_PATH,
   fields: {
+    amicale_logo: { kind: 'image', label: 'Logo amicale', x: 78, y: 58, width: 170, height: 170 },
     client_name: { kind: 'text', label: 'Nom & Prenom', x: 474, y: 432, width: 540, height: 38, fontSize: 24, fontWeight: 700, textAlign: 'left', color: '#172033' },
     client_phone: { kind: 'text', label: 'Telephone', x: 474, y: 503, width: 520, height: 38, fontSize: 24, fontWeight: 700, textAlign: 'left', color: '#172033' },
     hotel_reference: { kind: 'text', label: 'Hotel / Reference', x: 474, y: 575, width: 525, height: 38, fontSize: 22, fontWeight: 700, textAlign: 'left', color: '#172033' },
@@ -2029,6 +2136,13 @@ function formatHotelReservationDemandRow(row) {
     total_price: row.total_price === null || row.total_price === undefined ? null : Number(row.total_price),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     child_ages: parseJsonArray(row.child_ages_json),
+    payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
+    pricing_amicale_id: row.pricing_amicale_id || null,
+    amicale_name: row.amicale_name || null,
+    amicale_matricule: row.amicale_matricule || null,
+    amicale_phone: row.amicale_phone || null,
+    amicale_code: row.amicale_code || null,
+    amicale_validation_at: row.amicale_validation_at || null,
     clicktopay_payment_id: row.clicktopay_payment_id || null,
     clicktopay_order_number: row.clicktopay_order_number || null,
     clicktopay_status: row.clicktopay_status || null,
@@ -2059,6 +2173,37 @@ function formatHotelReservationDemandRow(row) {
   };
 }
 
+function formatAgentAmicaleHotelDemandRow(row) {
+  const formatted = formatHotelReservationDemandRow(row);
+  if (!formatted) return null;
+  const childGuests = Array.isArray(formatted.child_ages) ? formatted.child_ages.length : 0;
+  const adultGuests = Math.max(1, Number(formatted.adults || 1));
+  const hotelId = String(formatted.hotel_id || '').trim();
+  return {
+    ...formatted,
+    source_kind: 'hotel',
+    request_type: 'reservation',
+    bien_id: hotelId,
+    bien_reference: String(row?.bien_reference || (hotelId ? `HOTEL-${hotelId}` : '')).trim() || null,
+    bien_titre: formatted.hotel_name || null,
+    bien_mode: 'hotellerie',
+    start_date: formatted.check_in || null,
+    end_date: formatted.check_out || null,
+    guests: adultGuests + childGuests,
+    adult_guests: adultGuests,
+    child_guests: childGuests,
+    total_amount: formatted.total_price,
+    amount_due_now: formatted.amount_due_now,
+    voucher_id: row?.voucher_id || null,
+    voucher_number: row?.voucher_number || null,
+    voucher_url: row?.voucher_url || null,
+    voucher_generated_at: row?.voucher_generated_at || null,
+    voucher_sent_at: row?.voucher_sent_at || null,
+    agency_validation_at: row?.agency_validation_at || null,
+    amicale_logo_url: row?.amicale_logo_url || null,
+  };
+}
+
 function canAccessHotelReservationDemand(authUser, demand) {
   if (!authUser || !demand) return false;
   if (String(authUser.role || '').trim() === 'admin') return true;
@@ -2076,22 +2221,52 @@ function getHotelReservationPublicRoute(demandId) {
 async function fetchHotelReservationDemandRow(demandId) {
   const [rows] = await pool.query(
     `SELECT
-       *,
-       DATE_FORMAT(reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
-       DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
-       DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
-       DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
-       DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
-       DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
-       DATE_FORMAT(provider_cancelled_at, '%Y-%m-%d %H:%i:%s') AS provider_cancelled_at,
-       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
-     FROM hotel_reservation_demands
-     WHERE id = ?
+       d.*,
+       a.logo_url AS amicale_logo_url,
+       DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+       DATE_FORMAT(d.flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+       DATE_FORMAT(d.clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+       DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+       DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+       DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+       DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+       DATE_FORMAT(d.voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+       DATE_FORMAT(d.provider_cancelled_at, '%Y-%m-%d %H:%i:%s') AS provider_cancelled_at,
+       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+       DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM hotel_reservation_demands d
+     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+     WHERE d.id = ?
      LIMIT 1`,
     [String(demandId || '').trim()]
   );
   return formatHotelReservationDemandRow(rows?.[0] || null);
+}
+
+async function fetchAgentAmicaleHotelDemandById(demandId) {
+  const [rows] = await pool.query(
+    `SELECT
+       d.*,
+       a.name AS amicale_name,
+       a.logo_url AS amicale_logo_url,
+       DATE_FORMAT(d.reservation_payment_paid_at, '%Y-%m-%d %H:%i:%s') AS reservation_payment_paid_at,
+       DATE_FORMAT(d.flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
+       DATE_FORMAT(d.clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
+       DATE_FORMAT(d.payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+       DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+       DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+       DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+       DATE_FORMAT(d.voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+       DATE_FORMAT(d.provider_cancelled_at, '%Y-%m-%d %H:%i:%s') AS provider_cancelled_at,
+       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+       DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM hotel_reservation_demands d
+     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+     WHERE d.id = ?
+     LIMIT 1`,
+    [String(demandId || '').trim()]
+  );
+  return formatAgentAmicaleHotelDemandRow(rows?.[0] || null);
 }
 
 async function fetchHotelReservationDemandByClickToPay(orderId, orderNumber) {
@@ -2256,6 +2431,37 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
   const layout = await readHotelVoucherLayout();
   const fallbackQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(String(qrPayload || voucherId || voucherNumber || demand?.id || '').trim())}`;
   const resolvedQrImageUrl = String(qrImageUrl || '').trim() || fallbackQrCodeUrl;
+  const hotelContext = demand?.hotel_context && typeof demand.hotel_context === 'object' ? demand.hotel_context : {};
+  let resolvedAmicaleLogoUrl = String(demand?.amicale_logo_url || hotelContext?.amicaleLogoUrl || '').trim();
+  if (!resolvedAmicaleLogoUrl) {
+    const pricingAmicaleId = String(demand?.pricing_amicale_id || hotelContext?.amicaleId || '').trim();
+    if (pricingAmicaleId) {
+      try {
+        const [amicaleRows] = await pool.query(
+          'SELECT logo_url FROM amicales WHERE id = ? LIMIT 1',
+          [pricingAmicaleId]
+        );
+        resolvedAmicaleLogoUrl = String(amicaleRows?.[0]?.logo_url || '').trim();
+      } catch (lookupError) {
+        console.warn('Hotel voucher amicale logo lookup failed:', lookupError?.message || lookupError);
+      }
+    }
+  }
+  if (!resolvedAmicaleLogoUrl) {
+    const amicaleName = String(demand?.amicale_name || '').trim();
+    if (amicaleName) {
+      try {
+        const [amicaleRows] = await pool.query(
+          'SELECT logo_url FROM amicales WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1',
+          [amicaleName]
+        );
+        resolvedAmicaleLogoUrl = String(amicaleRows?.[0]?.logo_url || '').trim();
+      } catch (lookupError) {
+        console.warn('Hotel voucher amicale logo lookup by name failed:', lookupError?.message || lookupError);
+      }
+    }
+  }
+  resolvedAmicaleLogoUrl = resolvePublicAssetUrl(resolvedAmicaleLogoUrl);
   const childCount = Array.isArray(demand?.child_ages) ? demand.child_ages.length : 0;
   const totalGuests = Math.max(1, Number(demand?.adults || 1)) + childCount;
   const checkInParts = extractSqlDateParts(demand?.check_in);
@@ -2288,6 +2494,17 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
     ">${textValue}</div>`;
   };
   const qrField = layout.fields.qr_image || DEFAULT_HOTEL_VOUCHER_LAYOUT.fields.qr_image;
+  const amicaleLogoField = layout.fields.amicale_logo || DEFAULT_HOTEL_VOUCHER_LAYOUT.fields.amicale_logo;
+  const renderImageField = (fieldConfig, sourceUrl, altText) => {
+    const safeUrl = String(sourceUrl || '').trim();
+    if (!safeUrl) return '';
+    return `<img
+      class="qr-field"
+      src="${escapeHtml(safeUrl)}"
+      alt="${escapeHtml(String(altText || 'Image voucher'))}"
+      style="left:${Number(fieldConfig.x)}px; top:${Number(fieldConfig.y)}px; width:${Number(fieldConfig.width)}px; height:${Number(fieldConfig.height)}px;"
+    />`;
+  };
   const html = `<!doctype html>
 <html lang="fr">
 <head>
@@ -2309,15 +2526,11 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
 <body>
   <main class="sheet">
     ${Object.entries(layout.fields)
-      .filter(([fieldKey, fieldConfig]) => fieldKey !== 'qr_image' && fieldConfig.kind === 'text')
+      .filter(([, fieldConfig]) => fieldConfig.kind === 'text')
       .map(([fieldKey, fieldConfig]) => renderTextField(fieldKey, fieldConfig))
       .join('\n')}
-    <img
-      class="qr-field"
-      src="${escapeHtml(resolvedQrImageUrl)}"
-      alt="QR voucher hotel"
-      style="left:${Number(qrField.x)}px; top:${Number(qrField.y)}px; width:${Number(qrField.width)}px; height:${Number(qrField.height)}px;"
-    />
+    ${renderImageField(amicaleLogoField, resolvedAmicaleLogoUrl, 'Logo amicale')}
+    ${renderImageField(qrField, resolvedQrImageUrl, 'QR voucher hotel')}
   </main>
 </body>
 </html>`;
@@ -2411,8 +2624,25 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
       }
     }
 
+    const amicaleLogoBytes = await loadImageBuffer(resolvedAmicaleLogoUrl);
+    if (amicaleLogoBytes) {
+      const amicaleLogoNormalized = await normalizeBufferToPng(amicaleLogoBytes);
+      let amicaleLogoImage = await pdfDoc.embedPng(amicaleLogoNormalized).catch(() => null);
+      if (!amicaleLogoImage) {
+        amicaleLogoImage = await pdfDoc.embedJpg(amicaleLogoBytes).catch(() => null);
+      }
+      if (amicaleLogoImage) {
+        page.drawImage(amicaleLogoImage, {
+          x: Number(amicaleLogoField.x),
+          y: layout.canvasHeight - Number(amicaleLogoField.y) - Number(amicaleLogoField.height),
+          width: Number(amicaleLogoField.width),
+          height: Number(amicaleLogoField.height),
+        });
+      }
+    }
+
     for (const [fieldKey, fieldConfig] of Object.entries(layout.fields)) {
-      if (fieldKey === 'qr_image' || fieldConfig.kind !== 'text') continue;
+      if (fieldConfig.kind !== 'text') continue;
       const textValue = String(values[fieldKey] || '-');
       const fontSize = Number(fieldConfig.fontSize || 20);
       const font = Number(fieldConfig.fontWeight || 700) >= 700 ? fontBold : fontRegular;
@@ -3492,6 +3722,108 @@ async function fetchIcsCalendarText(importUrl) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
+  await ensureHotelReservationDemandSchema();
+  const safeDemandId = String(demandId || '').trim();
+  if (!safeDemandId) {
+    throw new Error('Demande hotel introuvable');
+  }
+  const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [safeDemandId]);
+  const current = rows?.[0] || null;
+  if (!current) {
+    throw new Error('Demande hotel introuvable');
+  }
+
+  const nextStatus = String(patch?.status || current.status || '').trim() || current.status;
+  const nextAdminNote = patch?.admin_note !== undefined ? (String(patch.admin_note || '').trim() || null) : (current.admin_note || null);
+  const nextClientNote = patch?.client_note !== undefined ? (String(patch.client_note || '').trim() || null) : (current.client_note || null);
+  const forceGenerateVoucher = patch?.force_generate_voucher === true || String(patch?.force_generate_voucher || '').trim() === 'true';
+  const voucherQrPayload = patch?.voucher_qr_payload !== undefined ? (String(patch.voucher_qr_payload || '').trim() || null) : (current.voucher_qr_payload || null);
+  const voucherQrImageUrl = patch?.voucher_qr_image_url !== undefined ? (String(patch.voucher_qr_image_url || '').trim() || null) : (current.voucher_qr_image_url || null);
+  const now = getAgencySqlDateTime();
+
+  let resolvedVoucherId = patch?.voucher_id !== undefined
+    ? (String(patch.voucher_id || '').trim() || null)
+    : (current.voucher_id || null);
+  let resolvedVoucherNumber = patch?.voucher_number !== undefined
+    ? (String(patch.voucher_number || '').trim() || null)
+    : (current.voucher_number || null);
+  let voucherUrl = current.voucher_url || null;
+  let voucherGeneratedAt = current.voucher_generated_at || null;
+  let voucherSentAt = current.voucher_sent_at || null;
+  let agencyValidationAt = current.agency_validation_at || null;
+  let providerBookingState = current.provider_booking_state || null;
+  let providerCancelFee = current.provider_cancel_fee;
+  let providerCancelledAt = current.provider_cancelled_at || null;
+  let providerCancelPayloadJson = current.provider_cancel_payload_json || null;
+
+  if (forceGenerateVoucher || nextStatus === 'voucher_en_cours' || nextStatus === 'voucher_envoye') {
+    resolvedVoucherId = resolvedVoucherId || `hotel-voucher-${safeDemandId}`;
+    resolvedVoucherNumber = resolvedVoucherNumber || `HTL-${String(safeDemandId).slice(-8).toUpperCase()}`;
+    voucherUrl = await generateHotelVoucherHtml({
+      demand: {
+        ...current,
+        voucher_id: resolvedVoucherId,
+        voucher_number: resolvedVoucherNumber,
+        voucher_qr_payload: voucherQrPayload,
+        voucher_qr_image_url: voucherQrImageUrl,
+      },
+      voucherNumber: resolvedVoucherNumber,
+      voucherId: resolvedVoucherId,
+      qrPayload: voucherQrPayload,
+      qrImageUrl: voucherQrImageUrl,
+    });
+    agencyValidationAt = now;
+    voucherGeneratedAt = now;
+    if (nextStatus === 'voucher_envoye') {
+      voucherSentAt = now;
+    }
+  }
+
+  if (nextStatus === 'rejete_par_agence') {
+    agencyValidationAt = now;
+  }
+
+  if (nextStatus === 'annulee' && String(current.provider_booking_id || '').trim() && !providerCancelledAt) {
+    const cancellation = await cancelMyGoHotelBookingForDemand(current);
+    providerCancelFee = Number.isFinite(Number(cancellation?.Fee)) ? Number(cancellation.Fee) : null;
+    providerCancelledAt = getAgencySqlDateTime();
+    providerCancelPayloadJson = JSON.stringify(cancellation || {});
+    providerBookingState = String(cancellation?.State || cancellation?.Cancelled || 'Cancelled').trim() || 'Cancelled';
+  }
+
+  await pool.query(
+    `UPDATE hotel_reservation_demands
+     SET status = ?, admin_note = ?, client_note = ?,
+         voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
+         voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?, agency_validation_at = ?,
+         provider_booking_state = ?, provider_cancel_fee = ?, provider_cancelled_at = ?, provider_cancel_payload_json = ?,
+         updated_at = ?
+     WHERE id = ?`,
+    [
+      nextStatus,
+      nextAdminNote,
+      nextClientNote,
+      resolvedVoucherId,
+      resolvedVoucherNumber,
+      voucherQrPayload,
+      voucherQrImageUrl,
+      voucherUrl,
+      voucherGeneratedAt,
+      voucherSentAt,
+      agencyValidationAt,
+      providerBookingState,
+      providerCancelFee,
+      providerCancelledAt,
+      providerCancelPayloadJson,
+      now,
+      safeDemandId,
+    ]
+  );
+
+  return fetchHotelReservationDemandRow(safeDemandId);
 }
 
 async function syncAirbnbCalendarImportForBien(bienId, options = {}) {
@@ -5844,6 +6176,8 @@ app.get('/api/hotel-reservation-demands', requireAuthenticatedSession, async (re
          DATE_FORMAT(flouci_verified_at, '%Y-%m-%d %H:%i:%s') AS flouci_verified_at,
          DATE_FORMAT(clicktopay_paid_at, '%Y-%m-%d %H:%i:%s') AS clicktopay_paid_at,
          DATE_FORMAT(payment_receipt_uploaded_at, '%Y-%m-%d %H:%i:%s') AS payment_receipt_uploaded_at,
+         DATE_FORMAT(amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+         DATE_FORMAT(agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
          DATE_FORMAT(voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
          DATE_FORMAT(voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
          DATE_FORMAT(provider_cancelled_at, '%Y-%m-%d %H:%i:%s') AS provider_cancelled_at,
@@ -5861,7 +6195,7 @@ app.get('/api/hotel-reservation-demands', requireAuthenticatedSession, async (re
   }
 });
 
-app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (req, res) => {
+app.post('/api/hotel-reservation-demands', async (req, res) => {
   try {
     await ensureHotelReservationDemandSchema();
 
@@ -5883,7 +6217,14 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
     const roomId = String(req.body?.roomId || '').trim() || null;
     const roomName = String(req.body?.roomName || '').trim() || null;
     const currency = String(req.body?.currency || '').trim() || 'TND';
-    const clientPhone = String(req.body?.clientPhone || requester?.telephone || '').trim();
+    const paymentMode = normalizePaymentMode(req.body?.paymentMode || req.body?.payment_mode, 'avance');
+    const pricingAmicaleId = String(req.body?.pricingAmicaleId || req.body?.pricing_amicale_id || req.body?.amicale_id || '').trim() || null;
+    const amicaleName = String(req.body?.amicaleName || req.body?.amicale_name || '').trim() || null;
+    const amicaleMatricule = String(req.body?.amicaleMatricule || req.body?.amicale_matricule || '').trim() || null;
+    const amicalePhone = normalizePhoneNumber(req.body?.amicalePhone || req.body?.amicale_phone || '');
+    const amicaleCode = String(req.body?.amicaleCode || req.body?.amicale_code || '').trim() || null;
+    const isAmicaleFlow = paymentMode === 'amicale';
+    const clientPhone = normalizePhoneNumber(req.body?.clientPhone || requester?.telephone || amicalePhone || '');
     const clientNote = String(req.body?.clientNote || '').trim() || null;
     const hotelContext = req.body?.hotelContext && typeof req.body.hotelContext === 'object' ? req.body.hotelContext : null;
     const totalPrice = Number.isFinite(totalPriceRaw) && totalPriceRaw > 0 ? totalPriceRaw : null;
@@ -5895,8 +6236,39 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
     if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
       return res.status(400).json({ error: 'Dates hotel invalides.' });
     }
+    if (!requester && !isAmicaleFlow) {
+      return res.status(401).json({ error: 'Authentification requise.' });
+    }
     if (!clientPhone) {
       return res.status(400).json({ error: 'Numero de telephone obligatoire.' });
+    }
+    if (isAmicaleFlow) {
+      if (!pricingAmicaleId) {
+        return res.status(400).json({ error: 'Amicale cible requise.' });
+      }
+      if (!amicaleName) {
+        return res.status(400).json({ error: 'Nom et prenom obligatoires.' });
+      }
+      if (!amicaleMatricule) {
+        return res.status(400).json({ error: 'Matricule obligatoire.' });
+      }
+      if (!amicalePhone) {
+        return res.status(400).json({ error: 'Numero de telephone obligatoire.' });
+      }
+      if (!amicaleCode) {
+        return res.status(400).json({ error: 'Code amicale obligatoire.' });
+      }
+      const [amicaleRows] = await pool.query(
+        'SELECT id, name, code FROM amicales WHERE id = ? LIMIT 1',
+        [pricingAmicaleId]
+      );
+      const amicaleRow = amicaleRows?.[0] || null;
+      if (!amicaleRow) {
+        return res.status(400).json({ error: 'Amicale selectionnee introuvable.' });
+      }
+      if (String(amicaleRow.code || '').trim() !== amicaleCode) {
+        return res.status(400).json({ error: 'Code amicale incorrect.' });
+      }
     }
 
     await pool.query(
@@ -5905,13 +6277,14 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
          hotel_id, hotel_name, hotel_city_id, hotel_city_name, hotel_image_url,
          check_in, check_out, adults, child_ages_json,
          boarding_id, boarding_name, room_id, room_name,
-         total_price, amount_due_now, currency, status, client_note, admin_note, hotel_context_json, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         total_price, amount_due_now, currency, payment_mode, pricing_amicale_id, amicale_name, amicale_matricule, amicale_phone, amicale_code, amicale_validation_at,
+         status, client_note, admin_note, hotel_context_json, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         demandId,
         String(requester?.id || '').trim() || null,
         String(requester?.email || '').trim().toLowerCase() || null,
-        String(requester?.name || '').trim() || String(requester?.email || '').trim() || 'Client',
+        String(requester?.name || '').trim() || amicaleName || String(requester?.email || '').trim() || 'Client',
         clientPhone,
         hotelId,
         hotelName,
@@ -5929,7 +6302,14 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
         totalPrice,
         amountDueNow,
         currency,
-        'client_procede_vers_paiement_en_cours',
+        paymentMode,
+        pricingAmicaleId,
+        amicaleName,
+        amicaleMatricule,
+        amicalePhone || null,
+        amicaleCode,
+        null,
+        isAmicaleFlow ? 'attente_validation_amicale' : 'client_procede_vers_paiement_en_cours',
         clientNote,
         null,
         JSON.stringify(hotelContext),
@@ -5940,7 +6320,7 @@ app.post('/api/hotel-reservation-demands', requireAuthenticatedSession, async (r
 
     await createAdminNotification(
       'warning',
-      `Nouvelle demande hotellerie: ${String(requester?.name || requester?.email || 'Client')} pour ${hotelName} du ${checkIn} au ${checkOut}`,
+      `Nouvelle demande hotellerie${isAmicaleFlow ? ' amicale' : ''}: ${String(requester?.name || requester?.email || amicaleName || 'Client')} pour ${hotelName} du ${checkIn} au ${checkOut}`,
       now
     );
 
@@ -5965,95 +6345,97 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
     }
 
     const requesterIsAdmin = String(req.authUser?.role || '').trim() === 'admin';
-    const nextStatus = requesterIsAdmin ? String(req.body?.status || current.status || '').trim() || current.status : current.status;
-    const nextAdminNote = requesterIsAdmin ? (String(req.body?.admin_note || '').trim() || null) : (current.admin_note || null);
-    const nextClientNote = !requesterIsAdmin && req.body?.client_note !== undefined
-      ? (String(req.body?.client_note || '').trim() || null)
-      : (current.client_note || null);
-    const voucherId = requesterIsAdmin && req.body?.voucher_id !== undefined ? String(req.body?.voucher_id || '').trim() || null : (current.voucher_id || null);
-    const voucherNumber = requesterIsAdmin && req.body?.voucher_number !== undefined ? String(req.body?.voucher_number || '').trim() || null : (current.voucher_number || null);
-    const voucherQrPayload = requesterIsAdmin && req.body?.voucher_qr_payload !== undefined ? String(req.body?.voucher_qr_payload || '').trim() || null : (current.voucher_qr_payload || null);
-    const voucherQrImageUrl = requesterIsAdmin && req.body?.voucher_qr_image_url !== undefined ? String(req.body?.voucher_qr_image_url || '').trim() || null : (current.voucher_qr_image_url || null);
-    const forceGenerateVoucher = requesterIsAdmin && (req.body?.force_generate_voucher === true || String(req.body?.force_generate_voucher || '').trim() === 'true');
-    const now = getAgencySqlDateTime();
-
-    let voucherUrl = current.voucher_url || null;
-    let voucherGeneratedAt = current.voucher_generated_at || null;
-    let voucherSentAt = current.voucher_sent_at || null;
-    let providerCancelFee = current.provider_cancel_fee;
-    let providerCancelledAt = current.provider_cancelled_at || null;
-    let providerCancelPayloadJson = current.provider_cancel_payload_json || null;
-    let providerBookingState = current.provider_booking_state || null;
-    if (requesterIsAdmin && (forceGenerateVoucher || nextStatus === 'voucher_en_cours' || nextStatus === 'voucher_envoye')) {
-      if (!voucherId) {
-        return res.status(400).json({ error: 'Identifiant voucher obligatoire pour generer le voucher' });
-      }
-      const resolvedVoucherNumber = voucherNumber || `HTL-${String(demandId).slice(-8).toUpperCase()}`;
-      voucherUrl = await generateHotelVoucherHtml({
-        demand: {
-          ...current,
-          voucher_id: voucherId,
-          voucher_number: resolvedVoucherNumber,
-          voucher_qr_payload: voucherQrPayload,
-          voucher_qr_image_url: voucherQrImageUrl,
-        },
-        voucherNumber: resolvedVoucherNumber,
-        voucherId,
-        qrPayload: voucherQrPayload,
-        qrImageUrl: voucherQrImageUrl,
-      });
-      voucherGeneratedAt = now;
-      if (nextStatus === 'voucher_envoye') {
-        voucherSentAt = now;
-      }
+    if (!requesterIsAdmin) {
+      const nextClientNote = req.body?.client_note !== undefined
+        ? (String(req.body?.client_note || '').trim() || null)
+        : (current.client_note || null);
+      const now = getAgencySqlDateTime();
+      await pool.query(
+        `UPDATE hotel_reservation_demands
+         SET client_note = ?, updated_at = ?
+         WHERE id = ?`,
+        [nextClientNote, now, demandId]
+      );
+      return res.json(await fetchHotelReservationDemandRow(demandId));
     }
 
-    if (requesterIsAdmin && nextStatus === 'annulee' && String(current.provider_booking_id || '').trim() && !providerCancelledAt) {
-      try {
-        const cancellation = await cancelMyGoHotelBookingForDemand(current);
-        providerCancelFee = Number.isFinite(Number(cancellation?.Fee)) ? Number(cancellation.Fee) : null;
-        providerCancelledAt = getAgencySqlDateTime();
-        providerCancelPayloadJson = JSON.stringify(cancellation || {});
-        providerBookingState = String(cancellation?.State || cancellation?.Cancelled || 'Cancelled').trim() || 'Cancelled';
-      } catch (cancelError) {
-        return res.status(409).json({
-          error: `Annulation fournisseur impossible: ${String(cancelError?.message || cancelError || '').trim() || 'Erreur inconnue'}`,
-        });
-      }
-    }
-
-    await pool.query(
-      `UPDATE hotel_reservation_demands
-       SET status = ?, admin_note = ?, client_note = ?,
-           voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
-           voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?,
-           provider_booking_state = ?, provider_cancel_fee = ?, provider_cancelled_at = ?, provider_cancel_payload_json = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      [
-        nextStatus,
-        nextAdminNote,
-        nextClientNote,
-        voucherId,
-        voucherNumber,
-        voucherQrPayload,
-        voucherQrImageUrl,
-        voucherUrl,
-        voucherGeneratedAt,
-        voucherSentAt,
-        providerBookingState,
-        providerCancelFee,
-        providerCancelledAt,
-        providerCancelPayloadJson,
-        now,
-        demandId,
-      ]
-    );
-
-    return res.json(await fetchHotelReservationDemandRow(demandId));
+    return res.json(await applyAdminHotelVoucherUpdate(demandId, req.body || {}));
   } catch (error) {
     console.error('Error updating hotel reservation demand:', error);
     return res.status(500).json({ error: 'Impossible de mettre a jour la demande hotellerie' });
+  }
+});
+
+app.post('/api/admin/hotel-reservation-demands/:id/validate', requireAdminSession, async (req, res) => {
+  try {
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const demand = await applyAdminHotelVoucherUpdate(demandId, {
+      status: 'voucher_en_cours',
+      voucher_id: req.body?.voucher_id,
+      voucher_number: req.body?.voucher_number,
+      voucher_qr_payload: req.body?.voucher_qr_payload,
+      voucher_qr_image_url: req.body?.voucher_qr_image_url,
+      admin_note: req.body?.admin_note,
+    });
+    return res.json(demand);
+  } catch (error) {
+    console.error('Error validating admin hotel demand:', error);
+    return res.status(500).json({ error: 'Impossible de valider la demande hotel' });
+  }
+});
+
+app.post('/api/admin/hotel-reservation-demands/:id/reject', requireAdminSession, async (req, res) => {
+  try {
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const demand = await applyAdminHotelVoucherUpdate(demandId, {
+      status: 'rejete_par_agence',
+      admin_note: req.body?.admin_note,
+    });
+    return res.json(demand);
+  } catch (error) {
+    console.error('Error rejecting admin hotel demand:', error);
+    return res.status(500).json({ error: 'Impossible de rejeter la demande hotel' });
+  }
+});
+
+app.post('/api/admin/hotel-reservation-demands/:id/regenerate-voucher', requireAdminSession, async (req, res) => {
+  try {
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const demand = await applyAdminHotelVoucherUpdate(demandId, {
+      status: req.body?.status || 'voucher_en_cours',
+      force_generate_voucher: true,
+      voucher_id: req.body?.voucher_id,
+      voucher_number: req.body?.voucher_number,
+      voucher_qr_payload: req.body?.voucher_qr_payload,
+      voucher_qr_image_url: req.body?.voucher_qr_image_url,
+      admin_note: req.body?.admin_note,
+    });
+    return res.json(demand);
+  } catch (error) {
+    console.error('Error regenerating admin hotel voucher:', error);
+    return res.status(500).json({ error: 'Impossible de regenerer le voucher hotel' });
+  }
+});
+
+app.delete('/api/hotel-reservation-demands/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+
+    await pool.query('DELETE FROM hotel_reservation_demands WHERE id = ?', [demandId]);
+    await createAdminNotification('warning', `Demande hotel ${demandId} supprimee de la base par admin.`, getAgencySqlDateTime());
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting hotel reservation demand:', error);
+    return res.status(500).json({ error: 'Impossible de supprimer la demande hotel' });
   }
 });
 
@@ -24162,12 +24544,13 @@ app.post('/api/auth/agent-amicale/logout', async (req, res) => {
 app.get('/api/agent-amicale/reservation-demands', requireAgentAmicaleSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    await ensureHotelReservationDemandSchema();
     await cleanupNamelessAmicalesAndTheirDemands();
     const amicaleId = String(req.agentSession?.amicaleId || '').trim();
     if (!amicaleId) {
       return res.status(400).json({ error: 'Amicale introuvable' });
     }
-    const [rows] = await pool.query(
+    const [propertyRows] = await pool.query(
       `SELECT
          d.*,
          b.titre AS bien_titre,
@@ -24192,7 +24575,34 @@ app.get('/api/agent-amicale/reservation-demands', requireAgentAmicaleSession, as
        ORDER BY d.created_at DESC`,
       [amicaleId]
     );
-    res.json((rows || []).map((row) => formatReservationDemandRow(row)));
+    const [hotelRows] = await pool.query(
+      `SELECT
+         d.*,
+         a.name AS amicale_name,
+         a.logo_url AS amicale_logo_url,
+         DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+         DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+         DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+         DATE_FORMAT(d.voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands d
+       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+       WHERE d.pricing_amicale_id = ?
+       ORDER BY d.created_at DESC`,
+      [amicaleId]
+    );
+    const mergedRows = [
+      ...(propertyRows || []).map((row) => formatReservationDemandRow(row)),
+      ...(hotelRows || []).map((row) => formatAgentAmicaleHotelDemandRow(row)),
+    ]
+      .filter(Boolean)
+      .sort((left, right) => {
+        const leftTime = new Date(String(left.updated_at || left.created_at || '')).getTime();
+        const rightTime = new Date(String(right.updated_at || right.created_at || '')).getTime();
+        return rightTime - leftTime;
+      });
+    res.json(mergedRows);
   } catch (error) {
     console.error('Error fetching agent amicale reservation demands:', error);
     res.status(500).json({ error: 'Impossible de charger les demandes amicale' });
@@ -24202,8 +24612,9 @@ app.get('/api/agent-amicale/reservation-demands', requireAgentAmicaleSession, as
 app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    await ensureHotelReservationDemandSchema();
     const amicaleId = String(req.agentSession?.amicaleId || '').trim();
-    const [rows] = await pool.query(
+    const [propertyRows] = await pool.query(
       `SELECT
          d.*,
          b.titre AS bien_titre,
@@ -24223,7 +24634,35 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
        ORDER BY d.voucher_generated_at DESC, d.updated_at DESC`,
       [amicaleId]
     );
-    res.json((rows || []).map((row) => formatReservationDemandRow(row)));
+    const [hotelRows] = await pool.query(
+      `SELECT
+         d.*,
+         a.name AS amicale_name,
+         a.logo_url AS amicale_logo_url,
+         DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
+         DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
+         DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
+         DATE_FORMAT(d.voucher_sent_at, '%Y-%m-%d %H:%i:%s') AS voucher_sent_at,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM hotel_reservation_demands d
+       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+       WHERE d.pricing_amicale_id = ?
+         AND d.voucher_url IS NOT NULL
+       ORDER BY d.voucher_generated_at DESC, d.updated_at DESC`,
+      [amicaleId]
+    );
+    const mergedRows = [
+      ...(propertyRows || []).map((row) => formatReservationDemandRow(row)),
+      ...(hotelRows || []).map((row) => formatAgentAmicaleHotelDemandRow(row)),
+    ]
+      .filter(Boolean)
+      .sort((left, right) => {
+        const leftTime = new Date(String(left.voucher_generated_at || left.updated_at || left.created_at || '')).getTime();
+        const rightTime = new Date(String(right.voucher_generated_at || right.updated_at || right.created_at || '')).getTime();
+        return rightTime - leftTime;
+      });
+    res.json(mergedRows);
   } catch (error) {
     console.error('Error fetching agent amicale vouchers:', error);
     res.status(500).json({ error: 'Impossible de charger les vouchers amicale' });
@@ -24233,36 +24672,54 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
 app.post('/api/agent-amicale/reservation-demands/:id/validate', requireAgentAmicaleSession, reservationMutationRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    await ensureHotelReservationDemandSchema();
     const demandId = String(req.params.id || '').trim();
     const amicaleId = String(req.agentSession?.amicaleId || '').trim();
     if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
     const detailedCurrent = await fetchReservationDemandDetailsById(demandId);
-    if (!detailedCurrent) return res.status(404).json({ error: 'Demande introuvable' });
-    if (String(detailedCurrent.pricing_amicale_id || '').trim() !== amicaleId) {
+    const now = getAgencySqlDateTime();
+    if (detailedCurrent) {
+      if (String(detailedCurrent.pricing_amicale_id || '').trim() !== amicaleId) {
+        return res.status(403).json({ error: 'Demande amicale non autorisee' });
+      }
+      if (String(detailedCurrent.status || '') !== 'attente_validation_amicale') {
+        return res.status(400).json({ error: 'Cette demande ne peut plus etre validee par l amicale' });
+      }
+      await pool.query(
+        `UPDATE reservation_demands
+         SET status = ?,
+             amicale_validation_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        ['attente_validation_par_agence', now, now, demandId]
+      );
+      await appendReservationDemandHistory(
+        demandId,
+        'attente_validation_par_agence',
+        'agent_amicale',
+        String(req.agentSession?.userId || req.agentSession?.username || 'agent_amicale').trim(),
+        'Demande validee par l amicale et transmise a l agence',
+        now
+      );
+      return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+    }
+    const hotelDemand = await fetchAgentAmicaleHotelDemandById(demandId);
+    if (!hotelDemand) return res.status(404).json({ error: 'Demande introuvable' });
+    if (String(hotelDemand.pricing_amicale_id || '').trim() !== amicaleId) {
       return res.status(403).json({ error: 'Demande amicale non autorisee' });
     }
-    if (String(detailedCurrent.status || '') !== 'attente_validation_amicale') {
+    if (String(hotelDemand.status || '') !== 'attente_validation_amicale') {
       return res.status(400).json({ error: 'Cette demande ne peut plus etre validee par l amicale' });
     }
-
-    const now = getAgencySqlDateTime();
     await pool.query(
-      `UPDATE reservation_demands
+      `UPDATE hotel_reservation_demands
        SET status = ?,
            amicale_validation_at = ?,
            updated_at = ?
        WHERE id = ?`,
       ['attente_validation_par_agence', now, now, demandId]
     );
-    await appendReservationDemandHistory(
-      demandId,
-      'attente_validation_par_agence',
-      'agent_amicale',
-      String(req.agentSession?.userId || req.agentSession?.username || 'agent_amicale').trim(),
-      'Demande validee par l amicale et transmise a l agence',
-      now
-    );
-    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+    return res.json((await fetchAgentAmicaleHotelDemandById(demandId)) || null);
   } catch (error) {
     console.error('Error validating agent amicale demand:', error);
     res.status(500).json({ error: 'Impossible de valider la demande amicale' });
@@ -24272,21 +24729,64 @@ app.post('/api/agent-amicale/reservation-demands/:id/validate', requireAgentAmic
 app.post('/api/agent-amicale/reservation-demands/:id/reject', requireAgentAmicaleSession, reservationMutationRateLimit, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
+    await ensureHotelReservationDemandSchema();
     const demandId = String(req.params.id || '').trim();
     const amicaleId = String(req.agentSession?.amicaleId || '').trim();
     if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
     const detailedCurrent = await fetchReservationDemandDetailsById(demandId);
-    if (!detailedCurrent) return res.status(404).json({ error: 'Demande introuvable' });
-    if (String(detailedCurrent.pricing_amicale_id || '').trim() !== amicaleId) {
+    const now = getAgencySqlDateTime();
+    if (detailedCurrent) {
+      if (String(detailedCurrent.pricing_amicale_id || '').trim() !== amicaleId) {
+        return res.status(403).json({ error: 'Demande amicale non autorisee' });
+      }
+      if (String(detailedCurrent.status || '') !== 'attente_validation_amicale') {
+        return res.status(400).json({ error: 'Cette demande ne peut plus etre rejetee par l amicale' });
+      }
+      await pool.query(
+        `UPDATE reservation_demands
+         SET status = ?,
+             amicale_validation_at = ?,
+             agency_validation_at = NULL,
+             voucher_id = NULL,
+             voucher_number = NULL,
+             voucher_url = NULL,
+             voucher_generated_at = NULL,
+             updated_at = ?
+         WHERE id = ?`,
+        ['rejete_par_amicale', now, now, demandId]
+      );
+      if (detailedCurrent.unavailable_date_id) {
+        await pool.query(
+          `DELETE FROM unavailable_dates
+           WHERE id = ?
+             AND reservation_demand_id = ?`,
+          [detailedCurrent.unavailable_date_id, demandId]
+        );
+        await pool.query(
+          'UPDATE reservation_demands SET unavailable_date_id = NULL, updated_at = ? WHERE id = ?',
+          [now, demandId]
+        );
+      }
+      await appendReservationDemandHistory(
+        demandId,
+        'rejete_par_amicale',
+        'agent_amicale',
+        String(req.agentSession?.userId || req.agentSession?.username || 'agent_amicale').trim(),
+        'Demande rejetee par l amicale',
+        now
+      );
+      return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+    }
+    const hotelDemand = await fetchAgentAmicaleHotelDemandById(demandId);
+    if (!hotelDemand) return res.status(404).json({ error: 'Demande introuvable' });
+    if (String(hotelDemand.pricing_amicale_id || '').trim() !== amicaleId) {
       return res.status(403).json({ error: 'Demande amicale non autorisee' });
     }
-    if (String(detailedCurrent.status || '') !== 'attente_validation_amicale') {
+    if (String(hotelDemand.status || '') !== 'attente_validation_amicale') {
       return res.status(400).json({ error: 'Cette demande ne peut plus etre rejetee par l amicale' });
     }
-
-    const now = getAgencySqlDateTime();
     await pool.query(
-      `UPDATE reservation_demands
+      `UPDATE hotel_reservation_demands
        SET status = ?,
            amicale_validation_at = ?,
            agency_validation_at = NULL,
@@ -24294,31 +24794,12 @@ app.post('/api/agent-amicale/reservation-demands/:id/reject', requireAgentAmical
            voucher_number = NULL,
            voucher_url = NULL,
            voucher_generated_at = NULL,
+           voucher_sent_at = NULL,
            updated_at = ?
        WHERE id = ?`,
       ['rejete_par_amicale', now, now, demandId]
     );
-    if (detailedCurrent.unavailable_date_id) {
-      await pool.query(
-        `DELETE FROM unavailable_dates
-         WHERE id = ?
-           AND reservation_demand_id = ?`,
-        [detailedCurrent.unavailable_date_id, demandId]
-      );
-      await pool.query(
-        'UPDATE reservation_demands SET unavailable_date_id = NULL, updated_at = ? WHERE id = ?',
-        [now, demandId]
-      );
-    }
-    await appendReservationDemandHistory(
-      demandId,
-      'rejete_par_amicale',
-      'agent_amicale',
-      String(req.agentSession?.userId || req.agentSession?.username || 'agent_amicale').trim(),
-      'Demande rejetee par l amicale',
-      now
-    );
-    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+    return res.json((await fetchAgentAmicaleHotelDemandById(demandId)) || null);
   } catch (error) {
     console.error('Error rejecting agent amicale demand:', error);
     res.status(500).json({ error: 'Impossible de rejeter la demande amicale' });

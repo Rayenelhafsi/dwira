@@ -76,6 +76,10 @@ function demandStatusTone(status?: ReservationDemandStatus | null) {
 }
 
 function buildPropertyPath(demand: ReservationDemand) {
+  if (String(demand.bien_mode || "").trim() === "hotellerie") {
+    const hotelId = String(demand.bien_id || "").trim();
+    return hotelId ? `/hotels/${encodeURIComponent(hotelId)}` : "/?mode=hotellerie";
+  }
   const token = String(demand.bien_reference || demand.bien_id || "").trim();
   return token ? `/properties/${encodeURIComponent(token)}` : "/logements";
 }
