@@ -1030,6 +1030,7 @@ export default function BiensPage() {
   const [selectedBienIds, setSelectedBienIds] = useState<string[]>([]);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderParentId, setNewFolderParentId] = useState<string>('root');
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [moveTargetFolderId, setMoveTargetFolderId] = useState<string>('root');
@@ -1101,7 +1102,6 @@ export default function BiensPage() {
     });
     return next;
   }, [bienFolders]);
-
   const filteredBiens = biens.filter((bien) => {
     const query = normalizeSearchValue(searchTerm);
     const ownerName = normalizeSearchValue(
@@ -1120,6 +1120,14 @@ export default function BiensPage() {
     const matchesMode = modeFilter === 'all' || bien.mode === modeFilter;
     return matchesQuery && matchesStatus && matchesMode;
   });
+  const filteredFolderCountById = useMemo(() => {
+    const next = new Map<string, number>();
+    filteredBiens.forEach((bien) => {
+      const folderId = String(bien.folder_id || '').trim() || 'root';
+      next.set(folderId, (next.get(folderId) || 0) + 1);
+    });
+    return next;
+  }, [filteredBiens]);
   const displayedBiens = filteredBiens.filter((bien) => {
     const bienFolderId = String(bien.folder_id || '').trim() || 'root';
     return bienFolderId === selectedFolderId;
@@ -1449,6 +1457,8 @@ export default function BiensPage() {
       });
       const nextFolderId = String(createdFolder?.id || '').trim();
       setNewFolderName('');
+      setNewFolderParentId(nextFolderId || 'root');
+      setIsCreateFolderOpen(false);
       if (nextFolderId) {
         setSelectedFolderId(nextFolderId);
         setMoveTargetFolderId(nextFolderId);
@@ -2083,11 +2093,23 @@ export default function BiensPage() {
               <h2 className="text-base font-semibold text-gray-900">Dossiers biens</h2>
               <p className="text-sm text-gray-500">Structurez le portefeuille par root et sous-dossiers.</p>
             </div>
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+            <button
+              type="button"
+              onClick={() => {
+                setNewFolderParentId(selectedFolderId === 'root' ? 'root' : selectedFolderId);
+                setIsCreateFolderOpen((prev) => !prev);
+              }}
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border transition ${
+                isCreateFolderOpen
+                  ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm'
+                  : 'border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+              }`}
+              title="Créer un dossier"
+            >
               <FolderPlus className="h-4 w-4" />
-            </span>
+            </button>
           </div>
-          <div className="space-y-2">
+          <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
             <button
               type="button"
               onClick={() => setSelectedFolderId('root')}
@@ -2097,18 +2119,18 @@ export default function BiensPage() {
                 {selectedFolderId === 'root' ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />}
                 Root
               </span>
-              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 shadow-sm">{filteredBiens.filter((bien) => !String(bien.folder_id || '').trim()).length}</span>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 shadow-sm">{filteredFolderCountById.get('root') || 0}</span>
             </button>
             <FolderTree
               parentId="root"
               selectedFolderId={selectedFolderId}
               foldersByParentId={foldersByParentId}
-              biens={filteredBiens}
+              folderCountById={filteredFolderCountById}
               onSelect={setSelectedFolderId}
               level={0}
             />
           </div>
-          <div className="mt-4 space-y-3 rounded-2xl border border-dashed border-emerald-200 bg-white/75 p-4">
+          {isCreateFolderOpen && <div className="mt-4 space-y-3 rounded-2xl border border-dashed border-emerald-200 bg-white/85 p-4">
             <div className="space-y-1">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Nouveau dossier</p>
               <p className="text-xs text-gray-500">Créez un dossier puis déplacez plusieurs biens en un clic.</p>
@@ -2116,6 +2138,12 @@ export default function BiensPage() {
             <input
               value={newFolderName}
               onChange={(event) => setNewFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleCreateFolder();
+                }
+              }}
               placeholder="Nom du dossier"
               className="block w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm"
             />
@@ -2133,12 +2161,12 @@ export default function BiensPage() {
               type="button"
               onClick={() => void handleCreateFolder()}
               disabled={isCreatingFolder}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-4 sm:py-2.5"
             >
               <FolderPlus className="h-4 w-4" />
               {isCreatingFolder ? 'Création...' : 'Créer le dossier'}
             </button>
-          </div>
+          </div>}
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.32)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -2237,14 +2265,14 @@ function FolderTree({
   parentId,
   selectedFolderId,
   foldersByParentId,
-  biens,
+  folderCountById,
   onSelect,
   level,
 }: {
   parentId: string;
   selectedFolderId: string;
   foldersByParentId: Map<string, BienFolder[]>;
-  biens: Bien[];
+  folderCountById: Map<string, number>;
   onSelect: (folderId: string) => void;
   level: number;
 }) {
@@ -2255,7 +2283,7 @@ function FolderTree({
       {rows.map((folder) => {
         const folderId = String(folder.id || '').trim();
         const isSelected = selectedFolderId === folderId;
-        const folderCount = biens.filter((bien) => String(bien.folder_id || '').trim() === folderId).length;
+        const folderCount = folderCountById.get(folderId) || 0;
         return (
           <div key={folderId}>
             <button
@@ -2274,7 +2302,7 @@ function FolderTree({
               parentId={folderId}
               selectedFolderId={selectedFolderId}
               foldersByParentId={foldersByParentId}
-              biens={biens}
+              folderCountById={folderCountById}
               onSelect={onSelect}
               level={level + 1}
             />

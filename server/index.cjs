@@ -11145,7 +11145,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
     await syncResidenceChildMedia(childId, desiredChild.templateMedia);
     const allowedChildFeatureIds = await filterCaracteristiqueIdsForContext(
       'location_saisonniere',
-      'appartement',
+      childType,
       desiredChild.featureIds
     );
     await syncBienCaracteristiques(childId, allowedChildFeatureIds);

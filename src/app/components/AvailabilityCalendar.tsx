@@ -216,6 +216,8 @@ export default function AvailabilityCalendar({
       className += flashLocked
         ? "bg-white text-slate-300 cursor-not-allowed border border-slate-100 "
         : "text-gray-300 cursor-not-allowed ";
+    } else if (splitEnabled) {
+      className += "bg-transparent text-gray-900 border border-emerald-100 ";
     } else if (dateStatus === 'blocked') {
       // Black for Bloqué/Non disponible
       className += "bg-gray-900 text-white cursor-not-allowed ";
@@ -243,32 +245,42 @@ export default function AvailabilityCalendar({
   };
 
   const getSplitDayVisual = (date: Date): { enabled: boolean; leftClass: string; rightClass: string } => {
+    if (!isSameMonth(date, currentMonth) || isOutsideAllowedRange(date) || isBefore(date, today)) {
+      return { enabled: false, leftClass: "", rightClass: "" };
+    }
+
+    const blocking = getBlockingStatusForDay(date);
+    const blockedClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
     const dayKey = toDayKey(date);
     const selectedClass = "bg-emerald-600";
     const availableClass = normalizedAllowedRange ? "bg-emerald-50" : "bg-green-100";
     if (isEnd) {
+      if (blocking && canUseAsCheckoutBoundary(date)) {
+        return { enabled: true, leftClass: selectedClass, rightClass: blockedClass };
+      }
       if (normalizedAllowedRange && dayKey === normalizedAllowedRange.end) {
         return { enabled: false, leftClass: "", rightClass: "" };
       }
       return { enabled: true, leftClass: selectedClass, rightClass: availableClass };
     }
     if (isStart) {
+      if (blocking && canUseAsCheckinBoundary(date)) {
+        return { enabled: true, leftClass: blockedClass, rightClass: selectedClass };
+      }
       if (normalizedAllowedRange && dayKey === normalizedAllowedRange.start) {
         return { enabled: false, leftClass: "", rightClass: "" };
       }
       return { enabled: true, leftClass: availableClass, rightClass: selectedClass };
     }
 
-    const blocking = getBlockingStatusForDay(date);
     const canCheckoutOnThisDay = !!blocking && canUseAsCheckoutBoundary(date);
     const canCheckinOnThisDay = !!blocking && canUseAsCheckinBoundary(date);
     const isTransition = !!blocking && (canCheckoutOnThisDay || canCheckinOnThisDay);
     if (!isTransition) {
       return { enabled: false, leftClass: "", rightClass: "" };
     }
-    const blockedClass = blocking === "booked" ? "bg-red-500" : "bg-gray-900";
     // left = morning(departure side), right = evening(arrival side)
     if (canCheckinOnThisDay && !canCheckoutOnThisDay) {
       return { enabled: true, leftClass: blockedClass, rightClass: availableClass };
@@ -289,6 +301,9 @@ export default function AvailabilityCalendar({
   const isBookedDay = (date: Date) => getDateStatus(date) === "booked";
 
   const getDayLabel = (date: Date): string | null => {
+    if (!isSameMonth(date, currentMonth) || isOutsideAllowedRange(date) || isBefore(date, today)) {
+      return null;
+    }
     if (selectedStart && isSameDay(date, selectedStart)) {
       return "Arrivée";
     }

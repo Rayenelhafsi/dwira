@@ -17,6 +17,8 @@ import {
 } from "../utils/availability";
 import { getReservationMinStayRequirement, validateReservationWeekdayRule } from "../utils/seasonalPricing";
 import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashOffers";
+import { fetchPartnerAgenciesPublic, findPartnerAgencyById, normalizePartnerAgencySlug } from "../utils/partnerAgencies";
+import { fetchAmicalesPublic, findAmicaleById, normalizeAmicaleSlug } from "../utils/amicales";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -684,6 +686,7 @@ export default function PropertiesPage() {
   const [advancedPanel, setAdvancedPanel] = useState<"tabs" | "services">("tabs");
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
+  const [publicPartnerSlug, setPublicPartnerSlug] = useState<string | null>(null);
 
   const orderedModeTabs = useMemo(
     () =>
@@ -785,6 +788,51 @@ export default function PropertiesPage() {
     params.set("mode", defaultMode);
     setSearchParams(params, { replace: true });
   }, [loading, orderedModeTabs, searchParams, setSearchParams]);
+  useEffect(() => {
+    let cancelled = false;
+    const partnerId = String(searchParams.get("partner") || "").trim();
+    const amicaleId = String(searchParams.get("amicale") || "").trim();
+    if (!partnerId && !amicaleId) {
+      setPublicPartnerSlug(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const resolveSlug = async () => {
+      try {
+        if (partnerId) {
+          const cached = findPartnerAgencyById(partnerId);
+          if (cached) {
+            if (!cancelled) setPublicPartnerSlug(normalizePartnerAgencySlug(cached.slug || cached.name) || null);
+            return;
+          }
+          const rows = await fetchPartnerAgenciesPublic();
+          if (cancelled) return;
+          const matched = (Array.isArray(rows) ? rows : []).find((item) => String(item.id || "").trim() === partnerId) || null;
+          setPublicPartnerSlug(matched ? (normalizePartnerAgencySlug(matched.slug || matched.name) || null) : null);
+          return;
+        }
+
+        const cachedAmicale = findAmicaleById(amicaleId);
+        if (cachedAmicale) {
+          if (!cancelled) setPublicPartnerSlug(normalizeAmicaleSlug(cachedAmicale.name) || null);
+          return;
+        }
+        const rows = await fetchAmicalesPublic();
+        if (cancelled) return;
+        const matched = (Array.isArray(rows) ? rows : []).find((item) => String(item.id || "").trim() === amicaleId) || null;
+        setPublicPartnerSlug(matched ? (normalizeAmicaleSlug(matched.name) || null) : null);
+      } catch {
+        if (!cancelled) setPublicPartnerSlug(null);
+      }
+    };
+
+    void resolveSlug();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
   useEffect(() => {
     const mainTypes = parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[];
     if (mainTypes.length === 0) return;
@@ -3313,7 +3361,7 @@ export default function PropertiesPage() {
                     <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                       {flashDisplayResults.map((row) => (
                         <div key={row.displayKey} className="space-y-2">
-                          <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} />
+                          <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} publicPartnerSlug={publicPartnerSlug} />
                           <div className="rounded-xl border border-orange-100 bg-white/80 p-3">
                             {row.hints.length > 0 && (
                               <p className="text-xs text-orange-800">{row.hints.join(" | ")}</p>
@@ -3329,7 +3377,7 @@ export default function PropertiesPage() {
                   <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                     {visibleRegularDisplayResults.map((row) => (
                       <div key={row.displayKey} className="space-y-2">
-                        <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} />
+                        <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} publicPartnerSlug={publicPartnerSlug} />
                         <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
                           {row.hints.length > 0 && (
                             <p className="text-xs text-emerald-800">{row.hints.join(" | ")}</p>
