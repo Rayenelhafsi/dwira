@@ -233,7 +233,7 @@ export default function AvailabilityCalendar({
       className += "bg-emerald-600 text-white font-bold ";
     } else {
       className += flashLocked
-        ? "bg-white text-slate-400 border border-slate-100 "
+        ? "bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 "
         : "bg-green-100 text-green-700 hover:bg-green-200 hover:scale-110 ";
     }
 

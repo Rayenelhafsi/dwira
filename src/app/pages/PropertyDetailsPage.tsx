@@ -1392,7 +1392,7 @@ out body 40;
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
-    if (!skipLockedFlashStayRules && nights < minStayForSelection) {
+    if (nights < minStayForSelection) {
       return { valid: false, message: `Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).` };
     }
     if (!skipLockedFlashStayRules && nights > maxStay) {
@@ -2489,7 +2489,7 @@ out body 40;
       setSelectedEnd(null);
     };
 
-    if (!isSaleProperty && start && !end) {
+    if (!isSaleProperty && start && !end && !lockedFlashOffer) {
       const startDate = format(start, 'yyyy-MM-dd');
       const weekdayRuleCheck = validateCheckinWeekdayRule({
         startDate,
@@ -2558,7 +2558,7 @@ out body 40;
         fallbackMinStay: minStay,
         amicaleId: pricingAmicaleId,
       });
-      if (!skipLockedFlashStayRules && nights < minStayForSelection) {
+      if (nights < minStayForSelection) {
         failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
         return;
       }
@@ -2882,7 +2882,7 @@ out body 40;
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
-    if (!isSaleProperty && !skipLockedFlashStayRules && nights < minStayForSelection) {
+    if (!isSaleProperty && nights < minStayForSelection) {
       failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
       return;
     }
