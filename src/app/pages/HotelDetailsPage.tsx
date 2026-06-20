@@ -1175,16 +1175,17 @@ export default function HotelDetailsPage() {
       </section>
 
       <Dialog open={requestOfferIndex !== null && (Boolean(linkedAmicaleId) || (!!user?.email && !!user?.profileCompleted))} onOpenChange={(open) => !open && !submittingReservation && setRequestOfferIndex(null)}>
-        <DialogContent className="max-w-2xl rounded-[28px] border-0 p-0 shadow-2xl">
-          <DialogHeader className="border-b border-slate-100 px-6 pb-4 pt-6">
+        <DialogContent className="max-h-[86vh] w-[min(94vw,760px)] overflow-hidden rounded-[28px] border-0 p-0 shadow-2xl sm:w-[min(90vw,720px)]">
+          <DialogHeader className="border-b border-slate-100 px-5 pb-4 pt-5 sm:px-6 sm:pt-6">
             <DialogTitle className="text-2xl font-semibold text-slate-900">Demande de reservation hotellerie</DialogTitle>
             <DialogDescription className="text-sm text-slate-500">
               Verifiez l'offre choisie puis laissez votre numero pour que l'agence confirme la suite avec vous.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 px-6 py-5">
-            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
+          <div className="max-h-[calc(86vh-92px)] overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pt-5">
+            <div className="space-y-5">
+              <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">{hotel.Name}</p>
               <p className="mt-2 text-lg font-semibold text-slate-900">{activeRequestOffer?.boardingName || "Pension"} - {activeRequestOffer?.room?.Name || "Chambre"}</p>
               <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-600">
@@ -1194,9 +1195,9 @@ export default function HotelDetailsPage() {
                   {activeRequestOffer ? (pickHotelDisplayedPrice(activeRequestOffer.room) !== null ? `${formatPrice(pickHotelDisplayedPrice(activeRequestOffer.room))} TND` : "Sur demande") : "Sur demande"}
                 </span>
               </div>
-            </div>
+              </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Identite voyageurs (obligatoire)</p>
               <div className="mt-3 space-y-3">
                 {reservationTravellers.adults.map((adult, index) => (
@@ -1284,9 +1285,9 @@ export default function HotelDetailsPage() {
                   </div>
                 ))}
               </div>
-            </div>
+              </div>
 
-            <div>
+              <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Telephone *</label>
               <input
                 value={linkedAmicaleId ? amicalePhone : reservationPhone}
@@ -1294,68 +1295,68 @@ export default function HotelDetailsPage() {
                 placeholder="+216 ..."
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
               />
-            </div>
-
-            {linkedAmicaleId && (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Formulaire amicale</p>
-                <div className="mt-3 grid gap-3">
-                  <div>
-                    <p className="mb-2 text-xs font-semibold text-emerald-800">Selectionner amicale</p>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {amicaleOptions.map((item) => (
-                        <button
-                          key={`hotel-detail-amicale-${item.id}`}
-                          type="button"
-                          onClick={() => {
-                            setAmicaleSelectionId(item.id);
-                          }}
-                          className={`relative h-16 overflow-hidden rounded-lg border text-left transition ${
-                            amicaleSelectionId === item.id
-                              ? "border-emerald-600 ring-2 ring-emerald-300"
-                              : "border-emerald-200 hover:border-emerald-400"
-                          }`}
-                        >
-                          {item.logoUrl ? (
-                            <div
-                              className="absolute inset-0 bg-no-repeat"
-                              style={{ backgroundImage: `url(${item.logoUrl})`, backgroundSize: "100% 100%" }}
-                            />
-                          ) : (
-                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-100 to-white" />
-                          )}
-                          <div className="absolute inset-0 bg-black/25" />
-                          <div className="relative z-10 px-3 py-2 text-sm font-semibold text-white">{item.name}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    value={amicaleFullName}
-                    onChange={(event) => setAmicaleFullName(event.target.value)}
-                    placeholder="Nom et prenom"
-                    className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  />
-                  <input
-                    type="text"
-                    value={amicaleMatricule}
-                    onChange={(event) => setAmicaleMatricule(event.target.value)}
-                    placeholder="Identifiant interne (Matricule)"
-                    className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  />
-                  <input
-                    type="text"
-                    value={amicaleCode}
-                    onChange={(event) => setAmicaleCode(event.target.value)}
-                    placeholder="Code"
-                    className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  />
-                </div>
               </div>
-            )}
 
-            <div>
+              {linkedAmicaleId && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Formulaire amicale</p>
+                  <div className="mt-3 grid gap-3">
+                    <div>
+                      <p className="mb-2 text-xs font-semibold text-emerald-800">Selectionner amicale</p>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {amicaleOptions.map((item) => (
+                          <button
+                            key={`hotel-detail-amicale-${item.id}`}
+                            type="button"
+                            onClick={() => {
+                              setAmicaleSelectionId(item.id);
+                            }}
+                            className={`relative h-16 overflow-hidden rounded-lg border text-left transition ${
+                              amicaleSelectionId === item.id
+                                ? "border-emerald-600 ring-2 ring-emerald-300"
+                                : "border-emerald-200 hover:border-emerald-400"
+                            }`}
+                          >
+                            {item.logoUrl ? (
+                              <div
+                                className="absolute inset-0 bg-no-repeat"
+                                style={{ backgroundImage: `url(${item.logoUrl})`, backgroundSize: "100% 100%" }}
+                              />
+                            ) : (
+                              <div className="absolute inset-0 bg-gradient-to-r from-emerald-100 to-white" />
+                            )}
+                            <div className="absolute inset-0 bg-black/25" />
+                            <div className="relative z-10 px-3 py-2 text-sm font-semibold text-white">{item.name}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={amicaleFullName}
+                      onChange={(event) => setAmicaleFullName(event.target.value)}
+                      placeholder="Nom et prenom"
+                      className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
+                    />
+                    <input
+                      type="text"
+                      value={amicaleMatricule}
+                      onChange={(event) => setAmicaleMatricule(event.target.value)}
+                      placeholder="Identifiant interne (Matricule)"
+                      className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
+                    />
+                    <input
+                      type="text"
+                      value={amicaleCode}
+                      onChange={(event) => setAmicaleCode(event.target.value)}
+                      placeholder="Code"
+                      className="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Message complementaire</label>
               <textarea
                 value={reservationNote}
@@ -1364,28 +1365,29 @@ export default function HotelDetailsPage() {
                 placeholder="Exemple: heure d'arrivee souhaitee, demande particuliere, mode de contact prefere..."
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-500"
               />
+              </div>
+
+              <DialogFooter className="sticky bottom-0 z-10 -mx-4 border-t border-slate-100 bg-white/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/85 sm:-mx-6 sm:px-6">
+                <button
+                  type="button"
+                  onClick={() => setRequestOfferIndex(null)}
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  disabled={submittingReservation}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitHotelReservationDemand()}
+                  disabled={submittingReservation}
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {submittingReservation ? <LoaderCircle size={16} className="animate-spin" /> : null}
+                  {linkedAmicaleId ? "Envoyer la demande amicale" : "Envoyer la demande"}
+                </button>
+              </DialogFooter>
             </div>
           </div>
-
-          <DialogFooter className="border-t border-slate-100 px-6 py-4">
-            <button
-              type="button"
-              onClick={() => setRequestOfferIndex(null)}
-              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              disabled={submittingReservation}
-            >
-              Annuler
-            </button>
-            <button
-              type="button"
-              onClick={() => void submitHotelReservationDemand()}
-              disabled={submittingReservation}
-              className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {submittingReservation ? <LoaderCircle size={16} className="animate-spin" /> : null}
-              {linkedAmicaleId ? "Envoyer la demande amicale" : "Envoyer la demande"}
-            </button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
