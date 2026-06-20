@@ -439,6 +439,78 @@ export default function HotelReservationPaymentPage() {
     );
   }
 
+  if (!selectedMethod) {
+    return (
+      <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
+        <div className="container mx-auto max-w-5xl px-4 md:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
+              <ArrowLeft className="h-4 w-4" />
+              Retour
+            </button>
+            <button type="button" onClick={() => void fetchDemand()} className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              <TimerReset className="h-4 w-4" />
+              Actualiser
+            </button>
+          </div>
+
+          <section className="mt-6 rounded-[28px] border border-gray-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Paiement hotel</p>
+            <h1 className="mt-2 text-3xl font-bold text-gray-900">Choisir votre mode de paiement</h1>
+            <p className="mt-2 text-sm text-gray-500">
+              Selectionnez une option pour ouvrir sa page dediee.
+            </p>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <InfoCard label="Hotel" value={demand.hotel_name} />
+              <InfoCard label="Ville" value={demand.hotel_city_name || "-"} />
+              <InfoCard label="Periode" value={`${demand.check_in} au ${demand.check_out}`} />
+              <InfoCard label="Montant a regler" value={formatMoney(demand.amount_due_now || demand.total_price, demand.currency || "TND")} />
+            </div>
+
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setSearchParams({ method: "clicktopay" })}
+                className="group rounded-[28px] bg-[linear-gradient(135deg,#0b7a58_0%,#169b67_56%,#34d399_100%)] p-6 text-left text-white shadow-[0_24px_80px_-32px_rgba(5,150,105,0.85)] transition hover:-translate-y-1"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/25 bg-white/10 backdrop-blur">
+                  <CreditCard className="h-6 w-6" />
+                </div>
+                <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-white/80">Carte bancaire</p>
+                <h2 className="mt-2 text-2xl font-bold">Paiement en ligne</h2>
+                <p className="mt-3 text-sm leading-6 text-emerald-50">
+                  Ouvrir la page dediee au paiement securise Click to Pay.
+                </p>
+                <span className="mt-6 inline-flex rounded-full bg-white px-5 py-2 text-sm font-semibold text-emerald-800">
+                  Continuer
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSearchParams({ method: "receipt" })}
+                className="group rounded-[28px] border border-sky-200 bg-[linear-gradient(180deg,#eff9ff_0%,#f8fdff_100%)] p-6 text-left shadow-[0_24px_80px_-40px_rgba(14,116,144,0.45)] transition hover:-translate-y-1"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+                  <Upload className="h-6 w-6" />
+                </div>
+                <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-sky-800">Virement et recu</p>
+                <h2 className="mt-2 text-2xl font-bold text-slate-900">Envoyer un justificatif</h2>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  Ouvrir la page dediee au virement bancaire et a l'envoi du recu.
+                </p>
+                <span className="mt-6 inline-flex rounded-full bg-sky-600 px-5 py-2 text-sm font-semibold text-white">
+                  Continuer
+                </span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <CenterStatusPopup
