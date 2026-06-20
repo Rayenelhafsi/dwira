@@ -10,6 +10,7 @@ export type PropertyFlashOffer = {
   fixedNightlyAmount: number | null;
   start: string;
   end: string;
+  minimumNights?: number | null;
   expirationHours?: number | null;
   createdAt?: string | null;
   expiresAt?: string | null;
@@ -63,6 +64,10 @@ function normalizeFlashOfferCandidate(raw: any, fallbackId: string): PropertyFla
   const fixedNightlyAmount = mode === "fixed_amount"
     ? normalizeAmount(raw?.fixedNightlyAmount ?? raw?.fixed_amount_tnd)
     : null;
+  const minimumNightsRaw = Number(raw?.minimumNights ?? raw?.minimum_nuitees ?? 1);
+  const minimumNights = Number.isFinite(minimumNightsRaw) && minimumNightsRaw > 0
+    ? Math.max(1, Math.floor(minimumNightsRaw))
+    : 1;
   if (mode === "percentage" && (!Number.isFinite(discountPercent) || Number(discountPercent) <= 0)) return null;
   if (mode === "fixed_amount" && (!Number.isFinite(fixedNightlyAmount) || Number(fixedNightlyAmount) <= 0)) return null;
   const expiresAt = parseFutureIsoTimestamp(raw?.expiresAt ?? raw?.expires_at);
@@ -75,6 +80,7 @@ function normalizeFlashOfferCandidate(raw: any, fallbackId: string): PropertyFla
     fixedNightlyAmount,
     start,
     end,
+    minimumNights,
     expirationHours: raw?.expirationHours ?? raw?.expiration_hours ?? null,
     createdAt: parseFutureIsoTimestamp(raw?.createdAt ?? raw?.created_at) || null,
     expiresAt,

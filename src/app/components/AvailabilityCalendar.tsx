@@ -65,7 +65,6 @@ export default function AvailabilityCalendar({
   const flashLocked = Boolean(normalizedAllowedRange);
 
   const getBlockingStatusForDay = (day: Date): 'blocked' | 'booked' | null => {
-    if (flashLocked) return null;
     const key = toDayKey(day);
     const blocking = unavailableDates.find((range) => {
       const status = String(range.status || '').toLowerCase();
@@ -80,12 +79,6 @@ export default function AvailabilityCalendar({
   };
 
   const getDateStatus = (date: Date): 'available' | 'blocked' | 'pending' | 'booked' | 'past' => {
-    if (flashLocked) {
-      if (isOutsideAllowedRange(date)) {
-        return 'blocked';
-      }
-      return 'available';
-    }
     if (isOutsideAllowedRange(date)) {
       return 'blocked';
     }
@@ -109,7 +102,6 @@ export default function AvailabilityCalendar({
   };
 
   const isDateUnavailable = (date: Date) => {
-    if (flashLocked) return isOutsideAllowedRange(date);
     if (isOutsideAllowedRange(date)) return true;
     if (isBefore(date, today)) return true;
     const blockingStatus = getBlockingStatusForDay(date);
@@ -156,9 +148,6 @@ export default function AvailabilityCalendar({
   };
 
   const handleDateClick = (date: Date) => {
-    if (flashLocked) {
-      return;
-    }
     if (isOutsideAllowedRange(date)) {
       return;
     }

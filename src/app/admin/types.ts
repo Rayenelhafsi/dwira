@@ -282,6 +282,7 @@ export type VenteFlashConfig = {
   fixed_amount_tnd?: number | null;
   start_date?: string | null;
   end_date?: string | null;
+  minimum_nuitees?: number | null;
   expiration_hours?: number | null;
   created_at?: string | null;
   expires_at?: string | null;
@@ -695,6 +696,7 @@ export interface ReservationDemand {
     mode?: 'percentage' | 'fixed_amount' | null;
     discountPercent?: number | null;
     fixedNightlyAmount?: number | null;
+    minimumNights?: number | null;
   } | null;
   selected_fixed_services?: ServicePayantBien[];
   selected_variable_services?: ServicePayantBien[];

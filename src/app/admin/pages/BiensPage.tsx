@@ -583,6 +583,7 @@ const buildDefaultFlashOffer = (): VenteFlashConfig => ({
   fixed_amount_tnd: null,
   start_date: null,
   end_date: null,
+  minimum_nuitees: 1,
   expiration_hours: 24,
   created_at: new Date().toISOString(),
   expires_at: buildFlashOfferExpiry(24),
@@ -599,6 +600,7 @@ const normalizeFlashOffers = (config?: LocationSaisonniereConfig | null): VenteF
         fixed_amount_tnd: config.vente_flash_montant_tnd ?? null,
         start_date: config.vente_flash_date_debut ?? null,
         end_date: config.vente_flash_date_fin ?? null,
+        minimum_nuitees: 1,
         expiration_hours: 24,
         created_at: new Date().toISOString(),
         expires_at: buildFlashOfferExpiry(24),
@@ -618,6 +620,7 @@ const normalizeFlashOffers = (config?: LocationSaisonniereConfig | null): VenteF
         : null,
       start_date: item?.start_date || null,
       end_date: item?.end_date || null,
+      minimum_nuitees: Math.max(1, Math.floor(Number(item?.minimum_nuitees || 1))),
       expiration_hours: safeHours,
       created_at: createdAt,
       expires_at: expiresAt,
@@ -3803,6 +3806,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         fixed_amount_tnd: nextMode === 'montant_tnd'
           ? (Math.max(1, Number(patch.fixed_amount_tnd ?? offer.fixed_amount_tnd ?? 0)) || null)
           : null,
+        minimum_nuitees: Math.max(1, Math.floor(Number(patch.minimum_nuitees ?? offer.minimum_nuitees ?? 1))),
         expiration_hours: nextHours,
         created_at: shouldResetExpiry ? new Date().toISOString() : offer.created_at,
         expires_at: shouldResetExpiry ? buildFlashOfferExpiry(nextHours) : (offer.expires_at || buildFlashOfferExpiry(nextHours)),
@@ -9153,7 +9157,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                                     </button>
                                   </div>
                                 </div>
-                                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-7">
                                   <div>
                                     <label className="mb-1 block text-xs text-gray-600">Titre affiché</label>
                                     <input
@@ -9213,6 +9217,16 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                                       type="date"
                                       value={offer.end_date || ''}
                                       onChange={(e) => updateFlashOffer(offer.id, { end_date: e.target.value || null })}
+                                      className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs text-gray-600">Minimum nuitÃ©es</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={offer.minimum_nuitees ?? 1}
+                                      onChange={(e) => updateFlashOffer(offer.id, { minimum_nuitees: Math.max(1, Math.floor(Number(e.target.value || 1))) })}
                                       className="block w-full rounded-lg border-gray-300 border p-2 bg-white"
                                     />
                                   </div>

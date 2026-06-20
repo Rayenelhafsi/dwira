@@ -19436,6 +19436,10 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       const mode = String(raw.mode || '').trim() === 'fixed_amount' ? 'fixed_amount' : 'percentage';
       const discountPercent = Number.isFinite(Number(raw.discountPercent)) ? Math.max(0, Math.min(95, Number(raw.discountPercent))) : null;
       const fixedNightlyAmount = Number.isFinite(Number(raw.fixedNightlyAmount)) ? Math.max(0, Number(raw.fixedNightlyAmount)) : null;
+      const minimumNightsRaw = Number(raw.minimumNights ?? raw.minimum_nuitees ?? 1);
+      const minimumNights = Number.isFinite(minimumNightsRaw) && minimumNightsRaw > 0
+        ? Math.max(1, Math.floor(minimumNightsRaw))
+        : 1;
       if (!start || !end || end < start) return null;
       if (mode === 'percentage' && (!discountPercent || discountPercent <= 0)) return null;
       if (mode === 'fixed_amount' && (!fixedNightlyAmount || fixedNightlyAmount <= 0)) return null;
@@ -19446,11 +19450,12 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         mode,
         discountPercent: mode === 'percentage' ? discountPercent : null,
         fixedNightlyAmount: mode === 'fixed_amount' ? Math.round(fixedNightlyAmount * 100) / 100 : null,
+        minimumNights,
       };
     })();
     if (normalizedFlashOffer) {
-      if (String(start_date) !== normalizedFlashOffer.start || String(end_date) !== normalizedFlashOffer.end) {
-        return res.status(400).json({ error: 'La reservation vente flash doit respecter exactement la periode de l offre.' });
+      if (String(start_date) < normalizedFlashOffer.start || String(end_date) > normalizedFlashOffer.end) {
+        return res.status(400).json({ error: 'La reservation vente flash doit rester comprise dans la periode de l offre.' });
       }
     }
     const normalizedFixedServices = Array.isArray(selected_fixed_services) ? selected_fixed_services : [];
@@ -19556,11 +19561,16 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         hasUncoveredNight = true;
       }
     }
-    const requiredMinNights = requiredMinNightsFromPeriods === null
-      ? cfgMinStay
-      : (hasUncoveredNight
-          ? Math.max(cfgMinStay, requiredMinNightsFromPeriods)
-          : requiredMinNightsFromPeriods);
+    const requiredMinNightsFromFlash = normalizedFlashOffer?.minimumNights && Number(normalizedFlashOffer.minimumNights) > 0
+      ? Math.max(1, Math.floor(Number(normalizedFlashOffer.minimumNights)))
+      : null;
+    const requiredMinNights = requiredMinNightsFromFlash !== null
+      ? requiredMinNightsFromFlash
+      : (requiredMinNightsFromPeriods === null
+          ? cfgMinStay
+          : (hasUncoveredNight
+              ? Math.max(cfgMinStay, requiredMinNightsFromPeriods)
+              : requiredMinNightsFromPeriods));
     if (requestType === 'reservation' && requestedNights < requiredMinNights) {
       return res.status(400).json({ error: `Sejour minimum pour cette periode: ${requiredMinNights} nuit(s)` });
     }

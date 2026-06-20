@@ -915,6 +915,7 @@ export default function PropertyDetailsPage() {
   const flashModeParam = String(searchParams.get("flashMode") || "").trim() === "fixed_amount" ? "fixed_amount" : "percentage";
   const flashDiscountParam = Math.max(0, Math.min(95, Number(searchParams.get("flashDiscount") || property?.seasonalConfig?.venteFlashDiscountPercent || 0)));
   const flashAmountParam = Math.max(0, Number(searchParams.get("flashAmount") || property?.seasonalConfig?.venteFlashFixedAmount || 0));
+  const flashMinNightsParam = Math.max(1, Math.floor(Number(searchParams.get("flashMinNights") || 1)));
   const lockedFlashOffer: PropertyFlashOffer | null = flashOfferEnabled
     && isValidDateOnly(flashStartParam)
     && isValidDateOnly(flashEndParam)
@@ -927,6 +928,7 @@ export default function PropertyDetailsPage() {
         mode: flashModeParam,
         discountPercent: flashModeParam === "percentage" && flashDiscountParam > 0 ? flashDiscountParam : null,
         fixedNightlyAmount: flashModeParam === "fixed_amount" && flashAmountParam > 0 ? flashAmountParam : null,
+        minimumNights: flashMinNightsParam,
       }
     : null;
 
@@ -1370,10 +1372,10 @@ out body 40;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
 
-    if (lockedFlashOffer && (startDate !== lockedFlashOffer.start || endDate !== lockedFlashOffer.end)) {
+    if (lockedFlashOffer && (startDate < lockedFlashOffer.start || endDate > lockedFlashOffer.end)) {
       return {
         valid: false,
-        message: `Cette vente flash impose exactement la periode du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`,
+        message: `Cette vente flash permet uniquement une reservation incluse entre le ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`,
       };
     }
 
@@ -1383,7 +1385,7 @@ out body 40;
 
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
     const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
-    const minStayForSelection = skipLockedFlashStayRules ? 1 : getReservationMinStayRequirement({
+    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(lockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
@@ -2549,7 +2551,7 @@ out body 40;
       const nights = Math.max(0, Math.abs(differenceInDays(orderedEnd, orderedStart)));
 
       const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
-      const minStayForSelection = skipLockedFlashStayRules ? 1 : getReservationMinStayRequirement({
+      const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(lockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
@@ -2585,12 +2587,11 @@ out body 40;
   };
 
   const handleBookingDateRangeSelect = useCallback((start: Date | null, end: Date | null) => {
-    if (lockedFlashOffer) return;
     handleDateRangeSelect(start, end);
     if (start && end) {
       setShowBookingCalendarDialog(false);
     }
-  }, [lockedFlashOffer]);
+  }, [handleDateRangeSelect]);
 
   const formatBookingFieldDate = useCallback((value: Date | null) => {
     if (!value) return "jj/mm/aaaa";
@@ -2618,16 +2619,6 @@ out body 40;
     setPaymentMode("amicale");
     setAmicaleSelectionId(linkedAmicale.id);
   }, [amicaleOptions, isSaleProperty, partnerAgencyId, searchParams]);
-
-  useEffect(() => {
-    if (!lockedFlashOffer || draftHydratedRef.current) return;
-    const parsedStart = new Date(`${lockedFlashOffer.start}T00:00:00`);
-    const parsedEnd = new Date(`${lockedFlashOffer.end}T00:00:00`);
-    if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) return;
-    draftHydratedRef.current = true;
-    setSelectedStart(parsedStart);
-    setSelectedEnd(parsedEnd);
-  }, [lockedFlashOffer]);
 
   useEffect(() => {
     if (!property || draftHydratedRef.current) return;
@@ -2874,8 +2865,8 @@ out body 40;
     const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
-    if (lockedFlashOffer && (startDate !== lockedFlashOffer.start || endDate !== lockedFlashOffer.end)) {
-      failRule(`Cette vente flash est reservee uniquement pour la periode du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`);
+    if (lockedFlashOffer && (startDate < lockedFlashOffer.start || endDate > lockedFlashOffer.end)) {
+      failRule(`Cette vente flash accepte uniquement une reservation comprise entre le ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.`);
       return;
     }
     if (startDate === endDate) {
@@ -2884,7 +2875,7 @@ out body 40;
     }
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
     const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
-    const minStayForSelection = skipLockedFlashStayRules ? 1 : getReservationMinStayRequirement({
+    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(lockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
@@ -2933,6 +2924,7 @@ out body 40;
         mode: lockedFlashOffer.mode,
         discountPercent: lockedFlashOffer.discountPercent,
         fixedNightlyAmount: lockedFlashOffer.fixedNightlyAmount,
+        minimumNights: lockedFlashOffer.minimumNights,
       } : null,
       paymentMode,
       partnerAgencyId: partnerAgencyId || undefined,
@@ -4309,14 +4301,14 @@ out body 40;
                 <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700 shadow-[0_12px_28px_rgba(239,68,68,0.08)]">
                   <p className="font-semibold">Vente flash active</p>
                   <p className="mt-1">
-                    Cette offre est verrouillee du {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}
-                    {" "}avec {lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`}.
+                    Cette offre est disponible du {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}
+                    {" "}avec {lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`} et un minimum de {Math.max(1, Number(lockedFlashOffer.minimumNights || 1))} nuit(s).
                   </p>
                 </div>
               ) : null}
               <AvailabilityCalendar
                 unavailableDates={effectiveUnavailableDates || []}
-                onDateRangeSelect={lockedFlashOffer ? () => undefined : handleDateRangeSelect}
+                onDateRangeSelect={handleDateRangeSelect}
                 selectedStart={selectedStart}
                 selectedEnd={selectedEnd}
                 allowedRange={lockedFlashOffer ? { start: lockedFlashOffer.start, end: lockedFlashOffer.end } : null}
@@ -4349,8 +4341,8 @@ out body 40;
 
               {lockedFlashOffer ? (
                 <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700">
-                  <p className="font-semibold">Periode flash verrouillee</p>
-                  <p className="mt-1">Reservation possible uniquement du {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.</p>
+                  <p className="font-semibold">Periode flash flexible</p>
+                  <p className="mt-1">Reservation possible sur toute plage incluse entre le {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}, avec minimum {Math.max(1, Number(lockedFlashOffer.minimumNights || 1))} nuit(s).</p>
                 </div>
               ) : null}
 
@@ -4361,10 +4353,9 @@ out body 40;
                     <button
                       type="button"
                       onClick={() => {
-                        if (!lockedFlashOffer) setShowBookingCalendarDialog(true);
+                        setShowBookingCalendarDialog(true);
                       }}
-                      disabled={Boolean(lockedFlashOffer)}
-                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
                     >
                       <span className={`truncate ${selectedStart ? "text-gray-900" : "text-gray-500"}`}>
                         {formatBookingFieldDate(selectedStart)}
@@ -4377,10 +4368,9 @@ out body 40;
                     <button
                       type="button"
                       onClick={() => {
-                        if (!lockedFlashOffer) setShowBookingCalendarDialog(true);
+                        setShowBookingCalendarDialog(true);
                       }}
-                      disabled={Boolean(lockedFlashOffer)}
-                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-3 text-left text-sm transition-colors hover:border-emerald-300 hover:bg-gray-50"
                     >
                       <span className={`truncate ${selectedEnd ? "text-gray-900" : "text-gray-500"}`}>
                         {formatBookingFieldDate(selectedEnd)}
@@ -4882,7 +4872,7 @@ out body 40;
             {!isSaleProperty && (
               <p className="mb-2 text-xs text-emerald-700 sm:mb-3 sm:text-sm">
                 {lockedFlashOffer
-                  ? `Periode flash verrouillee du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")} avec ${lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`}.`
+                  ? `Periode flash flexible du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")} avec ${lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`} et minimum ${Math.max(1, Number(lockedFlashOffer.minimumNights || 1))} nuit(s).`
                   : selectedStart
                   ? `Duree autorisee pour la periode ${activeStayRuleLabel || 'selectionnee'}: minimum ${displayedMinStay} nuit(s), maximum ${maxStay} nuit(s).`
                   : 'Selectionnez une date de sejour pour que vous puissiez voir le minimum de nuitees pour la periode.'}

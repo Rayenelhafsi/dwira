@@ -22,6 +22,7 @@ export type PendingReservationDraft = {
     mode?: "percentage" | "fixed_amount" | null;
     discountPercent?: number | null;
     fixedNightlyAmount?: number | null;
+    minimumNights?: number | null;
   } | null;
   paymentMode?: "totalite" | "avance" | "amicale";
   partnerAgencyId?: string;

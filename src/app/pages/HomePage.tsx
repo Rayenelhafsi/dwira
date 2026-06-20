@@ -3471,6 +3471,7 @@ export default function HomePage({
         flashParams.set("flashStart", flashOffer.start);
         flashParams.set("flashEnd", flashOffer.end);
         flashParams.set("flashMode", flashOffer.mode);
+        flashParams.set("flashMinNights", String(Math.max(1, Number(flashOffer.minimumNights || 1))));
         if (flashOffer.discountPercent !== null && flashOffer.discountPercent !== undefined) {
           flashParams.set("flashDiscount", String(flashOffer.discountPercent));
         }

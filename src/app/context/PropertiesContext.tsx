@@ -746,6 +746,9 @@ function bienToProperty(bien: Bien, zonesById: Record<string, Zone> = {}): Prope
             fixedNightlyAmount: item?.fixed_amount_tnd ?? null,
             start: String(item?.start_date || '').trim() || null,
             end: String(item?.end_date || '').trim() || null,
+            minimumNights: item?.minimum_nuitees === null || item?.minimum_nuitees === undefined
+              ? 1
+              : Math.max(1, Math.floor(Number(item.minimum_nuitees || 0))),
             expirationHours: item?.expiration_hours ?? null,
             createdAt: String(item?.created_at || '').trim() || null,
             expiresAt: String(item?.expires_at || '').trim() || null,
