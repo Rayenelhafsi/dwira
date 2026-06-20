@@ -29,7 +29,6 @@ import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, applySitepAccommodationRule, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
-import { resolvePublicPartnerBySlug } from "../utils/publicPartnerResolver";
 import { getFlashNightlyAmount, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
 import { aggregateUnavailableDatesByUnitCalendars, normalizeUnavailableDateRanges } from "../utils/availability";
 import {
@@ -1014,15 +1013,24 @@ export default function PropertyDetailsPage() {
     }
     void (async () => {
       try {
-        const match = await resolvePublicPartnerBySlug(publicPartnerSlug);
+        const [{ fetchAmicalesPublic, findAmicaleBySlug }, { fetchPartnerAgenciesPublic, findPartnerAgencyBySlug }] = await Promise.all([
+          import("../utils/amicales"),
+          import("../utils/partnerAgencies"),
+        ]);
+        const [amicales, partnerAgencies] = await Promise.all([
+          fetchAmicalesPublic().catch(() => []),
+          fetchPartnerAgenciesPublic().catch(() => []),
+        ]);
+        const amicaleMatch = findAmicaleBySlug(publicPartnerSlug, amicales);
+        const partnerAgencyMatch = amicaleMatch ? null : findPartnerAgencyBySlug(publicPartnerSlug, partnerAgencies);
         if (cancelled) return;
-        if (match?.kind === "partner_agency") {
+        if (partnerAgencyMatch) {
           setResolvedPublicPricingAmicaleId(null);
-          setResolvedPublicPartnerAgencyId(String(match.item.id || "").trim() || null);
-          setResolvedPublicPartnerAgencyMarginMultiplier(Number(match.item.marginMultiplier || 0) || null);
+          setResolvedPublicPartnerAgencyId(String(partnerAgencyMatch.id || "").trim() || null);
+          setResolvedPublicPartnerAgencyMarginMultiplier(Number(partnerAgencyMatch.marginMultiplier || 0) || null);
           return;
         }
-        setResolvedPublicPricingAmicaleId(match?.kind === "amicale" ? (String(match.item.id || "").trim() || null) : null);
+        setResolvedPublicPricingAmicaleId(amicaleMatch ? (String(amicaleMatch.id || "").trim() || null) : null);
         setResolvedPublicPartnerAgencyId(null);
         setResolvedPublicPartnerAgencyMarginMultiplier(null);
       } catch {
