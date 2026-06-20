@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -78,6 +78,13 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     if (onClose) {
       onClose();
     }
+  };
+
+  const handleNavigate = (path: string) => {
+    if (location.pathname !== path) {
+      navigate(path);
+    }
+    handleNavClick();
   };
 
   const handleNavIntent = (path: string) => {
@@ -204,10 +211,10 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
 
       <nav className="flex-1 space-y-1 px-3 py-6">
         {navItems.map((item) => (
-          <Link
+          <button
             key={item.path}
-            to={item.path}
-            onClick={handleNavClick}
+            type="button"
+            onClick={() => handleNavigate(item.path)}
             onMouseEnter={() => handleNavIntent(item.path)}
             onFocus={() => handleNavIntent(item.path)}
             onTouchStart={() => handleNavIntent(item.path)}
@@ -215,7 +222,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
               isActive(item.path)
                 ? 'bg-emerald-800 text-white shadow-sm'
                 : 'text-emerald-100/70 hover:bg-emerald-900 hover:text-white'
-            }`}
+            } w-full text-left`}
           >
             <item.icon size={18} />
             <span className="min-w-0 flex-1 truncate">{item.name}</span>
@@ -224,7 +231,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
                 {item.badgeCount! > 99 ? '99+' : item.badgeCount}
               </span>
             )}
-          </Link>
+          </button>
         ))}
       </nav>
 

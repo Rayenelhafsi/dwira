@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, MapPin, Home, Layers, Banknote, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, Calendar as CalendarIcon, Image as ImageIcon, Bed, Bath, Maximize, Sofa, ArrowLeft, Trash, Save, GripVertical, Upload, AlertCircle, Copy, Flame, Folder, FolderOpen, FolderPlus, CheckSquare, Square, ArrowRightLeft, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link, useLocation, useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { mockZones } from '../data/mockData';
 import { Bien, BienStatut, Media, DateStatus, BienType, BienMode, Zone, Proprietaire, Caracteristique, TypeRueAppartementVente, TypePapierAppartementVente, TypeTerrainVente, TarificationMethodeVente, ModalitePaiementVente, ModeAffichagePrixTerrain, ModePrixLotissement, BienUiConfig, LocationSaisonniereConfig, SeasonalPricingPeriod, ServicePayantBien, VenteFlashConfig, BienFolder } from '../types';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -1080,8 +1080,9 @@ export default function BiensPage() {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
 
-  const ownerNameById = new Map(
-    proprietaireOptions.map((owner) => [String(owner.id || '').trim(), String(owner.nom || '').trim()])
+  const ownerNameById = useMemo(
+    () => new Map(proprietaireOptions.map((owner) => [String(owner.id || '').trim(), String(owner.nom || '').trim()])),
+    [proprietaireOptions]
   );
 
   const foldersByParentId = useMemo(() => {
@@ -1104,24 +1105,26 @@ export default function BiensPage() {
     });
     return next;
   }, [bienFolders]);
-  const filteredBiens = biens.filter((bien) => {
+  const filteredBiens = useMemo(() => {
     const query = normalizeSearchValue(searchTerm);
-    const ownerName = normalizeSearchValue(
-      ownerNameById.get(String(bien.proprietaire_id || '').trim()) || String((bien as any).proprietaire_nom || '')
-    );
-    const mobileName = normalizeSearchValue(bien.nom_bien_mobile || '');
-    const title = normalizeSearchValue(bien.titre || '');
-    const reference = normalizeSearchValue(bien.reference || '');
-    const matchesQuery =
-      !query ||
-      title.includes(query) ||
-      reference.includes(query) ||
-      mobileName.includes(query) ||
-      ownerName.includes(query);
-    const matchesStatus = statusFilter === 'all' || bien.statut === statusFilter;
-    const matchesMode = modeFilter === 'all' || bien.mode === modeFilter;
-    return matchesQuery && matchesStatus && matchesMode;
-  });
+    return biens.filter((bien) => {
+      const ownerName = normalizeSearchValue(
+        ownerNameById.get(String(bien.proprietaire_id || '').trim()) || String((bien as any).proprietaire_nom || '')
+      );
+      const mobileName = normalizeSearchValue(bien.nom_bien_mobile || '');
+      const title = normalizeSearchValue(bien.titre || '');
+      const reference = normalizeSearchValue(bien.reference || '');
+      const matchesQuery =
+        !query ||
+        title.includes(query) ||
+        reference.includes(query) ||
+        mobileName.includes(query) ||
+        ownerName.includes(query);
+      const matchesStatus = statusFilter === 'all' || bien.statut === statusFilter;
+      const matchesMode = modeFilter === 'all' || bien.mode === modeFilter;
+      return matchesQuery && matchesStatus && matchesMode;
+    });
+  }, [biens, modeFilter, ownerNameById, searchTerm, statusFilter]);
   const filteredFolderCountById = useMemo(() => {
     const next = new Map<string, number>();
     filteredBiens.forEach((bien) => {
@@ -1130,10 +1133,14 @@ export default function BiensPage() {
     });
     return next;
   }, [filteredBiens]);
-  const displayedBiens = filteredBiens.filter((bien) => {
-    const bienFolderId = String(bien.folder_id || '').trim() || 'root';
-    return bienFolderId === selectedFolderId;
-  });
+  const displayedBiens = useMemo(
+    () =>
+      filteredBiens.filter((bien) => {
+        const bienFolderId = String(bien.folder_id || '').trim() || 'root';
+        return bienFolderId === selectedFolderId;
+      }),
+    [filteredBiens, selectedFolderId]
+  );
   const selectedBienIdSet = useMemo(() => new Set(selectedBienIds), [selectedBienIds]);
   const allDisplayedSelected = displayedBiens.length > 0 && displayedBiens.every((bien) => selectedBienIdSet.has(String(bien.id || '').trim()));
 
@@ -1149,7 +1156,13 @@ export default function BiensPage() {
 
   useEffect(() => {
     const visibleBienIds = new Set(displayedBiens.map((bien) => String(bien.id || '').trim()).filter(Boolean));
-    setSelectedBienIds((prev) => prev.filter((id) => visibleBienIds.has(id)));
+    setSelectedBienIds((prev) => {
+      const next = prev.filter((id) => visibleBienIds.has(id));
+      if (next.length === prev.length && next.every((id, index) => id === prev[index])) {
+        return prev;
+      }
+      return next;
+    });
   }, [displayedBiens]);
   const modeTabs: Array<{ value: BienMode | 'all'; label: string }> = [
     { value: 'all', label: 'Tous les biens' },
@@ -1852,7 +1865,13 @@ export default function BiensPage() {
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <button onClick={() => { setDuplicateSeedBien(null); setEditingBien(null); setEditorInitialStep(1); setEditorInitialTab('general'); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau Bien</button>
           <button onClick={() => { setDuplicateSeedBien({ mode: 'location_saisonniere', type: 'residence', residence_units: [], statut: 'disponible', visible_sur_site: true } as Bien); setEditingBien(null); setEditorInitialStep(0); setEditorInitialTab('general'); setIsAddOpen(true); }} className="inline-flex items-center justify-center px-4 py-2 border border-emerald-600 text-emerald-700 text-sm font-medium rounded-md hover:bg-emerald-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Nouveau residence</button>
-          <Link to="/admin/packs" className="inline-flex items-center justify-center px-4 py-2 border border-amber-400 text-amber-800 text-sm font-medium rounded-md hover:bg-amber-50 w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Packs</Link>
+          <button
+            type="button"
+            onClick={() => navigate('/admin/packs')}
+            className="inline-flex items-center justify-center px-4 py-2 border border-amber-400 text-amber-800 text-sm font-medium rounded-md hover:bg-amber-50 w-full sm:w-auto"
+          >
+            <Plus className="mr-2 h-4 w-4" /> Packs
+          </button>
         </div>
       </div>
       {pageTab === 'biens' && (

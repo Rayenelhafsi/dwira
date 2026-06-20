@@ -1,6 +1,7 @@
 const adminRoutePreloaders: Record<string, () => Promise<unknown>> = {
   "/admin": () => import("../pages/DashboardHome"),
   "/admin/biens": () => import("../pages/BiensPage"),
+  "/admin/packs": () => import("../pages/PropertyPacksAdminPage"),
   "/admin/clienteles": () => import("../pages/LocatairesPage"),
   "/admin/locataires": () => import("../pages/LocatairesPage"),
   "/admin/agences-partenaires": () => import("../pages/PartnerAgenciesPage"),
@@ -36,6 +37,7 @@ export function preloadImportantAdminRoutes() {
   [
     "/admin",
     "/admin/biens",
+    "/admin/packs",
     "/admin/clienteles",
     "/admin/notifications",
     "/admin/contrats",
