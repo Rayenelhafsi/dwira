@@ -810,37 +810,6 @@ export default function PropertyDetailsPage() {
       cancelled = true;
     };
   }, [facebookEmbedUnavailableByUrl, propertyVideos]);
-  useEffect(() => {
-    if (residenceSubtypeBienIds.length === 0) {
-      setLiveUnavailableDates(null);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const calendars = await Promise.all(
-          residenceSubtypeBienIds.map(async (bienId) => {
-            const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
-            if (!response.ok) return null;
-            const rows = (await response.json().catch(() => [])) as UnavailableDateRow[];
-            return normalizeUnavailableDateRanges(Array.isArray(rows) ? rows : []);
-          })
-        );
-        if (!cancelled) {
-          const normalizedCalendars = calendars.filter((rows): rows is ReturnType<typeof normalizeUnavailableDateRanges> => Array.isArray(rows));
-          const mergedUnavailableDates = residenceSubtypeBienIds.length > 1
-            ? aggregateUnavailableDatesByUnitCalendars(normalizedCalendars)
-            : (normalizedCalendars[0] || []);
-          setLiveUnavailableDates(mergedUnavailableDates);
-        }
-      } catch {
-        // Keep context values as fallback.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [residenceSubtypeBienIds]);
   const allGalleryImages = property?.images || [];
   const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>([GALLERY_FALLBACK_IMAGE]);
   const [galleryAvailabilityChecked, setGalleryAvailabilityChecked] = useState(false);
@@ -1126,6 +1095,37 @@ export default function PropertyDetailsPage() {
     ),
     [residenceSubtypeBiens]
   );
+  useEffect(() => {
+    if (residenceSubtypeBienIds.length === 0) {
+      setLiveUnavailableDates(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const calendars = await Promise.all(
+          residenceSubtypeBienIds.map(async (bienId) => {
+            const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
+            if (!response.ok) return null;
+            const rows = (await response.json().catch(() => [])) as UnavailableDateRow[];
+            return normalizeUnavailableDateRanges(Array.isArray(rows) ? rows : []);
+          })
+        );
+        if (!cancelled) {
+          const normalizedCalendars = calendars.filter((rows): rows is ReturnType<typeof normalizeUnavailableDateRanges> => Array.isArray(rows));
+          const mergedUnavailableDates = residenceSubtypeBienIds.length > 1
+            ? aggregateUnavailableDatesByUnitCalendars(normalizedCalendars)
+            : (normalizedCalendars[0] || []);
+          setLiveUnavailableDates(mergedUnavailableDates);
+        }
+      } catch {
+        // Keep context values as fallback.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [residenceSubtypeBienIds]);
   const selectedZone = useMemo(
     () => zones.find((item) => item.id === sourceBien?.zone_id),
     [sourceBien?.zone_id, zones]
