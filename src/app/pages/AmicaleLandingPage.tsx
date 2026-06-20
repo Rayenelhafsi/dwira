@@ -22,11 +22,17 @@ export default function AmicaleLandingPage() {
           setResolution(match);
           if (match) {
             const next = new URLSearchParams(window.location.search);
-            next.delete("amicale");
-            next.delete("partner");
-            next.delete("partnerMargin");
-            if (next.get("mode") === "location_saisonniere") {
-              next.delete("mode");
+            if (match.kind === "amicale") {
+              next.set("amicale", match.item.id);
+              next.delete("partner");
+              next.delete("partnerMargin");
+            } else {
+              next.set("partner", match.item.id);
+              next.set("partnerMargin", String(match.item.marginMultiplier));
+              next.delete("amicale");
+            }
+            if (!next.get("mode")) {
+              next.set("mode", "location_saisonniere");
             }
             if (next.toString() !== window.location.search.replace(/^\?/, "")) {
               setSearchParams(next, { replace: true });

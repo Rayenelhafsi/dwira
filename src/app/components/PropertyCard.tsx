@@ -124,12 +124,6 @@ export function PropertyCard({
       : rawDetailPath;
   const compactSearchParams = useMemo(() => {
     const params = new URLSearchParams(String(searchParams || ""));
-    params.delete("amicale");
-    params.delete("partner");
-    params.delete("partnerMargin");
-    if (params.get("mode") === "location_saisonniere") {
-      params.delete("mode");
-    }
     return params.toString();
   }, [searchParams]);
   const publicPartnerDetailPath = useMemo(() => {
