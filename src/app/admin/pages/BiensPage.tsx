@@ -282,7 +282,12 @@ const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens
 };
 const normalizeBienForEditor = (bien?: Partial<Bien> | null, allBiens: Partial<Bien>[] = []): Partial<Bien> | null => {
   if (!bien) return null;
-  if (!isResidenceParentBien(bien)) return bien;
+  if (!isResidenceParentBien(bien)) {
+    return {
+      ...bien,
+      configuration: String(bien.configuration || bien.residence_unit_sub_type || '').trim() || null,
+    };
+  }
   const existingUnits = Array.isArray(bien.residence_units) ? bien.residence_units : [];
   const reconstructedUnits = existingUnits.length > 0 ? existingUnits : buildResidenceUnitsFromChildren(bien, allBiens);
   return {
@@ -3255,7 +3260,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
 
   useEffect(() => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
-    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const selectedTypeBase = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const selectedType = selectedMode === 'location_saisonniere' && selectedTypeBase === 'residence'
+      ? activeResidenceMainType
+      : selectedTypeBase;
     const isImmeubleModeType = selectedMode === 'vente' && selectedType === 'immeuble';
     const isLotissementModeType = selectedMode === 'vente' && selectedType === 'lotissement';
     const visibleKeys = (Object.keys(UI_SECTION_FEATURE_TAB_DEFINITIONS) as Array<keyof BienUiConfig>)
@@ -3268,7 +3276,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       });
     if (visibleKeys.length === 0) return;
     void ensureFeatureTabsForCurrentContext(visibleKeys);
-  }, [formData.mode, formData.type, formData.ui_config]);
+  }, [activeResidenceMainType, formData.mode, formData.type, formData.ui_config]);
 
   useEffect(() => {
     const targetCount = Math.max(0, Math.floor(Number(formData.immeuble_nb_appartements || 0)));
@@ -6974,7 +6982,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
 
   const ensureFeatureTabsForCurrentContext = async (keys: Array<keyof BienUiConfig>) => {
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
-    const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const selectedTypeBase = normalizeLegacyType((formData.type || 'appartement') as BienType);
+    const selectedType = selectedMode === 'location_saisonniere' && selectedTypeBase === 'residence'
+      ? activeResidenceMainType
+      : selectedTypeBase;
     const definitions = keys
       .map((key) => UI_SECTION_FEATURE_TAB_DEFINITIONS[key])
       .filter((definition): definition is { label: string; ordre: number } => Boolean(definition));
