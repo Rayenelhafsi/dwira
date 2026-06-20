@@ -3389,55 +3389,57 @@ export default function HomePage({
       }
     }
 
+    const demandPayload = {
+      hotelId: hotelReserveModal.hotel.Id,
+      hotelName: hotelReserveModal.hotel.Name,
+      hotelCityId: hotelReserveModal.hotel.City?.Id || null,
+      hotelCityName: hotelReserveModal.hotel.City?.Name || null,
+      hotelImageUrl: String(hotelReserveModal.hotel.Image || "").trim() || null,
+      checkIn: hotelCheckIn,
+      checkOut: hotelCheckOut,
+      adults: hotelReserveModal.adults,
+      childAges: hotelReserveModal.childAges,
+      boardingId: hotelReserveModal.rooms[0]?.boardingId || null,
+      boardingName: hotelReserveModal.rooms[0]?.boardingName || null,
+      roomId: hotelReserveModal.rooms[0]?.roomId || null,
+      roomName: hotelReserveModal.rooms[0]?.roomName || null,
+      totalPrice: hotelReserveModal.totalPrice,
+      currency: "TND" as const,
+      clientPhone: phone,
+      clientNote: String(hotelReserveModal.note || "").trim() || null,
+      paymentMode: isAmicaleHotelFlow ? "amicale" as const : "avance" as const,
+      pricingAmicaleId: isAmicaleHotelFlow ? hotelReserveModal.amicaleSelectionId : null,
+      amicaleName: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleFullName || "").trim() : null,
+      amicaleMatricule: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleMatricule || "").trim() : null,
+      amicalePhone: isAmicaleHotelFlow ? String(hotelReserveModal.amicalePhone || "").trim() : null,
+      amicaleCode: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleCode || "").trim() : null,
+      hotelContext: {
+        source: "homepage_card",
+        publicPartnerSlug: publicPartnerSlug || null,
+        amicaleId: activeAmicaleId,
+        rooms: hotelReserveModal.rooms.map((room, index) => ({
+          ...room,
+          index,
+        })),
+        roomCount: hotelReserveModal.rooms.length,
+        travellers: {
+          adults: hotelReserveModal.travellers.adults.map((adult) => ({
+            firstName: String(adult.firstName || "").trim(),
+            lastName: String(adult.lastName || "").trim(),
+          })),
+          children: hotelReserveModal.travellers.children.map((child, index) => ({
+            firstName: String(child.firstName || "").trim(),
+            lastName: String(child.lastName || "").trim(),
+            age: Number(hotelReserveModal.childAges[index] ?? 0),
+          })),
+        },
+      },
+    };
+
     setSubmittingHotelReserve(true);
     try {
       const { createHotelReservationDemand } = await loadHotelsService();
-      const created = await createHotelReservationDemand({
-        hotelId: hotelReserveModal.hotel.Id,
-        hotelName: hotelReserveModal.hotel.Name,
-        hotelCityId: hotelReserveModal.hotel.City?.Id || null,
-        hotelCityName: hotelReserveModal.hotel.City?.Name || null,
-        hotelImageUrl: String(hotelReserveModal.hotel.Image || "").trim() || null,
-        checkIn: hotelCheckIn,
-        checkOut: hotelCheckOut,
-        adults: hotelReserveModal.adults,
-        childAges: hotelReserveModal.childAges,
-        boardingId: hotelReserveModal.rooms[0]?.boardingId || null,
-        boardingName: hotelReserveModal.rooms[0]?.boardingName || null,
-        roomId: hotelReserveModal.rooms[0]?.roomId || null,
-        roomName: hotelReserveModal.rooms[0]?.roomName || null,
-        totalPrice: hotelReserveModal.totalPrice,
-        currency: "TND",
-        clientPhone: phone,
-        clientNote: String(hotelReserveModal.note || "").trim() || null,
-        paymentMode: isAmicaleHotelFlow ? "amicale" : "avance",
-        pricingAmicaleId: isAmicaleHotelFlow ? hotelReserveModal.amicaleSelectionId : null,
-        amicaleName: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleFullName || "").trim() : null,
-        amicaleMatricule: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleMatricule || "").trim() : null,
-        amicalePhone: isAmicaleHotelFlow ? String(hotelReserveModal.amicalePhone || "").trim() : null,
-        amicaleCode: isAmicaleHotelFlow ? String(hotelReserveModal.amicaleCode || "").trim() : null,
-        hotelContext: {
-          source: "homepage_card",
-          publicPartnerSlug: publicPartnerSlug || null,
-          amicaleId: activeAmicaleId,
-          rooms: hotelReserveModal.rooms.map((room, index) => ({
-            ...room,
-            index,
-          })),
-          roomCount: hotelReserveModal.rooms.length,
-          travellers: {
-            adults: hotelReserveModal.travellers.adults.map((adult) => ({
-              firstName: String(adult.firstName || "").trim(),
-              lastName: String(adult.lastName || "").trim(),
-            })),
-            children: hotelReserveModal.travellers.children.map((child, index) => ({
-              firstName: String(child.firstName || "").trim(),
-              lastName: String(child.lastName || "").trim(),
-              age: Number(hotelReserveModal.childAges[index] ?? 0),
-            })),
-          },
-        },
-      });
+      const created = await createHotelReservationDemand(demandPayload);
       setHotelReserveModal(null);
       clearPendingHomeHotelReserve();
       if (isAmicaleHotelFlow) {
@@ -3449,6 +3451,24 @@ export default function HomePage({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible de creer la demande hotel.";
       if (!isAmicaleHotelFlow && /401|auth|connect|session|acces refuse|forbidden/i.test(message)) {
+        try {
+          const { getSessionUser } = await loadAuthService();
+          const restoredUser = await getSessionUser();
+          if (restoredUser?.email) {
+            applyLoggedUser(restoredUser);
+            if (!restoredUser.profileCompleted) {
+              openProfileSetupStep(restoredUser);
+              return;
+            }
+            const { createHotelReservationDemand } = await loadHotelsService();
+            const created = await createHotelReservationDemand(demandPayload);
+            setHotelReserveModal(null);
+            clearPendingHomeHotelReserve();
+            toast.success("Demande créée. Passez maintenant au paiement.");
+            navigate(`/mes-reservations/hotels/${encodeURIComponent(created.id)}/paiement`);
+            return;
+          }
+        } catch {}
         savePendingHomeHotelReserve({
           hotel: hotelReserveModal.hotel,
           adults: hotelReserveModal.adults,
