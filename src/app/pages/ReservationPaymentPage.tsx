@@ -9,6 +9,7 @@ import { trackMetaEvent } from "../utils/metaConversions";
 import CenterStatusPopup from "../components/CenterStatusPopup";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
+const CARD_PAYMENT_COMING_SOON_LABEL = "methode Arrive dans quelques jours";
 
 type PaymentScope = "reservation" | "services" | "combined";
 type PaymentMethod = "carte" | "virement";
@@ -643,14 +644,11 @@ export default function ReservationPaymentPage() {
                     <div className="mt-6 flex justify-center">
                       <button
                         type="button"
-                        disabled={!clickToPayScope || !!startingClickToPayScope || confirmingClickToPay}
-                        onClick={() => {
-                          if (clickToPayScope) void handleStartClickToPay(clickToPayScope);
-                        }}
+                        disabled
                         className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-emerald-800 shadow-lg shadow-emerald-950/10 transition hover:-translate-y-0.5 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:min-w-[260px]"
                       >
                         <CreditCard className="h-4 w-4" />
-                        {startingClickToPayScope ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
+                        {CARD_PAYMENT_COMING_SOON_LABEL}
                       </button>
                     </div>
                   </div>
@@ -759,14 +757,11 @@ export default function ReservationPaymentPage() {
                 <div className="mt-4">
                   <button
                     type="button"
-                    disabled={!clickToPayScope || !!startingClickToPayScope || confirmingClickToPay}
-                    onClick={() => {
-                      if (clickToPayScope) void handleStartClickToPay(clickToPayScope);
-                    }}
+                    disabled
                     className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     <CreditCard className="h-4 w-4" />
-                    {startingClickToPayScope ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
+                    {CARD_PAYMENT_COMING_SOON_LABEL}
                   </button>
                 </div>
               </div>

@@ -27683,26 +27683,36 @@ app.post('/api/meta/conversions', metaCapiRateLimit, async (req, res) => {
       resolvedFbLoginId = String(rows?.[0]?.provider_user_id || '').trim();
     }
 
-    const result = await sendMetaConversionEvent({
-      req,
-      eventName,
-      eventId,
-      eventSourceUrl,
-      actionSource,
-      userData: {
-        email: userDataInput?.email || null,
-        phone: userDataInput?.phone || null,
-        externalId: userDataInput?.external_id || userDataInput?.externalId || null,
-        firstName: userDataInput?.first_name || userDataInput?.firstName || null,
-        lastName: userDataInput?.last_name || userDataInput?.lastName || null,
-        fbLoginId: resolvedFbLoginId || null,
-        fbp: userDataInput?.fbp || null,
-        fbc: userDataInput?.fbc || null,
-      },
-      customData,
-    });
+    try {
+      const result = await sendMetaConversionEvent({
+        req,
+        eventName,
+        eventId,
+        eventSourceUrl,
+        actionSource,
+        userData: {
+          email: userDataInput?.email || null,
+          phone: userDataInput?.phone || null,
+          externalId: userDataInput?.external_id || userDataInput?.externalId || null,
+          firstName: userDataInput?.first_name || userDataInput?.firstName || null,
+          lastName: userDataInput?.last_name || userDataInput?.lastName || null,
+          fbLoginId: resolvedFbLoginId || null,
+          fbp: userDataInput?.fbp || null,
+          fbc: userDataInput?.fbc || null,
+        },
+        customData,
+      });
 
-    return res.status(202).json({ ok: true, ...result });
+      return res.status(202).json({ ok: true, ...result });
+    } catch (sendError) {
+      console.warn('Meta conversions non-blocking error:', sendError?.message || sendError);
+      return res.status(202).json({
+        ok: false,
+        skipped: true,
+        reason: 'meta_capi_unreachable',
+        error: String(sendError?.message || sendError || 'meta_capi_unreachable'),
+      });
+    }
   } catch (error) {
     console.error('Meta conversions endpoint error:', error);
     return res.status(500).json({ error: 'meta_capi_send_failed' });
@@ -28936,6 +28946,38 @@ function formatMonthLabel(monthKey) {
   return new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' }).format(date);
 }
 
+function getBucketRangeBounds(bucketKey, granularity) {
+  if (granularity === 'month') {
+    const [year, month] = String(bucketKey || '').split('-').map((value) => Number(value));
+    if (!Number.isFinite(year) || !Number.isFinite(month)) {
+      return { start: String(bucketKey || '').slice(0, 10), end: String(bucketKey || '').slice(0, 10) };
+    }
+    const start = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+      start,
+      end: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }
+  if (granularity === 'week') {
+    return {
+      start: bucketKey,
+      end: addDaysToDateOnly(bucketKey, 6),
+    };
+  }
+  return { start: bucketKey, end: bucketKey };
+}
+
+function getBucketDayCountWithinRange(bucketKey, granularity, range) {
+  const bucketRange = getBucketRangeBounds(bucketKey, granularity);
+  return getDateOverlapDays({
+    startDate: bucketRange.start,
+    endDate: addDaysToDateOnly(bucketRange.end, 1),
+    rangeStart: range.dateFrom,
+    rangeEndInclusive: range.dateTo,
+  });
+}
+
 async function buildStatsPreparedRows({ range, propertyId = null }) {
   const rows = await fetchStatsInteractionRows({ range, propertyId });
   const demandIds = new Set();
@@ -29005,6 +29047,258 @@ async function fetchStatsPropertyMeta(bienIds) {
     });
   });
   return byBienId;
+}
+
+function parseMapsLatLng(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return null;
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    decoded = value;
+  }
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /!2d(-?\d+(?:\.\d+)?)!3d(-?\d+(?:\.\d+)?)/i,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
+    /[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+    /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = decoded.match(pattern);
+    if (!match) continue;
+    const isLngLatPattern = pattern.source.startsWith('!2d');
+    const lat = Number(isLngLatPattern ? match[2] : match[1]);
+    const lng = Number(isLngLatPattern ? match[1] : match[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
+  }
+  return null;
+}
+
+function extractPropertyMapsUrl(rawConfig) {
+  const config = safeParseJson(rawConfig, {});
+  if (!config || typeof config !== 'object') return '';
+  return String(config.google_maps_embed_url || config.google_maps_url || config.maps_url || '').trim();
+}
+
+function listRangeDates(dateFrom, dateTo) {
+  const dates = [];
+  let cursor = String(dateFrom || '').slice(0, 10);
+  const end = String(dateTo || '').slice(0, 10);
+  while (cursor && cursor <= end) {
+    dates.push(cursor);
+    cursor = addDaysToDateOnly(cursor, 1);
+  }
+  return dates;
+}
+
+function createAvailabilityDayEntry(date) {
+  return {
+    date,
+    unavailablePropertyIds: new Set(),
+    blockedPropertyIds: new Set(),
+    bookedPropertyIds: new Set(),
+    pendingPropertyIds: new Set(),
+    visits: 0,
+  };
+}
+
+function getDateRangeIntersection(startDate, endDate, rangeStart, rangeEndInclusive) {
+  const normalizedStart = String(startDate || '').slice(0, 10);
+  if (!normalizedStart) return null;
+  const rawEnd = String(endDate || '').slice(0, 10);
+  const normalizedEnd = rawEnd && rawEnd > normalizedStart ? rawEnd : addDaysToDateOnly(normalizedStart, 1);
+  const start = normalizedStart < rangeStart ? rangeStart : normalizedStart;
+  const end = normalizedEnd > rangeEndInclusive ? rangeEndInclusive : normalizedEnd;
+  if (!start || !end || end < start) return null;
+  return { start, end };
+}
+
+function buildDeterministicCoordinateJitter(baseCoords, seedKey) {
+  if (!baseCoords || !Number.isFinite(Number(baseCoords.lat)) || !Number.isFinite(Number(baseCoords.lng))) return null;
+  const seed = String(seedKey || '').trim();
+  if (!seed) return { lat: Number(baseCoords.lat), lng: Number(baseCoords.lng) };
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = ((hash << 5) - hash) + seed.charCodeAt(index);
+    hash |= 0;
+  }
+  const angle = Math.abs(hash % 360) * (Math.PI / 180);
+  const radius = 0.004 + (Math.abs(hash % 7) * 0.00045);
+  const lat = Number(baseCoords.lat) + (Math.sin(angle) * radius);
+  const lng = Number(baseCoords.lng) + (Math.cos(angle) * radius);
+  return { lat, lng };
+}
+
+function isValidMapCoordinatePair(lat, lng) {
+  return (
+    typeof lat === 'number'
+    && typeof lng === 'number'
+    && Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && lat >= -90
+    && lat <= 90
+    && lng >= -180
+    && lng <= 180
+  );
+}
+
+function getStatsTypeLabel(typeKey) {
+  const raw = String(typeKey || '').trim().toLowerCase();
+  const labels = {
+    appartement: 'Appartement',
+    residence: 'Residence',
+    villa_maison: 'Villa / maison',
+    studio: 'Studio',
+    immeuble: 'Immeuble',
+    terrain: 'Terrain',
+    lotissement: 'Lotissement',
+    local_commercial: 'Local commercial',
+    bungalow: 'Bungalow',
+    s1: 'S+1',
+    s2: 'S+2',
+    s3: 'S+3',
+    s4: 'S+4',
+    villa: 'Villa',
+    local: 'Local',
+  };
+  return labels[raw] || (raw ? raw.replace(/_/g, ' ') : 'Autre');
+}
+
+function getStatsSubtypeLabel(subTypeKey, fallbackTypeKey = '') {
+  const raw = String(subTypeKey || '').trim();
+  if (!raw) return getStatsTypeLabel(fallbackTypeKey);
+  return raw;
+}
+
+function getRangeInclusiveDayCount(dateFrom, dateTo) {
+  const start = new Date(`${String(dateFrom || '').slice(0, 10)}T00:00:00`);
+  const endExclusive = new Date(`${addDaysToDateOnly(String(dateTo || '').slice(0, 10), 1)}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(endExclusive.getTime()) || endExclusive <= start) return 0;
+  return Math.max(0, Math.round((endExclusive.getTime() - start.getTime()) / 86400000));
+}
+
+function getDateOverlapDays({ startDate, endDate, rangeStart, rangeEndInclusive }) {
+  const itemStart = new Date(`${String(startDate || '').slice(0, 10)}T00:00:00`);
+  const rawItemEnd = String(endDate || '').slice(0, 10);
+  const normalizedItemEnd = rawItemEnd && rawItemEnd > String(startDate || '').slice(0, 10)
+    ? rawItemEnd
+    : addDaysToDateOnly(String(startDate || '').slice(0, 10), 1);
+  const itemEndExclusive = new Date(`${normalizedItemEnd}T00:00:00`);
+  const windowStart = new Date(`${String(rangeStart || '').slice(0, 10)}T00:00:00`);
+  const windowEndExclusive = new Date(`${addDaysToDateOnly(String(rangeEndInclusive || '').slice(0, 10), 1)}T00:00:00`);
+  if (
+    Number.isNaN(itemStart.getTime())
+    || Number.isNaN(itemEndExclusive.getTime())
+    || Number.isNaN(windowStart.getTime())
+    || Number.isNaN(windowEndExclusive.getTime())
+  ) return 0;
+  const overlapStart = Math.max(itemStart.getTime(), windowStart.getTime());
+  const overlapEnd = Math.min(itemEndExclusive.getTime(), windowEndExclusive.getTime());
+  if (overlapEnd <= overlapStart) return 0;
+  return Math.max(0, Math.round((overlapEnd - overlapStart) / 86400000));
+}
+
+async function fetchStatsAvailabilityInventoryRows({ propertyId = null }) {
+  const hasModeBienColumn = await columnExists('biens', 'mode_bien');
+  const modeExpr = hasModeBienColumn
+    ? `COALESCE(NULLIF(b.mode, ''), NULLIF(b.mode_bien, ''), 'location_saisonniere')`
+    : `COALESCE(NULLIF(b.mode, ''), 'location_saisonniere')`;
+  const params = [];
+  let whereClause = `WHERE ${modeExpr} = 'location_saisonniere'`;
+  if (propertyId) {
+    whereClause += ' AND b.id = ?';
+    params.push(propertyId);
+  } else {
+    whereClause += ' AND COALESCE(b.visible_sur_site, 1) = 1';
+  }
+  const [rows] = await pool.query(
+    `SELECT
+       b.id,
+       b.reference,
+       b.titre,
+       b.type,
+       b.residence_unit_sub_type,
+       b.location_saisonniere_config_json,
+       b.zone_id,
+       z.nom AS zone_nom,
+       z.quartier AS zone_quartier,
+       z.region AS zone_region,
+       z.gouvernerat AS zone_gouvernerat,
+       z.pays AS zone_pays,
+       z.google_maps_url
+     FROM biens b
+     LEFT JOIN zones z ON z.id = b.zone_id
+     ${whereClause}
+     ORDER BY b.created_at ASC, b.id ASC`,
+    params
+  );
+  return rows || [];
+}
+
+async function fetchStatsAvailabilityRows({ range, propertyId = null }) {
+  const hasModeBienColumn = await columnExists('biens', 'mode_bien');
+  const modeExpr = hasModeBienColumn
+    ? `COALESCE(NULLIF(b.mode, ''), NULLIF(b.mode_bien, ''), 'location_saisonniere')`
+    : `COALESCE(NULLIF(b.mode, ''), 'location_saisonniere')`;
+  const params = [range.dateTo, range.dateFrom];
+  let propertyWhere = '';
+  if (propertyId) {
+    propertyWhere = ' AND ud.bien_id = ?';
+    params.push(propertyId);
+  } else {
+    propertyWhere = ` AND COALESCE(b.visible_sur_site, 1) = 1`;
+  }
+  const [rows] = await pool.query(
+    `SELECT
+       ud.id,
+       ud.bien_id,
+       DATE_FORMAT(ud.start_date, '%Y-%m-%d') AS start_date,
+       DATE_FORMAT(ud.end_date, '%Y-%m-%d') AS end_date,
+       LOWER(TRIM(COALESCE(ud.status, 'blocked'))) AS status,
+       ud.sync_source,
+       b.titre,
+       b.reference,
+       b.type,
+       b.residence_unit_sub_type,
+       b.location_saisonniere_config_json,
+       b.zone_id,
+       z.nom AS zone_nom,
+       z.quartier AS zone_quartier,
+       z.region AS zone_region,
+       z.gouvernerat AS zone_gouvernerat,
+       z.pays AS zone_pays,
+       z.google_maps_url
+     FROM unavailable_dates ud
+     INNER JOIN biens b ON b.id = ud.bien_id
+     LEFT JOIN zones z ON z.id = b.zone_id
+     WHERE ${modeExpr} = 'location_saisonniere'
+       AND ud.start_date <= ?
+       AND ud.end_date >= ?
+       AND LOWER(TRIM(COALESCE(ud.status, 'blocked'))) IN ('blocked', 'booked', 'pending')
+       ${propertyWhere}
+     ORDER BY ud.start_date ASC, ud.end_date ASC`,
+    params
+  );
+  return rows || [];
+}
+
+function createAvailabilityBucketEntry(key, granularity) {
+  return {
+    bucket: key,
+    label: granularity === 'month' ? formatMonthLabel(key) : key,
+    propertyIds: new Set(),
+    blockedDays: 0,
+    bookedDays: 0,
+    pendingDays: 0,
+    unavailableDays: 0,
+    visits: 0,
+    saturationRate: 0,
+    pressureScore: 0,
+  };
 }
 
 function summarizeChannelCounts(rows) {
@@ -29647,6 +29941,566 @@ app.get('/api/statistiques/channels', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error fetching statistiques channels:', error);
     res.status(500).json({ error: 'Impossible de charger les canaux statistiques' });
+  }
+});
+
+app.get('/api/statistiques/availability-pressure', requireAdminSession, async (req, res) => {
+  try {
+    const range = buildStatsDateRange(req);
+    const propertyId = String(req.query.property_id || req.query.propertyId || '').trim() || null;
+    const segment = normalizeStatsSegment(req.query.segment);
+    const channel = normalizeStatsChannel(req.query.channel);
+    const granularity = normalizeStatsGranularity(req.query.granularity);
+    const limit = normalizeStatsLimit(req.query.limit, 12, 100);
+    const rangeDayCount = getRangeInclusiveDayCount(range.dateFrom, range.dateTo);
+    const preparedRows = await buildStatsPreparedRows({ range, propertyId });
+    const visitRows = filterPreparedStatsRows(preparedRows, { segment, channel }).filter((row) => row.type === 'visite' && row.bienId);
+    const inventoryRows = await fetchStatsAvailabilityInventoryRows({ propertyId });
+    const availabilityRows = await fetchStatsAvailabilityRows({ range, propertyId });
+    const inventoryByBienId = new Map();
+    const propertyAgg = new Map();
+    const typeAgg = new Map();
+    const zoneAgg = new Map();
+    const propertyMapAgg = new Map();
+    const timelineKeys = listRangeBuckets({ dateFrom: range.dateFrom, dateTo: range.dateTo, granularity });
+    const timelineMap = new Map(timelineKeys.map((key) => [key, createAvailabilityBucketEntry(key, granularity)]));
+    const monthKeys = listRangeBuckets({ dateFrom: range.dateFrom, dateTo: range.dateTo, granularity: 'month' });
+    const monthMap = new Map(monthKeys.map((key) => [key, createAvailabilityBucketEntry(key, 'month')]));
+    const dayKeys = listRangeDates(range.dateFrom, range.dateTo);
+
+    const ensureTypeEntry = (meta) => {
+      const typeKey = normalizeBienType(meta?.type || 'appartement');
+      const subTypeKey = String(meta?.subType || '').trim();
+      const compoundKey = `${typeKey}__${subTypeKey || '__base__'}`;
+      if (!typeAgg.has(compoundKey)) {
+        typeAgg.set(compoundKey, {
+          key: compoundKey,
+          typeKey,
+          typeLabel: getStatsTypeLabel(typeKey),
+          subTypeKey: subTypeKey || null,
+          subTypeLabel: subTypeKey ? getStatsSubtypeLabel(subTypeKey, typeKey) : null,
+          propertyIds: new Set(),
+          saturatedPropertyIds: new Set(),
+          blockedDays: 0,
+          bookedDays: 0,
+          pendingDays: 0,
+          unavailableDays: 0,
+          visits: 0,
+          daily: new Map(dayKeys.map((key) => [key, createAvailabilityDayEntry(key)])),
+          monthly: new Map(monthKeys.map((key) => [key, { bucket: key, label: formatMonthLabel(key), unavailableDays: 0, blockedDays: 0, bookedDays: 0, pendingDays: 0 }])),
+        });
+      }
+      return typeAgg.get(compoundKey);
+    };
+
+    const ensureZoneEntry = (meta) => {
+      const zoneKey = String(meta?.zoneId || meta?.zoneLabel || 'zone_inconnue').trim() || 'zone_inconnue';
+      if (!zoneAgg.has(zoneKey)) {
+        zoneAgg.set(zoneKey, {
+          key: zoneKey,
+          label: meta?.zoneLabel || 'Zone inconnue',
+          propertyIds: new Set(),
+          blockedDays: 0,
+          bookedDays: 0,
+          pendingDays: 0,
+          unavailableDays: 0,
+          visits: 0,
+          lat: Number.isFinite(Number(meta?.lat)) ? Number(meta.lat) : null,
+          lng: Number.isFinite(Number(meta?.lng)) ? Number(meta.lng) : null,
+          dominantTypeLabel: meta?.typeLabel || 'Autre',
+        });
+      }
+      return zoneAgg.get(zoneKey);
+    };
+
+    (inventoryRows || []).forEach((row) => {
+      const bienId = String(row?.id || '').trim();
+      if (!bienId) return;
+      const propertyMapsUrl = extractPropertyMapsUrl(row.location_saisonniere_config_json);
+      const propertyCoords = parseMapsLatLng(propertyMapsUrl);
+      const zoneCoords = parseMapsLatLng(row.google_maps_url);
+      const coords = propertyCoords || zoneCoords;
+      const mapCoords = propertyCoords || buildDeterministicCoordinateJitter(zoneCoords, bienId);
+      const typeKey = normalizeBienType(row.type || 'appartement');
+      const subType = String(row.residence_unit_sub_type || '').trim() || null;
+      const zoneLabel = [
+        String(row.zone_quartier || '').trim(),
+        String(row.zone_nom || '').trim(),
+        String(row.zone_region || '').trim(),
+        String(row.zone_gouvernerat || '').trim(),
+      ].filter(Boolean)[0] || 'Zone inconnue';
+      const meta = {
+        bienId,
+        propertyTitle: String(row.titre || '').trim() || bienId,
+        propertyReference: String(row.reference || '').trim() || null,
+        type: typeKey,
+        typeLabel: getStatsTypeLabel(typeKey),
+        subType,
+        subTypeLabel: subType ? getStatsSubtypeLabel(subType, typeKey) : null,
+        zoneId: String(row.zone_id || '').trim() || null,
+        zoneLabel,
+        lat: coords?.lat ?? null,
+        lng: coords?.lng ?? null,
+        mapLat: mapCoords?.lat ?? null,
+        mapLng: mapCoords?.lng ?? null,
+        mapPrecision: propertyCoords ? 'property' : (zoneCoords ? 'zone' : 'unknown'),
+      };
+      inventoryByBienId.set(bienId, meta);
+      propertyAgg.set(bienId, {
+        ...meta,
+        blockedDays: 0,
+        bookedDays: 0,
+        pendingDays: 0,
+        unavailableDays: 0,
+        visits: 0,
+      });
+      propertyMapAgg.set(bienId, {
+        key: bienId,
+        bienId,
+        label: meta.propertyReference ? `${meta.propertyReference} - ${meta.propertyTitle}` : meta.propertyTitle,
+        propertyTitle: meta.propertyTitle,
+        propertyReference: meta.propertyReference,
+        typeLabel: meta.typeLabel,
+        subTypeLabel: meta.subTypeLabel,
+        zoneLabel: meta.zoneLabel,
+        lat: meta.mapLat,
+        lng: meta.mapLng,
+        mapPrecision: meta.mapPrecision,
+        blockedDays: 0,
+        bookedDays: 0,
+        pendingDays: 0,
+        unavailableDays: 0,
+        visits: 0,
+        saturationRate: 0,
+        pressureScore: 0,
+      });
+      ensureTypeEntry(meta).propertyIds.add(bienId);
+      ensureZoneEntry(meta).propertyIds.add(bienId);
+    });
+
+    const inventoryIds = new Set(Array.from(inventoryByBienId.keys()));
+
+    (availabilityRows || []).forEach((row) => {
+      const bienId = String(row?.bien_id || '').trim();
+      if (!bienId || (inventoryIds.size > 0 && !inventoryIds.has(bienId))) return;
+      const meta = propertyAgg.get(bienId) || inventoryByBienId.get(bienId);
+      if (!meta) return;
+      const overlapDays = getDateOverlapDays({
+        startDate: row.start_date,
+        endDate: row.end_date,
+        rangeStart: range.dateFrom,
+        rangeEndInclusive: range.dateTo,
+      });
+      if (overlapDays <= 0) return;
+      const statusKey = ['blocked', 'booked', 'pending'].includes(String(row.status || '').trim().toLowerCase())
+        ? String(row.status || '').trim().toLowerCase()
+        : 'blocked';
+      const propertyEntry = propertyAgg.get(bienId);
+      if (propertyEntry) {
+        propertyEntry.unavailableDays += overlapDays;
+        propertyEntry[`${statusKey}Days`] += overlapDays;
+      }
+      const propertyMapEntry = propertyMapAgg.get(bienId);
+      if (propertyMapEntry) {
+        propertyMapEntry.unavailableDays += overlapDays;
+        propertyMapEntry[`${statusKey}Days`] += overlapDays;
+      }
+      const typeEntry = ensureTypeEntry(meta);
+      typeEntry.unavailableDays += overlapDays;
+      typeEntry[`${statusKey}Days`] += overlapDays;
+      const zoneEntry = ensureZoneEntry(meta);
+      zoneEntry.unavailableDays += overlapDays;
+      zoneEntry[`${statusKey}Days`] += overlapDays;
+      const overlapRange = getDateRangeIntersection(row.start_date, row.end_date, range.dateFrom, range.dateTo);
+      if (overlapRange) {
+        let cursor = overlapRange.start;
+        while (cursor <= overlapRange.end) {
+          const dailyEntry = typeEntry.daily.get(cursor);
+          if (dailyEntry) {
+            dailyEntry.unavailablePropertyIds.add(bienId);
+            dailyEntry[`${statusKey}PropertyIds`].add(bienId);
+          }
+          cursor = addDaysToDateOnly(cursor, 1);
+        }
+      }
+
+      timelineKeys.forEach((bucketKey) => {
+        const bucketRange = getBucketRangeBounds(bucketKey, granularity);
+        const bucketOverlap = getDateOverlapDays({
+          startDate: row.start_date,
+          endDate: row.end_date,
+          rangeStart: bucketRange.start,
+          rangeEndInclusive: bucketRange.end,
+        });
+        if (bucketOverlap <= 0) return;
+        const bucket = timelineMap.get(bucketKey);
+        if (!bucket) return;
+        bucket.propertyIds.add(bienId);
+        bucket.unavailableDays += bucketOverlap;
+        bucket[`${statusKey}Days`] += bucketOverlap;
+      });
+
+      monthKeys.forEach((bucketKey) => {
+        const bucketRange = getBucketRangeBounds(bucketKey, 'month');
+        const bucketOverlap = getDateOverlapDays({
+          startDate: row.start_date,
+          endDate: row.end_date,
+          rangeStart: bucketRange.start,
+          rangeEndInclusive: bucketRange.end,
+        });
+        if (bucketOverlap <= 0) return;
+        const monthEntry = monthMap.get(bucketKey);
+        if (monthEntry) {
+          monthEntry.propertyIds.add(bienId);
+          monthEntry.unavailableDays += bucketOverlap;
+          monthEntry[`${statusKey}Days`] += bucketOverlap;
+        }
+        const typeMonth = typeEntry.monthly.get(bucketKey);
+        if (typeMonth) {
+          typeMonth.unavailableDays += bucketOverlap;
+          typeMonth[`${statusKey}Days`] += bucketOverlap;
+        }
+      });
+    });
+
+    visitRows.forEach((row) => {
+      const bienId = String(row.bienId || '').trim();
+      if (!bienId || (inventoryIds.size > 0 && !inventoryIds.has(bienId))) return;
+      const propertyEntry = propertyAgg.get(bienId);
+      const meta = propertyEntry || inventoryByBienId.get(bienId);
+      if (!meta) return;
+      if (propertyEntry) propertyEntry.visits += 1;
+      const typeEntry = ensureTypeEntry(meta);
+      typeEntry.visits += 1;
+      const eventDate = String(row.eventAt || '').slice(0, 10);
+      if (eventDate) {
+        const dayEntry = typeEntry.daily.get(eventDate);
+        if (dayEntry) dayEntry.visits += 1;
+      }
+      ensureZoneEntry(meta).visits += 1;
+      const propertyMapEntry = propertyMapAgg.get(bienId);
+      if (propertyMapEntry) propertyMapEntry.visits += 1;
+      const bucketKey = getBucketKey(row.eventAt, granularity);
+      const bucket = timelineMap.get(bucketKey);
+      if (bucket) bucket.visits += 1;
+      const monthKey = getBucketKey(row.eventAt, 'month');
+      const monthEntry = monthMap.get(monthKey);
+      if (monthEntry) monthEntry.visits += 1;
+    });
+
+    let maxTypeVisits = 0;
+    typeAgg.forEach((entry) => {
+      if (entry.visits > maxTypeVisits) maxTypeVisits = entry.visits;
+    });
+    let maxZoneVisits = 0;
+    zoneAgg.forEach((entry) => {
+      if (entry.visits > maxZoneVisits) maxZoneVisits = entry.visits;
+    });
+
+    propertyAgg.forEach((entry) => {
+      if (rangeDayCount > 0 && entry.unavailableDays / rangeDayCount >= 0.7) {
+        ensureTypeEntry(entry).saturatedPropertyIds.add(entry.bienId);
+      }
+    });
+
+    const propertyMapItems = Array.from(propertyMapAgg.values()).map((entry) => {
+      const saturationRate = rangeDayCount > 0 ? Math.round((entry.unavailableDays / rangeDayCount) * 10000) / 100 : 0;
+      const pressureScore = Math.round((saturationRate + (entry.visits * 1.5)) * 100) / 100;
+      return {
+        ...entry,
+        saturationRate,
+        pressureScore,
+      };
+    });
+
+    const totalProperties = inventoryByBienId.size;
+    const totalCapacityDays = totalProperties * rangeDayCount;
+    const totalUnavailableDays = Array.from(propertyAgg.values()).reduce((sum, entry) => sum + entry.unavailableDays, 0);
+    const totalVisits = Array.from(propertyAgg.values()).reduce((sum, entry) => sum + entry.visits, 0);
+
+    const typeItems = Array.from(typeAgg.values()).map((entry) => {
+      const propertyCount = entry.propertyIds.size;
+      const capacityDays = propertyCount * rangeDayCount;
+      const saturationRate = capacityDays > 0 ? Math.round((entry.unavailableDays / capacityDays) * 10000) / 100 : 0;
+      const visitIntensity = maxTypeVisits > 0 ? entry.visits / maxTypeVisits : 0;
+      const pressureScore = Math.round((saturationRate + (visitIntensity * 30)) * 100) / 100;
+      const calendars = dayKeys.map((dateKey) => {
+        const dayEntry = entry.daily.get(dateKey) || createAvailabilityDayEntry(dateKey);
+        const unavailableProperties = dayEntry.unavailablePropertyIds.size;
+        const availableProperties = Math.max(0, propertyCount - unavailableProperties);
+        const remainingShare = propertyCount > 0 ? Math.round((availableProperties / propertyCount) * 10000) / 100 : 0;
+        return {
+          date: dateKey,
+          availableProperties,
+          unavailableProperties,
+          blockedProperties: dayEntry.blockedPropertyIds.size,
+          bookedProperties: dayEntry.bookedPropertyIds.size,
+          pendingProperties: dayEntry.pendingPropertyIds.size,
+          visits: dayEntry.visits,
+          remainingShare,
+          saturationRate: propertyCount > 0 ? Math.round((unavailableProperties / propertyCount) * 10000) / 100 : 0,
+        };
+      });
+      const contiguousRanges = [];
+      let activeRange = null;
+      calendars.forEach((cell) => {
+        if (cell.unavailableProperties <= 0) {
+          if (activeRange) {
+            contiguousRanges.push(activeRange);
+            activeRange = null;
+          }
+          return;
+        }
+        if (!activeRange) {
+          activeRange = {
+            startDate: cell.date,
+            endDate: cell.date,
+            unavailableDays: 0,
+            visits: 0,
+            blockedDays: 0,
+            bookedDays: 0,
+            pendingDays: 0,
+            saturationTotal: 0,
+            dayCount: 0,
+            peakUnavailableProperties: 0,
+          };
+        }
+        activeRange.endDate = cell.date;
+        activeRange.unavailableDays += cell.unavailableProperties;
+        activeRange.visits += cell.visits;
+        activeRange.blockedDays += cell.blockedProperties;
+        activeRange.bookedDays += cell.bookedProperties;
+        activeRange.pendingDays += cell.pendingProperties;
+        activeRange.saturationTotal += cell.saturationRate;
+        activeRange.dayCount += 1;
+        if (cell.unavailableProperties > activeRange.peakUnavailableProperties) {
+          activeRange.peakUnavailableProperties = cell.unavailableProperties;
+        }
+      });
+      if (activeRange) contiguousRanges.push(activeRange);
+      const topRanges = contiguousRanges
+        .map((item, index) => ({
+          key: `${entry.key}:${item.startDate}:${item.endDate}:${index}`,
+          startDate: item.startDate,
+          endDate: item.endDate,
+          unavailableDays: item.unavailableDays,
+          visits: item.visits,
+          blockedDays: item.blockedDays,
+          bookedDays: item.bookedDays,
+          pendingDays: item.pendingDays,
+          dayCount: item.dayCount,
+          peakUnavailableProperties: item.peakUnavailableProperties,
+          avgSaturationRate: item.dayCount > 0 ? Math.round((item.saturationTotal / item.dayCount) * 100) / 100 : 0,
+        }))
+        .sort((a, b) => {
+          if (b.avgSaturationRate !== a.avgSaturationRate) return b.avgSaturationRate - a.avgSaturationRate;
+          if (b.unavailableDays !== a.unavailableDays) return b.unavailableDays - a.unavailableDays;
+          return b.visits - a.visits;
+        })
+        .slice(0, 3);
+      return {
+        key: entry.key,
+        typeKey: entry.typeKey,
+        typeLabel: entry.typeLabel,
+        subTypeKey: entry.subTypeKey,
+        subTypeLabel: entry.subTypeLabel,
+        propertyCount,
+        saturatedPropertyCount: entry.saturatedPropertyIds.size,
+        blockedDays: entry.blockedDays,
+        bookedDays: entry.bookedDays,
+        pendingDays: entry.pendingDays,
+        unavailableDays: entry.unavailableDays,
+        capacityDays,
+        saturationRate,
+        visits: entry.visits,
+        pressureScore,
+        calendar: calendars,
+        topRanges,
+        monthly: monthKeys.map((bucketKey) => {
+          const bucket = entry.monthly.get(bucketKey) || { bucket: bucketKey, label: formatMonthLabel(bucketKey), unavailableDays: 0, blockedDays: 0, bookedDays: 0, pendingDays: 0 };
+          const monthlyCapacityDays = propertyCount * getBucketDayCountWithinRange(bucketKey, 'month', range);
+          return {
+            bucket: bucket.bucket,
+            label: bucket.label,
+            unavailableDays: bucket.unavailableDays,
+            blockedDays: bucket.blockedDays,
+            bookedDays: bucket.bookedDays,
+            pendingDays: bucket.pendingDays,
+            saturationRate: monthlyCapacityDays > 0 ? Math.round((bucket.unavailableDays / monthlyCapacityDays) * 10000) / 100 : 0,
+          };
+        }),
+      };
+    });
+
+    const zoneItems = Array.from(zoneAgg.values()).map((entry) => {
+      const propertyCount = entry.propertyIds.size;
+      const capacityDays = propertyCount * rangeDayCount;
+      const saturationRate = capacityDays > 0 ? Math.round((entry.unavailableDays / capacityDays) * 10000) / 100 : 0;
+      const visitIntensity = maxZoneVisits > 0 ? entry.visits / maxZoneVisits : 0;
+      const pressureScore = Math.round((saturationRate + (visitIntensity * 30)) * 100) / 100;
+      return {
+        key: entry.key,
+        label: entry.label,
+        propertyCount,
+        blockedDays: entry.blockedDays,
+        bookedDays: entry.bookedDays,
+        pendingDays: entry.pendingDays,
+        unavailableDays: entry.unavailableDays,
+        saturationRate,
+        visits: entry.visits,
+        pressureScore,
+        lat: entry.lat,
+        lng: entry.lng,
+        dominantTypeLabel: entry.dominantTypeLabel,
+      };
+    });
+
+    const timeline = Array.from(timelineMap.values()).map((bucket) => {
+      const bucketRange = getBucketRangeBounds(bucket.bucket, granularity);
+      const bucketDayCount = getRangeInclusiveDayCount(bucketRange.start, bucketRange.end);
+      const bucketCapacityDays = totalProperties * bucketDayCount;
+      const saturationRate = bucketCapacityDays > 0 ? Math.round((bucket.unavailableDays / bucketCapacityDays) * 10000) / 100 : 0;
+      const pressureScore = Math.round((saturationRate + ((totalVisits > 0 ? bucket.visits / totalVisits : 0) * 100 * 0.25)) * 100) / 100;
+      return {
+        bucket: bucket.bucket,
+        label: bucket.label,
+        blockedDays: bucket.blockedDays,
+        bookedDays: bucket.bookedDays,
+        pendingDays: bucket.pendingDays,
+        unavailableDays: bucket.unavailableDays,
+        visits: bucket.visits,
+        saturationRate,
+        pressureScore,
+      };
+    });
+
+    const peakPeriods = Array.from(monthMap.values()).map((bucket) => {
+      const bucketDayCount = getBucketDayCountWithinRange(bucket.bucket, 'month', range);
+      const bucketCapacityDays = totalProperties * bucketDayCount;
+      return {
+        bucket: bucket.bucket,
+        label: bucket.label,
+        blockedDays: bucket.blockedDays,
+        bookedDays: bucket.bookedDays,
+        pendingDays: bucket.pendingDays,
+        unavailableDays: bucket.unavailableDays,
+        visits: bucket.visits,
+        saturationRate: bucketCapacityDays > 0 ? Math.round((bucket.unavailableDays / bucketCapacityDays) * 10000) / 100 : 0,
+      };
+    }).sort((a, b) => {
+      if (b.saturationRate !== a.saturationRate) return b.saturationRate - a.saturationRate;
+      if (b.unavailableDays !== a.unavailableDays) return b.unavailableDays - a.unavailableDays;
+      return b.visits - a.visits;
+    });
+
+    const sortedTypes = [...typeItems].sort((a, b) => {
+      if (b.pressureScore !== a.pressureScore) return b.pressureScore - a.pressureScore;
+      if (b.saturationRate !== a.saturationRate) return b.saturationRate - a.saturationRate;
+      return b.visits - a.visits;
+    });
+    const topType = sortedTypes[0] || null;
+    const peakPeriod = peakPeriods[0] || null;
+    const typePeakRanges = sortedTypes
+      .filter((entry) => Array.isArray(entry.topRanges) && entry.topRanges.length > 0)
+      .slice(0, Math.min(limit, 8))
+      .map((entry) => ({
+        key: entry.key,
+        label: entry.subTypeLabel ? `${entry.typeLabel} / ${entry.subTypeLabel}` : entry.typeLabel,
+        typeLabel: entry.typeLabel,
+        subTypeLabel: entry.subTypeLabel,
+        propertyCount: entry.propertyCount,
+        visits: entry.visits,
+        saturationRate: entry.saturationRate,
+        ranges: entry.topRanges,
+      }));
+
+    res.json({
+      generatedAt: getAgencySqlDateTime(),
+      appliedFilters: {
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+        granularity,
+        segment,
+        channel,
+        propertyId,
+        limit,
+      },
+      overview: {
+        totalProperties,
+        totalCapacityDays,
+        totalUnavailableDays,
+        totalVisits,
+        saturationRate: totalCapacityDays > 0 ? Math.round((totalUnavailableDays / totalCapacityDays) * 10000) / 100 : 0,
+        pressuredType: topType ? {
+          key: topType.key,
+          label: topType.subTypeLabel ? `${topType.typeLabel} / ${topType.subTypeLabel}` : topType.typeLabel,
+          saturationRate: topType.saturationRate,
+          pressureScore: topType.pressureScore,
+          visits: topType.visits,
+        } : null,
+        peakPeriod: peakPeriod ? {
+          bucket: peakPeriod.bucket,
+          label: peakPeriod.label,
+          saturationRate: peakPeriod.saturationRate,
+          unavailableDays: peakPeriod.unavailableDays,
+          visits: peakPeriod.visits,
+        } : null,
+      },
+      timeline,
+      types: sortedTypes.slice(0, limit),
+      heatmap: {
+        columns: monthKeys.map((bucketKey) => ({ bucket: bucketKey, label: formatMonthLabel(bucketKey) })),
+        rows: sortedTypes.slice(0, Math.min(limit, 8)).map((entry) => ({
+          key: entry.key,
+          label: entry.subTypeLabel ? `${entry.typeLabel} / ${entry.subTypeLabel}` : entry.typeLabel,
+          cells: entry.monthly.map((bucket) => ({
+            bucket: bucket.bucket,
+            label: bucket.label,
+            saturationRate: bucket.saturationRate,
+            unavailableDays: bucket.unavailableDays,
+            blockedDays: bucket.blockedDays,
+            bookedDays: bucket.bookedDays,
+            pendingDays: bucket.pendingDays,
+          })),
+        })),
+      },
+      typeCalendars: sortedTypes.slice(0, Math.min(limit, 6)).map((entry) => ({
+        key: entry.key,
+        label: entry.subTypeLabel ? `${entry.typeLabel} / ${entry.subTypeLabel}` : entry.typeLabel,
+        propertyCount: entry.propertyCount,
+        saturationRate: entry.saturationRate,
+        visits: entry.visits,
+        days: entry.calendar,
+      })),
+      mapPoints: zoneItems
+        .filter((entry) => isValidMapCoordinatePair(entry.lat, entry.lng))
+        .sort((a, b) => {
+          if (b.pressureScore !== a.pressureScore) return b.pressureScore - a.pressureScore;
+          return b.saturationRate - a.saturationRate;
+        })
+        .slice(0, Math.max(limit, 24)),
+      propertyMapPoints: propertyMapItems
+        .filter((entry) => isValidMapCoordinatePair(entry.lat, entry.lng))
+        .sort((a, b) => {
+          if (b.pressureScore !== a.pressureScore) return b.pressureScore - a.pressureScore;
+          if (b.saturationRate !== a.saturationRate) return b.saturationRate - a.saturationRate;
+          return b.visits - a.visits;
+        })
+        .slice(0, Math.max(limit * 4, 48)),
+      peakPeriods: peakPeriods.slice(0, limit),
+      typePeakRanges,
+      recommendations: sortedTypes
+        .filter((entry) => entry.saturationRate >= 45 || entry.pressureScore >= 35)
+        .slice(0, 6)
+        .map((entry) => ({
+          key: entry.key,
+          label: entry.subTypeLabel ? `${entry.typeLabel} / ${entry.subTypeLabel}` : entry.typeLabel,
+          message: `Ajouter du stock sur ${entry.subTypeLabel ? `${entry.typeLabel} / ${entry.subTypeLabel}` : entry.typeLabel}: saturation ${entry.saturationRate.toFixed(1)}% et ${entry.visits} visites sur la plage.`,
+        })),
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques availability pressure:', error);
+    res.status(500).json({ error: 'Impossible de charger la saturation calendrier' });
   }
 });
 

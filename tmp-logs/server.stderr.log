@@ -1,0 +1,132 @@
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+Meta conversions endpoint error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendMetaConversionEvent (C:\tmp\dwira-953\server\index.cjs:1447:20)
+    at async C:\tmp\dwira-953\server\index.cjs:27217:20 {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: graph.facebook.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at process.processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}

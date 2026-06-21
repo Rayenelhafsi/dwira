@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   Activity,
@@ -24,9 +24,13 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  Area,
+  AreaChart,
 } from 'recharts';
 import { getOptimizedMediaUrl, resolveMediaUrl } from '../../utils/media';
 import { buildPropertyDetailsPath } from '../../utils/propertyRouting';
+import { MapContainer, Popup, TileLayer, CircleMarker } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -142,6 +146,187 @@ type GaStatusResponse = {
   summary?: string | null;
 };
 
+type AvailabilityPressureTimelinePoint = {
+  bucket: string;
+  label: string;
+  blockedDays: number;
+  bookedDays: number;
+  pendingDays: number;
+  unavailableDays: number;
+  visits: number;
+  saturationRate: number;
+  pressureScore: number;
+};
+
+type AvailabilityPressureTypeItem = {
+  key: string;
+  typeKey: string;
+  typeLabel: string;
+  subTypeKey?: string | null;
+  subTypeLabel?: string | null;
+  propertyCount: number;
+  saturatedPropertyCount: number;
+  blockedDays: number;
+  bookedDays: number;
+  pendingDays: number;
+  unavailableDays: number;
+  capacityDays: number;
+  saturationRate: number;
+  visits: number;
+  pressureScore: number;
+  monthly: Array<{
+    bucket: string;
+    label: string;
+    unavailableDays: number;
+    blockedDays: number;
+    bookedDays: number;
+    pendingDays: number;
+    saturationRate: number;
+  }>;
+};
+
+type AvailabilityPressureMapPoint = {
+  key: string;
+  label: string;
+  propertyCount: number;
+  blockedDays: number;
+  bookedDays: number;
+  pendingDays: number;
+  unavailableDays: number;
+  saturationRate: number;
+  visits: number;
+  pressureScore: number;
+  lat: number;
+  lng: number;
+  dominantTypeLabel: string;
+};
+
+type AvailabilityPressurePropertyMapPoint = {
+  key: string;
+  bienId: string;
+  label: string;
+  propertyTitle: string;
+  propertyReference?: string | null;
+  typeLabel: string;
+  subTypeLabel?: string | null;
+  zoneLabel: string;
+  lat: number;
+  lng: number;
+  mapPrecision: 'property' | 'zone' | 'unknown';
+  blockedDays: number;
+  bookedDays: number;
+  pendingDays: number;
+  unavailableDays: number;
+  visits: number;
+  saturationRate: number;
+  pressureScore: number;
+};
+
+type AvailabilityPressureCalendarDay = {
+  date: string;
+  availableProperties: number;
+  unavailableProperties: number;
+  blockedProperties: number;
+  bookedProperties: number;
+  pendingProperties: number;
+  visits: number;
+  remainingShare: number;
+  saturationRate: number;
+};
+
+type AvailabilityPressureTypeCalendar = {
+  key: string;
+  label: string;
+  propertyCount: number;
+  saturationRate: number;
+  visits: number;
+  days: AvailabilityPressureCalendarDay[];
+};
+
+type AvailabilityPressureTypePeakRange = {
+  key: string;
+  label: string;
+  typeLabel: string;
+  subTypeLabel?: string | null;
+  propertyCount: number;
+  visits: number;
+  saturationRate: number;
+  ranges: Array<{
+    key: string;
+    startDate: string;
+    endDate: string;
+    unavailableDays: number;
+    visits: number;
+    blockedDays: number;
+    bookedDays: number;
+    pendingDays: number;
+    dayCount: number;
+    peakUnavailableProperties: number;
+    avgSaturationRate: number;
+  }>;
+};
+
+type AvailabilityPressureResponse = {
+  overview: {
+    totalProperties: number;
+    totalCapacityDays: number;
+    totalUnavailableDays: number;
+    totalVisits: number;
+    saturationRate: number;
+    pressuredType?: {
+      key: string;
+      label: string;
+      saturationRate: number;
+      pressureScore: number;
+      visits: number;
+    } | null;
+    peakPeriod?: {
+      bucket: string;
+      label: string;
+      saturationRate: number;
+      unavailableDays: number;
+      visits: number;
+    } | null;
+  };
+  timeline: AvailabilityPressureTimelinePoint[];
+  types: AvailabilityPressureTypeItem[];
+  heatmap: {
+    columns: Array<{ bucket: string; label: string }>;
+    rows: Array<{
+      key: string;
+      label: string;
+      cells: Array<{
+        bucket: string;
+        label: string;
+        saturationRate: number;
+        unavailableDays: number;
+        blockedDays: number;
+        bookedDays: number;
+        pendingDays: number;
+      }>;
+    }>;
+  };
+  mapPoints: AvailabilityPressureMapPoint[];
+  propertyMapPoints: AvailabilityPressurePropertyMapPoint[];
+  typeCalendars: AvailabilityPressureTypeCalendar[];
+  peakPeriods: Array<{
+    bucket: string;
+    label: string;
+    blockedDays: number;
+    bookedDays: number;
+    pendingDays: number;
+    unavailableDays: number;
+    visits: number;
+    saturationRate: number;
+  }>;
+  typePeakRanges: AvailabilityPressureTypePeakRange[];
+  recommendations: Array<{
+    key: string;
+    label: string;
+    message: string;
+  }>;
+};
+
 const PROPERTY_PLACEHOLDER =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop offset="0%25" stop-color="%23f0fdf4"/%3E%3Cstop offset="100%25" stop-color="%23dbeafe"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width="800" height="520" fill="url(%23g)"/%3E%3Cpath d="M0 360L180 230l110 84 120-96 180 142H0z" fill="%2394a3b8" fill-opacity=".22"/%3E%3Ccircle cx="620" cy="140" r="44" fill="%2310b981" fill-opacity=".35"/%3E%3C/svg%3E';
 
@@ -169,6 +354,18 @@ function formatDateTime(value?: string | null) {
   const parsed = new Date(String(value).replace(' ', 'T'));
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString('fr-FR', { hour12: false });
+}
+
+function formatDateOnly(value?: string | null) {
+  if (!value) return '-';
+  const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString('fr-FR');
+}
+
+function formatDateRangeLabel(startDate?: string | null, endDate?: string | null) {
+  if (!startDate && !endDate) return 'Periode indisponible';
+  return `Du ${formatDateOnly(startDate)} au ${formatDateOnly(endDate)}`;
 }
 
 function formatDuration(seconds: number | undefined | null) {
@@ -244,6 +441,63 @@ function buildPropertyStatsHref(item: PropertyPerformanceItem) {
   });
 }
 
+function formatCompactLabel(value?: string | null) {
+  return String(value || '').trim() || 'Aucune donnee';
+}
+
+function getHeatmapColor(rate: number) {
+  const safe = Math.max(0, Math.min(100, Number(rate || 0)));
+  if (safe >= 80) return 'bg-rose-600 text-white';
+  if (safe >= 60) return 'bg-orange-500 text-white';
+  if (safe >= 40) return 'bg-amber-300 text-slate-900';
+  if (safe >= 20) return 'bg-emerald-200 text-slate-900';
+  return 'bg-slate-100 text-slate-500';
+}
+
+function getPressureBadgeColor(score: number) {
+  const safe = Number(score || 0);
+  if (safe >= 70) return 'border-rose-200 bg-rose-50 text-rose-700';
+  if (safe >= 50) return 'border-orange-200 bg-orange-50 text-orange-700';
+  if (safe >= 30) return 'border-amber-200 bg-amber-50 text-amber-700';
+  return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+}
+
+function getMapCircleColor(rate: number) {
+  const safe = Number(rate || 0);
+  if (safe >= 80) return '#e11d48';
+  if (safe >= 60) return '#f97316';
+  if (safe >= 40) return '#f59e0b';
+  if (safe >= 20) return '#10b981';
+  return '#94a3b8';
+}
+
+function getMapCircleRadius(rate: number, pressureScore: number) {
+  const base = Math.max(Number(rate || 0), Number(pressureScore || 0));
+  return Math.max(8, Math.min(26, 8 + (base / 100) * 18));
+}
+
+function isValidLatLng(lat: unknown, lng: unknown): lat is number {
+  return (
+    typeof lat === 'number'
+    && typeof lng === 'number'
+    && Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && lat >= -90
+    && lat <= 90
+    && lng >= -180
+    && lng <= 180
+  );
+}
+
+function getAvailabilityDayColor(remainingShare: number, unavailableProperties: number) {
+  if (unavailableProperties <= 0) return 'bg-emerald-100 text-emerald-800';
+  const safe = Math.max(0, Math.min(100, Number(remainingShare || 0)));
+  if (safe <= 10) return 'bg-rose-600 text-white';
+  if (safe <= 30) return 'bg-orange-500 text-white';
+  if (safe <= 55) return 'bg-amber-300 text-slate-900';
+  return 'bg-sky-100 text-sky-800';
+}
+
 function KpiCard({
   title,
   value,
@@ -297,6 +551,7 @@ export default function StatistiquesPage() {
   const [stayDemand, setStayDemand] = useState<StayDemandResponse | null>(null);
   const [channels, setChannels] = useState<ChannelsResponse | null>(null);
   const [gaStatus, setGaStatus] = useState<GaStatusResponse | null>(null);
+  const [availabilityPressure, setAvailabilityPressure] = useState<AvailabilityPressureResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [authExpired, setAuthExpired] = useState(false);
   const [cleanupDaysInteractions, setCleanupDaysInteractions] = useState(90);
@@ -307,25 +562,27 @@ export default function StatistiquesPage() {
     setLoading(true);
     try {
       const baseQuery = buildStatsQuery(filters);
-      const [overviewResponse, timeseriesResponse, propertyResponse, stayResponse, channelsResponse, gaResponse] = await Promise.all([
+      const [overviewResponse, timeseriesResponse, propertyResponse, stayResponse, channelsResponse, gaResponse, availabilityResponse] = await Promise.all([
         fetch(`${API_URL}/statistiques/overview?${baseQuery}`, { credentials: 'include' }),
         fetch(`${API_URL}/statistiques/timeseries?${baseQuery}`, { credentials: 'include' }),
         fetch(`${API_URL}/statistiques/property-performance?${buildStatsQuery(filters, { limit: '24' })}`, { credentials: 'include' }),
         fetch(`${API_URL}/statistiques/stay-demand?${buildStatsQuery(filters, { limit: '12' })}`, { credentials: 'include' }),
         fetch(`${API_URL}/statistiques/channels?${baseQuery}`, { credentials: 'include' }),
         fetch(`${API_URL}/statistiques/google-analytics/status`, { credentials: 'include' }),
+        fetch(`${API_URL}/statistiques/availability-pressure?${buildStatsQuery(filters, { limit: '12' })}`, { credentials: 'include' }),
       ]);
 
-      const [overviewData, timeseriesData, propertyData, stayData, channelsData, gaData] = await Promise.all([
+      const [overviewData, timeseriesData, propertyData, stayData, channelsData, gaData, availabilityData] = await Promise.all([
         overviewResponse.json().catch(() => null),
         timeseriesResponse.json().catch(() => null),
         propertyResponse.json().catch(() => null),
         stayResponse.json().catch(() => null),
         channelsResponse.json().catch(() => null),
         gaResponse.json().catch(() => null),
+        availabilityResponse.json().catch(() => null),
       ]);
 
-      if ([overviewResponse, timeseriesResponse, propertyResponse, stayResponse, channelsResponse, gaResponse].some((response) => response.status === 401)) {
+      if ([overviewResponse, timeseriesResponse, propertyResponse, stayResponse, channelsResponse, gaResponse, availabilityResponse].some((response) => response.status === 401)) {
         setAuthExpired(true);
         toast.error('Session admin expiree. Reconnectez-vous.');
         navigate('/connexion-admin-interne', { replace: true });
@@ -338,6 +595,7 @@ export default function StatistiquesPage() {
       if (!stayResponse.ok) throw new Error(String(stayData?.error || 'Impossible de charger la demande de sejour'));
       if (!channelsResponse.ok) throw new Error(String(channelsData?.error || 'Impossible de charger les canaux'));
       if (!gaResponse.ok) throw new Error(String(gaData?.error || 'Impossible de charger le statut GA4'));
+      if (!availabilityResponse.ok) throw new Error(String(availabilityData?.error || 'Impossible de charger la saturation calendrier'));
 
       setOverview(overviewData as OverviewResponse);
       setTimeseries(timeseriesData as TimeSeriesResponse);
@@ -345,6 +603,7 @@ export default function StatistiquesPage() {
       setStayDemand(stayData as StayDemandResponse);
       setChannels(channelsData as ChannelsResponse);
       setGaStatus(gaData as GaStatusResponse);
+      setAvailabilityPressure(availabilityData as AvailabilityPressureResponse);
       setAuthExpired(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Statistiques indisponibles');
@@ -375,8 +634,9 @@ export default function StatistiquesPage() {
     stayDemand,
     channels,
     gaStatus,
+    availabilityPressure,
     exportedAt: new Date().toISOString(),
-  }), [channels, filters, gaStatus, overview, propertyPerformance, stayDemand, timeseries]);
+  }), [availabilityPressure, channels, filters, gaStatus, overview, propertyPerformance, stayDemand, timeseries]);
 
   const cleanInteractions = async (segment: 'all' | 'anonymous' | 'known') => {
     if (!window.confirm(`Supprimer les interactions "${segment}" plus anciennes que ${cleanupDaysInteractions} jours ?`)) return;
@@ -433,6 +693,27 @@ export default function StatistiquesPage() {
   const trendChartMinWidth = useMemo(() => getChartMinWidth(series.length, 760, 58, 2400), [series.length]);
   const conversionChartMinWidth = useMemo(() => getChartMinWidth(series.length, 680, 54, 2200), [series.length]);
   const stayChartMinWidth = useMemo(() => getChartMinWidth((stayDemand?.topMonths || []).length, 560, 72, 1600), [stayDemand?.topMonths]);
+  const saturationTimeline = availabilityPressure?.timeline || [];
+  const saturationTypes = availabilityPressure?.types || [];
+  const saturationHeatmapColumns = availabilityPressure?.heatmap?.columns || [];
+  const saturationHeatmapRows = availabilityPressure?.heatmap?.rows || [];
+  const saturationPropertyCalendars = availabilityPressure?.typeCalendars || [];
+  const saturationMapPoints = useMemo(
+    () => (availabilityPressure?.propertyMapPoints || []).filter((point) => isValidLatLng(point.lat, point.lng)),
+    [availabilityPressure?.propertyMapPoints],
+  );
+  const saturationTypePeakRanges = availabilityPressure?.typePeakRanges || [];
+  const saturationTimelineMinWidth = useMemo(() => getChartMinWidth(saturationTimeline.length, 760, 58, 2400), [saturationTimeline.length]);
+  const saturationCalendarMinWidth = useMemo(
+    () => getChartMinWidth(Math.max(...saturationPropertyCalendars.map((item) => item.days.length), 0), 920, 38, 3200),
+    [saturationPropertyCalendars],
+  );
+  const saturationMapCenter = useMemo<[number, number]>(() => {
+    if (saturationMapPoints.length === 0) return [36.8471, 11.0939];
+    const latAvg = saturationMapPoints.reduce((sum, point) => sum + point.lat, 0) / saturationMapPoints.length;
+    const lngAvg = saturationMapPoints.reduce((sum, point) => sum + point.lng, 0) / saturationMapPoints.length;
+    return [latAvg, lngAvg];
+  }, [saturationMapPoints]);
 
   return (
     <div className="space-y-6 pb-8">
@@ -616,6 +897,328 @@ export default function StatistiquesPage() {
             </div>
           )}
         </article>
+      </section>
+
+      <section className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <article className="rounded-[28px] border border-rose-100 bg-[linear-gradient(135deg,#fff1f2_0%,#ffffff_100%)] p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-700">Saturation globale</p>
+            <p className="mt-3 text-3xl font-bold text-slate-900">{formatPercent(availabilityPressure?.overview?.saturationRate)}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {formatNumber(availabilityPressure?.overview?.totalUnavailableDays)} jours indisponibles sur {formatNumber(availabilityPressure?.overview?.totalCapacityDays)} jours-capacite.
+            </p>
+          </article>
+          <article className="rounded-[28px] border border-amber-100 bg-[linear-gradient(135deg,#fffbeb_0%,#ffffff_100%)] p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">Periode la plus indisponible</p>
+            <p className="mt-3 text-2xl font-bold text-slate-900">{formatCompactLabel(availabilityPressure?.overview?.peakPeriod?.label)}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {formatPercent(availabilityPressure?.overview?.peakPeriod?.saturationRate)} de saturation pour {formatNumber(availabilityPressure?.overview?.peakPeriod?.visits)} visites.
+            </p>
+          </article>
+          <article className="rounded-[28px] border border-emerald-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_100%)] p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Type sous tension</p>
+            <p className="mt-3 text-2xl font-bold text-slate-900">{formatCompactLabel(availabilityPressure?.overview?.pressuredType?.label)}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Score {Number(availabilityPressure?.overview?.pressuredType?.pressureScore || 0).toFixed(1)} • {formatPercent(availabilityPressure?.overview?.pressuredType?.saturationRate)} • {formatNumber(availabilityPressure?.overview?.pressuredType?.visits)} visites.
+            </p>
+          </article>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <article className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Saturation calendrier et trafic</h2>
+              <p className="text-sm text-slate-500">Courbe de tension qui croise indisponibilites et consultations sur la plage filtree.</p>
+            </div>
+            {loading ? <EmptyChart message="Chargement de la saturation..." /> : saturationTimeline.length === 0 ? (
+              <EmptyChart message="Aucune indisponibilite exploitable sur cette plage." />
+            ) : (
+              <div className="overflow-x-auto pb-2 [scrollbar-gutter:stable]">
+                <div className="h-[340px] min-w-full" style={{ width: `${saturationTimelineMinWidth}px` }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={saturationTimeline} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
+                      <defs>
+                        <linearGradient id="pressureFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0.04} />
+                        </linearGradient>
+                        <linearGradient id="visitsFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#2563eb" stopOpacity={0.24} />
+                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0.03} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 12 }} minTickGap={20} />
+                      <YAxis yAxisId="left" tick={{ fill: '#64748b', fontSize: 12 }} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fill: '#64748b', fontSize: 12 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Area yAxisId="left" type="monotone" dataKey="saturationRate" name="Saturation (%)" stroke="#e11d48" fill="url(#pressureFill)" strokeWidth={3} />
+                      <Area yAxisId="left" type="monotone" dataKey="pressureScore" name="Indice tension" stroke="#f97316" fillOpacity={0} strokeWidth={2} />
+                      <Area yAxisId="right" type="monotone" dataKey="visits" name="Visites" stroke="#2563eb" fill="url(#visitsFill)" strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+          </article>
+
+          <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Actions suggerees</h2>
+              <p className="text-sm text-slate-500">Axes prioritaires pour injecter du stock sur les periodes et typologies tendues.</p>
+            </div>
+            <div className="space-y-3">
+              {(availabilityPressure?.recommendations || []).slice(0, 5).map((item) => (
+                <div key={item.key} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{item.message}</p>
+                </div>
+              ))}
+              {(availabilityPressure?.recommendations || []).length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
+                  Pas de tension forte detectee sur cette plage. Les types restent globalement alimentes.
+                </div>
+              ) : null}
+            </div>
+          </article>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+          <article className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Calendriers disponibilite par type</h2>
+              <p className="text-sm text-slate-500">Lecture jour par jour du stock restant et des jours indisponibles pour les types et sous-types les plus exposes.</p>
+            </div>
+            {loading ? <EmptyChart message="Chargement des calendriers..." /> : saturationPropertyCalendars.length === 0 ? (
+              <EmptyChart message="Aucun calendrier de disponibilite a afficher." />
+            ) : (
+              <div className="overflow-x-auto pb-2 [scrollbar-gutter:stable]">
+                <div className="space-y-3" style={{ minWidth: `${saturationCalendarMinWidth}px` }}>
+                  {saturationPropertyCalendars.map((calendar) => (
+                    <div key={calendar.key} className="rounded-[24px] border border-slate-100 bg-slate-50/70 p-4">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{calendar.label}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {formatNumber(calendar.propertyCount)} biens • {formatPercent(calendar.saturationRate)} de saturation • {formatNumber(calendar.visits)} visites
+                          </p>
+                        </div>
+                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getPressureBadgeColor(calendar.saturationRate)}`}>
+                          reste {formatPercent(calendar.days[calendar.days.length - 1]?.remainingShare)}
+                        </span>
+                      </div>
+                      <div className="grid gap-1.5" style={{ gridTemplateColumns: `180px repeat(${calendar.days.length}, minmax(36px, 1fr))` }}>
+                        <div className="flex items-center text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Disponibilite</div>
+                        {calendar.days.map((day) => (
+                          <div key={`${calendar.key}-head-${day.date}`} className="text-center text-[10px] font-semibold text-slate-500">
+                            {String(day.date).slice(8, 10)}
+                          </div>
+                        ))}
+                        <div className="flex items-center text-xs text-slate-600">Reste / indispo</div>
+                        {calendar.days.map((day) => (
+                          <div
+                            key={`${calendar.key}-${day.date}`}
+                            className={`rounded-xl px-1 py-2 text-center text-[10px] font-semibold shadow-sm ${getAvailabilityDayColor(day.remainingShare, day.unavailableProperties)}`}
+                            title={`${calendar.label} • ${formatDateOnly(day.date)} • ${formatNumber(day.availableProperties)} dispo / ${formatNumber(day.unavailableProperties)} indispo • ${formatNumber(day.visits)} visites`}
+                          >
+                            <div>{formatNumber(day.availableProperties)}</div>
+                            <div className="opacity-80">/{formatNumber(day.unavailableProperties)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </article>
+
+          <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Types et sous-types presque satures</h2>
+              <p className="text-sm text-slate-500">Classement combine saturation calendrier et pression de consultation.</p>
+            </div>
+            <div className="space-y-3">
+              {saturationTypes.slice(0, 8).map((item) => (
+                <div key={item.key} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{item.subTypeLabel ? `${item.typeLabel} / ${item.subTypeLabel}` : item.typeLabel}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatNumber(item.propertyCount)} biens • {formatNumber(item.saturatedPropertyCount)} quasi satures • {formatNumber(item.visits)} visites
+                      </p>
+                    </div>
+                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getPressureBadgeColor(item.pressureScore)}`}>
+                      tension {item.pressureScore.toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="mt-3 h-2 rounded-full bg-slate-200">
+                    <div className="h-2 rounded-full bg-gradient-to-r from-rose-500 via-orange-400 to-amber-300" style={{ width: `${Math.max(6, Math.min(100, item.saturationRate))}%` }} />
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
+                    <p>Saturation {formatPercent(item.saturationRate)}</p>
+                    <p>Indispo {formatNumber(item.unavailableDays)} jours</p>
+                    <p>Booked {formatNumber(item.bookedDays)} j</p>
+                    <p>Pending {formatNumber(item.pendingDays)} j</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <article className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Heatmap calendrier par type</h2>
+              <p className="text-sm text-slate-500">Lecture rapide des mois critiques, type par type et sous-type par sous-type.</p>
+            </div>
+            {loading ? <EmptyChart message="Chargement de la heatmap..." /> : saturationHeatmapRows.length === 0 ? (
+              <EmptyChart message="Aucune matrice de saturation disponible." />
+            ) : (
+              <div className="overflow-x-auto pb-2">
+                <div className="min-w-[860px]">
+                  <div className="grid gap-2" style={{ gridTemplateColumns: `220px repeat(${saturationHeatmapColumns.length}, minmax(74px, 1fr))` }}>
+                    <div />
+                    {saturationHeatmapColumns.map((column) => (
+                      <div key={column.bucket} className="px-2 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                        {column.label}
+                      </div>
+                    ))}
+                    {saturationHeatmapRows.map((row) => (
+                      <Fragment key={row.key}>
+                        <div key={`${row.key}-label`} className="flex items-center pr-3 text-sm font-semibold text-slate-800">
+                          {row.label}
+                        </div>
+                        {row.cells.map((cell) => (
+                          <div
+                            key={`${row.key}-${cell.bucket}`}
+                            className={`rounded-2xl px-2 py-3 text-center text-xs font-semibold shadow-sm ${getHeatmapColor(cell.saturationRate)}`}
+                            title={`${row.label} • ${cell.label} • ${formatPercent(cell.saturationRate)} • ${formatNumber(cell.unavailableDays)} jours indisponibles`}
+                          >
+                            <div>{formatPercent(cell.saturationRate)}</div>
+                            <div className="mt-1 text-[10px] opacity-80">{formatNumber(cell.unavailableDays)} j</div>
+                          </div>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </article>
+
+          <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Periodes les plus indisponibles par type</h2>
+              <p className="text-sm text-slate-500">Chaque carte donne une plage precise du premier au dernier jour critique pour chaque type.</p>
+            </div>
+            <div className="space-y-3">
+              {saturationTypePeakRanges.slice(0, 6).map((item) => {
+                const range = item.ranges[0];
+                if (!range) return null;
+                return (
+                  <div key={item.key} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                        <p className="mt-1 text-xs text-slate-500">{formatDateRangeLabel(range.startDate, range.endDate)}</p>
+                      </div>
+                      <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getPressureBadgeColor(range.avgSaturationRate)}`}>
+                        {formatPercent(range.avgSaturationRate)}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                      <span>{formatNumber(range.unavailableDays)} jours indisponibles</span>
+                      <span>{formatNumber(range.visits)} visites</span>
+                      <span>pic {formatNumber(range.peakUnavailableProperties)} biens indisponibles</span>
+                      <span>{formatNumber(item.propertyCount)} biens suivis</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {saturationTypePeakRanges.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
+                  Aucune plage continue d indisponibilite detectee sur les types filtres.
+                </div>
+              ) : null}
+            </div>
+          </article>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_0.9fr]">
+          <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Carte des biens sous pression</h2>
+              <p className="text-sm text-slate-500">Chaque cercle represente un bien. La couleur montre le degre d indisponibilite; sans coordonnee propre, le bien reste ancre sur sa zone.</p>
+            </div>
+            {loading ? <EmptyChart message="Chargement de la carte..." /> : saturationMapPoints.length === 0 ? (
+              <EmptyChart message="Aucune coordonnee exploitable pour afficher la carte des biens." />
+            ) : (
+              <div className="overflow-hidden rounded-[24px] border border-slate-100">
+                <MapContainer center={saturationMapCenter} zoom={10} scrollWheelZoom className="h-[380px] w-full">
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  {saturationMapPoints.map((point) => (
+                    <CircleMarker
+                      key={point.key}
+                      center={[point.lat, point.lng]}
+                      radius={getMapCircleRadius(point.saturationRate, point.pressureScore)}
+                      pathOptions={{
+                        color: getMapCircleColor(point.saturationRate),
+                        fillColor: getMapCircleColor(point.saturationRate),
+                        fillOpacity: 0.42,
+                        weight: 2,
+                      }}
+                    >
+                      <Popup>
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold">{point.label}</p>
+                          <p className="text-xs text-slate-600">{point.subTypeLabel ? `${point.typeLabel} / ${point.subTypeLabel}` : point.typeLabel}</p>
+                          <p className="text-xs text-slate-600">{point.zoneLabel} • precision {point.mapPrecision === 'property' ? 'bien' : 'zone'}</p>
+                          <p className="text-xs text-slate-600">Saturation {formatPercent(point.saturationRate)} • tension {point.pressureScore.toFixed(1)}</p>
+                          <p className="text-xs text-slate-600">{formatNumber(point.unavailableDays)} jours indisponibles • {formatNumber(point.visits)} visites</p>
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                  ))}
+                </MapContainer>
+              </div>
+            )}
+          </article>
+
+          <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Periodes les plus indisponibles</h2>
+              <p className="text-sm text-slate-500">Vue globale par mois pour comparer rapidement le calendrier et le volume de consultation.</p>
+            </div>
+            <div className="space-y-3">
+              {(availabilityPressure?.peakPeriods || []).slice(0, 8).map((item) => (
+                <div key={item.bucket} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatNumber(item.unavailableDays)} jours indisponibles • {formatNumber(item.visits)} visites
+                      </p>
+                    </div>
+                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getPressureBadgeColor(item.saturationRate)}`}>
+                      {formatPercent(item.saturationRate)}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-slate-600">
+                    <span>Booked {formatNumber(item.bookedDays)} j</span>
+                    <span>Pending {formatNumber(item.pendingDays)} j</span>
+                    <span>Blocked {formatNumber(item.blockedDays)} j</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_1fr]">

@@ -9,6 +9,7 @@ import { trackMetaEvent } from "../utils/metaConversions";
 import CenterStatusPopup from "../components/CenterStatusPopup";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
+const CARD_PAYMENT_COMING_SOON_LABEL = "methode Arrive dans quelques jours";
 
 function normalizePaymentMethodParam(value?: string | null): "clicktopay" | "receipt" | null {
   const normalized = String(value || "").trim().toLowerCase();
@@ -471,8 +472,8 @@ export default function HotelReservationPaymentPage() {
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               <button
                 type="button"
-                onClick={() => setSearchParams({ method: "clicktopay" })}
-                className="group rounded-[28px] bg-[linear-gradient(135deg,#0b7a58_0%,#169b67_56%,#34d399_100%)] p-6 text-left text-white shadow-[0_24px_80px_-32px_rgba(5,150,105,0.85)] transition hover:-translate-y-1"
+                disabled
+                className="group rounded-[28px] bg-[linear-gradient(135deg,#0b7a58_0%,#169b67_56%,#34d399_100%)] p-6 text-left text-white shadow-[0_24px_80px_-32px_rgba(5,150,105,0.85)] transition disabled:cursor-not-allowed disabled:opacity-80"
               >
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/25 bg-white/10 backdrop-blur">
                   <CreditCard className="h-6 w-6" />
@@ -483,7 +484,7 @@ export default function HotelReservationPaymentPage() {
                   Ouvrir la page dediee au paiement securise Click to Pay.
                 </p>
                 <span className="mt-6 inline-flex rounded-full bg-white px-5 py-2 text-sm font-semibold text-emerald-800">
-                  Continuer
+                  {CARD_PAYMENT_COMING_SOON_LABEL}
                 </span>
               </button>
 
@@ -584,14 +585,11 @@ export default function HotelReservationPaymentPage() {
                       <div className="mt-6 flex justify-center">
                         <button
                           type="button"
-                          disabled={!isClickToPayActionable}
-                          onClick={() => {
-                            void handleStartClickToPay();
-                          }}
+                          disabled
                           className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-emerald-800 shadow-lg shadow-emerald-950/10 transition hover:-translate-y-0.5 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:min-w-[260px]"
                         >
                           <CreditCard className="h-4 w-4" />
-                          {startingClickToPay ? "Ouverture..." : confirmingClickToPay ? "Verification..." : "Payer avec Click to Pay"}
+                          {CARD_PAYMENT_COMING_SOON_LABEL}
                         </button>
                       </div>
                     </div>

@@ -448,6 +448,14 @@ export default function LocationPublicBienPageView({
     if (/google\.[^/]+\/maps\/embed/i.test(raw)) return raw;
     return '';
   }, [selectedMapsUrl, effectiveMapCenter]);
+  const adminGoogleMapsUrl = useMemo(() => {
+    const exactCenter = displayLocation || parseGoogleMapsLatLng(selectedMapsUrl);
+    if (exactCenter) {
+      return `https://www.google.com/maps/search/?api=1&query=${exactCenter.lat},${exactCenter.lng}`;
+    }
+    if (/^https?:\/\//i.test(selectedMapsUrl)) return selectedMapsUrl;
+    return '';
+  }, [displayLocation, selectedMapsUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -813,6 +821,18 @@ out body 20;
                       ) : null}
                     </div>
                     <div className="border-t border-gray-100 p-4">
+                      {previewMode && adminGoogleMapsUrl ? (
+                        <div className="mb-3">
+                          <a
+                            href={adminGoogleMapsUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                          >
+                            Ouvrir dans Google Maps
+                          </a>
+                        </div>
+                      ) : null}
                       {!displayLocation ? <p className="mb-2 text-xs text-gray-500">Position approximative de la zone.</p> : null}
                       {nearbyPlaces.length > 0 ? (
                         <div className="flex flex-wrap gap-2">

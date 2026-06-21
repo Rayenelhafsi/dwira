@@ -1,0 +1,27 @@
+Error fetching statistiques availability pressure: Error: Unknown column 'b.mode_bien' in 'where clause'
+    at PromisePool.query (C:\tmp\dwira-953\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at fetchStatsAvailabilityInventoryRows (C:\tmp\dwira-953\server\index.cjs:29136:29)
+    at C:\tmp\dwira-953\server\index.cjs:29870:33
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  code: 'ER_BAD_FIELD_ERROR',
+  errno: 1054,
+  sql: 'SELECT\n' +
+    '       b.id,\n' +
+    '       b.reference,\n' +
+    '       b.titre,\n' +
+    '       b.type,\n' +
+    '       b.residence_unit_sub_type,\n' +
+    '       b.zone_id,\n' +
+    '       z.nom AS zone_nom,\n' +
+    '       z.quartier AS zone_quartier,\n' +
+    '       z.region AS zone_region,\n' +
+    '       z.gouvernerat AS zone_gouvernerat,\n' +
+    '       z.pays AS zone_pays,\n' +
+    '       z.google_maps_url\n' +
+    '     FROM biens b\n' +
+    '     LEFT JOIN zones z ON z.id = b.zone_id\n' +
+    "     WHERE COALESCE(NULLIF(b.mode, ''), NULLIF(b.mode_bien, ''), 'location_saisonniere') = 'location_saisonniere' AND COALESCE(b.visible_sur_site, 1) = 1\n" +
+    '     ORDER BY b.created_at ASC, b.id ASC',
+  sqlState: '42S22',
+  sqlMessage: "Unknown column 'b.mode_bien' in 'where clause'"
+}
