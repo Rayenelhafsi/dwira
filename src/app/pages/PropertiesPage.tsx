@@ -80,6 +80,7 @@ type PrimaryDisplayResult = {
   score: number;
   cardVariant: "default" | "flash";
   flashOffer: PropertyFlashOffer | null;
+  flashOffers?: PropertyFlashOffer[];
   searchParams: string;
 };
 
@@ -2853,7 +2854,7 @@ export default function PropertiesPage() {
     sortedScoredResults.forEach((row) => {
       const baseParams = new URLSearchParams(searchParams.toString());
       const flashOffers = getPropertyFlashOffers(row.property);
-      flashOffers.forEach((flashOffer) => {
+      const flashEntries = flashOffers.map((flashOffer) => {
         const flashParams = new URLSearchParams(baseParams.toString());
         flashParams.set("mode", "location_saisonniere");
         flashParams.set("checkIn", flashOffer.start);
@@ -2879,14 +2880,18 @@ export default function PropertiesPage() {
         if (flashOffer.expiresAt) {
           flashParams.set("flashExpiresAt", flashOffer.expiresAt);
         }
+        return { flashOffer, searchParams: flashParams.toString() };
+      });
+      if (flashEntries.length > 0) {
         flashRows.push({
           ...row,
-          displayKey: `${row.property.id}-flash-${flashOffer.id || `${flashOffer.start}-${flashOffer.end}`}`,
+          displayKey: `${row.property.id}-flash-group`,
           cardVariant: "flash",
-          flashOffer,
-          searchParams: flashParams.toString(),
+          flashOffer: flashEntries[0].flashOffer,
+          flashOffers: flashEntries.map((entry) => entry.flashOffer),
+          searchParams: flashEntries[0].searchParams,
         });
-      });
+      }
       regularRows.push({
         ...row,
         displayKey: String(row.property.id),
@@ -3761,17 +3766,17 @@ export default function PropertiesPage() {
                           Ventes flash
                         </h3>
                         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-                          Offres limitées séparées du catalogue principal pour une navigation plus claire.
+                          Offres limitées séparées du catalogue principal, une seule carte par bien avec toutes les periodes flash.
                         </p>
                       </div>
                       <span className="inline-flex items-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700">
-                        {flashDisplayResults.length} offre{flashDisplayResults.length > 1 ? "s" : ""}
+                        {flashDisplayResults.length} bien{flashDisplayResults.length > 1 ? "s" : ""}
                       </span>
                     </div>
                     <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                       {flashDisplayResults.map((row) => (
                         <div key={row.displayKey} className="space-y-2">
-                          <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} pricingAmicaleId={resolvedPricingAmicaleId} partnerAgencyMarginMultiplier={resolvedPartnerAgencyMarginMultiplier} publicPartnerSlug={publicPartnerSlug} />
+                          <PropertyCard property={row.property} searchParams={row.searchParams} cardVariant={row.cardVariant} flashOffer={row.flashOffer} flashOffers={row.flashOffers} pricingAmicaleId={resolvedPricingAmicaleId} partnerAgencyMarginMultiplier={resolvedPartnerAgencyMarginMultiplier} publicPartnerSlug={publicPartnerSlug} />
                           <div className="rounded-xl border border-orange-100 bg-white/80 p-3">
                             {row.hints.length > 0 && (
                               <p className="text-xs text-orange-800">{row.hints.join(" | ")}</p>

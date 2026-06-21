@@ -16,6 +16,7 @@ interface PropertyCardProps {
   searchParams?: string;
   cardVariant?: "default" | "flash";
   flashOffer?: PropertyFlashOffer | null;
+  flashOffers?: PropertyFlashOffer[];
   pricingAmicaleId?: string | null;
   partnerAgencyMarginMultiplier?: number | null;
   publicPartnerSlug?: string | null;
@@ -112,6 +113,7 @@ export function PropertyCard({
   searchParams,
   cardVariant = "default",
   flashOffer = null,
+  flashOffers = [],
   pricingAmicaleId: forcedPricingAmicaleId = null,
   partnerAgencyMarginMultiplier: forcedPartnerAgencyMarginMultiplier = null,
   publicPartnerSlug = null,
@@ -181,17 +183,33 @@ export function PropertyCard({
   const displayedWeeklyPrice = applyAmicaleTtc(syncedWeeklyPrice, isAmicalePricing);
   const partnerAdjustedNightlyPrice = applyPartnerAgencyMargin(displayedNightlyPrice, partnerAgencyMarginMultiplier);
   const partnerAdjustedWeeklyPrice = applyPartnerAgencyMargin(displayedWeeklyPrice, partnerAgencyMarginMultiplier);
-  const isFlashCard = cardVariant === "flash" && Boolean(flashOffer);
-  const flashDiscountPercent = Math.max(0, Math.min(95, Number(flashOffer?.discountPercent || 0)));
-  const flashNightlyPrice = isFlashCard ? getFlashNightlyAmount(partnerAdjustedNightlyPrice, flashOffer) : partnerAdjustedNightlyPrice;
-  const flashWeeklyPrice = isFlashCard
-    ? (flashOffer?.mode === "fixed_amount" && Number(flashOffer.fixedNightlyAmount || 0) > 0
-        ? Math.round(Number(flashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
-        : getFlashNightlyAmount(partnerAdjustedWeeklyPrice, flashOffer))
-    : partnerAdjustedWeeklyPrice;
-  const flashDateLabel = isFlashCard ? formatFlashDateLabel(flashOffer?.start, flashOffer?.end) : "";
-  const flashBadgeLabel = isFlashCard ? getFlashBadgeLabel(flashOffer) : "";
-  const flashCountdownLabel = isFlashCard ? formatFlashCountdown(flashOffer?.expiresAt, countdownNow) : null;
+  const effectiveFlashOffers = useMemo(() => {
+    const source = Array.isArray(flashOffers) && flashOffers.length > 0
+      ? flashOffers
+      : (flashOffer ? [flashOffer] : []);
+    return source.filter(Boolean);
+  }, [flashOffer, flashOffers]);
+  const primaryFlashOffer = effectiveFlashOffers[0] || null;
+  const isFlashCard = cardVariant === "flash" && effectiveFlashOffers.length > 0;
+  const flashBadgeLabel = isFlashCard ? getFlashBadgeLabel(primaryFlashOffer) : "";
+  const flashOfferCards = useMemo(() => (
+    effectiveFlashOffers.map((offer) => {
+      const nightlyPrice = getFlashNightlyAmount(partnerAdjustedNightlyPrice, offer);
+      const weeklyPrice = offer.mode === "fixed_amount" && Number(offer.fixedNightlyAmount || 0) > 0
+        ? Math.round(Number(offer.fixedNightlyAmount || 0) * 7 * 100) / 100
+        : getFlashNightlyAmount(partnerAdjustedWeeklyPrice, offer);
+      return {
+        key: String(offer.id || `${offer.start}-${offer.end}`),
+        offer,
+        dateLabel: formatFlashDateLabel(offer.start, offer.end),
+        badgeLabel: getFlashBadgeLabel(offer),
+        countdownLabel: formatFlashCountdown(offer.expiresAt, countdownNow),
+        nightlyPrice,
+        weeklyPrice,
+      };
+    })
+  ), [countdownNow, effectiveFlashOffers, partnerAdjustedNightlyPrice, partnerAdjustedWeeklyPrice]);
+  const primaryFlashCard = flashOfferCards[0] || null;
   const mainTypeLabel = resolveMainTypeLabel(property.category || "", property.title || "");
   const subTypeLabel = resolveSubTypeLabel(
     property.category || "",
@@ -208,15 +226,15 @@ export function PropertyCard({
   const residenceBadgeText = /^residence\b/i.test(residenceBadgeLabel)
     ? residenceBadgeLabel
     : (residenceBadgeLabel ? `Residence ${residenceBadgeLabel}` : "");
-  const visualNightlyPrice = isFlashCard ? flashNightlyPrice : partnerAdjustedNightlyPrice;
-  const visualWeeklyPrice = isFlashCard ? flashWeeklyPrice : partnerAdjustedWeeklyPrice;
+  const visualNightlyPrice = isFlashCard ? Number(primaryFlashCard?.nightlyPrice || partnerAdjustedNightlyPrice) : partnerAdjustedNightlyPrice;
+  const visualWeeklyPrice = isFlashCard ? Number(primaryFlashCard?.weeklyPrice || partnerAdjustedWeeklyPrice) : partnerAdjustedWeeklyPrice;
   useEffect(() => {
-    if (!isFlashCard || !flashOffer?.expiresAt) return;
+    if (!isFlashCard || !effectiveFlashOffers.some((offer) => offer?.expiresAt)) return;
     const intervalId = window.setInterval(() => {
       setCountdownNow(Date.now());
     }, 1000);
     return () => window.clearInterval(intervalId);
-  }, [flashOffer?.expiresAt, isFlashCard]);
+  }, [effectiveFlashOffers, isFlashCard]);
 
   const handleMessengerClick = () => {
     void trackMetaEvent({
@@ -341,10 +359,10 @@ export function PropertyCard({
                 <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 sm:h-7 sm:w-7">
                   <Flame size={15} />
                 </span>
-                <span className="max-sm:hidden">{flashBadgeLabel}</span>
-                <span className="sm:hidden">Flash</span>
+                  <span className="max-sm:hidden">{flashBadgeLabel || `${effectiveFlashOffers.length} offres`}</span>
+                  <span className="sm:hidden">Flash</span>
+                </div>
               </div>
-            </div>
           ) : null}
           <div className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-white/25 bg-black/35 px-3 py-1 text-xs font-semibold text-white backdrop-blur-md">
             <Star size={13} fill="currentColor" />
@@ -382,12 +400,12 @@ export function PropertyCard({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[11px] font-black uppercase tracking-[0.24em] text-white/88">
-                    {String(flashOffer?.title || "Vente flash")}
+                    {String(primaryFlashOffer?.title || "Vente flash")}
                   </p>
-                  <p className="mt-1 text-xs font-semibold sm:text-sm">{flashDateLabel}</p>
-                  {flashCountdownLabel ? (
+                  <p className="mt-1 text-xs font-semibold sm:text-sm">{primaryFlashCard?.dateLabel || ""}</p>
+                  {primaryFlashCard?.countdownLabel ? (
                     <p className="mt-1 text-[11px] font-semibold text-white/80">
-                      Expire dans {flashCountdownLabel}
+                      Expire dans {primaryFlashCard.countdownLabel}
                     </p>
                   ) : null}
                 </div>
@@ -456,20 +474,25 @@ export function PropertyCard({
           </div>
 
           {isFlashCard ? (
-            <div className="rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-red-600">Sejour flash</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{flashDateLabel}</p>
-                  {flashCountdownLabel ? (
-                    <p className="mt-1 text-xs font-semibold text-red-600">Expire dans {flashCountdownLabel}</p>
-                  ) : null}
+            <div className="space-y-2 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-red-600">Sejour flash</p>
+              {flashOfferCards.map((item) => (
+                <div key={item.key} className="rounded-xl border border-red-100/80 bg-white/85 px-3 py-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-900">{item.dateLabel}</p>
+                      {item.countdownLabel ? (
+                        <p className="mt-1 text-xs font-semibold text-red-600">Expire dans {item.countdownLabel}</p>
+                      ) : null}
+                      <p className="mt-1 text-[11px] font-medium text-slate-500">{item.badgeLabel}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs text-slate-500 line-through">{formatTnd(partnerAdjustedNightlyPrice)} TND</p>
+                      <p className="text-lg font-black text-red-600">{formatTnd(item.nightlyPrice)} TND</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs text-slate-500 line-through">{formatTnd(partnerAdjustedNightlyPrice)} TND</p>
-                  <p className="text-lg font-black text-red-600">{formatTnd(visualNightlyPrice)} TND</p>
-                </div>
-              </div>
+              ))}
             </div>
           ) : null}
 

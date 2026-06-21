@@ -100,6 +100,7 @@ type PropertyDisplayCard = {
   property: Property;
   cardVariant: "default" | "flash";
   flashOffer: PropertyFlashOffer | null;
+  flashOffers?: PropertyFlashOffer[];
   searchParams: string;
 };
 const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean }> = [
@@ -4083,7 +4084,7 @@ export default function HomePage({
     const regularCards: PropertyDisplayCard[] = [];
     filteredProperties.forEach((property) => {
       const flashOffers = getPropertyFlashOffers(property);
-      flashOffers.forEach((flashOffer) => {
+      const flashSearchParamsByOffer = flashOffers.map((flashOffer) => {
         const flashParams = new URLSearchParams(basePropertySearchParams.toString());
         flashParams.set("mode", "location_saisonniere");
         flashParams.set("checkIn", flashOffer.start);
@@ -4109,14 +4110,18 @@ export default function HomePage({
         if (flashOffer.expiresAt) {
           flashParams.set("flashExpiresAt", flashOffer.expiresAt);
         }
+        return { flashOffer, searchParams: flashParams.toString() };
+      });
+      if (flashSearchParamsByOffer.length > 0) {
         flashCards.push({
-          key: `${property.id}-flash-${flashOffer.id || `${flashOffer.start}-${flashOffer.end}`}`,
+          key: `${property.id}-flash-group`,
           property,
           cardVariant: "flash",
-          flashOffer,
-          searchParams: flashParams.toString(),
+          flashOffer: flashSearchParamsByOffer[0].flashOffer,
+          flashOffers: flashSearchParamsByOffer.map((item) => item.flashOffer),
+          searchParams: flashSearchParamsByOffer[0].searchParams,
         });
-      });
+      }
       regularCards.push({
         key: String(property.id),
         property,
@@ -6733,11 +6738,11 @@ export default function HomePage({
                     Ventes flash
                   </h3>
                   <p className="mt-2 max-w-2xl text-sm text-slate-600">
-                    Offres limitées avec compteur actif. Chaque carte correspond à une période flash distincte.
+                    Offres limitées avec compteur actif. Chaque bien n'apparait qu'une seule fois avec toutes ses periodes flash.
                   </p>
                 </div>
                 <span className="inline-flex items-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700">
-                  {flashPropertyCards.length} offre{flashPropertyCards.length > 1 ? "s" : ""}
+                  {flashPropertyCards.length} bien{flashPropertyCards.length > 1 ? "s" : ""}
                 </span>
               </div>
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
@@ -6748,6 +6753,7 @@ export default function HomePage({
                     searchParams={card.searchParams}
                     cardVariant={card.cardVariant}
                     flashOffer={card.flashOffer}
+                    flashOffers={card.flashOffers}
                     pricingAmicaleId={activeAmicaleId}
                     partnerAgencyMarginMultiplier={activePartnerAgencyMarginMultiplier}
                     publicPartnerSlug={publicPartnerSlug}
