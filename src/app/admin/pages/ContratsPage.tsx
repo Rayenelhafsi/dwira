@@ -1856,6 +1856,7 @@ export default function ContratsPage() {
                           }}
                           selectedStart={selectedStart}
                           selectedEnd={selectedEnd}
+                          showAdminBlockedStatus
                         />
                       )}
                     </div>

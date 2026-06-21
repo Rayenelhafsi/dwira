@@ -5192,6 +5192,7 @@ export default function NotificationsPage() {
                         onDateRangeSelect={() => {}}
                         selectedStart={null}
                         selectedEnd={null}
+                        showAdminBlockedStatus
                       />
                     </div>
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-3">
@@ -5204,6 +5205,7 @@ export default function NotificationsPage() {
                         onDateRangeSelect={() => {}}
                         selectedStart={null}
                         selectedEnd={null}
+                        showAdminBlockedStatus
                       />
                     </div>
                   </div>
