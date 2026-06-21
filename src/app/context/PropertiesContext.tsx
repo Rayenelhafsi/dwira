@@ -57,6 +57,165 @@ function normalizeBienType(type: string): BienType {
   return (LEGACY_TYPE_MAP[type] || type || 'appartement') as BienType;
 }
 
+function buildResidenceTemplateBienFromChild(source?: Partial<Bien> | null, configuration?: string | null): Partial<Bien> {
+  const normalizedType = normalizeBienType(String(source?.type || 'appartement')) === 'villa_maison' ? 'villa_maison' : 'appartement';
+  return {
+    type: normalizedType,
+    nom_bien_mobile: String(source?.nom_bien_mobile || '').trim() || null,
+    description: String(source?.description || '').trim(),
+    proprietaire_id: String(source?.proprietaire_id || '').trim() || null,
+    nb_chambres: source?.nb_chambres ?? 0,
+    nb_salle_bain: source?.nb_salle_bain ?? 0,
+    prix_nuitee: source?.prix_nuitee ?? 0,
+    prix_semaine: source?.prix_semaine ?? null,
+    tarification_methode: source?.tarification_methode ?? null,
+    prix_affiche_client: source?.prix_affiche_client ?? null,
+    prix_fixe_proprietaire: source?.prix_fixe_proprietaire ?? null,
+    prix_proprietaire: source?.prix_proprietaire ?? null,
+    prix_final: source?.prix_final ?? null,
+    revenu_agence: source?.revenu_agence ?? null,
+    commission_pourcentage_proprietaire: source?.commission_pourcentage_proprietaire ?? null,
+    commission_pourcentage_client: source?.commission_pourcentage_client ?? null,
+    montant_max_reduction_negociation: source?.montant_max_reduction_negociation ?? null,
+    prix_minimum_accepte: source?.prix_minimum_accepte ?? null,
+    modalite_paiement_vente: source?.modalite_paiement_vente ?? null,
+    pourcentage_premiere_partie_promesse: source?.pourcentage_premiere_partie_promesse ?? null,
+    montant_premiere_partie_promesse: source?.montant_premiere_partie_promesse ?? null,
+    montant_deuxieme_partie: source?.montant_deuxieme_partie ?? null,
+    nombre_tranches: source?.nombre_tranches ?? null,
+    periode_tranches_mois: source?.periode_tranches_mois ?? null,
+    montant_par_tranche: source?.montant_par_tranche ?? null,
+    avance: source?.avance ?? 0,
+    caution: source?.caution ?? 0,
+    type_rue: source?.type_rue ?? null,
+    type_papier: source?.type_papier ?? null,
+    superficie_m2: source?.superficie_m2 ?? null,
+    etage: source?.etage ?? null,
+    annee_construction: source?.annee_construction ?? null,
+    distance_plage_m: source?.distance_plage_m ?? null,
+    proche_plage: source?.proche_plage ?? false,
+    chauffage_central: source?.chauffage_central ?? false,
+    climatisation: source?.climatisation ?? false,
+    balcon: source?.balcon ?? false,
+    terrasse: source?.terrasse ?? false,
+    ascenseur: source?.ascenseur ?? false,
+    vue_mer: source?.vue_mer ?? false,
+    gaz_ville: source?.gaz_ville ?? false,
+    cuisine_equipee: source?.cuisine_equipee ?? false,
+    place_parking: source?.place_parking ?? false,
+    syndic: source?.syndic ?? false,
+    meuble: source?.meuble ?? false,
+    independant: source?.independant ?? false,
+    eau_puits: source?.eau_puits ?? false,
+    eau_sonede: source?.eau_sonede ?? false,
+    electricite_steg: source?.electricite_steg ?? false,
+    statut: source?.statut || 'disponible',
+    visible_sur_site: source?.visible_sur_site ?? true,
+    is_featured: source?.is_featured ?? false,
+    menage_en_cours: source?.menage_en_cours ?? false,
+    zone_id: String(source?.zone_id || '').trim() || null,
+    configuration: String(configuration || source?.configuration || '').trim() || null,
+    location_saisonniere_config: source?.location_saisonniere_config || null,
+    ui_config: source?.ui_config || null,
+  };
+}
+
+function buildResidenceUnitsFromChildren(biens: Bien[]): Bien[] {
+  const allBiens = Array.isArray(biens) ? biens : [];
+  const childRows = allBiens.filter((bien) => Boolean(String((bien as any).residence_parent_bien_id || '').trim()));
+  if (childRows.length === 0) return allBiens;
+
+  const childRowsByParentId = new Map<string, Bien[]>();
+  for (const child of childRows) {
+    const parentId = String((child as any).residence_parent_bien_id || '').trim();
+    if (!parentId) continue;
+    const list = childRowsByParentId.get(parentId) || [];
+    list.push(child);
+    childRowsByParentId.set(parentId, list);
+  }
+
+  return allBiens.map((bien) => {
+    const parentId = String((bien as any).id || '').trim();
+    if (!parentId) return bien;
+    if (String((bien as any).residence_parent_bien_id || '').trim()) return bien;
+    if (String((bien as any).type || '').trim().toLowerCase() !== 'residence') return bien;
+
+    const children = childRowsByParentId.get(parentId) || [];
+    if (children.length === 0) return bien;
+
+    const baseUnits = Array.isArray((bien as any).residence_units) ? (bien as any).residence_units : [];
+    const unitsById = new Map<string, any>();
+    baseUnits.forEach((unit: any, index: number) => {
+      const unitId = String(unit?.id || `res_unit_${index + 1}`).trim();
+      if (!unitId) return;
+      unitsById.set(unitId, {
+        id: unitId,
+        main_type: String(unit?.main_type || '').trim() || 'appartement',
+        shared_title: String(unit?.shared_title || '').trim(),
+        sub_type: String(unit?.sub_type || '').trim(),
+        quantity: Math.max(1, Math.floor(Number(unit?.quantity || 1) || 1)),
+        apartment_names: [],
+        apartment_references: [],
+        apartments: [],
+        template_bien: {},
+        template_media: [],
+        pricing_periods: [],
+        feature_ids: [],
+        feature_values: {},
+      });
+    });
+
+    children.forEach((child, childIndex) => {
+      const rawUnitKey = String((child as any).residence_unit_key || '').trim();
+      const [unitKeyPart, apartmentIndexPart] = rawUnitKey.split('__');
+      const fallbackSubType = String((child as any).residence_unit_sub_type || child.configuration || '').trim();
+      const unitId = String(unitKeyPart || `res_unit_${fallbackSubType || childIndex + 1}`).trim();
+      const apartmentIndex = Math.max(1, Math.floor(Number(apartmentIndexPart || childIndex + 1) || childIndex + 1));
+      const unit = unitsById.get(unitId) || {
+        id: unitId,
+        main_type: normalizeBienType(String((child as any).type || 'appartement')) === 'villa_maison' ? 'villa_maison' : 'appartement',
+        shared_title: '',
+        sub_type: fallbackSubType,
+        quantity: 0,
+        apartment_names: [],
+        apartment_references: [],
+        apartments: [],
+        template_bien: {},
+        template_media: [],
+        pricing_periods: [],
+        feature_ids: [],
+        feature_values: {},
+      };
+      const apartmentTitle = String((child as any).nom_bien_mobile || child.titre || '').trim();
+      unit.quantity = Math.max(Number(unit.quantity || 0), apartmentIndex);
+      unit.sub_type = unit.sub_type || fallbackSubType;
+      unit.apartment_names[apartmentIndex - 1] = apartmentTitle;
+      unit.apartment_references[apartmentIndex - 1] = String((child as any).reference || '').trim();
+      unit.apartments[apartmentIndex - 1] = {
+        name: apartmentTitle,
+        reference: String((child as any).reference || '').trim() || null,
+        nom_bien_mobile: String((child as any).nom_bien_mobile || '').trim() || null,
+        description: String((child as any).description || '').trim(),
+        proprietaire_id: String((child as any).proprietaire_id || '').trim() || null,
+        unavailable_dates: Array.isArray((child as any).unavailableDates) ? (child as any).unavailableDates : [],
+      };
+      unit.template_bien = buildResidenceTemplateBienFromChild(child, fallbackSubType || null);
+      unit.template_media = Array.isArray((child as any).media) ? (child as any).media : [];
+      unit.pricing_periods = Array.isArray((child as any).pricing_periods) ? (child as any).pricing_periods : [];
+      unit.feature_ids = Array.isArray((child as any).caracteristique_ids) ? (child as any).caracteristique_ids : [];
+      unit.feature_values = (child as any).caracteristique_valeurs && typeof (child as any).caracteristique_valeurs === 'object'
+        ? (child as any).caracteristique_valeurs
+        : {};
+      unitsById.set(unitId, unit);
+    });
+
+    return {
+      ...bien,
+      residence_units: Array.from(unitsById.values()).filter((unit) => String(unit?.sub_type || '').trim()),
+    };
+  });
+}
+
 function normalizePricingWeekday(value: unknown): 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi' | 'samedi' | 'dimanche' | null {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'lundi' || normalized === 'mardi' || normalized === 'mercredi' || normalized === 'jeudi' || normalized === 'vendredi' || normalized === 'samedi' || normalized === 'dimanche') {
@@ -989,14 +1148,15 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     propsData: Proprietaire[],
     modePrioritiesData: any
   ) => {
+    const resolvedBiens = buildResidenceUnitsFromChildren(mappedBiens);
     const zonesById: Record<string, Zone> = {};
     for (const zone of Array.isArray(zonesData) ? zonesData : []) {
       zonesById[zone.id] = zone;
     }
 
-    setBiens(mappedBiens);
+    setBiens(resolvedBiens);
     setBienFolders(Array.isArray(folderRows) ? folderRows : []);
-    setProperties(buildPublicPropertiesFromBiens(mappedBiens, zonesById));
+    setProperties(buildPublicPropertiesFromBiens(resolvedBiens, zonesById));
     setZones(Array.isArray(zonesData) ? zonesData : []);
     setProprietaires(Array.isArray(propsData) ? propsData : []);
     setModePriorities({
@@ -1005,7 +1165,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
       location_annuelle: Number(modePrioritiesData?.location_annuelle || DEFAULT_MODE_PRIORITIES.location_annuelle),
     });
     writePropertiesCache({
-      biens: mappedBiens,
+      biens: resolvedBiens,
       bienFolders: Array.isArray(folderRows) ? folderRows : [],
       zones: Array.isArray(zonesData) ? zonesData : [],
       proprietaires: Array.isArray(propsData) ? propsData : [],

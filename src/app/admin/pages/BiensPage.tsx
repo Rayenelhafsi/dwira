@@ -38,6 +38,80 @@ const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK = (locationSaisonniereSer
 );
 const buildDefaultPaidServices = (services: ServicePayantBien[] = LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK) =>
   services.map((service) => normalizeServicePayant(service));
+const buildResidenceTemplateBienSnapshot = (
+  source?: Partial<Bien> | null,
+  mainType?: 'appartement' | 'villa_maison',
+  configuration?: string | null
+): Partial<Bien> => {
+  const normalizedType = mainType === 'villa_maison'
+    ? 'villa_maison'
+    : (normalizeLegacyType((source?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement');
+  return {
+    type: normalizedType,
+    nom_bien_mobile: String(source?.nom_bien_mobile || '').trim() || null,
+    description: String(source?.description || '').trim(),
+    proprietaire_id: String(source?.proprietaire_id || '').trim() || null,
+    nb_chambres: source?.nb_chambres ?? 0,
+    nb_salle_bain: source?.nb_salle_bain ?? 0,
+    prix_nuitee: source?.prix_nuitee ?? 0,
+    prix_semaine: source?.prix_semaine ?? null,
+    tarification_methode: source?.tarification_methode ?? null,
+    prix_affiche_client: source?.prix_affiche_client ?? null,
+    prix_fixe_proprietaire: source?.prix_fixe_proprietaire ?? null,
+    prix_proprietaire: source?.prix_proprietaire ?? null,
+    prix_final: source?.prix_final ?? null,
+    revenu_agence: source?.revenu_agence ?? null,
+    commission_pourcentage_proprietaire: source?.commission_pourcentage_proprietaire ?? null,
+    commission_pourcentage_client: source?.commission_pourcentage_client ?? null,
+    montant_max_reduction_negociation: source?.montant_max_reduction_negociation ?? null,
+    prix_minimum_accepte: source?.prix_minimum_accepte ?? null,
+    modalite_paiement_vente: source?.modalite_paiement_vente ?? null,
+    pourcentage_premiere_partie_promesse: source?.pourcentage_premiere_partie_promesse ?? null,
+    montant_premiere_partie_promesse: source?.montant_premiere_partie_promesse ?? null,
+    montant_deuxieme_partie: source?.montant_deuxieme_partie ?? null,
+    nombre_tranches: source?.nombre_tranches ?? null,
+    periode_tranches_mois: source?.periode_tranches_mois ?? null,
+    montant_par_tranche: source?.montant_par_tranche ?? null,
+    avance: source?.avance ?? 0,
+    caution: source?.caution ?? 0,
+    type_rue: source?.type_rue ?? null,
+    type_papier: source?.type_papier ?? null,
+    superficie_m2: source?.superficie_m2 ?? null,
+    etage: source?.etage ?? null,
+    annee_construction: source?.annee_construction ?? null,
+    distance_plage_m: source?.distance_plage_m ?? null,
+    proche_plage: source?.proche_plage ?? false,
+    chauffage_central: source?.chauffage_central ?? false,
+    climatisation: source?.climatisation ?? false,
+    balcon: source?.balcon ?? false,
+    terrasse: source?.terrasse ?? false,
+    ascenseur: source?.ascenseur ?? false,
+    vue_mer: source?.vue_mer ?? false,
+    gaz_ville: source?.gaz_ville ?? false,
+    cuisine_equipee: source?.cuisine_equipee ?? false,
+    place_parking: source?.place_parking ?? false,
+    syndic: source?.syndic ?? false,
+    meuble: source?.meuble ?? false,
+    independant: source?.independant ?? false,
+    eau_puits: source?.eau_puits ?? false,
+    eau_sonede: source?.eau_sonede ?? false,
+    electricite_steg: source?.electricite_steg ?? false,
+    statut: source?.statut || 'disponible',
+    visible_sur_site: source?.visible_sur_site ?? true,
+    is_featured: source?.is_featured ?? false,
+    menage_en_cours: source?.menage_en_cours ?? false,
+    zone_id: String(source?.zone_id || '').trim() || null,
+    configuration: String(configuration || source?.configuration || '').trim() || null,
+    location_saisonniere_config: source?.location_saisonniere_config || null,
+    ui_config: source?.ui_config || null,
+  };
+};
+
+const getResidenceSubtypeFallbackOptions = (mainType: 'appartement' | 'villa_maison'): string[] => (
+  mainType === 'villa_maison'
+    ? ['S+1', 'S+2', 'S+3', 'S+4', 'Villa', 'Maison']
+    : ['S+1', 'S+2', 'S+3', 'S+4']
+);
 
 const renderFeatureIconPreview = (
   iconName?: string | null,
@@ -185,6 +259,15 @@ const isResidenceParentBien = (bien?: Partial<Bien> | null): boolean => {
 const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens: Partial<Bien>[] = []): any[] => {
   const parentId = String(parent?.id || '').trim();
   if (!parentId) return [];
+  const baseUnits = Array.isArray(parent?.residence_units) ? parent.residence_units : [];
+  const baseUnitById = new Map(
+    baseUnits
+      .map((unit, index) => {
+        const unitId = String((unit as any)?.id || `res_unit_${index + 1}`).trim();
+        return unitId ? [unitId, unit] as const : null;
+      })
+      .filter((entry): entry is readonly [string, any] => Boolean(entry))
+  );
   const childRows = (Array.isArray(allBiens) ? allBiens : [])
     .filter((bien) => String(bien?.residence_parent_bien_id || '').trim() === parentId);
   if (childRows.length === 0) return [];
@@ -196,50 +279,21 @@ const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens
     const [unitIdPart, apartmentIndexPart] = rawUnitKey.split('__');
     const unitId = String(unitIdPart || `res_unit_rebuilt_${rawSubType || childIndex + 1}`).trim();
     const apartmentIndex = Math.max(1, Math.floor(Number(apartmentIndexPart || childIndex + 1) || childIndex + 1));
+    const baseUnit = baseUnitById.get(unitId);
     const currentUnit = unitsById.get(unitId) || {
       id: unitId,
-      main_type: normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement',
-      shared_title: String(child?.titre || '').trim(),
-      sub_type: rawSubType,
+      main_type: String((baseUnit as any)?.main_type || '').trim() || (normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement'),
+      shared_title: String((baseUnit as any)?.shared_title || '').trim(),
+      sub_type: String((baseUnit as any)?.sub_type || rawSubType || '').trim(),
       quantity: 0,
       apartment_names: [],
       apartment_references: [],
       apartments: [],
-      template_bien: {
-        type: normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement',
-        nb_chambres: child?.nb_chambres ?? 0,
-        nb_salle_bain: child?.nb_salle_bain ?? 0,
-        prix_nuitee: child?.prix_nuitee ?? 0,
-        prix_semaine: child?.prix_semaine ?? null,
-        avance: child?.avance ?? 0,
-        caution: child?.caution ?? 0,
-        statut: child?.statut || 'disponible',
-        visible_sur_site: child?.visible_sur_site ?? true,
-        is_featured: child?.is_featured ?? false,
-        superficie_m2: child?.superficie_m2 ?? null,
-        etage: child?.etage ?? null,
-        annee_construction: child?.annee_construction ?? null,
-        distance_plage_m: child?.distance_plage_m ?? null,
-        proche_plage: child?.proche_plage ?? false,
-        chauffage_central: child?.chauffage_central ?? false,
-        climatisation: child?.climatisation ?? false,
-        balcon: child?.balcon ?? false,
-        terrasse: child?.terrasse ?? false,
-        ascenseur: child?.ascenseur ?? false,
-        vue_mer: child?.vue_mer ?? false,
-        gaz_ville: child?.gaz_ville ?? false,
-        cuisine_equipee: child?.cuisine_equipee ?? false,
-        place_parking: child?.place_parking ?? false,
-        syndic: child?.syndic ?? false,
-        meuble: child?.meuble ?? false,
-        independant: child?.independant ?? false,
-        eau_puits: child?.eau_puits ?? false,
-        eau_sonede: child?.eau_sonede ?? false,
-        electricite_steg: child?.electricite_steg ?? false,
-        configuration: rawSubType || null,
-        location_saisonniere_config: child?.location_saisonniere_config || null,
-        ui_config: child?.ui_config || null,
-      },
+      template_bien: buildResidenceTemplateBienSnapshot(
+        child,
+        normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement',
+        rawSubType || null
+      ),
       template_media: Array.isArray(child?.media) ? child.media : [],
       pricing_periods: Array.isArray(child?.pricing_periods) ? child.pricing_periods : [],
       feature_ids: Array.isArray(child?.caracteristique_ids) ? child.caracteristique_ids : [],
@@ -248,7 +302,7 @@ const buildResidenceUnitsFromChildren = (parent?: Partial<Bien> | null, allBiens
     const apartmentTitle = String(child?.nom_bien_mobile || child?.titre || '').trim();
     currentUnit.sub_type = currentUnit.sub_type || rawSubType;
     currentUnit.main_type = currentUnit.main_type || (normalizeLegacyType((child?.type || 'appartement') as BienType) === 'villa_maison' ? 'villa_maison' : 'appartement');
-    currentUnit.shared_title = currentUnit.shared_title || String(child?.titre || '').trim();
+    currentUnit.shared_title = currentUnit.shared_title || '';
     currentUnit.quantity = Math.max(Number(currentUnit.quantity || 0), apartmentIndex);
     currentUnit.apartment_names[apartmentIndex - 1] = apartmentTitle;
     currentUnit.apartment_references[apartmentIndex - 1] = String(child?.reference || '').trim();
@@ -288,13 +342,13 @@ const normalizeBienForEditor = (bien?: Partial<Bien> | null, allBiens: Partial<B
       configuration: String(bien.configuration || bien.residence_unit_sub_type || '').trim() || null,
     };
   }
+  const reconstructedUnits = buildResidenceUnitsFromChildren(bien, allBiens);
   const existingUnits = Array.isArray(bien.residence_units) ? bien.residence_units : [];
-  const reconstructedUnits = existingUnits.length > 0 ? existingUnits : buildResidenceUnitsFromChildren(bien, allBiens);
   return {
     ...bien,
     type: 'residence',
     mode: (bien.mode || 'location_saisonniere') as BienMode,
-    residence_units: reconstructedUnits,
+    residence_units: reconstructedUnits.length > 0 ? reconstructedUnits : existingUnits,
   };
 };
 const toNonNegativeIntegerOrNull = (value: unknown): number | null => {
@@ -3063,6 +3117,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   useEffect(() => {
     const bienId = String(initialData?.id || '').trim();
     if (!bienId) return;
+    const initialMode = (initialData?.mode || 'location_saisonniere') as BienMode;
+    const initialType = normalizeLegacyType((initialData?.type || 'appartement') as BienType);
+    const initialIsResidenceParent = initialMode === 'location_saisonniere' && initialType === 'residence';
+    if (initialIsResidenceParent) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -5555,38 +5613,11 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
             template_bien: isActiveRow
               ? {
                   ...(((row as any).template_bien || {}) as Partial<Bien>),
-                  nb_chambres: formData.nb_chambres,
-                  nb_salle_bain: formData.nb_salle_bain,
-                  prix_nuitee: formData.prix_nuitee,
-                  prix_semaine: formData.prix_semaine,
-                  avance: formData.avance,
-                  caution: formData.caution,
-                  statut: formData.statut,
-                  visible_sur_site: formData.visible_sur_site,
-                  is_featured: formData.is_featured,
-                  superficie_m2: formData.superficie_m2,
-                  etage: formData.etage,
-                  annee_construction: formData.annee_construction,
-                  distance_plage_m: formData.distance_plage_m,
-                  proche_plage: formData.proche_plage,
-                  chauffage_central: formData.chauffage_central,
-                  climatisation: formData.climatisation,
-                  balcon: formData.balcon,
-                  terrasse: formData.terrasse,
-                  ascenseur: formData.ascenseur,
-                  vue_mer: formData.vue_mer,
-                  gaz_ville: formData.gaz_ville,
-                  cuisine_equipee: formData.cuisine_equipee,
-                  place_parking: formData.place_parking,
-                  syndic: formData.syndic,
-                  meuble: formData.meuble,
-                  independant: formData.independant,
-                  eau_puits: formData.eau_puits,
-                  eau_sonede: formData.eau_sonede,
-                  electricite_steg: formData.electricite_steg,
-                  configuration: row.sub_type,
-                  location_saisonniere_config: formData.location_saisonniere_config,
-                  ui_config: formData.ui_config,
+                  ...buildResidenceTemplateBienSnapshot(
+                    formData,
+                    row.main_type === 'villa_maison' ? 'villa_maison' : 'appartement',
+                    row.sub_type
+                  ),
                 }
               : ((row as any).template_bien || {}),
             template_media: isActiveRow ? imagesWithPositions : (((row as any).template_media || []) as Media[]),
@@ -5979,42 +6010,14 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           apartments: nextApartments,
           template_bien: {
             ...previousTemplate,
-            type: activeResidenceUnit.main_type === 'villa_maison' ? 'villa_maison' : 'appartement',
-            nom_bien_mobile: null,
-            description: '',
-            proprietaire_id: '',
-            nb_chambres: formData.nb_chambres,
-            nb_salle_bain: formData.nb_salle_bain,
-            prix_nuitee: formData.prix_nuitee,
-            prix_semaine: formData.prix_semaine,
-            avance: formData.avance,
-            caution: formData.caution,
-            statut: formData.statut,
-            visible_sur_site: formData.visible_sur_site,
-            is_featured: formData.is_featured,
-            superficie_m2: formData.superficie_m2,
-            etage: formData.etage,
-            configuration: activeResidenceUnit.sub_type,
-            annee_construction: formData.annee_construction,
-            distance_plage_m: formData.distance_plage_m,
-            proche_plage: formData.proche_plage,
-            chauffage_central: formData.chauffage_central,
-            climatisation: formData.climatisation,
-            balcon: formData.balcon,
-            terrasse: formData.terrasse,
-            ascenseur: formData.ascenseur,
-            vue_mer: formData.vue_mer,
-            gaz_ville: formData.gaz_ville,
-            cuisine_equipee: formData.cuisine_equipee,
-            place_parking: formData.place_parking,
-            syndic: formData.syndic,
-            meuble: formData.meuble,
-            independant: formData.independant,
-            eau_puits: formData.eau_puits,
-            eau_sonede: formData.eau_sonede,
-            electricite_steg: formData.electricite_steg,
-            location_saisonniere_config: formData.location_saisonniere_config,
-            ui_config: formData.ui_config,
+            ...buildResidenceTemplateBienSnapshot(
+              {
+                ...previousTemplate,
+                ...formData,
+              },
+              activeResidenceUnit.main_type === 'villa_maison' ? 'villa_maison' : 'appartement',
+              activeResidenceUnit.sub_type
+            ),
           },
           template_media: images,
           pricing_periods: pricingPeriods,
@@ -6032,15 +6035,39 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     setFormData((prev) => ({
       ...prev,
       residence_units: Array.isArray(prev.residence_units) ? prev.residence_units : [],
+      nom_bien_mobile: String(templateBien.nom_bien_mobile || prev.nom_bien_mobile || '').trim() || null,
+      description: String(templateBien.description || prev.description || '').trim(),
+      proprietaire_id: String(templateBien.proprietaire_id || prev.proprietaire_id || '').trim() || null,
       nb_chambres: Number(templateBien.nb_chambres ?? deriveBedroomsFromConfiguration(targetUnit.sub_type) ?? prev.nb_chambres ?? 0),
       nb_salle_bain: Number(templateBien.nb_salle_bain ?? prev.nb_salle_bain ?? 0),
       prix_nuitee: Number(templateBien.prix_nuitee ?? prev.prix_nuitee ?? 0),
       prix_semaine: templateBien.prix_semaine ?? prev.prix_semaine ?? null,
+      tarification_methode: templateBien.tarification_methode ?? prev.tarification_methode ?? null,
+      prix_affiche_client: templateBien.prix_affiche_client ?? prev.prix_affiche_client ?? null,
+      prix_fixe_proprietaire: templateBien.prix_fixe_proprietaire ?? prev.prix_fixe_proprietaire ?? null,
+      prix_proprietaire: templateBien.prix_proprietaire ?? prev.prix_proprietaire ?? null,
+      prix_final: templateBien.prix_final ?? prev.prix_final ?? null,
+      revenu_agence: templateBien.revenu_agence ?? prev.revenu_agence ?? null,
+      commission_pourcentage_proprietaire: templateBien.commission_pourcentage_proprietaire ?? prev.commission_pourcentage_proprietaire ?? null,
+      commission_pourcentage_client: templateBien.commission_pourcentage_client ?? prev.commission_pourcentage_client ?? null,
+      montant_max_reduction_negociation: templateBien.montant_max_reduction_negociation ?? prev.montant_max_reduction_negociation ?? null,
+      prix_minimum_accepte: templateBien.prix_minimum_accepte ?? prev.prix_minimum_accepte ?? null,
+      modalite_paiement_vente: templateBien.modalite_paiement_vente ?? prev.modalite_paiement_vente ?? null,
+      pourcentage_premiere_partie_promesse: templateBien.pourcentage_premiere_partie_promesse ?? prev.pourcentage_premiere_partie_promesse ?? null,
+      montant_premiere_partie_promesse: templateBien.montant_premiere_partie_promesse ?? prev.montant_premiere_partie_promesse ?? null,
+      montant_deuxieme_partie: templateBien.montant_deuxieme_partie ?? prev.montant_deuxieme_partie ?? null,
+      nombre_tranches: templateBien.nombre_tranches ?? prev.nombre_tranches ?? null,
+      periode_tranches_mois: templateBien.periode_tranches_mois ?? prev.periode_tranches_mois ?? null,
+      montant_par_tranche: templateBien.montant_par_tranche ?? prev.montant_par_tranche ?? null,
       avance: Number(templateBien.avance ?? prev.avance ?? 0),
       caution: Number(templateBien.caution ?? prev.caution ?? 0),
+      type_rue: templateBien.type_rue ?? prev.type_rue ?? null,
+      type_papier: templateBien.type_papier ?? prev.type_papier ?? null,
       statut: (templateBien.statut as BienStatut) || prev.statut || 'disponible',
       visible_sur_site: templateBien.visible_sur_site ?? prev.visible_sur_site,
       is_featured: templateBien.is_featured ?? prev.is_featured,
+      menage_en_cours: templateBien.menage_en_cours ?? prev.menage_en_cours ?? false,
+      zone_id: String(templateBien.zone_id || prev.zone_id || '').trim(),
       superficie_m2: templateBien.superficie_m2 ?? prev.superficie_m2 ?? null,
       etage: templateBien.etage ?? prev.etage ?? null,
       annee_construction: templateBien.annee_construction ?? prev.annee_construction ?? null,
@@ -6603,6 +6630,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
 
   const loadResidenceSousTypeOptions = async (mode: BienMode, mainType: 'appartement' | 'villa_maison') => {
     const featureApiBases = getFeatureApiBases();
+    const fallbackOptions = getResidenceSubtypeFallbackOptions(mainType);
     let lastResponse: Response | null = null;
     for (const base of featureApiBases) {
       const response = await fetch(`${base}?mode_bien=${mode}&type_bien=${mainType}`);
@@ -6621,7 +6649,10 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         const options = sousTypeFeature ? parseFeatureChoices(stringifyFeatureChoices(sousTypeFeature.choix_json)) : [];
         setResidenceSousTypeOptionsByMainType((prev) => ({
           ...prev,
-          [mainType]: Array.from(new Set(options.map((item) => String(item || '').trim()).filter(Boolean))),
+          [mainType]: Array.from(new Set([
+            ...options.map((item) => String(item || '').trim()).filter(Boolean),
+            ...fallbackOptions,
+          ])),
         }));
         return;
       }
@@ -6630,7 +6661,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     if (lastResponse && !lastResponse.ok) {
       setResidenceSousTypeOptionsByMainType((prev) => ({
         ...prev,
-        [mainType]: [],
+        [mainType]: fallbackOptions,
       }));
     }
   };
@@ -7384,7 +7415,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                         <option value="">Choisir un sous-type</option>
                         {((residenceSousTypeOptionsByMainType[(row as any).main_type === 'villa_maison' ? 'villa_maison' : 'appartement'] || []).length > 0
                           ? residenceSousTypeOptionsByMainType[(row as any).main_type === 'villa_maison' ? 'villa_maison' : 'appartement']
-                          : ((row as any).main_type === 'villa_maison' ? ['Villa'] : ['S+1', 'S+2', 'S+3', 'S+4'])).map((option) => (
+                          : getResidenceSubtypeFallbackOptions((row as any).main_type === 'villa_maison' ? 'villa_maison' : 'appartement')).map((option) => (
                           <option key={`residence-unit-option-${index}-${option}`} value={option}>{option}</option>
                         ))}
                       </select>

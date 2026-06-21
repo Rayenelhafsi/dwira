@@ -205,6 +205,9 @@ export function PropertyCard({
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
   const isGoldInstantCard = hasInstantReservation && !isFlashCard;
   const residenceBadgeLabel = String(property.residenceName || "").trim();
+  const residenceBadgeText = /^residence\b/i.test(residenceBadgeLabel)
+    ? residenceBadgeLabel
+    : (residenceBadgeLabel ? `Residence ${residenceBadgeLabel}` : "");
   const visualNightlyPrice = isFlashCard ? flashNightlyPrice : partnerAdjustedNightlyPrice;
   const visualWeeklyPrice = isFlashCard ? flashWeeklyPrice : partnerAdjustedWeeklyPrice;
   useEffect(() => {
@@ -304,7 +307,7 @@ export function PropertyCard({
             </div>
             {residenceBadgeLabel ? (
               <div className="inline-flex max-w-full truncate rounded-full border border-emerald-200/85 bg-white/92 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-700 shadow-sm backdrop-blur-md sm:text-[11px] sm:tracking-[0.12em]">
-                <span className="truncate">Residence {residenceBadgeLabel}</span>
+                <span className="truncate">{residenceBadgeText}</span>
               </div>
             ) : null}
             {hasInstantReservation ? (

@@ -1,0 +1,2 @@
+[Auth] SESSION_SECRET missing. Using ephemeral in-memory secret; sessions reset on server restart.
+[Schema Init] lock unavailable, skipping schema bootstrap in this process

@@ -43,6 +43,19 @@ import { fetchAmicalesPublic } from "../utils/amicales";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
+type GroupedPropertySubType = {
+  label: string;
+  imageUrl: string;
+  matchMainType?: PropertyMainType;
+  residenceScoped?: boolean;
+  selectionScope?: PropertyMainType;
+};
+type GroupedPropertyTypeOption = {
+  mainType: PropertyMainType;
+  label: string;
+  imageUrl: string;
+  subTypes: GroupedPropertySubType[];
+};
 type HomeSeasideOptionKey = "pied_dans_eau" | "vue_sur_mer" | "pres_plage";
 type HomeComfortOptionKey =
   | "climatise"
@@ -53,6 +66,35 @@ type HomeComfortOptionKey =
   | "toutes_pieces_climatisees"
   | "jardin_gazon"
   | "terrasse";
+const SCOPED_CATEGORY_PREFIX = "__scoped__::";
+const parseScopedCategoryMainType = (value?: string | null): PropertyMainType | "" => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+    return raw;
+  }
+  return "";
+};
+const encodeScopedCategory = (mainType: PropertyMainType, value?: string | null) => {
+  const raw = String(value || "").trim();
+  return raw ? `${SCOPED_CATEGORY_PREFIX}${mainType}::${raw}` : "";
+};
+const getScopedCategoryMeta = (value?: string | null): { mainType: PropertyMainType; label: string } | null => {
+  const raw = String(value || "").trim();
+  if (!raw.startsWith(SCOPED_CATEGORY_PREFIX)) return null;
+  const payload = raw.slice(SCOPED_CATEGORY_PREFIX.length);
+  const separatorIndex = payload.indexOf("::");
+  if (separatorIndex <= 0) return null;
+  const mainType = parseScopedCategoryMainType(payload.slice(0, separatorIndex));
+  const label = payload.slice(separatorIndex + 2).trim();
+  if (!mainType || !label) return null;
+  return { mainType, label };
+};
+const getScopedCategoryMainType = (value?: string | null): PropertyMainType | "" => getScopedCategoryMeta(value)?.mainType || "";
+const decodeScopedCategory = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  return getScopedCategoryMeta(raw)?.label || raw;
+};
+const getCategoryDisplayLabel = (value?: string | null) => decodeScopedCategory(value);
 type PropertyDisplayCard = {
   key: string;
   property: Property;
@@ -516,18 +558,92 @@ const getMainTypeSubTypeMatchKey = (value?: string | null) => {
   const mainType = getMainTypeFromCategory(raw);
   return buildMainTypeSubTypeMatchKey(mainType, raw);
 };
+const resolveScopedCategoryMatchMainType = (scopedMainType: PropertyMainType, label: string): PropertyMainType => (
+  scopedMainType === "residence" && hasExplicitMainTypeInLabel(label)
+    ? getMainTypeFromCategory(label)
+    : scopedMainType
+);
 const getSelectedSubTypeMatchKeys = (value: string, selectedMainTypes: PropertyMainType[]) => {
   const raw = String(value || "").trim();
   if (!raw) return [];
-  if (hasExplicitMainTypeInLabel(raw) || selectedMainTypes.length === 0) {
-    const key = getMainTypeSubTypeMatchKey(raw);
+  const scopedCategory = getScopedCategoryMeta(raw);
+  if (scopedCategory) {
+    const key = buildMainTypeSubTypeMatchKey(
+      resolveScopedCategoryMatchMainType(scopedCategory.mainType, scopedCategory.label),
+      scopedCategory.label
+    );
     return key ? [key] : [];
+  }
+  const displayLabel = getCategoryDisplayLabel(raw);
+  if (hasExplicitMainTypeInLabel(displayLabel) || selectedMainTypes.length === 0) {
+    const key = getMainTypeSubTypeMatchKey(displayLabel);
+    return key ? [key] : [];
+  }
+  if (selectedMainTypes.includes("residence")) {
+    const residenceKey = buildMainTypeSubTypeMatchKey("residence", displayLabel);
+    return residenceKey ? [residenceKey] : [];
   }
   return Array.from(new Set(
     selectedMainTypes
-      .map((mainType) => buildMainTypeSubTypeMatchKey(mainType, raw))
+      .map((mainType) => buildMainTypeSubTypeMatchKey(mainType, displayLabel))
       .filter(Boolean)
   ));
+};
+const normalizeResidenceExclusiveMainTypes = (
+  mainTypes: PropertyMainType[],
+  preferredMainType?: PropertyMainType | "",
+) => {
+  void preferredMainType;
+  return Array.from(new Set(mainTypes.filter(Boolean)));
+};
+const isResidenceGroupedProperty = (property: any) =>
+  Boolean(String(property?.residenceName || property?.filterProfile?.residenceName || "").trim());
+const getGroupedSubTypeMatchKey = (
+  groupMainType: PropertyMainType,
+  subType: GroupedPropertySubType
+) => buildMainTypeSubTypeMatchKey(
+  subType.residenceScoped
+    ? resolveScopedCategoryMatchMainType(subType.matchMainType || groupMainType, subType.label)
+    : (subType.matchMainType || groupMainType),
+  subType.label
+);
+const getGroupedSubTypeSelectionScope = (
+  groupMainType: PropertyMainType,
+  subType: GroupedPropertySubType
+): PropertyMainType => subType.selectionScope || (subType.residenceScoped ? "residence" : (subType.matchMainType || groupMainType));
+const getGroupedSubTypeOptionKey = (
+  groupMainType: PropertyMainType,
+  subType: GroupedPropertySubType
+) => encodeScopedCategory(getGroupedSubTypeSelectionScope(groupMainType, subType), subType.label);
+const propertyMatchesSelectedMainTypes = (
+  selectedMainTypes: PropertyMainType[],
+  propertyMainType: PropertyMainType,
+  property: any
+) => {
+  if (selectedMainTypes.length === 0) return true;
+  if (selectedMainTypes.includes(propertyMainType)) return true;
+  return selectedMainTypes.includes("residence") && isResidenceGroupedProperty(property);
+};
+const propertyMatchesSelectedSubTypes = ({
+  selectedMainTypes,
+  selectedSubTypeKeys,
+  selectedSubTypeMatchKeys,
+  property,
+  propertySubTypeKey,
+  propertySubTypeMatchKey,
+}: {
+  selectedMainTypes: PropertyMainType[];
+  selectedSubTypeKeys: string[];
+  selectedSubTypeMatchKeys: string[];
+  property: any;
+  propertySubTypeKey: string;
+  propertySubTypeMatchKey: string;
+}) => {
+  if (selectedSubTypeKeys.length === 0 && selectedSubTypeMatchKeys.length === 0) return true;
+  if (selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey)) return true;
+  return selectedMainTypes.includes("residence")
+    && isResidenceGroupedProperty(property)
+    && selectedSubTypeKeys.includes(propertySubTypeKey);
 };
 const areStringArraysEqual = (left: string[], right: string[]) =>
   left.length === right.length && left.every((item, index) => item === right[index]);
@@ -946,7 +1062,10 @@ export default function HomePage({
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedMainType, setSelectedMainType] = useState<PropertyMainType | "">("");
   const [selectedMainTypes, setSelectedMainTypes] = useState<PropertyMainType[]>(
-    parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[]
+    normalizeResidenceExclusiveMainTypes(
+      parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[],
+      (String(searchParams.get("mainType") || "").trim() as PropertyMainType | "") || undefined
+    )
   );
   const [checkIn, setCheckIn] = useState<Date | null>(null);
   const [checkOut, setCheckOut] = useState<Date | null>(null);
@@ -2062,7 +2181,7 @@ export default function HomePage({
     return Array.from(byCategory.values()).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
   }, [modeProperties, selectedMode, typeFilterImageRows]);
   const groupedTypeOptions = useMemo(() => {
-    const groups = new Map<PropertyMainType, { mainType: PropertyMainType; label: string; imageUrl: string; subTypes: Array<{ label: string; imageUrl: string }> }>();
+    const groups = new Map<PropertyMainType, GroupedPropertyTypeOption>();
     const modeRows = typeFilterImageRows.filter((row) => String(row.mode_bien || "").trim() === selectedMode);
 
     // 1) Seed all main types from admin uploaded "type principal" rows.
@@ -2085,9 +2204,15 @@ export default function HomePage({
       const mainType = getMainTypeFromCategory(String(row.main_type || ""));
       const group = groups.get(mainType);
       if (!group) continue;
-      const canonicalSubType = getCanonicalSubTypeKey(subType);
-      if (!group.subTypes.some((item) => getCanonicalSubTypeKey(item.label) === canonicalSubType)) {
-        group.subTypes.push({ label: subType, imageUrl: row.image_url || TYPE_FALLBACK_IMAGE });
+      const matchKey = buildMainTypeSubTypeMatchKey(mainType, subType);
+      if (!group.subTypes.some((item) => getGroupedSubTypeMatchKey(group.mainType, item) === matchKey)) {
+        group.subTypes.push({
+          label: subType,
+          imageUrl: row.image_url || TYPE_FALLBACK_IMAGE,
+          matchMainType: mainType,
+          residenceScoped: mainType === "residence",
+          selectionScope: mainType,
+        });
       }
       if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
         group.imageUrl = row.image_url || group.imageUrl;
@@ -2100,59 +2225,221 @@ export default function HomePage({
       const mainType = getMainTypeFromCategory(option.label);
       const group = groups.get(mainType);
       if (!group) continue;
-      const canonicalSubType = getCanonicalSubTypeKey(option.label);
-      if (!group.subTypes.some((item) => getCanonicalSubTypeKey(item.label) === canonicalSubType)) {
-        group.subTypes.push({ label: option.label, imageUrl: option.imageUrl });
+      const matchKey = buildMainTypeSubTypeMatchKey(mainType, option.label);
+      if (!group.subTypes.some((item) => getGroupedSubTypeMatchKey(group.mainType, item) === matchKey)) {
+        group.subTypes.push({
+          label: option.label,
+          imageUrl: option.imageUrl,
+          matchMainType: mainType,
+          residenceScoped: false,
+          selectionScope: mainType,
+        });
       }
       if (!group.imageUrl || group.imageUrl === TYPE_FALLBACK_IMAGE) {
         group.imageUrl = option.imageUrl || group.imageUrl;
       }
     }
 
+    const residenceGroup = groups.get("residence");
+    if (residenceGroup) {
+      for (const property of modeProperties) {
+        if (!isResidenceGroupedProperty(property)) continue;
+        const label = getResolvedPropertyCategoryLabel(property);
+        if (isInvalidPropertySubtype(label)) continue;
+        const actualMainType = getMainTypeFromCategory(label);
+        const matchKey = buildMainTypeSubTypeMatchKey("residence", label);
+        if (!matchKey) continue;
+        const imageFromAdmin = modeRows.find(
+          (row) =>
+            normalizeTypeToken(row.main_type) === normalizeTypeToken(actualMainType)
+            && normalizeTypeToken(row.sub_type) === normalizeTypeToken(label)
+        )?.image_url || "";
+        const propertyImage = Array.isArray(property.images) ? String(property.images[0] || "").trim() : "";
+        if (!residenceGroup.subTypes.some((item) => getGroupedSubTypeMatchKey(residenceGroup.mainType, item) === matchKey)) {
+          residenceGroup.subTypes.push({
+            label,
+            imageUrl: imageFromAdmin || propertyImage || TYPE_FALLBACK_IMAGE,
+            matchMainType: actualMainType,
+            residenceScoped: true,
+            selectionScope: "residence",
+          });
+        }
+      }
+    }
+
     return Array.from(groups.values())
       .map((group) => {
         const hasSpecificSPlus = group.subTypes.some((item) => /^s\+\d+$/.test(getCanonicalSubTypeKey(item.label)));
-        if (!hasSpecificSPlus) return group;
-        return {
-          ...group,
-          subTypes: group.subTypes.filter((item) => !isGenericPropertySubtype(item.label)),
-        };
+        let nextGroup = hasSpecificSPlus
+          ? {
+              ...group,
+              subTypes: group.subTypes.filter((item) => !isGenericPropertySubtype(item.label)),
+            }
+          : group;
+        if (nextGroup.mainType === "residence") {
+          const explicitResidenceChildSubTypes = nextGroup.subTypes.filter(
+            (item) => item.matchMainType && item.matchMainType !== "residence"
+          );
+          if (explicitResidenceChildSubTypes.length > 0) {
+            const explicitResidenceChildKeys = new Set(
+              explicitResidenceChildSubTypes
+                .map((item) => getCanonicalSubTypeKey(item.label))
+                .filter(Boolean)
+            );
+            nextGroup = {
+              ...nextGroup,
+              subTypes: nextGroup.subTypes.filter((item) => {
+                const canonicalKey = getCanonicalSubTypeKey(item.label);
+                if (!canonicalKey) return false;
+                if (item.matchMainType && item.matchMainType !== "residence") return true;
+                return !explicitResidenceChildKeys.has(canonicalKey);
+              }),
+            };
+            nextGroup = {
+              ...nextGroup,
+              subTypes: nextGroup.subTypes.filter(
+                (item) => item.matchMainType && item.matchMainType !== "residence"
+              ),
+            };
+          }
+        }
+        return nextGroup;
       })
       .filter((group) => group.subTypes.length > 0 || group.imageUrl !== TYPE_FALLBACK_IMAGE)
       .sort((a, b) => MAIN_TYPE_DISPLAY_ORDER.indexOf(a.mainType) - MAIN_TYPE_DISPLAY_ORDER.indexOf(b.mainType));
-  }, [availableTypeOptions, selectedMode, typeFilterImageRows]);
+  }, [availableTypeOptions, modeProperties, selectedMode, typeFilterImageRows]);
   const secondaryTypeOptions = useMemo(() => {
     if (selectedMainTypes.length === 0) return availableTypeOptions;
-    const merged = new Map<string, { label: string; imageUrl: string }>();
+    const merged = new Map<string, GroupedPropertySubType>();
     groupedTypeOptions
       .filter((group) => selectedMainTypes.includes(group.mainType))
       .forEach((group) => {
         group.subTypes.forEach((subType) => {
-          const key = buildMainTypeSubTypeMatchKey(group.mainType, subType.label) || subType.label;
-          if (!merged.has(key)) merged.set(key, subType);
+          const key = getGroupedSubTypeOptionKey(group.mainType, subType);
+          if (!merged.has(key)) {
+            merged.set(key, {
+              ...subType,
+              selectionScope: getGroupedSubTypeSelectionScope(group.mainType, subType),
+            });
+          }
         });
       });
     return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
   }, [availableTypeOptions, groupedTypeOptions, selectedMainTypes]);
+  const groupedCategoryMetadata = useMemo(() => {
+    const canonicalLabelByKey = new Map<string, string>();
+    const ownerMainTypesByKey = new Map<string, PropertyMainType[]>();
+    const residenceCanonicalLabelBySubTypeKey = new Map<string, string>();
+    groupedTypeOptions.forEach((group) => {
+      group.subTypes.forEach((item) => {
+        const key = getGroupedSubTypeMatchKey(group.mainType, item);
+        if (!key) return;
+        if (!canonicalLabelByKey.has(key)) canonicalLabelByKey.set(key, item.label);
+        const owners = ownerMainTypesByKey.get(key) || [];
+        if (!owners.includes(group.mainType)) owners.push(group.mainType);
+        ownerMainTypesByKey.set(key, owners);
+        const subTypeKey = getCanonicalSubTypeKey(item.label);
+        if (
+          group.mainType === "residence"
+          && subTypeKey
+          && item.matchMainType
+          && item.matchMainType !== "residence"
+          && !residenceCanonicalLabelBySubTypeKey.has(subTypeKey)
+        ) {
+          residenceCanonicalLabelBySubTypeKey.set(subTypeKey, item.label);
+        }
+      });
+    });
+    return { canonicalLabelByKey, ownerMainTypesByKey, residenceCanonicalLabelBySubTypeKey };
+  }, [groupedTypeOptions]);
   const draftSecondaryTypeOptions = useMemo(() => {
     if (!draftMainType) return availableTypeOptions;
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
     return selectedGroup?.subTypes || [];
   }, [availableTypeOptions, groupedTypeOptions, draftMainType]);
+  const normalizeSelectedCategories = useCallback((categories: string[], mainTypes: PropertyMainType[]) => {
+    const next: string[] = [];
+    const seenNormalizedCategories = new Set<string>();
+    categories.forEach((category) => {
+      const rawCategory = String(category || "").trim();
+      const scopedMainType = getScopedCategoryMainType(rawCategory);
+      const displayCategory = getCategoryDisplayLabel(rawCategory);
+      const genericSubTypeKey = getCanonicalSubTypeKey(displayCategory);
+      const residenceExplicitLabel =
+        !scopedMainType && !hasExplicitMainTypeInLabel(displayCategory) && mainTypes.includes("residence") && genericSubTypeKey
+          ? groupedCategoryMetadata.residenceCanonicalLabelBySubTypeKey.get(genericSubTypeKey) || ""
+          : "";
+      const normalizedSourceCategory = residenceExplicitLabel || rawCategory;
+      const matchKeys = getSelectedSubTypeMatchKeys(normalizedSourceCategory, mainTypes);
+      const preferredKey = matchKeys.find((key) => {
+        const owners = groupedCategoryMetadata.ownerMainTypesByKey.get(key) || [];
+        return mainTypes.some((mainType) => owners.includes(mainType));
+      }) || matchKeys[0];
+      if (!preferredKey) return;
+      const preferredMainType = parseScopedCategoryMainType(preferredKey.split("::")[0] || "");
+      const fallbackCanonicalLabel = groupedCategoryMetadata.canonicalLabelByKey.get(preferredKey) || getCategoryDisplayLabel(normalizedSourceCategory);
+      const canonicalLabel = scopedMainType === "residence"
+        ? (
+            hasExplicitMainTypeInLabel(displayCategory)
+              ? displayCategory
+              : (
+                  preferredMainType && preferredMainType !== "residence"
+                    ? `${MAIN_TYPE_LABELS[preferredMainType]} ${displayCategory}`.trim()
+                    : fallbackCanonicalLabel
+                )
+          )
+        : fallbackCanonicalLabel;
+      const shouldKeepScoped =
+        Boolean(preferredMainType)
+        && (
+          scopedMainType === preferredMainType
+          || scopedMainType === "residence"
+          || (!scopedMainType && !hasExplicitMainTypeInLabel(displayCategory) && mainTypes.length > 1)
+        );
+      const scopeToKeep = scopedMainType || preferredMainType;
+      const normalizedCategory = shouldKeepScoped && scopeToKeep ? encodeScopedCategory(scopeToKeep, canonicalLabel) : canonicalLabel;
+      if (!normalizedCategory || seenNormalizedCategories.has(normalizedCategory)) return;
+      seenNormalizedCategories.add(normalizedCategory);
+      next.push(normalizedCategory);
+    });
+    return next;
+  }, [groupedCategoryMetadata]);
+  const normalizedSelectedCategories = useMemo(
+    () => normalizeSelectedCategories(selectedCategories, selectedMainTypes),
+    [normalizeSelectedCategories, selectedCategories, selectedMainTypes]
+  );
+  const formatResidenceChipCategories = useCallback((categories: string[]) => {
+    if (categories.length === 0) return [];
+    return Array.from(new Set(
+      categories
+        .map((category) => getCategoryDisplayLabel(category))
+        .filter(Boolean)
+    ));
+  }, []);
   const selectedMainTypeLabels = selectedMainTypes.map((item) => MAIN_TYPE_LABELS[item]).filter(Boolean);
+  const normalizedSelectedCategoryDisplays = useMemo(
+    () => normalizedSelectedCategories.map((item) => getCategoryDisplayLabel(item)),
+    [normalizedSelectedCategories]
+  );
   const selectedTypeSummaryText = selectedMainTypeLabels.length > 0
-    ? (selectedCategories.length > 0 ? `${selectedMainTypeLabels.join(", ")} â€¢ ${selectedCategories.join(", ")}` : selectedMainTypeLabels.join(", "))
-    : (selectedCategories.length > 0 ? selectedCategories.join(", ") : "Tous les types");
+    ? (normalizedSelectedCategoryDisplays.length > 0 ? `${selectedMainTypeLabels.join(", ")} • ${normalizedSelectedCategoryDisplays.join(", ")}` : selectedMainTypeLabels.join(", "))
+    : (normalizedSelectedCategoryDisplays.length > 0 ? normalizedSelectedCategoryDisplays.join(", ") : "Tous les types");
   const selectedTypeImage = useMemo(() => {
-    if (selectedCategories.length === 1) {
-      const selectedCategoryKey = getCanonicalSubTypeKey(selectedCategories[0]);
+    if (normalizedSelectedCategories.length === 1) {
+      const selectedCategory = normalizedSelectedCategories[0];
+      const selectedCategoryLabel = getCategoryDisplayLabel(selectedCategory);
+      const selectedScopedMainType = getScopedCategoryMainType(selectedCategory);
+      const selectedMainType = selectedScopedMainType === "residence"
+        ? resolveScopedCategoryMatchMainType("residence", selectedCategoryLabel)
+        : (selectedScopedMainType || getMainTypeFromCategory(selectedCategoryLabel));
+      const selectedCategoryKey = buildMainTypeSubTypeMatchKey(selectedMainType, selectedCategoryLabel);
       const selectedFromAdmin = typeFilterImageRows.find(
         (row) =>
           String(row.mode_bien || "").trim() === selectedMode
-          && getCanonicalSubTypeKey(row.sub_type) === selectedCategoryKey
+          && buildMainTypeSubTypeMatchKey(row.main_type, row.sub_type) === selectedCategoryKey
       );
       if (selectedFromAdmin?.image_url) return selectedFromAdmin.image_url;
-      const selected = availableTypeOptions.find((item) => getCanonicalSubTypeKey(item.label) === selectedCategoryKey);
+      const selected = availableTypeOptions.find((item) => buildMainTypeSubTypeMatchKey(getMainTypeFromCategory(item.label), item.label) === selectedCategoryKey);
       if (selected?.imageUrl) return selected.imageUrl;
     }
     if (selectedMainTypes.length > 0) {
@@ -2160,26 +2447,63 @@ export default function HomePage({
       return group?.imageUrl || null;
     }
     return null;
-  }, [availableTypeOptions, groupedTypeOptions, selectedCategories, selectedMainTypes, selectedMode, typeFilterImageRows]);
-  const removeCategoriesForMainType = (categories: string[], mainType: PropertyMainType) => {
-    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === mainType);
-    if (!selectedGroup) return categories;
-    const blockedSubTypes = new Set(selectedGroup.subTypes.map((item) => getCanonicalSubTypeKey(item.label)));
-    return categories.filter((item) => !blockedSubTypes.has(getCanonicalSubTypeKey(item)));
-  };
+  }, [availableTypeOptions, groupedTypeOptions, normalizedSelectedCategories, selectedMainTypes, selectedMode, typeFilterImageRows]);
+  const isCategorySelectedForMainTypes = useCallback((categories: string[], label: string, mainTypes: PropertyMainType[], scopeMainType?: PropertyMainType | "") => {
+    const scopedLabel = scopeMainType ? encodeScopedCategory(scopeMainType, label) : label;
+    const normalizedCategories = normalizeSelectedCategories(categories, mainTypes);
+    const normalizedLabel = normalizeSelectedCategories([scopedLabel], mainTypes)[0] || scopedLabel;
+    return normalizedCategories.includes(normalizedLabel);
+  }, [normalizeSelectedCategories]);
+  const resolveSelectedCategoryMainType = useCallback((category: string, mainTypes: PropertyMainType[]) => {
+    const scopedMainType = getScopedCategoryMainType(category);
+    if (scopedMainType) return scopedMainType;
+    const matchKeys = getSelectedSubTypeMatchKeys(category, mainTypes);
+    if (mainTypes.includes("residence")) {
+      const belongsToResidence = matchKeys.some((key) => (groupedCategoryMetadata.ownerMainTypesByKey.get(key) || []).includes("residence"));
+      if (belongsToResidence) return "residence";
+    }
+    for (const mainType of mainTypes) {
+      const ownsCategory = matchKeys.some((key) => (groupedCategoryMetadata.ownerMainTypesByKey.get(key) || []).includes(mainType));
+      if (ownsCategory) return mainType;
+    }
+    return getMainTypeFromCategory(getCategoryDisplayLabel(category));
+  }, [groupedCategoryMetadata]);
+  const removeCategoriesForMainType = useCallback((
+    categories: string[],
+    mainType: PropertyMainType,
+    currentSelectedTypes: PropertyMainType[],
+  ) => {
+    const normalizedCategories = normalizeSelectedCategories(categories, currentSelectedTypes);
+    const nextSelectedTypes = currentSelectedTypes.filter((item) => item !== mainType);
+    if (nextSelectedTypes.length === 0) return [];
+    const nextCategories = normalizedCategories.filter(
+      (item) => resolveSelectedCategoryMainType(item, currentSelectedTypes) !== mainType
+    );
+    return normalizeSelectedCategories(nextCategories, nextSelectedTypes);
+  }, [normalizeSelectedCategories, resolveSelectedCategoryMainType]);
   const selectedTypeChipGroups = useMemo(() => {
     const grouped = new Map<PropertyMainType, string[]>();
     selectedMainTypes.forEach((mainType) => grouped.set(mainType, []));
-    selectedCategories.forEach((category) => {
-      const mainType = getMainTypeFromCategory(category);
+    normalizedSelectedCategories.forEach((category) => {
+      const mainType = resolveSelectedCategoryMainType(category, selectedMainTypes);
       if (!grouped.has(mainType)) grouped.set(mainType, []);
       grouped.get(mainType)?.push(category);
     });
-    return Array.from(grouped.entries()).map(([mainType, categories]) => ({
-      mainType,
-      categories,
-    }));
-  }, [selectedMainTypes, selectedCategories]);
+    const groups = Array.from(grouped.entries()).flatMap(([mainType, categories]) => {
+      if (mainType === "residence") {
+        return formatResidenceChipCategories(categories).map((category) => ({
+          mainType,
+          categories: [category],
+        }));
+      }
+      return [{
+        mainType,
+        categories,
+      }];
+    });
+    const hasGroupedCategories = groups.some(({ categories }) => categories.length > 0);
+    return hasGroupedCategories ? groups.filter(({ categories }) => categories.length > 0) : groups;
+  }, [formatResidenceChipCategories, normalizedSelectedCategories, resolveSelectedCategoryMainType, selectedMainTypes]);
 
   useEffect(() => {
     if (!locationPays && cascadePaysOptions.some((item) => item.toLowerCase() === 'tunisie')) {
@@ -2240,34 +2564,23 @@ export default function HomePage({
   }, [isHotelMode, selectedMode]);
 
   useEffect(() => {
-    const canonicalToLabel = new Map<string, string>();
-    groupedTypeOptions.forEach((group) => {
-      group.subTypes.forEach((item) => {
-        const key = buildMainTypeSubTypeMatchKey(group.mainType, item.label);
-        if (key && !canonicalToLabel.has(key)) canonicalToLabel.set(key, item.label);
-      });
-    });
     setSelectedCategories((prev) => {
-      const remapped = prev
-        .map((cat) => {
-          const resolvedLabel = getSelectedSubTypeMatchKeys(cat, selectedMainTypes)
-            .map((key) => canonicalToLabel.get(key) || "")
-            .find(Boolean);
-          return resolvedLabel || "";
-        })
-        .filter(Boolean);
-      const next = Array.from(new Set(remapped));
+      const next = normalizeSelectedCategories(prev, selectedMainTypes);
       return areStringArraysEqual(prev, next) ? prev : next;
     });
     const mainTypeAllowed = new Set(groupedTypeOptions.map((item) => item.mainType));
-    setSelectedMainType((prev) => {
-      return prev && mainTypeAllowed.has(prev) ? prev : "";
-    });
     setSelectedMainTypes((prev) => {
-      const next = prev.filter((item) => mainTypeAllowed.has(item));
+      const next = normalizeResidenceExclusiveMainTypes(
+        prev.filter((item) => mainTypeAllowed.has(item)),
+        selectedMainType || undefined
+      );
       return areStringArraysEqual(prev, next) ? prev : next;
     });
-  }, [groupedTypeOptions, selectedMainTypes]);
+    setSelectedMainType((prev) => {
+      if (prev && mainTypeAllowed.has(prev) && selectedMainTypes.includes(prev)) return prev;
+      return selectedMainTypes[0] || "";
+    });
+  }, [groupedTypeOptions, normalizeSelectedCategories, selectedMainType, selectedMainTypes]);
   useEffect(() => {
     const allowedSeaside = new Set(availableSeasideOptions);
     const allowedComfort = new Set(availableComfortOptions);
@@ -2277,28 +2590,11 @@ export default function HomePage({
 
   useEffect(() => {
     if (selectedMainTypes.length === 0) return;
-    const canonicalToLabel = new Map<string, string>();
-    groupedTypeOptions
-      .filter((group) => selectedMainTypes.includes(group.mainType))
-      .forEach((group) => {
-        group.subTypes.forEach((item) => {
-          const key = buildMainTypeSubTypeMatchKey(group.mainType, item.label);
-          if (key && !canonicalToLabel.has(key)) canonicalToLabel.set(key, item.label);
-        });
-      });
     setSelectedCategories((prev) => {
-      const remapped = prev
-        .map((cat) => {
-          const resolvedLabel = getSelectedSubTypeMatchKeys(cat, selectedMainTypes)
-            .map((key) => canonicalToLabel.get(key) || "")
-            .find(Boolean);
-          return resolvedLabel || cat;
-        })
-        .filter(Boolean);
-      const next = Array.from(new Set(remapped));
+      const next = normalizeSelectedCategories(prev, selectedMainTypes);
       return areStringArraysEqual(prev, next) ? prev : next;
     });
-  }, [groupedTypeOptions, selectedMainTypes]);
+  }, [groupedTypeOptions, normalizeSelectedCategories, selectedMainTypes]);
   useEffect(() => {
     const firstRange = selectedStayRanges[0];
     if (!firstRange) return;
@@ -2550,10 +2846,14 @@ export default function HomePage({
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
   const openCategoryDropdown = () => {
-    setDraftMainType(selectedMainType);
-    setDraftSelectedMainTypes(selectedMainTypes);
-    setDraftCategories(selectedCategories);
-    setTypeSelectionStep(selectedMainType ? "sub" : "main");
+    const normalizedMainTypes = normalizeResidenceExclusiveMainTypes(selectedMainTypes, selectedMainType || undefined);
+    const normalizedMainType = normalizedMainTypes.includes("residence")
+      ? "residence"
+      : (selectedMainType && normalizedMainTypes.includes(selectedMainType) ? selectedMainType : (normalizedMainTypes[0] || ""));
+    setDraftMainType(normalizedMainType);
+    setDraftSelectedMainTypes(normalizedMainTypes);
+    setDraftCategories(normalizeSelectedCategories(selectedCategories, normalizedMainTypes));
+    setTypeSelectionStep(normalizedMainType ? "sub" : "main");
     setShowCategoryDropdown(true);
   };
   const chooseDraftMainType = (mainType: PropertyMainType) => {
@@ -2561,14 +2861,13 @@ export default function HomePage({
     setTypeSelectionStep("sub");
   };
   const toggleDraftMainTypeSelection = (mainType: PropertyMainType) => {
-    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === mainType);
-    const nextSelectedMainTypes = draftSelectedMainTypes.includes(mainType)
+    const isRemoving = draftSelectedMainTypes.includes(mainType);
+    const nextSelectedMainTypes = isRemoving
       ? draftSelectedMainTypes.filter((item) => item !== mainType)
-      : [...draftSelectedMainTypes, mainType];
+      : normalizeResidenceExclusiveMainTypes([...draftSelectedMainTypes, mainType], mainType);
     setDraftSelectedMainTypes(nextSelectedMainTypes);
-    if (draftSelectedMainTypes.includes(mainType) && selectedGroup) {
-      const blockedSubTypes = new Set(selectedGroup.subTypes.map((item) => getCanonicalSubTypeKey(item.label)));
-      setDraftCategories((prev) => prev.filter((item) => !blockedSubTypes.has(getCanonicalSubTypeKey(item))));
+    if (isRemoving) {
+      setDraftCategories((prev) => removeCategoriesForMainType(prev, mainType, draftSelectedMainTypes));
       if (draftMainType === mainType) {
         setDraftMainType(nextSelectedMainTypes[0] || "");
         setTypeSelectionStep(nextSelectedMainTypes.length > 0 ? "sub" : "main");
@@ -2578,13 +2877,24 @@ export default function HomePage({
     setDraftMainType(mainType);
     setTypeSelectionStep("sub");
   };
-  const toggleDraftCategory = (cat: string) => {
-    setDraftCategories((prev) => (prev.includes(cat) ? prev.filter((item) => item !== cat) : [...prev, cat]));
+  const toggleDraftCategory = (cat: string, scopeMainType?: PropertyMainType | "") => {
+    const resolvedScopeMainType = scopeMainType || draftMainType;
+    const scopedCategory = resolvedScopeMainType ? encodeScopedCategory(resolvedScopeMainType, cat) : cat;
+    const normalizedCategory = normalizeSelectedCategories([scopedCategory], draftSelectedMainTypes)[0] || scopedCategory;
+    setDraftCategories((prev) => {
+      const normalizedPrev = normalizeSelectedCategories(prev, draftSelectedMainTypes);
+      const next = normalizedPrev.includes(normalizedCategory)
+        ? normalizedPrev.filter((item) => item !== normalizedCategory)
+        : [...normalizedPrev, normalizedCategory];
+      return normalizeSelectedCategories(next, draftSelectedMainTypes);
+    });
   };
   const confirmTypeSelection = () => {
-    setSelectedMainTypes(draftSelectedMainTypes);
-    setSelectedMainType(draftMainType);
-    setSelectedCategories(draftCategories);
+    const normalizedMainTypes = normalizeResidenceExclusiveMainTypes(draftSelectedMainTypes, draftMainType || undefined);
+    const normalizedMainType = draftMainType && normalizedMainTypes.includes(draftMainType) ? draftMainType : (normalizedMainTypes[0] || "");
+    setSelectedMainTypes(normalizedMainTypes);
+    setSelectedMainType(normalizedMainType);
+    setSelectedCategories(normalizeSelectedCategories(draftCategories, normalizedMainTypes));
     setShowCategoryDropdown(false);
     setShowSeasideDropdown(true);
     setShowComfortDropdown(false);
@@ -3596,7 +3906,7 @@ export default function HomePage({
     params.delete("stayRanges");
     if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
     if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
-    if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+    if (normalizedSelectedCategories.length > 0) params.set("categories", normalizedSelectedCategories.join(","));
     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
     if (selectedStayRanges.length > 0) {
@@ -3694,7 +4004,11 @@ export default function HomePage({
   };
 
   const filteredProperties = useMemo(() => {
-    const selectedSubTypeMatchKeys = selectedCategories
+    const selectedSubTypeKeys = normalizedSelectedCategories
+      .filter((item) => !hasExplicitMainTypeInLabel(getCategoryDisplayLabel(item)))
+      .map((item) => getCanonicalSubTypeKey(item))
+      .filter(Boolean);
+    const selectedSubTypeMatchKeys = normalizedSelectedCategories
       .flatMap((item) => getSelectedSubTypeMatchKeys(item, selectedMainTypes))
       .filter(Boolean);
     const validStayRanges = selectedStayRanges.filter((range) => isValidStayRange(range.start, range.end));
@@ -3708,8 +4022,15 @@ export default function HomePage({
           const propertyMainType = getMainTypeFromCategory(String(resolvedCategory || property.category || ""));
           const propertySubTypeKey = getCanonicalSubTypeKey(resolvedCategory || property.category || "");
           const propertySubTypeMatchKey = propertySubTypeKey ? `${propertyMainType}::${propertySubTypeKey}` : "";
-          const matchMainType = selectedMainTypes.length === 0 || selectedMainTypes.includes(propertyMainType);
-          const matchSubType = selectedSubTypeMatchKeys.length === 0 || selectedSubTypeMatchKeys.includes(propertySubTypeMatchKey);
+          const matchMainType = propertyMatchesSelectedMainTypes(selectedMainTypes, propertyMainType, property);
+          const matchSubType = propertyMatchesSelectedSubTypes({
+            selectedMainTypes,
+            selectedSubTypeKeys,
+            selectedSubTypeMatchKeys,
+            property,
+            propertySubTypeKey,
+            propertySubTypeMatchKey,
+          });
           const matchSeaside = selectedSeasideOptions.length === 0 || selectedSeasideOptions.some((option) => propertyMatchesSeasideOption(property, option));
           const matchComfort = selectedComfortOptions.length === 0 || selectedComfortOptions.every((option) => propertyMatchesComfortOption(property, option));
           const matchStay =
@@ -3723,7 +4044,7 @@ export default function HomePage({
       if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
       return b.rating - a.rating;
     });
-  }, [hasSearched, selectedLocations, selectedMainTypes, selectedCategories, selectedSeasideOptions, selectedComfortOptions, selectedStayRanges, modeProperties]);
+  }, [hasSearched, selectedLocations, selectedMainTypes, normalizedSelectedCategories, selectedSeasideOptions, selectedComfortOptions, selectedStayRanges, modeProperties]);
   const basePropertySearchParams = useMemo(() => {
     const params = applyAmicaleParam(new URLSearchParams(searchParams));
     params.set("mode", selectedMode);
@@ -3744,7 +4065,7 @@ export default function HomePage({
     params.delete("flashTitle");
     if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
     if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
-    if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+    if (normalizedSelectedCategories.length > 0) params.set("categories", normalizedSelectedCategories.join(","));
     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
     if (selectedStayRanges.length > 0) {
@@ -3888,7 +4209,7 @@ export default function HomePage({
     params.delete("stayRanges");
     if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
     if (selectedMainTypes.length > 0) params.set("mainTypes", selectedMainTypes.join(","));
-    if (selectedCategories.length > 0) params.set("categories", selectedCategories.join(","));
+    if (normalizedSelectedCategories.length > 0) params.set("categories", normalizedSelectedCategories.join(","));
     if (selectedSeasideOptions.length > 0) params.set("seaside", selectedSeasideOptions.join(","));
     if (selectedComfortOptions.length > 0) params.set("comfort", selectedComfortOptions.join(","));
     if (selectedStayRanges.length > 0) {
@@ -4730,6 +5051,7 @@ export default function HomePage({
                     <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
                       <div className="p-2">
                         <button
+                          type="button"
                           className={`w-full text-left px-4 py-5 rounded-xl text-sm transition-colors ${draftCategories.length === 0 && draftSelectedMainTypes.length === 0 ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
                           onClick={() => { setDraftMainType(""); setDraftSelectedMainTypes([]); setDraftCategories([]); setTypeSelectionStep("main"); }}
                         >
@@ -4775,19 +5097,23 @@ export default function HomePage({
                               <ChevronLeft size={14} /> Retour types principaux
                             </button>
                             <div className="grid grid-cols-2 gap-3">
-                            {draftSecondaryTypeOptions.map((cat) => (
+                            {draftSecondaryTypeOptions.map((cat) => {
+                              const scopeMainType = cat.selectionScope || draftMainType || cat.matchMainType;
+                              const isSelected = isCategorySelectedForMainTypes(draftCategories, cat.label, draftSelectedMainTypes, scopeMainType);
+                              return (
                               <button
-                                key={`home-sub-${cat.label}`}
+                                key={`home-sub-${scopeMainType || "any"}-${cat.label}`}
                                 type="button"
-                                onClick={() => toggleDraftCategory(cat.label)}
-                                className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                                onClick={() => toggleDraftCategory(cat.label, scopeMainType)}
+                                className={`relative h-28 overflow-hidden rounded-xl border text-left ${isSelected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
                               >
-                                {renderSelectionCheckbox(draftCategories.includes(cat.label))}
-                                <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                {renderSelectionCheckbox(isSelected)}
+                                <img src={resolveTypeImageUrl(cat.imageUrl)} alt={getCategoryDisplayLabel(cat.label)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
                                 <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                                    <span className="relative z-10 px-3">{renderSelectionLabel(cat.label)}</span>
+                                <span className="relative z-10 px-3">{renderSelectionLabel(getCategoryDisplayLabel(cat.label))}</span>
                               </button>
-                            ))}
+                              );
+                            })}
                             </div>
                           </div>
                         </div>
@@ -4910,33 +5236,42 @@ export default function HomePage({
                       <span key={`chip-location-${item}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <MapPin size={12} />
                         {item}
-                        <button onClick={() => setSelectedLocations((prev) => prev.filter((value) => value !== item))} className="ml-1 hover:text-emerald-200">
+                        <button type="button" onClick={() => setSelectedLocations((prev) => prev.filter((value) => value !== item))} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
                     ))}
                     {selectedTypeChipGroups.map(({ mainType, categories }) => (
-                      <span key={`chip-main-type-${mainType}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
+                      <span key={`chip-main-type-${mainType}-${categories.map((item) => String(item || "").trim()).join("__") || "all"}`} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
-                        {categories.length > 0 ? `${MAIN_TYPE_LABELS[mainType]} : ${categories.join(", ")}` : MAIN_TYPE_LABELS[mainType]}
-                        <button onClick={() => {
-                          setSelectedMainTypes((prev) => prev.filter((value) => value !== mainType));
+                        {categories.length > 0 ? `${MAIN_TYPE_LABELS[mainType]} : ${categories.map((item) => getCategoryDisplayLabel(item)).join(", ")}` : MAIN_TYPE_LABELS[mainType]}
+                        <button type="button" onClick={() => {
+                          if (categories.length > 0) {
+                            const categorySet = new Set(categories.map((item) => String(item || "").trim()));
+                            setSelectedCategories((prev) => prev.filter((item) => !categorySet.has(String(item || "").trim())));
+                            return;
+                          }
+                          const nextMainTypes = selectedMainTypes.filter((value) => value !== mainType);
+                          setSelectedMainTypes(nextMainTypes);
                           if (selectedMainType === mainType) {
                             setSelectedMainType("");
                           }
-                          setSelectedCategories((prev) => removeCategoriesForMainType(prev, mainType));
+                          setSelectedCategories((prev) => removeCategoriesForMainType(prev, mainType, selectedMainTypes));
                         }} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
                     ))}
-                    {selectedCategories
-                      .filter((cat) => !selectedMainTypes.includes(getMainTypeFromCategory(cat)))
+                    {normalizedSelectedCategories
+                      .filter((cat) => {
+                        if (selectedMainTypes.includes("residence")) return false;
+                        return !selectedMainTypes.includes(resolveSelectedCategoryMainType(cat, selectedMainTypes));
+                      })
                       .map(cat => (
                       <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded-full">
                         <Home size={12} />
-                        {cat}
-                        <button onClick={() => setSelectedCategories((prev) => prev.filter((item) => item !== cat))} className="ml-1 hover:text-emerald-200">
+                        {getCategoryDisplayLabel(cat)}
+                        <button type="button" onClick={() => setSelectedCategories((prev) => prev.filter((item) => item !== cat))} className="ml-1 hover:text-emerald-200">
                           <X size={12} />
                         </button>
                       </span>
@@ -5185,19 +5520,23 @@ export default function HomePage({
                     <ChevronLeft size={14} /> Retour types principaux
                   </button>
                   <div className="grid grid-cols-2 gap-3">
-                  {draftSecondaryTypeOptions.map((cat) => (
-                    <button
-                      key={`mobile-sub-${cat.label}`}
-                      type="button"
-                      onClick={() => toggleDraftCategory(cat.label)}
-                      className={`relative h-28 overflow-hidden rounded-xl border text-left ${draftCategories.includes(cat.label) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
-                    >
-                      {renderSelectionCheckbox(draftCategories.includes(cat.label))}
-                      <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                      <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                      <span className="relative z-10 px-3">{renderSelectionLabel(cat.label)}</span>
-                    </button>
-                  ))}
+                  {draftSecondaryTypeOptions.map((cat) => {
+                    const scopeMainType = cat.selectionScope || draftMainType || cat.matchMainType;
+                    const isSelected = isCategorySelectedForMainTypes(draftCategories, cat.label, draftSelectedMainTypes, scopeMainType);
+                    return (
+                      <button
+                        key={`mobile-sub-${scopeMainType || "any"}-${cat.label}`}
+                        type="button"
+                        onClick={() => toggleDraftCategory(cat.label, scopeMainType)}
+                        className={`relative h-28 overflow-hidden rounded-xl border text-left ${isSelected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                      >
+                        {renderSelectionCheckbox(isSelected)}
+                        <img src={resolveTypeImageUrl(cat.imageUrl)} alt={getCategoryDisplayLabel(cat.label)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                        <span className="relative z-10 px-3">{renderSelectionLabel(getCategoryDisplayLabel(cat.label))}</span>
+                      </button>
+                    );
+                  })}
                   </div>
                 </div>
               </div>

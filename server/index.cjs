@@ -7775,6 +7775,17 @@ function normalizeResidenceUnits(rawUnits) {
     .filter((unit) => unit.sub_type);
 }
 
+function stripResidenceUnitsForStorage(rawUnits) {
+  return normalizeResidenceUnits(rawUnits).map((unit) => ({
+    ...unit,
+    id: String(unit?.id || '').trim(),
+    main_type: normalizeBienType(unit?.main_type || 'appartement') === 'villa_maison' ? 'villa_maison' : 'appartement',
+    shared_title: String(unit?.shared_title || '').trim(),
+    sub_type: String(unit?.sub_type || '').trim(),
+    quantity: Math.max(1, Math.floor(Number(unit?.quantity || 1) || 1)),
+  }));
+}
+
 function buildResidenceChildTitle(parentTitle, subType, index, sharedTitle = '') {
   const normalizedSharedTitle = String(sharedTitle || '').trim();
   if (normalizedSharedTitle) return normalizedSharedTitle;
@@ -7783,6 +7794,10 @@ function buildResidenceChildTitle(parentTitle, subType, index, sharedTitle = '')
   return normalizedSubType
     ? `${title} - ${normalizedSubType} ${index}`
     : `${title} - Appartement ${index}`;
+}
+
+function normalizeResidenceReferenceKey(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
 function normalizeVenteTarification(mode, type, payload = {}) {
@@ -11141,6 +11156,36 @@ async function listUnavailableDatesForBienIds(bienIds) {
   return byBienId;
 }
 
+async function listMediaForBienIds(bienIds) {
+  const ids = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const byBienId = new Map();
+  if (ids.length === 0) return byBienId;
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await pool.query(
+    `SELECT id, bien_id, type, url, position, motif_upload
+     FROM media
+     WHERE bien_id IN (${placeholders})
+     ORDER BY bien_id ASC, position ASC, id ASC`,
+    ids
+  );
+  for (const row of rows || []) {
+    const bienId = String(row?.bien_id || '').trim();
+    if (!bienId) continue;
+    const item = {
+      id: String(row?.id || '').trim() || null,
+      bien_id: bienId,
+      type: String(row?.type || '').trim() === 'video' ? 'video' : 'image',
+      url: String(row?.url || '').trim(),
+      position: Number.isFinite(Number(row?.position)) ? Number(row.position) : 0,
+      motif_upload: String(row?.motif_upload || '').trim() || null,
+    };
+    if (!item.url) continue;
+    if (!byBienId.has(bienId)) byBienId.set(bienId, []);
+    byBienId.get(bienId).push(item);
+  }
+  return byBienId;
+}
+
 async function syncBienPricingPeriods(bienId, periods) {
   await ensureSeasonalPricingSchema();
   const normalizedBienId = String(bienId || '').trim();
@@ -11286,7 +11331,356 @@ async function syncResidenceChildUnavailableDates(childBienId, rawDates) {
   }
 }
 
-async function syncResidenceChildrenForParent(parentBienId) {
+function buildResidenceTemplateBienFromChild(childRow) {
+  if (!childRow || typeof childRow !== 'object') return {};
+  return {
+    type: normalizeBienType(childRow.type) === 'villa_maison' ? 'villa_maison' : 'appartement',
+    nom_bien_mobile: String(childRow.nom_bien_mobile || '').trim() || null,
+    description: childRow.description || null,
+    proprietaire_id: String(childRow.proprietaire_id || '').trim() || null,
+    nb_chambres: childRow.nb_chambres,
+    nb_salle_bain: childRow.nb_salle_bain,
+    prix_nuitee: childRow.prix_nuitee,
+    prix_semaine: childRow.prix_semaine,
+    tarification_methode: childRow.tarification_methode,
+    prix_affiche_client: childRow.prix_affiche_client,
+    prix_fixe_proprietaire: childRow.prix_fixe_proprietaire,
+    prix_proprietaire: childRow.prix_proprietaire,
+    prix_final: childRow.prix_final,
+    revenu_agence: childRow.revenu_agence,
+    commission_pourcentage_proprietaire: childRow.commission_pourcentage_proprietaire,
+    commission_pourcentage_client: childRow.commission_pourcentage_client,
+    montant_max_reduction_negociation: childRow.montant_max_reduction_negociation,
+    prix_minimum_accepte: childRow.prix_minimum_accepte,
+    modalite_paiement_vente: childRow.modalite_paiement_vente,
+    pourcentage_premiere_partie_promesse: childRow.pourcentage_premiere_partie_promesse,
+    montant_premiere_partie_promesse: childRow.montant_premiere_partie_promesse,
+    montant_deuxieme_partie: childRow.montant_deuxieme_partie,
+    nombre_tranches: childRow.nombre_tranches,
+    periode_tranches_mois: childRow.periode_tranches_mois,
+    montant_par_tranche: childRow.montant_par_tranche,
+    avance: childRow.avance,
+    caution: childRow.caution,
+    type_rue: childRow.type_rue,
+    type_papier: childRow.type_papier,
+    superficie_m2: childRow.superficie_m2,
+    etage: childRow.etage,
+    annee_construction: childRow.annee_construction,
+    distance_plage_m: childRow.distance_plage_m,
+    proche_plage: Number(childRow.proche_plage || 0),
+    chauffage_central: Number(childRow.chauffage_central || 0),
+    climatisation: Number(childRow.climatisation || 0),
+    balcon: Number(childRow.balcon || 0),
+    terrasse: Number(childRow.terrasse || 0),
+    ascenseur: Number(childRow.ascenseur || 0),
+    vue_mer: Number(childRow.vue_mer || 0),
+    gaz_ville: Number(childRow.gaz_ville || 0),
+    cuisine_equipee: Number(childRow.cuisine_equipee || 0),
+    place_parking: Number(childRow.place_parking || 0),
+    syndic: Number(childRow.syndic || 0),
+    meuble: Number(childRow.meuble || 0),
+    independant: Number(childRow.independant || 0),
+    eau_puits: Number(childRow.eau_puits || 0),
+    eau_sonede: Number(childRow.eau_sonede || 0),
+    electricite_steg: Number(childRow.electricite_steg || 0),
+    statut: childRow.statut || 'disponible',
+    visible_sur_site: Number(childRow.visible_sur_site || 0),
+    is_featured: Number(childRow.is_featured || 0),
+    menage_en_cours: Number(childRow.menage_en_cours || 0),
+    zone_id: childRow.zone_id || null,
+    configuration: String(childRow.residence_unit_sub_type || childRow.configuration || '').trim() || null,
+    ui_config: safeParseJson(childRow.ui_config_json, null),
+    location_saisonniere_config: safeParseJson(childRow.location_saisonniere_config_json, null),
+  };
+}
+
+function parseResidenceFeatureIdsFromRow(row) {
+  if (Array.isArray(row?.caracteristique_ids)) {
+    return row.caracteristique_ids.map((id) => String(id || '').trim()).filter(Boolean);
+  }
+  const rawList = String(row?.caracteristique_ids_list || '').trim();
+  if (!rawList) return [];
+  return rawList.split('||').map((id) => String(id || '').trim()).filter(Boolean);
+}
+
+function parseResidenceFeatureValuesFromRow(row) {
+  const direct = row?.caracteristique_valeurs;
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+    return direct;
+  }
+  const raw = row?.caracteristique_valeurs_json;
+  if (!raw) return {};
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildResidenceUnitsViewFromRows(parentRows, childRows, mediaByBienId, pricingPeriodsByBienId, unavailableDatesByBienId) {
+  const parentList = Array.isArray(parentRows) ? parentRows : [];
+  const childList = Array.isArray(childRows) ? childRows : [];
+  const byParentId = new Map();
+
+  for (const parent of parentList) {
+    const parentId = String(parent?.id || '').trim();
+    if (!parentId) continue;
+    const units = normalizeResidenceUnits(safeParseJson(parent?.residence_units_json, []));
+    const unitMap = new Map();
+    units.forEach((unit) => {
+      const unitId = String(unit?.id || '').trim();
+      if (!unitId) return;
+      unitMap.set(unitId, {
+        id: unitId,
+        main_type: String(unit?.main_type || '').trim() || 'appartement',
+        shared_title: String(unit?.shared_title || '').trim(),
+        sub_type: String(unit?.sub_type || '').trim(),
+        quantity: Math.max(1, Math.floor(Number(unit?.quantity || 1) || 1)),
+        apartment_names: [],
+        apartment_references: [],
+        apartments: [],
+        template_bien: {},
+        template_media: [],
+        pricing_periods: [],
+        feature_ids: [],
+        feature_values: {},
+      });
+    });
+    byParentId.set(parentId, unitMap);
+  }
+
+  for (const child of childList) {
+    const parentId = String(child?.residence_parent_bien_id || '').trim();
+    if (!parentId || !byParentId.has(parentId)) continue;
+    const unitMap = byParentId.get(parentId);
+    const rawUnitKey = String(child?.residence_unit_key || '').trim();
+    const [unitKeyPart, apartmentIndexPart] = rawUnitKey.split('__');
+    const fallbackSubType = String(child?.residence_unit_sub_type || child?.configuration || '').trim();
+    const unitId = String(unitKeyPart || `res_unit_${fallbackSubType || child?.id || '1'}`).trim();
+    const apartmentIndex = Math.max(1, Math.floor(Number(apartmentIndexPart || 1) || 1));
+    const unit = unitMap.get(unitId) || {
+      id: unitId,
+      main_type: normalizeBienType(child?.type || 'appartement') === 'villa_maison' ? 'villa_maison' : 'appartement',
+      shared_title: '',
+      sub_type: fallbackSubType,
+      quantity: 0,
+      apartment_names: [],
+      apartment_references: [],
+      apartments: [],
+      template_bien: {},
+      template_media: [],
+      pricing_periods: [],
+      feature_ids: [],
+      feature_values: {},
+    };
+    const apartmentTitle = String(child?.nom_bien_mobile || child?.titre || '').trim();
+    unit.main_type = unit.main_type || (normalizeBienType(child?.type || 'appartement') === 'villa_maison' ? 'villa_maison' : 'appartement');
+    unit.sub_type = unit.sub_type || fallbackSubType;
+    unit.quantity = Math.max(Number(unit.quantity || 0), apartmentIndex);
+    unit.apartment_names[apartmentIndex - 1] = apartmentTitle;
+    unit.apartment_references[apartmentIndex - 1] = String(child?.reference || '').trim();
+    unit.apartments[apartmentIndex - 1] = {
+      name: apartmentTitle,
+      reference: String(child?.reference || '').trim() || null,
+      nom_bien_mobile: String(child?.nom_bien_mobile || '').trim() || null,
+      description: String(child?.description || '').trim(),
+      proprietaire_id: String(child?.proprietaire_id || '').trim() || null,
+      unavailable_dates: unavailableDatesByBienId.get(String(child?.id || '').trim()) || [],
+    };
+    unit.template_bien = buildResidenceTemplateBienFromChild(child);
+    unit.template_media = mediaByBienId.get(String(child?.id || '').trim()) || [];
+    unit.pricing_periods = pricingPeriodsByBienId.get(String(child?.id || '').trim()) || [];
+    unit.feature_ids = parseResidenceFeatureIdsFromRow(child);
+    unit.feature_values = parseResidenceFeatureValuesFromRow(child);
+    unitMap.set(unitId, unit);
+  }
+
+  const result = new Map();
+  for (const [parentId, unitMap] of byParentId.entries()) {
+    const units = Array.from(unitMap.values())
+      .map((unit) => ({
+        ...unit,
+        apartment_names: (Array.isArray(unit.apartment_names) ? unit.apartment_names : []).map((value) => String(value || '').trim()),
+        apartment_references: (Array.isArray(unit.apartment_references) ? unit.apartment_references : []).map((value) => String(value || '').trim()),
+        apartments: (Array.isArray(unit.apartments) ? unit.apartments : []).map((apartment) => ({
+          name: String(apartment?.name || '').trim(),
+          reference: String(apartment?.reference || '').trim() || null,
+          nom_bien_mobile: String(apartment?.nom_bien_mobile || '').trim() || null,
+          description: String(apartment?.description || '').trim(),
+          proprietaire_id: String(apartment?.proprietaire_id || '').trim() || null,
+          unavailable_dates: Array.isArray(apartment?.unavailable_dates) ? apartment.unavailable_dates : [],
+        })),
+      }))
+      .filter((unit) => String(unit?.sub_type || '').trim());
+    result.set(parentId, units);
+  }
+  return result;
+}
+
+async function syncResidenceParentFromChild(childBienId) {
+  await ensureSeasonalPricingSchema();
+  await ensurePaidServicesSchema();
+  await ensureReservationDemandSchema();
+
+  const normalizedChildId = String(childBienId || '').trim();
+  if (!normalizedChildId) return null;
+
+  const [childRows] = await pool.query('SELECT * FROM biens WHERE id = ? LIMIT 1', [normalizedChildId]);
+  const child = childRows[0];
+  if (!child) return null;
+
+  const parentBienId = String(child.residence_parent_bien_id || '').trim();
+  if (!parentBienId) return null;
+
+  const [parentRows] = await pool.query('SELECT * FROM biens WHERE id = ? LIMIT 1', [parentBienId]);
+  const parent = parentRows[0];
+  if (!parent || normalizeBienType(parent.type) !== 'residence') return null;
+
+  const units = normalizeResidenceUnits(safeParseJson(parent.residence_units_json, []));
+  if (units.length === 0) return null;
+
+  const childReferenceKey = normalizeResidenceReferenceKey(child.reference);
+  const childUnitKey = String(child.residence_unit_key || '').trim();
+  const [unitKeyPrefixRaw, apartmentIndexRaw] = childUnitKey.split('__');
+  const unitKeyPrefix = String(unitKeyPrefixRaw || '').trim();
+  const apartmentIndexFromKey = Math.max(1, Math.floor(Number(apartmentIndexRaw || 0) || 0));
+
+  let unitIndex = -1;
+  let apartmentIndex = -1;
+
+  if (unitKeyPrefix) {
+    unitIndex = units.findIndex((unit) => String(unit?.id || '').trim() === unitKeyPrefix);
+    if (unitIndex >= 0 && apartmentIndexFromKey > 0) {
+      apartmentIndex = apartmentIndexFromKey - 1;
+    }
+  }
+
+  if (unitIndex < 0 || apartmentIndex < 0) {
+    for (let currentUnitIndex = 0; currentUnitIndex < units.length; currentUnitIndex += 1) {
+      const unit = units[currentUnitIndex];
+      const candidateApartmentIndex = (Array.isArray(unit?.apartments) ? unit.apartments : []).findIndex(
+        (apartment) => normalizeResidenceReferenceKey(apartment?.reference) === childReferenceKey
+      );
+      if (candidateApartmentIndex >= 0) {
+        unitIndex = currentUnitIndex;
+        apartmentIndex = candidateApartmentIndex;
+        break;
+      }
+    }
+  }
+
+  if (unitIndex < 0 || apartmentIndex < 0) {
+    const subtype = String(child.residence_unit_sub_type || child.configuration || '').trim();
+    if (subtype) {
+      unitIndex = units.findIndex((unit) => String(unit?.sub_type || '').trim() === subtype);
+      if (unitIndex >= 0) {
+        const unit = units[unitIndex];
+        const candidateIndex = (Array.isArray(unit?.apartments) ? unit.apartments : []).findIndex(
+          (apartment) => !String(apartment?.reference || '').trim()
+        );
+        apartmentIndex = candidateIndex >= 0 ? candidateIndex : 0;
+      }
+    }
+  }
+
+  if (unitIndex < 0 || apartmentIndex < 0) {
+    return null;
+  }
+
+  const unit = units[unitIndex];
+  const apartments = Array.isArray(unit.apartments) ? [...unit.apartments] : [];
+  while (apartments.length <= apartmentIndex) {
+    apartments.push({
+      name: '',
+      reference: null,
+      nom_bien_mobile: null,
+      description: '',
+      proprietaire_id: null,
+      unavailable_dates: [],
+    });
+  }
+
+  const mediaByBienId = await listMediaForBienIds([normalizedChildId]);
+  const pricingPeriodsByBienId = await listPricingPeriodsForBienIds([normalizedChildId]);
+  const unavailableDatesByBienId = await listUnavailableDatesForBienIds([normalizedChildId]);
+  const [featureRows] = await pool.query(
+    `SELECT caracteristique_id, override_valeur_json
+     FROM bien_caracteristiques
+     WHERE bien_id = ?
+     ORDER BY caracteristique_id ASC`,
+    [normalizedChildId]
+  );
+
+  const featureIds = [];
+  const featureValues = {};
+  for (const row of Array.isArray(featureRows) ? featureRows : []) {
+    const featureId = String(row?.caracteristique_id || '').trim();
+    if (!featureId) continue;
+    featureIds.push(featureId);
+    const rawValue = row?.override_valeur_json;
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '') continue;
+    try {
+      featureValues[featureId] = JSON.parse(String(rawValue));
+    } catch (_) {
+      // Ignore malformed persisted overrides instead of breaking parent sync.
+    }
+  }
+
+  const nextApartmentName = String(child.titre || apartments[apartmentIndex]?.name || child.nom_bien_mobile || '').trim();
+  const nextApartments = apartments.slice();
+  nextApartments[apartmentIndex] = {
+    ...(nextApartments[apartmentIndex] || {}),
+    name: nextApartmentName,
+    reference: String(child.reference || '').trim() || null,
+    nom_bien_mobile: String(child.nom_bien_mobile || '').trim() || null,
+    description: String(child.description || '').trim(),
+    proprietaire_id: String(child.proprietaire_id || '').trim() || null,
+    unavailable_dates: unavailableDatesByBienId.get(normalizedChildId) || [],
+  };
+
+  const nextApartmentNames = Array.isArray(unit.apartment_names) ? [...unit.apartment_names] : [];
+  while (nextApartmentNames.length <= apartmentIndex) nextApartmentNames.push('');
+  nextApartmentNames[apartmentIndex] = nextApartmentName;
+
+  const nextApartmentReferences = Array.isArray(unit.apartment_references) ? [...unit.apartment_references] : [];
+  while (nextApartmentReferences.length <= apartmentIndex) nextApartmentReferences.push('');
+  nextApartmentReferences[apartmentIndex] = String(child.reference || '').trim();
+
+  const nextUnits = units.slice();
+  nextUnits[unitIndex] = {
+    ...unit,
+    shared_title: unit.quantity <= 1
+      ? (String(child.titre || '').trim() || String(unit.shared_title || '').trim())
+      : unit.shared_title,
+    apartments: nextApartments,
+    apartment_names: nextApartmentNames,
+    apartment_references: nextApartmentReferences,
+    template_bien: buildResidenceTemplateBienFromChild(child),
+    template_media: mediaByBienId.get(normalizedChildId) || [],
+    feature_ids: featureIds,
+    feature_values: featureValues,
+    pricing_periods: pricingPeriodsByBienId.get(normalizedChildId) || [],
+  };
+
+  const now = getAgencySqlDateTime();
+  const storageUnits = stripResidenceUnitsForStorage(nextUnits);
+  await pool.query(
+    `UPDATE biens
+     SET residence_units_json = ?, updated_at = ?, admin_last_saved_at = ?
+     WHERE id = ?`,
+    [storageUnits.length > 0 ? JSON.stringify(storageUnits) : null, now, now, parentBienId]
+  );
+
+  return {
+    parent_id: parentBienId,
+    child_id: normalizedChildId,
+    unit_id: String(unit.id || '').trim() || null,
+    apartment_index: apartmentIndex + 1,
+  };
+}
+
+async function syncResidenceChildrenForParent(parentBienId, residenceUnitsOverride = null) {
   await ensureSeasonalPricingSchema();
   await ensurePaidServicesSchema();
   const [parentRows] = await pool.query('SELECT * FROM biens WHERE id = ? LIMIT 1', [parentBienId]);
@@ -11300,7 +11694,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
 
   const now = getAgencySqlDateTime();
   const normalizedParentName = String(parent.titre || '').trim() || String(parent.reference || '').trim() || 'Residence';
-  const units = normalizeResidenceUnits(safeParseJson(parent.residence_units_json, []));
+  const units = normalizeResidenceUnits(Array.isArray(residenceUnitsOverride) ? residenceUnitsOverride : safeParseJson(parent.residence_units_json, []));
   const desiredChildren = [];
   for (const unit of units) {
     for (let index = 1; index <= unit.quantity; index += 1) {
@@ -11329,7 +11723,7 @@ async function syncResidenceChildrenForParent(parentBienId) {
   }
 
   const [existingRows] = await pool.query(
-    'SELECT id, reference, residence_unit_key FROM biens WHERE residence_parent_bien_id = ?',
+    'SELECT id, reference, residence_unit_key, residence_unit_sub_type FROM biens WHERE residence_parent_bien_id = ?',
     [parentBienId]
   );
   const existingByKey = new Map(
@@ -11337,10 +11731,15 @@ async function syncResidenceChildrenForParent(parentBienId) {
       .map((row) => [String(row.residence_unit_key || '').trim(), row])
       .filter(([key]) => key)
   );
-  const desiredKeys = new Set(desiredChildren.map((item) => item.key));
+  const existingByReference = new Map(
+    (existingRows || [])
+      .map((row) => [normalizeResidenceReferenceKey(row.reference), row])
+      .filter(([reference]) => reference)
+  );
   const pricingPeriodsByBienId = await listPricingPeriodsForBienIds([parentBienId]);
   const parentPricingPeriods = pricingPeriodsByBienId.get(parentBienId) || [];
   const syncedChildren = [];
+  const matchedExistingChildIds = new Set();
 
   const sharedChildPayload = {
     description: parent.description || null,
@@ -11405,8 +11804,13 @@ async function syncResidenceChildrenForParent(parentBienId) {
   };
 
   for (const desiredChild of desiredChildren) {
-    const existingChild = existingByKey.get(desiredChild.key) || null;
+    const desiredChildReference = String(desiredChild.apartmentReference || '').trim();
+    const desiredChildReferenceKey = normalizeResidenceReferenceKey(desiredChildReference);
+    const existingChild = existingByKey.get(desiredChild.key)
+      || (desiredChildReferenceKey ? existingByReference.get(desiredChildReferenceKey) : null)
+      || null;
     const childId = existingChild?.id ? String(existingChild.id) : buildShortId('reschild', parentBienId, desiredChild.key);
+    let effectiveChildId = childId;
     const childTitle = String(
       desiredChild.sharedTitle
       || ''
@@ -11501,6 +11905,8 @@ async function syncResidenceChildrenForParent(parentBienId) {
     };
 
     if (existingChild) {
+      matchedExistingChildIds.add(String(existingChild.id || '').trim());
+      effectiveChildId = String(existingChild.id || '').trim() || childId;
       const childPayloadColumns = Object.keys(childPayload);
       const updateAssignments = ['reference = ?', 'titre = ?']
         .concat(childPayloadColumns.map((column) => `${column} = ?`));
@@ -11522,29 +11928,59 @@ async function syncResidenceChildrenForParent(parentBienId) {
       };
       const insertColumns = Object.keys(insertPayload);
       const placeholders = insertColumns.map(() => '?').join(', ');
-      await pool.query(
-        `INSERT INTO biens (${insertColumns.join(', ')}) VALUES (${placeholders})`,
-        insertColumns.map((column) => insertPayload[column])
-      );
+      try {
+        await pool.query(
+          `INSERT INTO biens (${insertColumns.join(', ')}) VALUES (${placeholders})`,
+          insertColumns.map((column) => insertPayload[column])
+        );
+        matchedExistingChildIds.add(String(childId || '').trim());
+      } catch (error) {
+        if (String(error?.code || '') !== 'ER_DUP_ENTRY' || !desiredChildReferenceKey) {
+          throw error;
+        }
+        const [duplicateRows] = await pool.query(
+          `SELECT id
+           FROM biens
+           WHERE UPPER(TRIM(reference)) = ?
+           LIMIT 1`,
+          [desiredChildReferenceKey]
+        );
+        const duplicateChildId = String(duplicateRows?.[0]?.id || '').trim();
+        if (!duplicateChildId) {
+          throw error;
+        }
+        effectiveChildId = duplicateChildId;
+        const childPayloadColumns = Object.keys(childPayload);
+        const updateAssignments = ['reference = ?', 'titre = ?']
+          .concat(childPayloadColumns.map((column) => `${column} = ?`));
+        const updateValues = [
+          childReference,
+          childTitle,
+          ...childPayloadColumns.map((column) => childPayload[column]),
+          duplicateChildId,
+        ];
+        await pool.query(`UPDATE biens SET ${updateAssignments.join(', ')} WHERE id = ?`, updateValues);
+        matchedExistingChildIds.add(duplicateChildId);
+      }
     }
 
-    await cloneResidenceSharedData(parentBienId, childId);
-    await syncResidenceChildMedia(childId, desiredChild.templateMedia);
+    await cloneResidenceSharedData(parentBienId, effectiveChildId);
+    await syncResidenceChildMedia(effectiveChildId, desiredChild.templateMedia);
     const allowedChildFeatureIds = await filterCaracteristiqueIdsForContext(
       'location_saisonniere',
       childType,
       desiredChild.featureIds
     );
-    await syncBienCaracteristiques(childId, allowedChildFeatureIds);
+    await syncBienCaracteristiques(effectiveChildId, allowedChildFeatureIds);
     await syncBienCaracteristiqueValeurs(
-      childId,
+      effectiveChildId,
       allowedChildFeatureIds,
       pickCaracteristiqueValeurs(allowedChildFeatureIds, desiredChild.featureValues)
     );
-    await syncBienPricingPeriods(childId, desiredChild.pricingPeriods.length > 0 ? desiredChild.pricingPeriods : parentPricingPeriods);
-    await syncResidenceChildUnavailableDates(childId, desiredChild.unavailableDates);
+    await syncBienPricingPeriods(effectiveChildId, desiredChild.pricingPeriods.length > 0 ? desiredChild.pricingPeriods : parentPricingPeriods);
+    await syncResidenceChildUnavailableDates(effectiveChildId, desiredChild.unavailableDates);
     syncedChildren.push({
-      id: childId,
+      id: effectiveChildId,
       key: desiredChild.key,
       unit_id: desiredChild.unitId,
       sub_type: desiredChild.subType,
@@ -11552,20 +11988,22 @@ async function syncResidenceChildrenForParent(parentBienId) {
     });
   }
 
-  const staleKeys = Array.from(existingByKey.keys()).filter((key) => !desiredKeys.has(key));
-  if (staleKeys.length > 0) {
-    const placeholders = staleKeys.map(() => '?').join(', ');
+  const staleChildIds = (existingRows || [])
+    .map((row) => String(row.id || '').trim())
+    .filter((id) => id && !matchedExistingChildIds.has(id));
+  if (staleChildIds.length > 0) {
+    const placeholders = staleChildIds.map(() => '?').join(', ');
     await pool.query(
       `UPDATE biens
        SET visible_sur_site = 0, updated_at = ?, admin_last_saved_at = ?
-       WHERE residence_parent_bien_id = ? AND residence_unit_key IN (${placeholders})`,
-      [now, now, parentBienId, ...staleKeys]
+       WHERE residence_parent_bien_id = ? AND id IN (${placeholders})`,
+      [now, now, parentBienId, ...staleChildIds]
     );
   }
 
   return {
     createdOrUpdated: desiredChildren.length,
-    hidden: staleKeys.length,
+    hidden: staleChildIds.length,
     children: syncedChildren,
   };
 }
@@ -14700,6 +15138,14 @@ app.get('/api/biens', async (req, res) => {
     const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const mediaByBienId = await listMediaForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const residenceUnitsByParentId = buildResidenceUnitsViewFromRows(
+      (rowsWithCaracteristiques || []).filter((row) => normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()),
+      (rowsWithCaracteristiques || []).filter((row) => String(row?.residence_parent_bien_id || '').trim()),
+      mediaByBienId,
+      pricingPeriodsByBienId,
+      unavailableDatesByBienId
+    );
     const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
       try {
@@ -14718,6 +15164,9 @@ app.get('/api/biens', async (req, res) => {
       location_saisonniere_config_json: JSON.stringify(nextConfig),
       pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
       unavailableDates: unavailableDatesByBienId.get(row.id) || [],
+      residence_units_json: normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()
+        ? JSON.stringify(residenceUnitsByParentId.get(String(row?.id || '').trim()) || [])
+        : row.residence_units_json,
       };
     });
     res.json(enrichedRows);
@@ -14743,9 +15192,24 @@ app.get('/api/biens/:id', async (req, res) => {
       return res.status(404).json({ error: 'Bien not found' });
     }
     const row = (await enrichBiensWithCaracteristiques(rows))[0];
+    const childRows = normalizeBienType(row?.type) === 'residence'
+      ? await enrichBiensWithCaracteristiques((await pool.query(
+          'SELECT * FROM biens WHERE residence_parent_bien_id = ? ORDER BY residence_unit_key ASC, created_at ASC',
+          [req.params.id]
+        ))[0] || [])
+      : [];
+    const bienIdsForSingleRead = [row.id].concat((Array.isArray(childRows) ? childRows : []).map((child) => child.id));
     const servicesByBienId = await listPaidServicesForBienIds([row.id]);
-    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds([row.id]);
-    const unavailableDatesByBienId = await listUnavailableDatesForBienIds([row.id]);
+    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds(bienIdsForSingleRead);
+    const unavailableDatesByBienId = await listUnavailableDatesForBienIds(bienIdsForSingleRead);
+    const mediaByBienId = await listMediaForBienIds(bienIdsForSingleRead);
+    const residenceUnitsByParentId = buildResidenceUnitsViewFromRows(
+      [row],
+      childRows,
+      mediaByBienId,
+      pricingPeriodsByBienId,
+      unavailableDatesByBienId
+    );
     let config = null;
     try {
       config = row.location_saisonniere_config_json
@@ -14762,6 +15226,9 @@ app.get('/api/biens/:id', async (req, res) => {
       location_saisonniere_config_json: JSON.stringify(injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || [])),
       pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
       unavailableDates: unavailableDatesByBienId.get(row.id) || [],
+      residence_units_json: normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()
+        ? JSON.stringify(residenceUnitsByParentId.get(String(row?.id || '').trim()) || [])
+        : row.residence_units_json,
     });
   } catch (error) {
     console.error('Error fetching bien:', error);
@@ -14998,6 +15465,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
       ]
     );
     const normalizedResidenceUnits = normalizeResidenceUnits(residence_units);
+    const residenceUnitsForStorage = stripResidenceUnitsForStorage(residence_units);
     await pool.query(
       `UPDATE biens
        SET residence_parent_bien_id = ?, residence_parent_name = ?, residence_unit_key = ?, residence_unit_sub_type = ?, residence_units_json = ?
@@ -15007,7 +15475,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         String(residence_parent_name || '').trim() || null,
         String(residence_unit_key || '').trim() || null,
         String(residence_unit_sub_type || '').trim() || null,
-        normalizedResidenceUnits.length > 0 ? JSON.stringify(normalizedResidenceUnits) : null,
+        residenceUnitsForStorage.length > 0 ? JSON.stringify(residenceUnitsForStorage) : null,
         bienId,
       ]
     );
@@ -15029,7 +15497,9 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
 
     let residenceSyncResult = null;
     if (resolvedMode === 'location_saisonniere' && resolvedType === 'residence') {
-      residenceSyncResult = await syncResidenceChildrenForParent(bienId);
+      residenceSyncResult = await syncResidenceChildrenForParent(bienId, normalizedResidenceUnits);
+    } else if (resolvedMode === 'location_saisonniere' && String(residence_parent_bien_id || '').trim()) {
+      residenceSyncResult = await syncResidenceParentFromChild(bienId);
     }
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
@@ -15551,6 +16021,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       ]
     );
     const normalizedResidenceUnits = normalizeResidenceUnits(residence_units);
+    const residenceUnitsForStorage = stripResidenceUnitsForStorage(residence_units);
     await pool.query(
       `UPDATE biens
        SET residence_parent_bien_id = ?, residence_parent_name = ?, residence_unit_key = ?, residence_unit_sub_type = ?, residence_units_json = ?
@@ -15560,7 +16031,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
         String(residence_parent_name || '').trim() || null,
         String(residence_unit_key || '').trim() || null,
         String(residence_unit_sub_type || '').trim() || null,
-        normalizedResidenceUnits.length > 0 ? JSON.stringify(normalizedResidenceUnits) : null,
+        residenceUnitsForStorage.length > 0 ? JSON.stringify(residenceUnitsForStorage) : null,
         req.params.id,
       ]
     );
@@ -15592,7 +16063,9 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
 
     let residenceSyncResult = null;
     if (resolvedMode === 'location_saisonniere' && resolvedType === 'residence') {
-      residenceSyncResult = await syncResidenceChildrenForParent(req.params.id);
+      residenceSyncResult = await syncResidenceChildrenForParent(req.params.id, normalizedResidenceUnits);
+    } else if (resolvedMode === 'location_saisonniere' && String(residence_parent_bien_id || '').trim()) {
+      residenceSyncResult = await syncResidenceParentFromChild(req.params.id);
     }
 
     const [updatedBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [req.params.id]);
@@ -15698,12 +16171,18 @@ app.get('/api/biens-lite', async (req, res) => {
     await ensureSeasonalPricingSchema();
     const [rows] = await pool.query(`
       SELECT
-        id, reference, titre, description, mode, type, nb_chambres, nb_salle_bain,
+        id, reference, titre, nom_bien_mobile, description, mode, type, nb_chambres, nb_salle_bain,
         prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured,
         ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, folder_id,
         residence_parent_bien_id, residence_parent_name, residence_unit_key, residence_unit_sub_type, residence_units_json,
         date_ajout, created_at, updated_at, admin_last_saved_at,
-        tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, prix_final, revenu_agence
+        tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, prix_final, revenu_agence,
+        commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
+        prix_minimum_accepte, modalite_paiement_vente, pourcentage_premiere_partie_promesse,
+        montant_premiere_partie_promesse, montant_deuxieme_partie, nombre_tranches, periode_tranches_mois,
+        montant_par_tranche, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction,
+        distance_plage_m, proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer,
+        gaz_ville, cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
       FROM biens
       ORDER BY date_ajout DESC
     `);
@@ -15711,6 +16190,14 @@ app.get('/api/biens-lite', async (req, res) => {
     const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const mediaByBienId = await listMediaForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const residenceUnitsByParentId = buildResidenceUnitsViewFromRows(
+      (rowsWithCaracteristiques || []).filter((row) => normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()),
+      (rowsWithCaracteristiques || []).filter((row) => String(row?.residence_parent_bien_id || '').trim()),
+      mediaByBienId,
+      pricingPeriodsByBienId,
+      unavailableDatesByBienId
+    );
     const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
       try {
@@ -15725,9 +16212,13 @@ app.get('/api/biens-lite', async (req, res) => {
       const nextConfig = injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || []);
       return {
         ...row,
+        nom_bien_mobile: String(nextConfig?.nom_bien_mobile || row.nom_bien_mobile || '').trim() || null,
         location_saisonniere_config_json: JSON.stringify(nextConfig),
         pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
         unavailableDates: unavailableDatesByBienId.get(row.id) || [],
+        residence_units_json: normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()
+          ? JSON.stringify(residenceUnitsByParentId.get(String(row?.id || '').trim()) || [])
+          : row.residence_units_json,
       };
     });
     res.json(enrichedRows);
@@ -24214,6 +24705,7 @@ app.post('/api/media', requireAdminSession, async (req, res) => {
     
     await pool.query('INSERT INTO media (id, bien_id, type, url, motif_upload, position) VALUES (?, ?, ?, ?, ?, ?)',
       [id, bien_id, safeType, resolvedUrl, resolvedMotif.trim() || null, mediaPosition]);
+    await syncResidenceParentFromChild(bien_id);
     const [newMedia] = await pool.query('SELECT * FROM media WHERE id = ?', [id]);
     res.status(201).json(newMedia[0]);
   } catch (error) {
@@ -24227,7 +24719,12 @@ app.post('/api/media', requireAdminSession, async (req, res) => {
 app.put('/api/media/:id/position', requireAdminSession, async (req, res) => {
   try {
     const { position } = req.body;
+    const [rows] = await pool.query('SELECT bien_id FROM media WHERE id = ? LIMIT 1', [req.params.id]);
+    const bienId = String(rows?.[0]?.bien_id || '').trim();
     await pool.query('UPDATE media SET position = ? WHERE id = ?', [position, req.params.id]);
+    if (bienId) {
+      await syncResidenceParentFromChild(bienId);
+    }
     res.json({ message: 'Position updated' });
   } catch (error) {
     console.error('Error updating media position:', error);
@@ -24242,11 +24739,29 @@ app.put('/api/media/bulk/positions', requireAdminSession, async (req, res) => {
     if (!Array.isArray(media)) {
       return res.status(400).json({ error: 'Media array required' });
     }
-    
+
+    const mediaIds = media.map((item) => String(item?.id || '').trim()).filter(Boolean);
+    const impactedBienIds = new Set();
+    if (mediaIds.length > 0) {
+      const placeholders = mediaIds.map(() => '?').join(', ');
+      const [rows] = await pool.query(
+        `SELECT DISTINCT bien_id FROM media WHERE id IN (${placeholders})`,
+        mediaIds
+      );
+      for (const row of rows || []) {
+        const bienId = String(row?.bien_id || '').trim();
+        if (bienId) impactedBienIds.add(bienId);
+      }
+    }
+
     for (const item of media) {
       await pool.query('UPDATE media SET position = ? WHERE id = ?', [item.position, item.id]);
     }
-    
+
+    for (const bienId of impactedBienIds) {
+      await syncResidenceParentFromChild(bienId);
+    }
+
     res.json({ message: 'Positions updated' });
   } catch (error) {
     console.error('Error updating media positions:', error);
@@ -24256,7 +24771,7 @@ app.put('/api/media/bulk/positions', requireAdminSession, async (req, res) => {
 
 app.delete('/api/media/:id', requireAdminSession, async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, type, url FROM media WHERE id = ? LIMIT 1', [req.params.id]);
+    const [rows] = await pool.query('SELECT id, bien_id, type, url FROM media WHERE id = ? LIMIT 1', [req.params.id]);
     const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
     if (!row) {
       return res.status(404).json({ error: 'Media not found' });
@@ -24270,6 +24785,7 @@ app.delete('/api/media/:id', requireAdminSession, async (req, res) => {
     const remainingUsageCount = Number(usageRow?.usageCount || 0);
 
     await pool.query('DELETE FROM media WHERE id = ?', [req.params.id]);
+    await syncResidenceParentFromChild(row.bien_id);
 
     if (remainingUsageCount > 0) {
       return res.json({ message: 'Media deleted', remoteAssetDeleted: false, sharedReferencesRemaining: remainingUsageCount });
@@ -24331,6 +24847,7 @@ app.post('/api/unavailable-dates', requireAdminSession, async (req, res) => {
       'INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [id, bien_id, start_date, end_date, status || 'blocked', null, null]
     );
+    await syncResidenceParentFromChild(bien_id);
     const [newDate] = await pool.query('SELECT * FROM unavailable_dates WHERE id = ?', [id]);
     res.status(201).json(newDate[0]);
   } catch (error) {
@@ -24343,8 +24860,16 @@ app.delete('/api/unavailable-dates/:id', requireAdminSession, async (req, res) =
   try {
     await ensureReservationDemandSchema();
     const unavailableId = String(req.params.id || '').trim();
+    const [currentRows] = await pool.query(
+      'SELECT bien_id FROM unavailable_dates WHERE id = ? LIMIT 1',
+      [unavailableId]
+    );
+    const bienId = String(currentRows?.[0]?.bien_id || '').trim();
     await pool.query('UPDATE reservation_demands SET unavailable_date_id = NULL WHERE unavailable_date_id = ?', [unavailableId]);
     await pool.query('DELETE FROM unavailable_dates WHERE id = ?', [unavailableId]);
+    if (bienId) {
+      await syncResidenceParentFromChild(bienId);
+    }
     res.json({ message: 'Unavailable date deleted' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete unavailable date' });
