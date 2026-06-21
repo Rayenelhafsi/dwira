@@ -23,6 +23,13 @@ type LocationState = {
   draft?: PendingReservationDraft;
 };
 
+function deriveTrackingChannelFromDraft(draft: PendingReservationDraft | null) {
+  if (!draft) return "direct" as const;
+  if (String(draft.partnerAgencyId || "").trim()) return "partner" as const;
+  if (String(draft.pricingAmicaleId || draft.amicaleSelectionId || "").trim() || draft.paymentMode === "amicale") return "amicale" as const;
+  return "direct" as const;
+}
+
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
 
 function getMainTypeFromCategory(category: string): PropertyMainType {
@@ -448,6 +455,7 @@ export default function ReservationConfirmationPage() {
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Impossible de confirmer la demande"));
+      const trackingChannel = deriveTrackingChannelFromDraft(draft);
       void trackPublicClientInteraction({
         type: 'reservation_submitted',
         bienId: String(property.id),
@@ -457,12 +465,17 @@ export default function ReservationConfirmationPage() {
         clientName: isAmicaleFlow ? String(draft.amicaleName || "").trim() || undefined : user?.name,
         sessionId,
         path: window.location.pathname + window.location.search,
+        channel: trackingChannel,
+        referrerSource: document.referrer || undefined,
         metadata: {
           requestType: requestType,
           paymentMode: summary.paymentMode,
           demandId: data?.id || null,
           propertyCategory: String(property.category || '').trim() || null,
           bedrooms: Number(property.bedrooms || 0),
+          startDate: draft.startDate,
+          endDate: draft.endDate,
+          channel: trackingChannel,
         },
       }).catch(() => {});
       const rawCustomerName = String(

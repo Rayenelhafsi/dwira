@@ -7,6 +7,7 @@ import { SiteMaintenancePage } from "./components/SiteMaintenancePage";
 import { getSiteMaintenanceStatus, readCachedSiteMaintenanceStatus, type SiteMaintenanceStatus } from "./services/siteMaintenance";
 import { useAuth } from "./context/AuthContext";
 import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
+import { trackGaPageView } from "./utils/analytics";
 
 const LazyPartnersLogoMarquee = lazy(() =>
   import("./components/PartnersLogoMarquee").then((module) => ({ default: module.PartnersLogoMarquee }))
@@ -89,6 +90,12 @@ export function Layout() {
       document.body.classList.remove("dwira-scroll-active");
     };
   }, []);
+
+  useEffect(() => {
+    if (hidePublicChrome) return;
+    const fullPath = `${location.pathname}${location.search}${location.hash}`;
+    void trackGaPageView(fullPath).catch(() => {});
+  }, [hidePublicChrome, location.hash, location.pathname, location.search]);
 
   useEffect(() => {
     if (showPartnersLogoMarquee) return;

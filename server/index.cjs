@@ -75,6 +75,24 @@ const META_CAPI_PIXEL_ID = String(process.env.META_CAPI_PIXEL_ID || '').trim();
 const META_CAPI_ACCESS_TOKEN = String(process.env.META_CAPI_ACCESS_TOKEN || '').trim();
 const META_CAPI_TEST_EVENT_CODE = String(process.env.META_CAPI_TEST_EVENT_CODE || '').trim();
 const META_CAPI_DEBUG = ['1', 'true', 'yes', 'on'].includes(String(process.env.META_CAPI_DEBUG || '').trim().toLowerCase());
+const GA_MEASUREMENT_ID = String(
+  process.env.GA_MEASUREMENT_ID
+  || process.env.GA4_MEASUREMENT_ID
+  || process.env.VITE_GA_MEASUREMENT_ID
+  || process.env.VITE_GA4_MEASUREMENT_ID
+  || ''
+).trim();
+const GA_PROPERTY_ID = String(
+  process.env.GA_PROPERTY_ID
+  || process.env.GA4_PROPERTY_ID
+  || ''
+).trim();
+const GA_API_SECRET = String(
+  process.env.GA_API_SECRET
+  || process.env.GA4_API_SECRET
+  || ''
+).trim();
+const GA_DEBUG_MODE = ['1', 'true', 'yes', 'on'].includes(String(process.env.GA_DEBUG_MODE || '').trim().toLowerCase());
 const MEDIA_UPLOAD_PROVIDER = String(process.env.MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
 const AIRBNB_ICAL_SYNC_INTERVAL_MS = Number.isFinite(Number(process.env.AIRBNB_ICAL_SYNC_INTERVAL_MS))
   ? Math.max(5 * 60 * 1000, Number(process.env.AIRBNB_ICAL_SYNC_INTERVAL_MS))
@@ -2719,6 +2737,22 @@ async function applyHotelReservationDemandPayment({ current, demandId, method, e
       : `Paiement ${method} recu pour la demande hotel ${demandId}. Booking fournisseur a verifier manuellement.`,
     now
   );
+  await trackBusinessAnalyticsEvent(null, 'hotel_payment_confirmed', {
+    hotelDemandId: demandId,
+    clientUserId: current.client_user_id,
+    clientEmail: current.client_email,
+    clientName: current.client_name,
+    channel: deriveStatsChannelFromReservationDemand(current),
+    propertyTitle: current.hotel_name,
+    amount,
+    currency: current.currency || 'TND',
+    metadata: {
+      hotelId: current.hotel_id,
+      providerBookingId,
+      providerBookingState,
+      paymentMethod: method,
+    },
+  }).catch(() => {});
 }
 
 async function callMyGoHotelService(serviceName, payload = {}) {
@@ -3823,6 +3857,39 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
     ]
   );
 
+  if (voucherGeneratedAt && voucherGeneratedAt !== current.voucher_generated_at) {
+    await trackBusinessAnalyticsEvent(null, 'voucher_generated', {
+      hotelDemandId: safeDemandId,
+      clientUserId: current.client_user_id,
+      clientEmail: current.client_email,
+      clientName: current.client_name,
+      channel: deriveStatsChannelFromReservationDemand(current),
+      propertyTitle: current.hotel_name,
+      currency: current.currency || 'TND',
+      metadata: {
+        hotelId: current.hotel_id,
+        voucherId: resolvedVoucherId,
+        voucherNumber: resolvedVoucherNumber,
+        status: nextStatus,
+      },
+    }).catch(() => {});
+  }
+  if (nextStatus === 'annulee' && providerCancelledAt && !current.provider_cancelled_at) {
+    await trackBusinessAnalyticsEvent(null, 'hotel_booking_cancelled', {
+      hotelDemandId: safeDemandId,
+      clientUserId: current.client_user_id,
+      clientEmail: current.client_email,
+      clientName: current.client_name,
+      channel: deriveStatsChannelFromReservationDemand(current),
+      propertyTitle: current.hotel_name,
+      currency: current.currency || 'TND',
+      metadata: {
+        hotelId: current.hotel_id,
+        providerBookingState,
+        providerCancelFee,
+      },
+    }).catch(() => {});
+  }
   return fetchHotelReservationDemandRow(safeDemandId);
 }
 
@@ -6323,6 +6390,30 @@ app.post('/api/hotel-reservation-demands', async (req, res) => {
       `Nouvelle demande hotellerie${isAmicaleFlow ? ' amicale' : ''}: ${String(requester?.name || requester?.email || amicaleName || 'Client')} pour ${hotelName} du ${checkIn} au ${checkOut}`,
       now
     );
+    await trackBusinessAnalyticsEvent(req, 'hotel_reservation_submitted', {
+      hotelDemandId: demandId,
+      clientUserId: requester?.id || null,
+      clientEmail: requester?.email || null,
+      clientName: requester?.name || amicaleName || 'Client',
+      sessionId: String(req.body?.sessionId || '').trim() || null,
+      routePath: req.originalUrl || req.url || null,
+      channel: isAmicaleFlow ? 'amicale' : deriveStatsChannelFromRequest(req, 'direct'),
+      referrerSource: deriveReferrerSource(req),
+      propertyTitle: hotelName,
+      amount: amountDueNow,
+      currency,
+      metadata: {
+        hotelId,
+        hotelCityId,
+        hotelCityName,
+        checkIn,
+        checkOut,
+        adults,
+        childCount: childAges.length,
+        paymentMode,
+        pricingAmicaleId,
+      },
+    }).catch(() => {});
 
     return res.status(201).json(await fetchHotelReservationDemandRow(demandId));
   } catch (error) {
@@ -6466,6 +6557,22 @@ app.post('/api/hotel-reservation-demands/:id/cancel-booking', requireAuthenticat
        WHERE id = ?`,
       ['annulee', bookingState, fee, now, JSON.stringify(cancellation || {}), now, demandId]
     );
+    await trackBusinessAnalyticsEvent(req, 'hotel_booking_cancelled', {
+      hotelDemandId: demandId,
+      clientUserId: current.client_user_id,
+      clientEmail: current.client_email,
+      clientName: current.client_name,
+      routePath: req.originalUrl || req.url || null,
+      channel: deriveStatsChannelFromReservationDemand(current),
+      referrerSource: deriveReferrerSource(req),
+      propertyTitle: current.hotel_name,
+      currency: current.currency || 'TND',
+      metadata: {
+        hotelId: current.hotel_id,
+        providerBookingState: bookingState,
+        providerCancelFee: fee,
+      },
+    }).catch(() => {});
     return res.json(await fetchHotelReservationDemandRow(demandId));
   } catch (error) {
     console.error('Error cancelling hotel provider booking:', error);
@@ -6518,6 +6625,22 @@ app.post('/api/hotel-reservation-demands/:id/upload-payment-receipt', requireAut
       `Recu de paiement recu pour la demande hotel ${demandId}. Verification admin requise.`,
       now
     );
+    await trackBusinessAnalyticsEvent(req, 'hotel_payment_receipt_uploaded', {
+      hotelDemandId: demandId,
+      clientUserId: current.client_user_id,
+      clientEmail: current.client_email,
+      clientName: current.client_name,
+      routePath: req.originalUrl || req.url || null,
+      channel: deriveStatsChannelFromReservationDemand(current),
+      referrerSource: deriveReferrerSource(req),
+      propertyTitle: current.hotel_name,
+      currency: current.currency || 'TND',
+      metadata: {
+        hotelId: current.hotel_id,
+        paymentReference: resolvedPaymentId,
+        receiptUrl,
+      },
+    }).catch(() => {});
     return res.json(await fetchHotelReservationDemandRow(demandId));
   } catch (error) {
     console.error('Error uploading hotel payment receipt:', error);
@@ -8261,6 +8384,12 @@ async function ensureAuthSchema() {
     );
   }
 
+  if (!(await columnExists('utilisateurs', 'actif'))) {
+    await pool.query(
+      'ALTER TABLE utilisateurs ADD COLUMN actif BOOLEAN NOT NULL DEFAULT TRUE AFTER role'
+    );
+  }
+
   if (!(await columnExists('utilisateurs', 'client_type'))) {
     await pool.query(
       "ALTER TABLE utilisateurs ADD COLUMN client_type ENUM('proprietaire', 'locataire', 'acheteur', 'agent_amicale', 'agence_partenaire') NULL"
@@ -9714,6 +9843,11 @@ async function ensureClientInteractionsSchema() {
       device_id VARCHAR(120) NULL,
       session_id VARCHAR(120) NULL,
       path VARCHAR(500) NULL,
+      channel VARCHAR(30) NULL,
+      referrer_source VARCHAR(80) NULL,
+      view_duration_seconds INT NULL,
+      scroll_depth_percent INT NULL,
+      is_bounce TINYINT(1) NULL,
       metadata_json LONGTEXT NULL,
       event_at DATETIME NOT NULL,
       created_at DATETIME NOT NULL,
@@ -9722,7 +9856,8 @@ async function ensureClientInteractionsSchema() {
       INDEX idx_client_interactions_bien (bien_id),
       INDEX idx_client_interactions_device (device_id),
       INDEX idx_client_interactions_type (type),
-      INDEX idx_client_interactions_event_at (event_at)
+      INDEX idx_client_interactions_event_at (event_at),
+      INDEX idx_client_interactions_channel (channel)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
@@ -9767,6 +9902,11 @@ async function ensureClientInteractionsSchema() {
   await ensureColumn('device_id', 'device_id VARCHAR(120) NULL AFTER source');
   await ensureColumn('session_id', 'session_id VARCHAR(120) NULL AFTER device_id');
   await ensureColumn('path', 'path VARCHAR(500) NULL AFTER session_id');
+  await ensureColumn('channel', 'channel VARCHAR(30) NULL AFTER path');
+  await ensureColumn('referrer_source', 'referrer_source VARCHAR(80) NULL AFTER channel');
+  await ensureColumn('view_duration_seconds', 'view_duration_seconds INT NULL AFTER referrer_source');
+  await ensureColumn('scroll_depth_percent', 'scroll_depth_percent INT NULL AFTER view_duration_seconds');
+  await ensureColumn('is_bounce', 'is_bounce TINYINT(1) NULL AFTER scroll_depth_percent');
   await ensureColumn('metadata_json', 'metadata_json LONGTEXT NULL AFTER path');
 
   const ensureIndex = async (indexName, ddl) => {
@@ -9783,6 +9923,7 @@ async function ensureClientInteractionsSchema() {
   };
   await ensureIndex('idx_client_interactions_device', 'device_id');
   await ensureIndex('idx_client_interactions_type', 'type');
+  await ensureIndex('idx_client_interactions_channel', 'channel');
 }
 
 async function ensureClientelesSchema() {
@@ -10109,6 +10250,11 @@ async function appendClientInteraction({
   source = 'site_public',
   sessionId = null,
   routePath = null,
+  channel = null,
+  referrerSource = null,
+  viewDurationSeconds = null,
+  scrollDepthPercent = null,
+  isBounce = null,
   metadata = null,
 }) {
   const normalizedType = String(type || '').trim().toLowerCase();
@@ -10117,10 +10263,25 @@ async function appendClientInteraction({
   const nowSql = getAgencySqlDateTime();
   const metadataJson = metadata && typeof metadata === 'object' ? JSON.stringify(metadata).slice(0, 10000) : null;
   const normalizedEmail = normalizeEmailForCompare(clientEmail);
+  const normalizedChannel = (() => {
+    const raw = String(channel || '').trim().toLowerCase();
+    if (raw === 'direct' || raw === 'amicale' || raw === 'partner' || raw === 'autre') return raw;
+    return null;
+  })();
+  const normalizedReferrerSource = String(referrerSource || '').trim().slice(0, 80) || null;
+  const normalizedViewDurationSeconds = Number.isFinite(Number(viewDurationSeconds))
+    ? Math.max(0, Math.floor(Number(viewDurationSeconds)))
+    : null;
+  const normalizedScrollDepthPercent = Number.isFinite(Number(scrollDepthPercent))
+    ? Math.max(0, Math.min(100, Math.floor(Number(scrollDepthPercent))))
+    : null;
+  const normalizedIsBounce = isBounce === null || isBounce === undefined || isBounce === ''
+    ? null
+    : (isBounce ? 1 : 0);
   await pool.query(
     `INSERT INTO client_interactions
-     (id, client_user_id, client_email, client_name, type, bien_id, property_title, source, device_id, session_id, path, metadata_json, event_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, client_user_id, client_email, client_name, type, bien_id, property_title, source, device_id, session_id, path, channel, referrer_source, view_duration_seconds, scroll_depth_percent, is_bounce, metadata_json, event_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       clientUserId ? String(clientUserId).trim() : null,
@@ -10133,6 +10294,11 @@ async function appendClientInteraction({
       String(req?.deviceId || '').trim() || null,
       sessionId ? String(sessionId).trim().slice(0, 120) : null,
       routePath ? String(routePath).trim().slice(0, 500) : null,
+      normalizedChannel,
+      normalizedReferrerSource,
+      normalizedViewDurationSeconds,
+      normalizedScrollDepthPercent,
+      normalizedIsBounce,
       metadataJson,
       nowSql,
       nowSql,
@@ -10150,9 +10316,246 @@ async function appendClientInteraction({
     deviceId: String(req?.deviceId || '').trim() || undefined,
     sessionId: sessionId ? String(sessionId).trim() : undefined,
     path: routePath ? String(routePath).trim() : undefined,
+    channel: normalizedChannel || undefined,
+    referrerSource: normalizedReferrerSource || undefined,
+    viewDurationSeconds: normalizedViewDurationSeconds ?? undefined,
+    scrollDepthPercent: normalizedScrollDepthPercent ?? undefined,
+    isBounce: normalizedIsBounce === null ? undefined : Boolean(normalizedIsBounce),
     metadata: metadata && typeof metadata === 'object' ? metadata : undefined,
     dateTime: nowSql,
   };
+}
+
+function normalizeStatsChannel(value, fallback = null) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'direct' || raw === 'amicale' || raw === 'partner' || raw === 'autre') return raw;
+  return fallback;
+}
+
+function deriveStatsChannelFromRequest(req, fallback = 'direct') {
+  const candidates = [
+    req?.body?.channel,
+    req?.query?.channel,
+    req?.headers?.['x-dwira-channel'],
+    req?.body?.pricing_amicale_id,
+    req?.body?.pricingAmicaleId,
+    req?.body?.amicale_id,
+    req?.body?.amicaleCode,
+    req?.body?.amicale_code,
+    req?.body?.partner_agency_id,
+    req?.body?.partnerAgencyId,
+    req?.body?.partnerAgencySelectionId,
+    req?.query?.partner,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeStatsChannel(candidate);
+    if (normalized) return normalized;
+  }
+  const pathText = [
+    req?.originalUrl,
+    req?.url,
+    req?.headers?.referer,
+    req?.headers?.referrer,
+  ].map((value) => String(value || '').toLowerCase()).join(' ');
+  if (pathText.includes('amicale')) return 'amicale';
+  if (pathText.includes('partner') || pathText.includes('agence')) return 'partner';
+  return fallback;
+}
+
+function deriveStatsChannelFromReservationDemand(row, fallback = 'direct') {
+  if (!row || typeof row !== 'object') return fallback;
+  if (normalizeStatsChannel(row.channel)) return normalizeStatsChannel(row.channel);
+  if (
+    normalizePaymentMode(row.payment_mode, 'avance') === 'amicale'
+    || String(row.pricing_amicale_id || '').trim()
+    || String(row.amicale_code || '').trim()
+  ) {
+    return 'amicale';
+  }
+  if (
+    String(row.partner_agency_id || '').trim()
+    || String(row.partner_agency_name || '').trim()
+    || String(row.agence_partenaire_id || '').trim()
+  ) {
+    return 'partner';
+  }
+  return fallback;
+}
+
+function deriveReferrerSource(req, fallback = null) {
+  const explicit = String(req?.body?.referrerSource || req?.body?.referrer_source || req?.query?.utm_source || '').trim();
+  if (explicit) return explicit.slice(0, 80);
+  const referer = String(req?.headers?.referer || req?.headers?.referrer || '').trim();
+  if (!referer) return fallback;
+  try {
+    const parsed = new URL(referer);
+    return String(parsed.hostname || '').trim().slice(0, 80) || fallback;
+  } catch {
+    return referer.slice(0, 80) || fallback;
+  }
+}
+
+function buildAnalyticsClientId({ sessionId = null, deviceId = null, clientUserId = null, clientEmail = null, demandId = null, hotelDemandId = null }) {
+  const raw = [
+    String(sessionId || '').trim(),
+    String(deviceId || '').trim(),
+    String(clientUserId || '').trim(),
+    normalizeEmailForCompare(clientEmail),
+    String(demandId || '').trim(),
+    String(hotelDemandId || '').trim(),
+  ].filter(Boolean).join('|');
+  if (raw) {
+    return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 36);
+  }
+  return `${Date.now()}.${Math.floor(Math.random() * 1e9)}`;
+}
+
+function mapToGaMeasurementEvent(type) {
+  switch (String(type || '').trim().toLowerCase()) {
+    case 'reservation_submitted':
+    case 'hotel_reservation_submitted':
+      return 'generate_lead';
+    case 'payment_confirmed':
+    case 'hotel_payment_confirmed':
+      return 'purchase';
+    case 'payment_receipt_uploaded':
+    case 'hotel_payment_receipt_uploaded':
+      return 'add_payment_info';
+    case 'booking_cancelled':
+    case 'hotel_booking_cancelled':
+      return 'refund';
+    default:
+      return String(type || '').trim().toLowerCase() || 'custom_event';
+  }
+}
+
+function buildBusinessAnalyticsPayload(payload = {}) {
+  const metadata = payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
+  const value = Number(payload.value ?? metadata.value ?? payload.amount ?? metadata.amount);
+  return {
+    demandId: String(payload.demandId || metadata.demandId || '').trim() || null,
+    hotelDemandId: String(payload.hotelDemandId || metadata.hotelDemandId || '').trim() || null,
+    clientUserId: String(payload.clientUserId || metadata.clientUserId || '').trim() || null,
+    clientEmail: normalizeEmailForCompare(payload.clientEmail || metadata.clientEmail || ''),
+    clientName: String(payload.clientName || metadata.clientName || '').trim() || null,
+    sessionId: String(payload.sessionId || metadata.sessionId || '').trim() || null,
+    routePath: String(payload.routePath || metadata.path || '').trim() || null,
+    channel: normalizeStatsChannel(payload.channel || metadata.channel, 'direct'),
+    referrerSource: String(payload.referrerSource || metadata.referrerSource || '').trim().slice(0, 80) || null,
+    bienId: String(payload.bienId || metadata.bienId || metadata.propertyId || '').trim() || null,
+    propertyTitle: String(payload.propertyTitle || metadata.propertyTitle || '').trim() || null,
+    amount: Number.isFinite(value) ? Number(value) : null,
+    currency: String(payload.currency || metadata.currency || 'TND').trim().toUpperCase() || 'TND',
+    metadata,
+  };
+}
+
+function buildBusinessAnalyticsGaParams(type, payload = {}) {
+  const gaEventName = mapToGaMeasurementEvent(type);
+  const params = {
+    channel: payload.channel || undefined,
+    source: payload.referrerSource || undefined,
+    page_path: payload.routePath || undefined,
+    demand_id: payload.demandId || undefined,
+    hotel_demand_id: payload.hotelDemandId || undefined,
+    property_id: payload.bienId || undefined,
+    property_title: payload.propertyTitle || undefined,
+    currency: payload.currency || undefined,
+    value: payload.amount ?? undefined,
+    event_origin: 'backend',
+    user_type: payload.clientUserId ? 'known' : 'anonymous',
+  };
+  return { gaEventName, params };
+}
+
+function isGaMeasurementProtocolConfigured() {
+  return Boolean(GA_MEASUREMENT_ID && GA_API_SECRET);
+}
+
+async function sendGaMeasurementProtocolEvent({
+  eventName,
+  clientId,
+  userId = null,
+  params = {},
+}) {
+  if (!isGaMeasurementProtocolConfigured() || !eventName || !clientId) return false;
+  const endpoint = new URL('https://www.google-analytics.com/mp/collect');
+  endpoint.searchParams.set('measurement_id', GA_MEASUREMENT_ID);
+  endpoint.searchParams.set('api_secret', GA_API_SECRET);
+  const payload = {
+    client_id: String(clientId).slice(0, 120),
+    user_id: userId ? String(userId).slice(0, 120) : undefined,
+    events: [
+      {
+        name: String(eventName).slice(0, 40),
+        params: {
+          ...params,
+          debug_mode: GA_DEBUG_MODE ? 1 : undefined,
+        },
+      },
+    ],
+  };
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      console.warn('ga_measurement_protocol_failed:', response.status);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn('ga_measurement_protocol_error:', error?.message || error);
+    return false;
+  }
+}
+
+async function trackBusinessAnalyticsEvent(req, type, rawPayload = {}) {
+  const payload = buildBusinessAnalyticsPayload(rawPayload);
+  const eventType = String(type || '').trim().toLowerCase();
+  if (!eventType) return null;
+  let interaction = null;
+  if (rawPayload.persist !== false) {
+    interaction = await appendClientInteraction({
+      req,
+      clientUserId: payload.clientUserId,
+      clientEmail: payload.clientEmail,
+      clientName: payload.clientName,
+      type: eventType,
+      bienId: payload.bienId,
+      propertyTitle: payload.propertyTitle,
+      source: 'site_public',
+      sessionId: payload.sessionId,
+      routePath: payload.routePath,
+      channel: payload.channel,
+      referrerSource: payload.referrerSource,
+      metadata: {
+        ...payload.metadata,
+        demandId: payload.demandId,
+        hotelDemandId: payload.hotelDemandId,
+        channel: payload.channel,
+        source: payload.referrerSource,
+      },
+    }).catch(() => null);
+  }
+  const { gaEventName, params } = buildBusinessAnalyticsGaParams(eventType, payload);
+  const clientId = buildAnalyticsClientId({
+    sessionId: payload.sessionId,
+    deviceId: req?.deviceId,
+    clientUserId: payload.clientUserId,
+    clientEmail: payload.clientEmail,
+    demandId: payload.demandId,
+    hotelDemandId: payload.hotelDemandId,
+  });
+  await sendGaMeasurementProtocolEvent({
+    eventName: gaEventName,
+    clientId,
+    userId: payload.clientUserId || payload.clientEmail || null,
+    params,
+  });
+  return interaction;
 }
 
 async function upsertLocataireFromReservationProfile({ userId, name, email, telephone, cin }) {
@@ -10448,6 +10851,23 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
     `Contrat ${contractId} realise pour la demande ${demandId}`,
     now
   );
+  await trackBusinessAnalyticsEvent(null, 'contract_generated', {
+    demandId,
+    clientUserId: current.client_user_id,
+    clientEmail: current.client_email,
+    clientName: current.client_name,
+    channel: deriveStatsChannelFromReservationDemand(current),
+    bienId: current.bien_id,
+    propertyTitle: bien.titre,
+    amount: amountDueNow,
+    currency: 'TND',
+    metadata: {
+      contractId,
+      startDate: current.start_date,
+      endDate: current.end_date,
+      requestType: current.request_type || 'reservation',
+    },
+  }).catch(() => {});
   await notifyChatbotReservationDemandChange(demandId);
   return { contractId };
 }
@@ -16775,6 +17195,24 @@ app.post('/api/contrats/:id/upload-payment-receipt', requireAdminSession, reserv
        WHERE id = ?`,
       [receiptUrl, now, receiptNote, resolvedPaymentId, now, demand.id]
     );
+    await trackBusinessAnalyticsEvent(req, 'payment_receipt_uploaded', {
+      demandId: demand.id,
+      clientUserId: demand.client_user_id,
+      clientEmail: demand.client_email,
+      clientName: demand.client_name,
+      routePath: req.originalUrl || req.url || null,
+      channel: deriveStatsChannelFromReservationDemand(demand),
+      referrerSource: deriveReferrerSource(req),
+      bienId: demand.bien_id,
+      propertyTitle: demand.bien_titre || null,
+      currency: 'TND',
+      metadata: {
+        contractId,
+        paymentReference: resolvedPaymentId,
+        receiptUrl,
+        actorType: 'admin',
+      },
+    }).catch(() => {});
 
     await appendReservationDemandHistory(
       demand.id,
@@ -20287,6 +20725,8 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         return res.status(400).json({ error: 'Amicale invalide' });
       }
     }
+    const channel = isAmicaleFlow ? 'amicale' : (isPartnerAgencyFlow ? 'partner' : deriveStatsChannelFromRequest(req, 'direct'));
+    const referrerSource = deriveReferrerSource(req);
     await appendClientInteraction({
       req,
       clientUserId: resolvedClientUserId,
@@ -20297,6 +20737,8 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       propertyTitle: bien.titre,
       sessionId,
       routePath: req.originalUrl || req.url || null,
+      channel,
+      referrerSource,
       metadata: {
         requestType: request_type === 'visite' ? 'visite' : 'reservation',
         startDate: start_date,
@@ -20691,19 +21133,25 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       }
     }
 
-    await appendClientInteraction({
-      req,
+    await trackBusinessAnalyticsEvent(req, 'reservation_submitted', {
+      demandId,
       clientUserId: resolvedClientUserId,
       clientEmail: resolvedClientEmail,
       clientName: resolvedClientName,
-      type: 'reservation_submitted',
-      bienId: bien.id,
-      propertyTitle: bien.titre,
       sessionId,
       routePath: req.originalUrl || req.url || null,
+      channel,
+      referrerSource,
+      bienId: bien.id,
+      propertyTitle: bien.titre,
+      amount: normalizedAmountDueNow ?? normalizedTotalAmount ?? null,
+      currency: 'TND',
       metadata: {
-        demandId,
         requestType,
+        startDate: start_date,
+        endDate: end_date,
+        partnerAgencyId: normalizedPartnerAgencyId,
+        pricingAmicaleId: normalizedPricingAmicaleId,
       },
     }).catch(() => {});
 
@@ -21715,6 +22163,23 @@ app.post('/api/reservation-demands/:id/regenerate-voucher', requireAdminSession,
       `Voucher regenere (${voucherNumber})`,
       now
     );
+    await trackBusinessAnalyticsEvent(req, 'voucher_generated', {
+      demandId,
+      clientUserId: detailedCurrent.client_user_id,
+      clientEmail: detailedCurrent.client_email,
+      clientName: detailedCurrent.client_name,
+      routePath: req.originalUrl || req.url || null,
+      channel: deriveStatsChannelFromReservationDemand(detailedCurrent),
+      referrerSource: deriveReferrerSource(req),
+      bienId: detailedCurrent.bien_id,
+      propertyTitle: detailedCurrent.bien_titre || detailedCurrent.bien_id,
+      currency: 'TND',
+      metadata: {
+        voucherId,
+        voucherNumber,
+        amicaleId: detailedCurrent.pricing_amicale_id,
+      },
+    }).catch(() => {});
     const refreshed = await fetchReservationDemandDetailsById(demandId);
     return res.json(refreshed || null);
   } catch (error) {
@@ -21731,7 +22196,7 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
       return res.status(400).json({ error: 'Demande introuvable' });
     }
     const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
-    const current = demandRows[0];
+    let current = demandRows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
     if (!canAccessReservationDemand(req.authUser, current)) {
       void logSecurityEvent({
@@ -21812,6 +22277,25 @@ app.post('/api/reservation-demands/:id/upload-payment-receipt', requireAuthentic
       `Recu de paiement recu pour la demande ${demandId}. Verification admin requise.`,
       now
     );
+    await trackBusinessAnalyticsEvent(req, 'payment_receipt_uploaded', {
+      demandId,
+      clientUserId: current.client_user_id,
+      clientEmail: current.client_email,
+      clientName: current.client_name,
+      sessionId: String(req.body?.sessionId || '').trim() || null,
+      routePath: req.originalUrl || req.url || null,
+      channel: deriveStatsChannelFromReservationDemand(current),
+      referrerSource: deriveReferrerSource(req),
+      bienId: current.bien_id,
+      propertyTitle: current.bien_titre || current.property_title || null,
+      currency: 'TND',
+      metadata: {
+        contractId: current.contract_id || null,
+        paymentReference: resolvedPaymentId,
+        receiptUrl,
+        actorType: 'client',
+      },
+    }).catch(() => {});
     await notifyChatbotReservationDemandChange(demandId);
 
     const [updatedRows] = await pool.query(
@@ -21960,6 +22444,24 @@ async function applyReservationDemandPayment({ current, demandId, scope, method,
     `Paiement ${safeMethod} recu pour la demande ${demandId}: ${paidParts.join(' + ')}`,
     now
   );
+  await trackBusinessAnalyticsEvent(null, 'payment_confirmed', {
+    demandId,
+    clientUserId: current.client_user_id,
+    clientEmail: current.client_email,
+    clientName: current.client_name,
+    channel: deriveStatsChannelFromReservationDemand(current),
+    bienId: current.bien_id,
+    propertyTitle: current.bien_titre || current.property_title || null,
+    amount: paidAmount,
+    currency: 'TND',
+    metadata: {
+      scope,
+      method: safeMethod,
+      paidParts,
+      reservationPaymentId,
+      servicesPaymentId,
+    },
+  }).catch(() => {});
 }
 
 async function confirmReservationClickToPayDemand({ demandId, currentRow = null, allowFailure = false }) {
@@ -22056,7 +22558,7 @@ app.post('/api/reservation-demands/:id/pay', requireAuthenticatedSession, paymen
     }
 
     const [rows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
-    const current = rows[0];
+    let current = rows[0];
     if (!current) return res.status(404).json({ error: 'Demande introuvable' });
     if (!canAccessReservationDemand(req.authUser, current)) {
       void logSecurityEvent({
@@ -27010,7 +27512,7 @@ app.get('/api/auth/social/session/:token', (req, res) => {
 app.get('/api/client-interactions', requireAdminSession, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source, device_id, session_id, path, metadata_json,
+      `SELECT id, client_user_id, client_email, client_name, type, bien_id, property_title, source, device_id, session_id, path, channel, referrer_source, view_duration_seconds, scroll_depth_percent, is_bounce, metadata_json,
               DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at
        FROM client_interactions
        ORDER BY event_at DESC`
@@ -27027,6 +27529,11 @@ app.get('/api/client-interactions', requireAdminSession, async (req, res) => {
       deviceId: row.device_id || undefined,
       sessionId: row.session_id || undefined,
       path: row.path || undefined,
+      channel: row.channel || undefined,
+      referrerSource: row.referrer_source || undefined,
+      viewDurationSeconds: row.view_duration_seconds === null || row.view_duration_seconds === undefined ? undefined : Number(row.view_duration_seconds),
+      scrollDepthPercent: row.scroll_depth_percent === null || row.scroll_depth_percent === undefined ? undefined : Number(row.scroll_depth_percent),
+      isBounce: row.is_bounce === null || row.is_bounce === undefined ? undefined : Boolean(row.is_bounce),
       metadata: (() => {
         try {
           return row.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
@@ -27053,12 +27560,39 @@ app.post('/api/client-interactions', async (req, res) => {
     const propertyTitle = String(req.body?.propertyTitle || '').trim() || null;
     const sessionId = String(req.body?.sessionId || '').trim() || null;
     const routePath = String(req.body?.path || '').trim() || null;
+    const channel = String(req.body?.channel || '').trim() || null;
+    const referrerSource = String(req.body?.referrerSource || req.body?.referrer_source || '').trim() || null;
+    const viewDurationSeconds = req.body?.viewDurationSeconds ?? req.body?.view_duration_seconds ?? null;
+    const scrollDepthPercent = req.body?.scrollDepthPercent ?? req.body?.scroll_depth_percent ?? null;
+    const isBounce = req.body?.isBounce ?? req.body?.is_bounce ?? null;
     const metadata = req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : null;
 
     if (!clientEmail && !String(req?.deviceId || '').trim()) {
       return res.status(400).json({ error: 'Identite client insuffisante (email ou device requis)' });
     }
-    const allowedTypes = new Set(['visite', 'like', 'partage', 'site_open', 'session_start', 'reservation_attempt', 'reservation_submitted']);
+    const allowedTypes = new Set([
+      'visite',
+      'like',
+      'partage',
+      'site_open',
+      'session_start',
+      'reservation_attempt',
+      'reservation_submitted',
+      'property_view_heartbeat',
+      'property_view_end',
+      'search_filters_applied',
+      'search_results_viewed',
+      'property_cta_clicked',
+      'contract_generated',
+      'payment_confirmed',
+      'payment_receipt_uploaded',
+      'voucher_generated',
+      'booking_cancelled',
+      'hotel_reservation_submitted',
+      'hotel_payment_confirmed',
+      'hotel_payment_receipt_uploaded',
+      'hotel_booking_cancelled',
+    ]);
     if (!allowedTypes.has(type)) return res.status(400).json({ error: 'Type interaction invalide' });
     if (['visite', 'like', 'partage', 'reservation_attempt', 'reservation_submitted'].includes(type) && !bienId) {
       return res.status(400).json({ error: 'Bien obligatoire pour ce type interaction' });
@@ -27075,6 +27609,11 @@ app.post('/api/client-interactions', async (req, res) => {
       source: 'site_public',
       sessionId,
       routePath,
+      channel,
+      referrerSource,
+      viewDurationSeconds,
+      scrollDepthPercent,
+      isBounce,
       metadata,
     });
     res.status(201).json(created);
@@ -27910,7 +28449,7 @@ app.get('/api/client-interactions/export', requireAdminSession, async (req, res)
     const [rows] = await pool.query(
       `SELECT
          id, client_user_id, client_email, client_name, type, bien_id, property_title,
-         source, device_id, session_id, path, metadata_json,
+         source, device_id, session_id, path, channel, referrer_source, view_duration_seconds, scroll_depth_percent, is_bounce, metadata_json,
          DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at,
          DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
        FROM client_interactions
@@ -27931,6 +28470,11 @@ app.get('/api/client-interactions/export', requireAdminSession, async (req, res)
       device_id: row.device_id || null,
       session_id: row.session_id || null,
       path: row.path || null,
+      channel: row.channel || null,
+      referrer_source: row.referrer_source || null,
+      view_duration_seconds: row.view_duration_seconds === null || row.view_duration_seconds === undefined ? null : Number(row.view_duration_seconds),
+      scroll_depth_percent: row.scroll_depth_percent === null || row.scroll_depth_percent === undefined ? null : Number(row.scroll_depth_percent),
+      is_bounce: row.is_bounce === null || row.is_bounce === undefined ? null : Number(row.is_bounce),
       metadata_json: row.metadata_json || null,
       event_at: row.event_at || null,
       created_at: row.created_at || null,
@@ -27963,6 +28507,11 @@ app.get('/api/client-interactions/export', requireAdminSession, async (req, res)
       { key: 'device_id', label: 'device_id' },
       { key: 'session_id', label: 'session_id' },
       { key: 'path', label: 'path' },
+      { key: 'channel', label: 'channel' },
+      { key: 'referrer_source', label: 'referrer_source' },
+      { key: 'view_duration_seconds', label: 'view_duration_seconds' },
+      { key: 'scroll_depth_percent', label: 'scroll_depth_percent' },
+      { key: 'is_bounce', label: 'is_bounce' },
       { key: 'metadata_json', label: 'metadata_json' },
       { key: 'event_at', label: 'event_at' },
       { key: 'created_at', label: 'created_at' },
@@ -28004,6 +28553,473 @@ app.delete('/api/client-interactions', requireAdminSession, async (req, res) => 
     res.status(500).json({ error: 'Impossible de nettoyer les interactions clients' });
   }
 });
+
+function parseClientInteractionMetadata(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStatsDateInput(value) {
+  const raw = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+}
+
+function formatDateOnly(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysToDateOnly(value, amount) {
+  const base = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return value;
+  base.setDate(base.getDate() + amount);
+  return formatDateOnly(base);
+}
+
+function buildStatsDateRange(req) {
+  const today = getAgencyLocalDate();
+  const rawFrom = normalizeStatsDateInput(req.query.date_from || req.query.dateFrom);
+  const rawTo = normalizeStatsDateInput(req.query.date_to || req.query.dateTo);
+  const dateTo = rawTo || today;
+  const dateFrom = rawFrom || addDaysToDateOnly(dateTo, -29);
+  if (dateFrom <= dateTo) {
+    return {
+      dateFrom,
+      dateTo,
+      sqlFrom: `${dateFrom} 00:00:00`,
+      sqlTo: `${dateTo} 23:59:59`,
+    };
+  }
+  return {
+    dateFrom: dateTo,
+    dateTo: dateFrom,
+    sqlFrom: `${dateTo} 00:00:00`,
+    sqlTo: `${dateFrom} 23:59:59`,
+  };
+}
+
+function normalizeStatsGranularity(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'week' || raw === 'month' ? raw : 'day';
+}
+
+function normalizeStatsSegment(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'known' || raw === 'anonymous' ? raw : 'all';
+}
+
+function normalizeStatsChannel(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'direct' || raw === 'amicale' || raw === 'partner' || raw === 'autre' ? raw : 'all';
+}
+
+function normalizeStatsLimit(value, fallback = 12, max = 100) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(parsed)));
+}
+
+function buildStatsInteractionWhereClause({ range, propertyId = null }) {
+  const where = ['event_at BETWEEN ? AND ?'];
+  const params = [range.sqlFrom, range.sqlTo];
+  if (propertyId) {
+    where.push('bien_id = ?');
+    params.push(propertyId);
+  }
+  return { where, params };
+}
+
+function buildStatsDemandWhereClause({ range, propertyId = null }) {
+  const where = ['d.created_at BETWEEN ? AND ?'];
+  const params = [range.sqlFrom, range.sqlTo];
+  if (propertyId) {
+    where.push('d.bien_id = ?');
+    params.push(propertyId);
+  }
+  return { where, params };
+}
+
+async function fetchStatsInteractionRows({ range, propertyId = null }) {
+  const { where, params } = buildStatsInteractionWhereClause({ range, propertyId });
+  const [rows] = await pool.query(
+    `SELECT
+       id,
+       client_user_id,
+       client_email,
+       client_name,
+       type,
+       bien_id,
+       property_title,
+       source,
+       device_id,
+       session_id,
+       path,
+       channel,
+       referrer_source,
+       view_duration_seconds,
+       scroll_depth_percent,
+       is_bounce,
+       metadata_json,
+       DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at
+     FROM client_interactions
+     WHERE ${where.join(' AND ')}
+     ORDER BY event_at ASC`,
+    params
+  );
+  return rows || [];
+}
+
+async function fetchStatsReservationDemandRows({ range, propertyId = null }) {
+  const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
+  const { where, params } = buildStatsDemandWhereClause({ range, propertyId });
+  const [rows] = await pool.query(
+    `SELECT
+       d.id,
+       d.bien_id,
+       COALESCE(NULLIF(d.client_email, ''), NULLIF(d.client_user_id, '')) AS client_identity,
+       ${hasReservationAmicaleName
+         ? `COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(d.amicale_name, '')) AS amicale_key,
+       COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, ''), 'Amicale') AS amicale_name,`
+         : `COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(a.name, '')) AS amicale_key,
+       COALESCE(NULLIF(a.name, ''), 'Amicale') AS amicale_name,`}
+       COALESCE(NULLIF(d.partner_agency_id, ''), NULLIF(pa.slug, ''), NULLIF(pa.name, '')) AS partner_key,
+       COALESCE(NULLIF(pa.name, ''), 'Agence partenaire') AS partner_name,
+       d.payment_mode,
+       d.start_date,
+       d.end_date,
+       d.status,
+       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+     FROM reservation_demands d
+     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+     LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY d.created_at ASC`,
+    params
+  );
+  return rows || [];
+}
+
+async function fetchStatsHotelDemandRows({ range }) {
+  const hasHotelPartnerAgencyId = await columnExists('hotel_reservation_demands', 'partner_agency_id');
+  const [rows] = await pool.query(
+    `SELECT
+       d.id,
+       COALESCE(NULLIF(d.client_email, ''), NULLIF(d.client_user_id, '')) AS client_identity,
+       COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(d.amicale_name, '')) AS amicale_key,
+       COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, ''), 'Amicale') AS amicale_name,
+       ${hasHotelPartnerAgencyId
+         ? `COALESCE(NULLIF(d.partner_agency_id, ''), NULLIF(pa.slug, ''), NULLIF(pa.name, '')) AS partner_key,
+       COALESCE(NULLIF(pa.name, ''), 'Agence partenaire') AS partner_name,`
+         : `NULL AS partner_key,
+       NULL AS partner_name,`}
+       d.payment_mode,
+       d.check_in,
+       d.check_out,
+       d.status,
+       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+     FROM hotel_reservation_demands d
+     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+     ${hasHotelPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
+     WHERE d.created_at BETWEEN ? AND ?
+     ORDER BY d.created_at ASC`,
+    [range.sqlFrom, range.sqlTo]
+  );
+  return rows || [];
+}
+
+function normalizeTrackedChannel(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'direct' || raw === 'amicale' || raw === 'partner' || raw === 'autre') return raw;
+  return '';
+}
+
+function parseInteractionPathInfo(pathValue) {
+  const raw = String(pathValue || '').trim();
+  if (!raw) return { pathname: '', searchParams: new URLSearchParams() };
+  try {
+    const url = raw.startsWith('http://') || raw.startsWith('https://')
+      ? new URL(raw)
+      : new URL(raw.startsWith('/') ? raw : `/${raw}`, 'https://dwira.local');
+    return {
+      pathname: String(url.pathname || '').trim(),
+      searchParams: url.searchParams,
+    };
+  } catch {
+    return { pathname: raw, searchParams: new URLSearchParams() };
+  }
+}
+
+function deriveChannelFromContext(row, demandLookup = null) {
+  const metadata = row.metadata || {};
+  const explicitChannel = normalizeTrackedChannel(
+    row.channel
+    || metadata.channel
+    || metadata.channelKind
+    || metadata.trackingChannel
+  );
+  if (explicitChannel) return explicitChannel;
+
+  const demandId = String(metadata.demandId || metadata.demand_id || '').trim();
+  const demandInfo = demandId && demandLookup ? demandLookup.get(demandId) : null;
+  if (demandInfo?.channel) return demandInfo.channel;
+
+  const metadataPaymentMode = String(metadata.paymentMode || metadata.payment_mode || '').trim().toLowerCase();
+  if (metadataPaymentMode === 'amicale') return 'amicale';
+  if (String(metadata.partnerAgencyId || metadata.partner_agency_id || '').trim()) return 'partner';
+  if (String(metadata.pricingAmicaleId || metadata.pricing_amicale_id || metadata.amicaleId || metadata.amicale_id || '').trim()) return 'amicale';
+
+  const { pathname, searchParams } = parseInteractionPathInfo(row.path);
+  const directPath = String(pathname || '').trim().toLowerCase();
+  const partnerParam = String(
+    searchParams.get('partner')
+    || searchParams.get('partnerAgencyId')
+    || searchParams.get('partner_agency_id')
+    || searchParams.get('publicPartnerSlug')
+    || ''
+  ).trim();
+  if (partnerParam) return 'partner';
+  const amicaleParam = String(
+    searchParams.get('amicale')
+    || searchParams.get('amicaleId')
+    || searchParams.get('pricingAmicaleId')
+    || searchParams.get('pricing_amicale_id')
+    || ''
+  ).trim();
+  if (amicaleParam) return 'amicale';
+  const paymentModeParam = String(searchParams.get('paymentMode') || searchParams.get('payment_mode') || '').trim().toLowerCase();
+  if (paymentModeParam === 'amicale') return 'amicale';
+  if (directPath.includes('/partner') || directPath.includes('/agence-partenaire')) return 'partner';
+  if (directPath.includes('/amicale')) return 'amicale';
+  return row.source === 'admin' ? 'autre' : 'direct';
+}
+
+function deriveReferrerSource(row) {
+  const explicit = String(row.referrer_source || row.metadata?.referrerSource || row.metadata?.referrer_source || '').trim();
+  if (explicit) return explicit;
+  const referrer = String(row.metadata?.referrer || '').trim();
+  if (!referrer) return 'direct';
+  try {
+    const url = new URL(referrer);
+    return url.hostname || 'referrer';
+  } catch {
+    return referrer;
+  }
+}
+
+function buildPreparedStatsRows(rows, demandLookup = null) {
+  return (rows || []).map((row) => {
+    const metadata = parseClientInteractionMetadata(row.metadata_json);
+    const normalized = {
+      id: String(row.id || '').trim(),
+      clientUserId: String(row.client_user_id || '').trim(),
+      clientEmail: String(row.client_email || '').trim().toLowerCase(),
+      clientName: String(row.client_name || '').trim(),
+      type: String(row.type || '').trim().toLowerCase(),
+      bienId: String(row.bien_id || '').trim(),
+      propertyTitle: String(row.property_title || '').trim(),
+      source: String(row.source || '').trim() || 'site_public',
+      deviceId: String(row.device_id || '').trim(),
+      sessionId: String(row.session_id || '').trim(),
+      path: String(row.path || '').trim(),
+      channel: String(row.channel || '').trim(),
+      referrerSource: String(row.referrer_source || '').trim(),
+      viewDurationSeconds: Number(row.view_duration_seconds || 0),
+      scrollDepthPercent: Number(row.scroll_depth_percent || 0),
+      isBounce: row.is_bounce === null || row.is_bounce === undefined ? null : Boolean(row.is_bounce),
+      metadata,
+      eventAt: String(row.event_at || '').trim(),
+    };
+    const known = Boolean(normalized.clientUserId || normalized.clientEmail);
+    return {
+      ...normalized,
+      known,
+      channelKind: deriveChannelFromContext({ ...normalized, metadata }, demandLookup),
+      referrerKind: deriveReferrerSource({ ...normalized, metadata }),
+      sessionKey: normalized.sessionId || normalized.deviceId || normalized.clientUserId || normalized.clientEmail || normalized.id,
+      visitorKey: known
+        ? (normalized.clientUserId || normalized.clientEmail)
+        : (normalized.deviceId || normalized.sessionId || normalized.id),
+    };
+  });
+}
+
+function filterPreparedStatsRows(rows, { segment = 'all', channel = 'all' } = {}) {
+  return (rows || []).filter((row) => {
+    if (segment === 'known' && !row.known) return false;
+    if (segment === 'anonymous' && row.known) return false;
+    if (channel !== 'all' && row.channelKind !== channel) return false;
+    return true;
+  });
+}
+
+function deriveDemandChannelKind(row) {
+  if (String(row?.partner_key || '').trim()) return 'partner';
+  if (String(row?.amicale_key || '').trim()) return 'amicale';
+  const paymentMode = String(row?.payment_mode || '').trim().toLowerCase();
+  if (paymentMode === 'amicale') return 'amicale';
+  return 'direct';
+}
+
+function filterStatsDemandRows(rows, { segment = 'all', channel = 'all' } = {}) {
+  return (rows || []).filter((row) => {
+    const known = Boolean(String(row?.client_identity || '').trim());
+    if (segment === 'known' && !known) return false;
+    if (segment === 'anonymous' && known) return false;
+    const rowChannel = deriveDemandChannelKind(row);
+    if (channel !== 'all' && rowChannel !== channel) return false;
+    return true;
+  });
+}
+
+function getBucketStartDay(value) {
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return formatDateOnly(date);
+}
+
+function getBucketStartWeek(value) {
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return formatDateOnly(date);
+}
+
+function getBucketStartMonth(value) {
+  return String(value || '').slice(0, 7);
+}
+
+function getBucketKey(value, granularity) {
+  if (granularity === 'week') return getBucketStartWeek(value);
+  if (granularity === 'month') return getBucketStartMonth(value);
+  return getBucketStartDay(value);
+}
+
+function listRangeBuckets({ dateFrom, dateTo, granularity }) {
+  const items = [];
+  if (granularity === 'month') {
+    const start = new Date(`${dateFrom}T00:00:00`);
+    const end = new Date(`${dateTo}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return items;
+    const current = new Date(start.getFullYear(), start.getMonth(), 1);
+    const last = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (current <= last) {
+      items.push(`${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`);
+      current.setMonth(current.getMonth() + 1);
+    }
+    return items;
+  }
+
+  const step = granularity === 'week' ? 7 : 1;
+  let current = granularity === 'week' ? getBucketStartWeek(dateFrom) : dateFrom;
+  const last = granularity === 'week' ? getBucketStartWeek(dateTo) : dateTo;
+  while (current <= last) {
+    items.push(current);
+    current = addDaysToDateOnly(current, step);
+  }
+  return items;
+}
+
+function formatMonthLabel(monthKey) {
+  const [year, month] = String(monthKey || '').split('-');
+  const date = new Date(`${year}-${month || '01'}-01T00:00:00`);
+  if (Number.isNaN(date.getTime())) return monthKey;
+  return new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' }).format(date);
+}
+
+async function buildStatsPreparedRows({ range, propertyId = null }) {
+  const rows = await fetchStatsInteractionRows({ range, propertyId });
+  const demandIds = new Set();
+  rows.forEach((row) => {
+    const metadata = parseClientInteractionMetadata(row.metadata_json);
+    const demandId = String(metadata?.demandId || metadata?.demand_id || '').trim();
+    if (demandId) demandIds.add(demandId);
+  });
+  const demandLookup = new Map();
+  if (demandIds.size > 0) {
+    const hasReservationPartnerAgencyId = await columnExists('reservation_demands', 'partner_agency_id');
+    const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
+    const placeholders = Array.from(demandIds).map(() => '?').join(', ');
+    const [reservationRows] = await pool.query(
+      `SELECT
+         d.id,
+         CASE
+           WHEN ${hasReservationPartnerAgencyId ? "d.partner_agency_id IS NOT NULL AND d.partner_agency_id <> ''" : '0'} THEN 'partner'
+           WHEN d.pricing_amicale_id IS NOT NULL AND d.pricing_amicale_id <> '' THEN 'amicale'
+           WHEN ${hasReservationAmicaleName ? "d.amicale_name IS NOT NULL AND d.amicale_name <> ''" : '0'} THEN 'amicale'
+           ELSE 'direct'
+         END AS channel,
+         ${hasReservationAmicaleName
+           ? "COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, '')) AS amicale_name,"
+           : "COALESCE(NULLIF(a.name, ''), '') AS amicale_name,"}
+         ${hasReservationPartnerAgencyId
+           ? "COALESCE(NULLIF(pa.name, ''), NULLIF(pa.slug, '')) AS partner_name"
+           : "NULL AS partner_name"}
+       FROM reservation_demands d
+       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+       ${hasReservationPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
+       WHERE d.id IN (${placeholders})`,
+      Array.from(demandIds)
+    );
+    (reservationRows || []).forEach((row) => {
+      demandLookup.set(String(row.id || '').trim(), {
+        channel: normalizeTrackedChannel(row.channel) || 'direct',
+        amicaleName: String(row.amicale_name || '').trim(),
+        partnerName: String(row.partner_name || '').trim(),
+      });
+    });
+  }
+  return buildPreparedStatsRows(rows, demandLookup);
+}
+
+async function fetchStatsPropertyMeta(bienIds) {
+  const ids = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const byBienId = new Map();
+  if (ids.length === 0) return byBienId;
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await pool.query(
+    `SELECT id, titre, reference
+     FROM biens
+     WHERE id IN (${placeholders})`,
+    ids
+  );
+  const mediaByBienId = await listMediaForBienIds(ids);
+  (rows || []).forEach((row) => {
+    const bienId = String(row?.id || '').trim();
+    if (!bienId) return;
+    const coverImageUrl = (mediaByBienId.get(bienId) || []).find((media) => media?.type === 'image' && String(media?.url || '').trim())?.url || null;
+    byBienId.set(bienId, {
+      bienId,
+      propertyTitle: String(row?.titre || '').trim() || bienId,
+      propertyReference: String(row?.reference || '').trim() || null,
+      coverImageUrl,
+    });
+  });
+  return byBienId;
+}
+
+function summarizeChannelCounts(rows) {
+  const summary = {
+    direct: 0,
+    amicale: 0,
+    partner: 0,
+    autre: 0,
+  };
+  (rows || []).forEach((row) => {
+    const key = normalizeTrackedChannel(row.channelKind) || 'autre';
+    summary[key] += 1;
+  });
+  return summary;
+}
 
 app.get('/api/statistiques/resume', requireAdminSession, async (req, res) => {
   try {
@@ -28096,6 +29112,577 @@ app.get('/api/statistiques/resume', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error fetching statistiques resume:', error);
     res.status(500).json({ error: 'Impossible de charger le resume statistiques' });
+  }
+});
+
+app.get('/api/statistiques/overview', requireAdminSession, async (req, res) => {
+  try {
+    const range = buildStatsDateRange(req);
+    const propertyId = String(req.query.property_id || req.query.propertyId || '').trim() || null;
+    const segment = normalizeStatsSegment(req.query.segment);
+    const channel = normalizeStatsChannel(req.query.channel);
+    const preparedRows = await buildStatsPreparedRows({ range, propertyId });
+    const rows = filterPreparedStatsRows(preparedRows, { segment, channel });
+    const reservationDemandRows = filterStatsDemandRows(
+      await fetchStatsReservationDemandRows({ range, propertyId }),
+      { segment, channel }
+    );
+    const hotelDemandRows = propertyId
+      ? []
+      : filterStatsDemandRows(await fetchStatsHotelDemandRows({ range }), { segment, channel });
+
+    const sessions = new Set(rows.map((row) => row.sessionKey).filter(Boolean)).size;
+    const knownVisitors = new Set(rows.filter((row) => row.known).map((row) => row.visitorKey).filter(Boolean)).size;
+    const anonymousVisitors = new Set(rows.filter((row) => !row.known).map((row) => row.visitorKey).filter(Boolean)).size;
+    const visits = rows.filter((row) => row.type === 'visite').length;
+    const attempts = rows.filter((row) => row.type === 'reservation_attempt').length;
+    const submitted = reservationDemandRows.length + hotelDemandRows.length;
+    const propertyViewEnds = rows.filter((row) => row.type === 'property_view_end');
+    const avgViewDurationSeconds = propertyViewEnds.length > 0
+      ? Math.round(propertyViewEnds.reduce((sum, row) => sum + Math.max(0, Number(row.viewDurationSeconds || 0)), 0) / propertyViewEnds.length)
+      : 0;
+    const channelCounts = summarizeChannelCounts(rows);
+    const topChannel = Object.entries(channelCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'direct';
+
+    res.json({
+      generatedAt: getAgencySqlDateTime(),
+      appliedFilters: {
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+        segment,
+        channel,
+        propertyId,
+      },
+      summary: {
+        totalInteractions: rows.length,
+        sessions,
+        knownVisitors,
+        anonymousVisitors,
+        visits,
+        reservationAttempts: attempts,
+        reservationSubmitted: submitted,
+        conversionRate: visits > 0 ? Math.round((submitted / visits) * 10000) / 100 : 0,
+        avgViewDurationSeconds,
+        topChannel,
+        channelCounts,
+        amicaleShare: rows.length > 0 ? Math.round((channelCounts.amicale / rows.length) * 10000) / 100 : 0,
+        partnerShare: rows.length > 0 ? Math.round((channelCounts.partner / rows.length) * 10000) / 100 : 0,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques overview:', error);
+    res.status(500).json({ error: 'Impossible de charger la vue d ensemble statistiques' });
+  }
+});
+
+app.get('/api/statistiques/timeseries', requireAdminSession, async (req, res) => {
+  try {
+    const range = buildStatsDateRange(req);
+    const propertyId = String(req.query.property_id || req.query.propertyId || '').trim() || null;
+    const segment = normalizeStatsSegment(req.query.segment);
+    const channel = normalizeStatsChannel(req.query.channel);
+    const granularity = normalizeStatsGranularity(req.query.granularity);
+    const preparedRows = await buildStatsPreparedRows({ range, propertyId });
+    const rows = filterPreparedStatsRows(preparedRows, { segment, channel });
+    const reservationDemandRows = filterStatsDemandRows(
+      await fetchStatsReservationDemandRows({ range, propertyId }),
+      { segment, channel }
+    );
+    const hotelDemandRows = propertyId
+      ? []
+      : filterStatsDemandRows(await fetchStatsHotelDemandRows({ range }), { segment, channel });
+    const bucketKeys = listRangeBuckets({ dateFrom: range.dateFrom, dateTo: range.dateTo, granularity });
+    const buckets = new Map(
+      bucketKeys.map((key) => [key, {
+        bucket: key,
+        label: granularity === 'month' ? formatMonthLabel(key) : key,
+        sessions: 0,
+        visits: 0,
+        reservationAttempts: 0,
+        reservationSubmitted: 0,
+        knownVisitors: 0,
+        anonymousVisitors: 0,
+        avgViewDurationSeconds: 0,
+        conversionRate: 0,
+        _sessionSet: new Set(),
+        _knownSet: new Set(),
+        _anonymousSet: new Set(),
+        _viewDurationTotal: 0,
+        _viewDurationCount: 0,
+      }])
+    );
+
+    rows.forEach((row) => {
+      const bucketKey = getBucketKey(row.eventAt, granularity);
+      if (!buckets.has(bucketKey)) {
+        buckets.set(bucketKey, {
+          bucket: bucketKey,
+          label: granularity === 'month' ? formatMonthLabel(bucketKey) : bucketKey,
+          sessions: 0,
+          visits: 0,
+          reservationAttempts: 0,
+          reservationSubmitted: 0,
+          knownVisitors: 0,
+          anonymousVisitors: 0,
+          avgViewDurationSeconds: 0,
+          conversionRate: 0,
+          _sessionSet: new Set(),
+          _knownSet: new Set(),
+          _anonymousSet: new Set(),
+          _viewDurationTotal: 0,
+          _viewDurationCount: 0,
+        });
+      }
+      const bucket = buckets.get(bucketKey);
+      if (!bucket) return;
+      if (row.sessionKey) bucket._sessionSet.add(row.sessionKey);
+      if (row.known && row.visitorKey) bucket._knownSet.add(row.visitorKey);
+      if (!row.known && row.visitorKey) bucket._anonymousSet.add(row.visitorKey);
+      if (row.type === 'visite') bucket.visits += 1;
+      if (row.type === 'reservation_attempt') bucket.reservationAttempts += 1;
+      if (row.type === 'reservation_submitted') bucket.reservationSubmitted += 1;
+      if (row.type === 'property_view_end' && Number(row.viewDurationSeconds || 0) > 0) {
+        bucket._viewDurationTotal += Number(row.viewDurationSeconds || 0);
+        bucket._viewDurationCount += 1;
+      }
+    });
+
+    reservationDemandRows.forEach((row) => {
+      const bucketKey = getBucketKey(row.created_at, granularity);
+      const bucket = buckets.get(bucketKey);
+      if (bucket) bucket.reservationSubmitted += 1;
+    });
+    hotelDemandRows.forEach((row) => {
+      const bucketKey = getBucketKey(row.created_at, granularity);
+      const bucket = buckets.get(bucketKey);
+      if (bucket) bucket.reservationSubmitted += 1;
+    });
+
+    const series = Array.from(buckets.values()).map((bucket) => ({
+      bucket: bucket.bucket,
+      label: bucket.label,
+      sessions: bucket._sessionSet.size,
+      visits: bucket.visits,
+      reservationAttempts: bucket.reservationAttempts,
+      reservationSubmitted: bucket.reservationSubmitted,
+      knownVisitors: bucket._knownSet.size,
+      anonymousVisitors: bucket._anonymousSet.size,
+      avgViewDurationSeconds: bucket._viewDurationCount > 0 ? Math.round(bucket._viewDurationTotal / bucket._viewDurationCount) : 0,
+      conversionRate: bucket.visits > 0 ? Math.round((bucket.reservationSubmitted / bucket.visits) * 10000) / 100 : 0,
+    }));
+
+    res.json({
+      generatedAt: getAgencySqlDateTime(),
+      appliedFilters: {
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+        granularity,
+        segment,
+        channel,
+        propertyId,
+      },
+      series,
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques timeseries:', error);
+    res.status(500).json({ error: 'Impossible de charger les courbes statistiques' });
+  }
+});
+
+app.get('/api/statistiques/property-performance', requireAdminSession, async (req, res) => {
+  try {
+    const range = buildStatsDateRange(req);
+    const propertyId = String(req.query.property_id || req.query.propertyId || '').trim() || null;
+    const segment = normalizeStatsSegment(req.query.segment);
+    const channel = normalizeStatsChannel(req.query.channel);
+    const limit = normalizeStatsLimit(req.query.limit, 12, 200);
+    const preparedRows = await buildStatsPreparedRows({ range, propertyId });
+    const rows = filterPreparedStatsRows(preparedRows, { segment, channel }).filter((row) => row.bienId);
+    const reservationDemandRows = filterStatsDemandRows(
+      await fetchStatsReservationDemandRows({ range, propertyId }),
+      { segment, channel }
+    ).filter((row) => String(row.bien_id || '').trim());
+    const propertyMetaByBienId = await fetchStatsPropertyMeta(
+      Array.from(new Set(rows.map((row) => row.bienId).concat(reservationDemandRows.map((row) => String(row.bien_id || '').trim()))))
+    );
+    const byProperty = new Map();
+
+    rows.forEach((row) => {
+      const key = row.bienId;
+      if (!byProperty.has(key)) {
+        const propertyMeta = propertyMetaByBienId.get(key);
+        byProperty.set(key, {
+          bienId: key,
+          propertyTitle: row.propertyTitle || propertyMeta?.propertyTitle || key,
+          propertyReference: propertyMeta?.propertyReference || null,
+          coverImageUrl: propertyMeta?.coverImageUrl || null,
+          visits: 0,
+          reservationAttempts: 0,
+          reservationSubmitted: 0,
+          sessions: new Set(),
+          channelCounts: { direct: 0, amicale: 0, partner: 0, autre: 0 },
+          lastActivityAt: row.eventAt || null,
+        });
+      }
+      const entry = byProperty.get(key);
+      if (!entry) return;
+      if (row.propertyTitle) entry.propertyTitle = row.propertyTitle;
+      if (row.sessionKey) entry.sessions.add(row.sessionKey);
+      if (row.type === 'visite') entry.visits += 1;
+      if (row.type === 'reservation_attempt') entry.reservationAttempts += 1;
+      if (row.type === 'reservation_submitted') entry.reservationSubmitted += 1;
+      entry.channelCounts[row.channelKind] += 1;
+      if (!entry.lastActivityAt || String(row.eventAt || '') > String(entry.lastActivityAt || '')) {
+        entry.lastActivityAt = row.eventAt || null;
+      }
+    });
+
+    reservationDemandRows.forEach((row) => {
+      const key = String(row.bien_id || '').trim();
+      if (!key) return;
+      if (!byProperty.has(key)) {
+        const propertyMeta = propertyMetaByBienId.get(key);
+        byProperty.set(key, {
+          bienId: key,
+          propertyTitle: propertyMeta?.propertyTitle || key,
+          propertyReference: propertyMeta?.propertyReference || null,
+          coverImageUrl: propertyMeta?.coverImageUrl || null,
+          visits: 0,
+          reservationAttempts: 0,
+          reservationSubmitted: 0,
+          sessions: new Set(),
+          channelCounts: { direct: 0, amicale: 0, partner: 0, autre: 0 },
+          lastActivityAt: row.created_at || null,
+        });
+      }
+      const entry = byProperty.get(key);
+      if (!entry) return;
+      entry.reservationSubmitted += 1;
+      entry.channelCounts[deriveDemandChannelKind(row)] += 1;
+      if (!entry.lastActivityAt || String(row.created_at || '') > String(entry.lastActivityAt || '')) {
+        entry.lastActivityAt = row.created_at || null;
+      }
+    });
+
+    const items = Array.from(byProperty.values())
+      .map((entry) => {
+        const dominantChannel = Object.entries(entry.channelCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'direct';
+        return {
+          bienId: entry.bienId,
+          propertyTitle: entry.propertyTitle,
+          propertyReference: entry.propertyReference,
+          coverImageUrl: entry.coverImageUrl,
+          visits: entry.visits,
+          reservationAttempts: entry.reservationAttempts,
+          reservationSubmitted: entry.reservationSubmitted,
+          sessions: entry.sessions.size,
+          conversionRate: entry.visits > 0 ? Math.round((entry.reservationSubmitted / entry.visits) * 10000) / 100 : 0,
+          dominantChannel,
+          lastActivityAt: entry.lastActivityAt,
+        };
+      })
+      .sort((a, b) => {
+        if (b.visits !== a.visits) return b.visits - a.visits;
+        if (b.reservationSubmitted !== a.reservationSubmitted) return b.reservationSubmitted - a.reservationSubmitted;
+        return b.reservationAttempts - a.reservationAttempts;
+      })
+      .slice(0, limit);
+
+    res.json({
+      generatedAt: getAgencySqlDateTime(),
+      appliedFilters: {
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+        segment,
+        channel,
+        propertyId,
+        limit,
+      },
+      items,
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques property performance:', error);
+    res.status(500).json({ error: 'Impossible de charger la performance des biens' });
+  }
+});
+
+app.get('/api/statistiques/stay-demand', requireAdminSession, async (req, res) => {
+  try {
+    const range = buildStatsDateRange(req);
+    const propertyId = String(req.query.property_id || req.query.propertyId || '').trim() || null;
+    const segment = normalizeStatsSegment(req.query.segment);
+    const channel = normalizeStatsChannel(req.query.channel);
+    const limit = normalizeStatsLimit(req.query.limit, 10, 100);
+    const preparedRows = await buildStatsPreparedRows({ range, propertyId });
+    const rows = filterPreparedStatsRows(preparedRows, { segment, channel }).filter((row) => row.type === 'reservation_attempt');
+    const reservationDemandRows = filterStatsDemandRows(
+      await fetchStatsReservationDemandRows({ range, propertyId }),
+      { segment, channel }
+    );
+    const propertyMetaByBienId = await fetchStatsPropertyMeta(reservationDemandRows.map((row) => String(row.bien_id || '').trim()));
+
+    const ranges = new Map();
+    const months = new Map();
+    let totalNights = 0;
+    let countedRanges = 0;
+
+    rows.forEach((row) => {
+      const startDate = normalizeStatsDateInput(row.metadata?.startDate || row.metadata?.start_date);
+      const endDate = normalizeStatsDateInput(row.metadata?.endDate || row.metadata?.end_date);
+      if (!startDate || !endDate) return;
+      const start = new Date(`${startDate}T00:00:00`);
+      const end = new Date(`${endDate}T00:00:00`);
+      const nights = Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())
+        ? 0
+        : Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
+      const rangeKey = `${startDate}|${endDate}`;
+      if (!ranges.has(rangeKey)) {
+        ranges.set(rangeKey, {
+          startDate,
+          endDate,
+          nights,
+          total: 0,
+          submitted: 0,
+          propertyTitle: row.propertyTitle || '',
+        });
+      }
+      const rangeEntry = ranges.get(rangeKey);
+      rangeEntry.total += 1;
+      if (row.propertyTitle && !rangeEntry.propertyTitle) rangeEntry.propertyTitle = row.propertyTitle;
+      const monthKey = startDate.slice(0, 7);
+      if (!months.has(monthKey)) {
+        months.set(monthKey, {
+          month: monthKey,
+          label: formatMonthLabel(monthKey),
+          total: 0,
+        });
+      }
+      months.get(monthKey).total += 1;
+      totalNights += nights;
+      countedRanges += 1;
+    });
+
+    reservationDemandRows.forEach((row) => {
+      const startDate = normalizeStatsDateInput(row.start_date);
+      const endDate = normalizeStatsDateInput(row.end_date);
+      if (!startDate || !endDate) return;
+      const start = new Date(`${startDate}T00:00:00`);
+      const end = new Date(`${endDate}T00:00:00`);
+      const nights = Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())
+        ? 0
+        : Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
+      const rangeKey = `${startDate}|${endDate}`;
+      if (!ranges.has(rangeKey)) {
+        const propertyMeta = propertyMetaByBienId.get(String(row.bien_id || '').trim());
+        ranges.set(rangeKey, {
+          startDate,
+          endDate,
+          nights,
+          total: 0,
+          submitted: 0,
+          propertyTitle: propertyMeta?.propertyTitle || '',
+        });
+      }
+      const rangeEntry = ranges.get(rangeKey);
+      rangeEntry.submitted += 1;
+      if (!rangeEntry.propertyTitle) {
+        rangeEntry.propertyTitle = propertyMetaByBienId.get(String(row.bien_id || '').trim())?.propertyTitle || '';
+      }
+      const monthKey = startDate.slice(0, 7);
+      if (!months.has(monthKey)) {
+        months.set(monthKey, {
+          month: monthKey,
+          label: formatMonthLabel(monthKey),
+          total: 0,
+        });
+      }
+      months.get(monthKey).total += 1;
+      totalNights += nights;
+      countedRanges += 1;
+    });
+
+    res.json({
+      generatedAt: getAgencySqlDateTime(),
+      appliedFilters: {
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+        segment,
+        channel,
+        propertyId,
+        limit,
+      },
+      averageStayNights: countedRanges > 0 ? Math.round((totalNights / countedRanges) * 10) / 10 : 0,
+      topRanges: Array.from(ranges.values())
+        .sort((a, b) => {
+          if (b.total !== a.total) return b.total - a.total;
+          return b.submitted - a.submitted;
+        })
+        .slice(0, limit),
+      topMonths: Array.from(months.values())
+        .sort((a, b) => b.total - a.total)
+        .slice(0, limit),
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques stay demand:', error);
+    res.status(500).json({ error: 'Impossible de charger la demande de sejour' });
+  }
+});
+
+app.get('/api/statistiques/channels', requireAdminSession, async (req, res) => {
+  try {
+    const range = buildStatsDateRange(req);
+    const propertyId = String(req.query.property_id || req.query.propertyId || '').trim() || null;
+    const segment = normalizeStatsSegment(req.query.segment);
+    const channel = normalizeStatsChannel(req.query.channel);
+    const preparedRows = await buildStatsPreparedRows({ range, propertyId });
+    const rows = filterPreparedStatsRows(preparedRows, { segment, channel });
+    const reservationDemandRows = filterStatsDemandRows(
+      await fetchStatsReservationDemandRows({ range, propertyId }),
+      { segment, channel }
+    );
+    const hotelDemandRows = propertyId
+      ? []
+      : filterStatsDemandRows(await fetchStatsHotelDemandRows({ range }), { segment, channel });
+
+    const channelMap = new Map([
+      ['direct', { key: 'direct', label: 'Direct', interactions: 0, sessions: new Set(), visits: 0, reservationAttempts: 0, reservationSubmitted: 0, knownVisitors: new Set(), anonymousVisitors: new Set() }],
+      ['amicale', { key: 'amicale', label: 'Amicales', interactions: 0, sessions: new Set(), visits: 0, reservationAttempts: 0, reservationSubmitted: 0, knownVisitors: new Set(), anonymousVisitors: new Set() }],
+      ['partner', { key: 'partner', label: 'Agences partenaires', interactions: 0, sessions: new Set(), visits: 0, reservationAttempts: 0, reservationSubmitted: 0, knownVisitors: new Set(), anonymousVisitors: new Set() }],
+      ['autre', { key: 'autre', label: 'Autres', interactions: 0, sessions: new Set(), visits: 0, reservationAttempts: 0, reservationSubmitted: 0, knownVisitors: new Set(), anonymousVisitors: new Set() }],
+    ]);
+
+    rows.forEach((row) => {
+      const target = channelMap.get(row.channelKind) || channelMap.get('autre');
+      if (!target) return;
+      target.interactions += 1;
+      if (row.sessionKey) target.sessions.add(row.sessionKey);
+      if (row.known && row.visitorKey) target.knownVisitors.add(row.visitorKey);
+      if (!row.known && row.visitorKey) target.anonymousVisitors.add(row.visitorKey);
+      if (row.type === 'visite') target.visits += 1;
+      if (row.type === 'reservation_attempt') target.reservationAttempts += 1;
+    });
+
+    reservationDemandRows.forEach((row) => {
+      const target = channelMap.get(deriveDemandChannelKind(row)) || channelMap.get('autre');
+      if (!target) return;
+      target.reservationSubmitted += 1;
+      const identity = String(row.client_identity || '').trim();
+      if (identity) {
+        target.knownVisitors.add(identity);
+      } else {
+        target.anonymousVisitors.add(`demand:${String(row.id || '').trim()}`);
+      }
+    });
+    hotelDemandRows.forEach((row) => {
+      const target = channelMap.get(deriveDemandChannelKind(row)) || channelMap.get('autre');
+      if (!target) return;
+      target.reservationSubmitted += 1;
+      const identity = String(row.client_identity || '').trim();
+      if (identity) {
+        target.knownVisitors.add(identity);
+      } else {
+        target.anonymousVisitors.add(`hotel:${String(row.id || '').trim()}`);
+      }
+    });
+
+    const topAmicalesMap = new Map();
+    const topPartnersMap = new Map();
+    reservationDemandRows.forEach((row) => {
+      const identity = String(row.client_identity || '').trim();
+      const knownRow = Boolean(identity);
+      if (segment === 'known' && !knownRow) return;
+      if (segment === 'anonymous' && knownRow) return;
+      if (String(row.amicale_key || '').trim()) {
+        const key = String(row.amicale_key || '').trim();
+        if (!topAmicalesMap.has(key)) topAmicalesMap.set(key, { key, name: String(row.amicale_name || 'Amicale').trim(), demands: 0 });
+        topAmicalesMap.get(key).demands += 1;
+      }
+      if (String(row.partner_key || '').trim()) {
+        const key = String(row.partner_key || '').trim();
+        if (!topPartnersMap.has(key)) topPartnersMap.set(key, { key, name: String(row.partner_name || 'Agence partenaire').trim(), demands: 0 });
+        topPartnersMap.get(key).demands += 1;
+      }
+    });
+    hotelDemandRows.forEach((row) => {
+      const identity = String(row.client_identity || '').trim();
+      const knownRow = Boolean(identity);
+      if (segment === 'known' && !knownRow) return;
+      if (segment === 'anonymous' && knownRow) return;
+      if (String(row.amicale_key || '').trim()) {
+        const key = `hotel:${String(row.amicale_key || '').trim()}`;
+        if (!topAmicalesMap.has(key)) topAmicalesMap.set(key, { key, name: String(row.amicale_name || 'Amicale').trim(), demands: 0 });
+        topAmicalesMap.get(key).demands += 1;
+      }
+      if (String(row.partner_key || '').trim()) {
+        const key = `hotel:${String(row.partner_key || '').trim()}`;
+        if (!topPartnersMap.has(key)) topPartnersMap.set(key, { key, name: String(row.partner_name || 'Agence partenaire').trim(), demands: 0 });
+        topPartnersMap.get(key).demands += 1;
+      }
+    });
+
+    res.json({
+      generatedAt: getAgencySqlDateTime(),
+      appliedFilters: {
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+        segment,
+        channel,
+        propertyId,
+      },
+      channels: Array.from(channelMap.values()).map((item) => ({
+        key: item.key,
+        label: item.label,
+        interactions: item.interactions,
+        sessions: item.sessions.size,
+        visits: item.visits,
+        reservationAttempts: item.reservationAttempts,
+        reservationSubmitted: item.reservationSubmitted,
+        knownVisitors: item.knownVisitors.size,
+        anonymousVisitors: item.anonymousVisitors.size,
+        conversionRate: item.visits > 0 ? Math.round((item.reservationSubmitted / item.visits) * 10000) / 100 : 0,
+      })),
+      topAmicales: Array.from(topAmicalesMap.values()).sort((a, b) => b.demands - a.demands).slice(0, 8),
+      topPartners: Array.from(topPartnersMap.values()).sort((a, b) => b.demands - a.demands).slice(0, 8),
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques channels:', error);
+    res.status(500).json({ error: 'Impossible de charger les canaux statistiques' });
+  }
+});
+
+app.get('/api/statistiques/google-analytics/status', requireAdminSession, async (req, res) => {
+  try {
+    const measurementId = String(
+      process.env.VITE_GA_MEASUREMENT_ID
+      || process.env.GA_MEASUREMENT_ID
+      || process.env.GA4_MEASUREMENT_ID
+      || ''
+    ).trim();
+    const propertyId = String(
+      process.env.GA_PROPERTY_ID
+      || process.env.GA4_PROPERTY_ID
+      || ''
+    ).trim();
+    res.json({
+      enabled: Boolean(measurementId),
+      measurementId: measurementId || null,
+      propertyId: propertyId || null,
+      apiSecretConfigured: Boolean(GA_API_SECRET),
+      measurementProtocolEnabled: isGaMeasurementProtocolConfigured(),
+      mode: measurementId
+        ? (isGaMeasurementProtocolConfigured() ? 'hybrid_frontend_backend' : 'frontend_tracking_only')
+        : 'not_configured',
+      adminUrl: measurementId ? 'https://analytics.google.com/' : null,
+      dataApiAvailable: false,
+      summary: measurementId
+        ? (isGaMeasurementProtocolConfigured()
+          ? 'Tracking GA4 hybride actif: front gtag + backend Measurement Protocol.'
+          : 'Tracking frontend GA4 pret. Ajoutez GA_API_SECRET pour activer Measurement Protocol backend.')
+        : 'GA4 non configure dans les variables d environnement.',
+    });
+  } catch (error) {
+    console.error('Error fetching statistiques google analytics status:', error);
+    res.status(500).json({ error: 'Impossible de charger le statut Google Analytics' });
   }
 });
 

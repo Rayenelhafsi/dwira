@@ -59,7 +59,12 @@ type ClientInteractionType =
   | 'site_open'
   | 'session_start'
   | 'reservation_attempt'
-  | 'reservation_submitted';
+  | 'reservation_submitted'
+  | 'property_view_heartbeat'
+  | 'property_view_end'
+  | 'search_filters_applied'
+  | 'search_results_viewed'
+  | 'property_cta_clicked';
 
 type ClientInteraction = {
   id: string;

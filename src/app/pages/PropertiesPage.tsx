@@ -10,6 +10,7 @@ import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServiceP
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 import { toast } from "sonner";
+import { useAuth } from "../context/AuthContext";
 import {
   findBestStayRangeAlternative,
   getStayAvailabilityAlternativeLabel,
@@ -21,6 +22,8 @@ import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashO
 import { fetchPartnerAgenciesPublic, findPartnerAgencyById, normalizePartnerAgencySlug } from "../utils/partnerAgencies";
 import { fetchAmicalesPublic, findAmicaleById, normalizeAmicaleSlug } from "../utils/amicales";
 import { resolvePublicPartnerBySlug } from "../utils/publicPartnerResolver";
+import { getOrCreateTrackingSessionId, hasTrackingConsent } from "../utils/consent";
+import { trackPublicClientInteraction } from "../utils/clientInteractions";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -792,6 +795,7 @@ const isPropertyStayRangeCalendarAvailable = (property: any, startRaw: string, e
 export default function PropertiesPage() {
   const PAGE_SIZE = 10;
   const { properties, biens, zones, modePriorities, loading } = useProperties();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -799,6 +803,8 @@ export default function PropertiesPage() {
   const resultsAnchorRef = useRef<HTMLDivElement | null>(null);
   const filtersAnchorRef = useRef<HTMLDivElement | null>(null);
   const alternativesAnchorRef = useRef<HTMLDivElement | null>(null);
+  const trackedSearchFiltersSignatureRef = useRef("");
+  const trackedSearchResultsSignatureRef = useRef("");
   const [modeFeaturesByType, setModeFeaturesByType] = useState<Record<string, FeatureApiRow[]>>({});
   const [modeFeatureTabsByType, setModeFeatureTabsByType] = useState<Record<string, FeatureTabApiRow[]>>({});
   const [advancedPanel, setAdvancedPanel] = useState<"tabs" | "services">("tabs");
@@ -807,6 +813,13 @@ export default function PropertiesPage() {
   const [publicPartnerSlug, setPublicPartnerSlug] = useState<string | null>(null);
   const [resolvedPricingAmicaleId, setResolvedPricingAmicaleId] = useState<string | null>(null);
   const [resolvedPartnerAgencyMarginMultiplier, setResolvedPartnerAgencyMarginMultiplier] = useState<number | null>(null);
+  const trackingChannel = useMemo(() => {
+    const partnerQuery = String(searchParams.get("partner") || searchParams.get("partnerAgencyId") || searchParams.get("partner_agency_id") || searchParams.get("publicPartnerSlug") || "").trim();
+    if (partnerQuery || publicPartnerSlug) return "partner" as const;
+    const amicaleQuery = String(searchParams.get("amicale") || searchParams.get("amicaleId") || searchParams.get("pricingAmicaleId") || searchParams.get("pricing_amicale_id") || "").trim();
+    if (amicaleQuery || resolvedPricingAmicaleId) return "amicale" as const;
+    return "direct" as const;
+  }, [publicPartnerSlug, resolvedPricingAmicaleId, searchParams]);
 
   const orderedModeTabs = useMemo(
     () =>
@@ -2754,6 +2767,81 @@ export default function PropertiesPage() {
     Number(priceMax < priceCeiling);
 
   useEffect(() => {
+    if (!hasTrackingConsent()) return;
+    const signature = JSON.stringify({
+      mode: selectedMode,
+      query: query.trim(),
+      locations: selectedLocations,
+      stayRanges,
+      mainTypes: selectedMainTypes,
+      categories: selectedCategories,
+      features: selectedFeatureNames,
+      paidServices: selectedPaidServices,
+      seaside: selectedSeasideOptions,
+      comfort: selectedComfortOptions,
+      standing: selectedStanding,
+      guestsMin: minGuests,
+      featured: isFeaturedOnly,
+      priceMax,
+      activeFiltersCount,
+      channel: trackingChannel,
+    });
+    if (trackedSearchFiltersSignatureRef.current === signature) return;
+    trackedSearchFiltersSignatureRef.current = signature;
+    void trackPublicClientInteraction({
+      type: 'search_filters_applied',
+      propertyTitle: 'Recherche biens',
+      clientUserId: user?.role === 'user' ? user.id : undefined,
+      clientEmail: user?.role === 'user' ? user.email : undefined,
+      clientName: user?.role === 'user' ? user.name : undefined,
+      sessionId: getOrCreateTrackingSessionId(),
+      path: `${window.location.pathname}?${searchParams.toString()}`,
+      channel: trackingChannel,
+      referrerSource: document.referrer || undefined,
+      metadata: {
+        mode: selectedMode,
+        query: query.trim() || null,
+        locations: selectedLocations,
+        stayRanges,
+        mainTypes: selectedMainTypes,
+        categories: selectedCategories,
+        features: selectedFeatureNames,
+        paidServices: selectedPaidServices,
+        seaside: selectedSeasideOptions,
+        comfort: selectedComfortOptions,
+        standing: selectedStanding || null,
+        guestsMin: minGuests,
+        featuredOnly: isFeaturedOnly,
+        priceMax,
+        activeFiltersCount,
+        channel: trackingChannel,
+      },
+    }).catch(() => {});
+  }, [
+    activeFiltersCount,
+    isFeaturedOnly,
+    minGuests,
+    priceMax,
+    query,
+    searchParams,
+    selectedCategories,
+    selectedComfortOptions,
+    selectedFeatureNames,
+    selectedLocations,
+    selectedMainTypes,
+    selectedMode,
+    selectedPaidServices,
+    selectedSeasideOptions,
+    selectedStanding,
+    stayRanges,
+    trackingChannel,
+    user?.email,
+    user?.id,
+    user?.name,
+    user?.role,
+  ]);
+
+  useEffect(() => {
     if (!["matching", "price", "featured"].includes(sortMode)) {
       setSortMode("matching");
     }
@@ -2916,6 +3004,50 @@ export default function PropertiesPage() {
   );
   const hasMoreResults = !showAllResults && regularDisplayResults.length > visibleCount;
   const isLoadingInitialResults = loading && properties.length === 0 && biens.length === 0;
+
+  useEffect(() => {
+    if (!hasTrackingConsent()) return;
+    if (isLoadingInitialResults) return;
+    const resultIds = displayedPrimaryResults.slice(0, 12).map((row) => String(row.property.id));
+    const signature = JSON.stringify({
+      mode: selectedMode,
+      channel: trackingChannel,
+      count: displayedPrimaryResults.length,
+      alternatives: alternativeScoredResults.length,
+      ids: resultIds,
+    });
+    if (trackedSearchResultsSignatureRef.current === signature) return;
+    trackedSearchResultsSignatureRef.current = signature;
+    void trackPublicClientInteraction({
+      type: 'search_results_viewed',
+      propertyTitle: 'Resultats recherche',
+      clientUserId: user?.role === 'user' ? user.id : undefined,
+      clientEmail: user?.role === 'user' ? user.email : undefined,
+      clientName: user?.role === 'user' ? user.name : undefined,
+      sessionId: getOrCreateTrackingSessionId(),
+      path: `${window.location.pathname}?${searchParams.toString()}`,
+      channel: trackingChannel,
+      referrerSource: document.referrer || undefined,
+      metadata: {
+        mode: selectedMode,
+        channel: trackingChannel,
+        displayedCount: displayedPrimaryResults.length,
+        alternativeCount: alternativeScoredResults.length,
+        propertyIds: resultIds,
+      },
+    }).catch(() => {});
+  }, [
+    alternativeScoredResults.length,
+    displayedPrimaryResults,
+    isLoadingInitialResults,
+    searchParams,
+    selectedMode,
+    trackingChannel,
+    user?.email,
+    user?.id,
+    user?.name,
+    user?.role,
+  ]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);

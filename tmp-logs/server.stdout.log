@@ -1,0 +1,31 @@
+[dotenv@17.3.1] injecting env (73) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[OCR] OpenAI OCR enabled: yes (model=gpt-4.1-mini)
+[DB] source=local host=127.0.0.1 db=dwira user=root
+?? Connecting to database...
+ðŸš€ Server running on http://localhost:3001
+ðŸ“‹ Available endpoints:
+   - GET    /api/biens
+   - POST   /api/biens
+   - PUT    /api/biens/:id
+   - DELETE /api/biens/:id
+   - GET    /api/zones
+   - GET    /api/proprietaires
+   - GET    /api/locataires
+   - GET    /api/contrats
+   - GET    /api/paiements
+   - GET    /api/maintenance
+   - GET    /api/notifications
+   - POST   /api/reservation-demands/:id/request-owner-availability
+   - POST   /api/mobile/owners/:ownerId/push-token
+   - GET    /api/mobile/owners/:ownerId/availability-requests
+   - POST   /api/mobile/owners/:ownerId/availability-requests/:demandId/respond
+   - GET    /api/mobile/admin/calendar-prompt-schedule
+   - PUT    /api/mobile/admin/calendar-prompt-schedule
+   - POST   /api/mobile/admin/calendar-prompt-schedule/dispatch-now
+   - GET    /api/mobile/admin/owner-calendar-prompt-statuses
+   - GET    /api/mobile/admin/calendar-requests
+   - GET    /api/mobile/admin/calendar-requests/:id/diff
+   - GET    /api/mobile/owners/:ownerId/calendar-prompts/pending
+   - POST   /api/mobile/owners/:ownerId/calendar-prompts/:promptId/respond
+? Database connected successfully
+? Auth schema and bien workflow ready

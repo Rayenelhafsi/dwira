@@ -72,12 +72,19 @@ export default function PartnerAgencyLoginPage() {
         <div className="mx-auto w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h1 className="text-2xl font-bold text-gray-900">Espace Agence Partenaire</h1>
           <p className="mt-1 text-sm text-gray-500">Connectez-vous avec les identifiants definis par l'admin.</p>
-          <div className="mt-5 space-y-3">
+          <form
+            className="mt-5 space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleLogin();
+            }}
+          >
             <input
               type="text"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               placeholder="Utilisateur"
+              autoComplete="username"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
             <input
@@ -85,17 +92,17 @@ export default function PartnerAgencyLoginPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="Mot de passe"
+              autoComplete="current-password"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
             <button
-              type="button"
-              onClick={() => void handleLogin()}
+              type="submit"
               disabled={isSubmitting}
               className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
               {isSubmitting ? "Connexion..." : "Se connecter"}
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </div>

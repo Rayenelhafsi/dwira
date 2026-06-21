@@ -621,6 +621,20 @@ function splitHumanName(fullName?: string | null) {
   };
 }
 
+function deriveTrackingChannelFromSearch(searchValue: string) {
+  const params = new URLSearchParams(String(searchValue || "").replace(/^\?/, ""));
+  if (String(params.get("partner") || params.get("partnerAgencyId") || params.get("partner_agency_id") || params.get("publicPartnerSlug") || "").trim()) {
+    return "partner" as const;
+  }
+  if (
+    String(params.get("amicale") || params.get("amicaleId") || params.get("pricingAmicaleId") || params.get("pricing_amicale_id") || "").trim()
+    || String(params.get("paymentMode") || params.get("payment_mode") || "").trim().toLowerCase() === "amicale"
+  ) {
+    return "amicale" as const;
+  }
+  return "direct" as const;
+}
+
 const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   const value = String(url || '').trim();
   if (!value) return null;
@@ -1066,6 +1080,10 @@ export default function PropertyDetailsPage() {
   const [consentRevision, setConsentRevision] = useState(0);
   const authPopupRef = useRef<Window | null>(null);
   const draftHydratedRef = useRef(false);
+  const propertyViewStartedAtRef = useRef(0);
+  const propertyViewEndedRef = useRef(false);
+  const propertyViewMaxScrollRef = useRef(0);
+  const propertyViewHeartbeatTimeoutsRef = useRef<number[]>([]);
   const detailTabsNavRef = useRef<HTMLDivElement | null>(null);
   const paidServicesCategoriesNavRef = useRef<HTMLDivElement | null>(null);
   const seasonalDetailsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -2256,6 +2274,7 @@ out body 40;
   useEffect(() => {
     if (!property) return;
     if (!hasTrackingConsent()) return;
+    const trackingChannel = deriveTrackingChannelFromSearch(window.location.search);
     const identityKey = user?.email || 'anonymous';
     const visitKey = `${identityKey}:${property.id}`;
     if (lastTrackedVisitKeyRef.current === visitKey) return;
@@ -2269,12 +2288,113 @@ out body 40;
       clientName: user?.role === 'user' ? user.name : undefined,
       sessionId: getOrCreateTrackingSessionId(),
       path: window.location.pathname + window.location.search,
+      channel: trackingChannel,
+      referrerSource: document.referrer || undefined,
       metadata: {
         propertyCategory: String(property.category || '').trim() || null,
         bedrooms: Number(property.bedrooms || 0),
+        channel: trackingChannel,
       },
     }).catch(() => {});
   }, [property, user, consentRevision]);
+
+  useEffect(() => {
+    if (!property || !hasTrackingConsent()) return;
+    const sessionId = getOrCreateTrackingSessionId();
+    const trackingChannel = deriveTrackingChannelFromSearch(window.location.search);
+    const baseMetadata = {
+      propertyCategory: String(property.category || '').trim() || null,
+      bedrooms: Number(property.bedrooms || 0),
+      channel: trackingChannel,
+    };
+    const updateScrollDepth = () => {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+      const maxScrollable = Math.max(1, (document.documentElement.scrollHeight || document.body.scrollHeight || 1) - window.innerHeight);
+      const percent = Math.max(0, Math.min(100, Math.round((scrollTop / maxScrollable) * 100)));
+      propertyViewMaxScrollRef.current = Math.max(propertyViewMaxScrollRef.current, percent);
+    };
+    const sendPropertyViewEnd = () => {
+      if (propertyViewEndedRef.current) return;
+      propertyViewEndedRef.current = true;
+      const durationSeconds = Math.max(1, Math.round((Date.now() - propertyViewStartedAtRef.current) / 1000));
+      void trackPublicClientInteraction({
+        type: 'property_view_end',
+        bienId: String(property.id),
+        propertyTitle: property.title,
+        clientUserId: user?.role === 'user' ? user.id : undefined,
+        clientEmail: user?.role === 'user' ? user.email : undefined,
+        clientName: user?.role === 'user' ? user.name : undefined,
+        sessionId,
+        path: window.location.pathname + window.location.search,
+        channel: trackingChannel,
+        referrerSource: document.referrer || undefined,
+        viewDurationSeconds: durationSeconds,
+        scrollDepthPercent: propertyViewMaxScrollRef.current,
+        isBounce: durationSeconds < 15 && propertyViewMaxScrollRef.current < 25,
+        metadata: {
+          ...baseMetadata,
+          visibleState: document.visibilityState,
+        },
+      }).catch(() => {});
+    };
+
+    propertyViewStartedAtRef.current = Date.now();
+    propertyViewEndedRef.current = false;
+    propertyViewMaxScrollRef.current = 0;
+    updateScrollDepth();
+
+    propertyViewHeartbeatTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    propertyViewHeartbeatTimeoutsRef.current = [15, 30, 60].map((seconds) =>
+      window.setTimeout(() => {
+        if (propertyViewEndedRef.current) return;
+        updateScrollDepth();
+        void trackPublicClientInteraction({
+          type: 'property_view_heartbeat',
+          bienId: String(property.id),
+          propertyTitle: property.title,
+          clientUserId: user?.role === 'user' ? user.id : undefined,
+          clientEmail: user?.role === 'user' ? user.email : undefined,
+          clientName: user?.role === 'user' ? user.name : undefined,
+          sessionId,
+          path: window.location.pathname + window.location.search,
+          channel: trackingChannel,
+          referrerSource: document.referrer || undefined,
+          viewDurationSeconds: seconds,
+          scrollDepthPercent: propertyViewMaxScrollRef.current,
+          metadata: {
+            ...baseMetadata,
+            heartbeatSeconds: seconds,
+          },
+        }).catch(() => {});
+      }, seconds * 1000)
+    );
+
+    const onScroll = () => updateScrollDepth();
+    const onVisibilityChange = () => {
+      updateScrollDepth();
+      if (document.visibilityState === 'hidden') sendPropertyViewEnd();
+    };
+    const onPageHide = () => {
+      updateScrollDepth();
+      sendPropertyViewEnd();
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('beforeunload', onPageHide);
+
+    return () => {
+      propertyViewHeartbeatTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      propertyViewHeartbeatTimeoutsRef.current = [];
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('beforeunload', onPageHide);
+      updateScrollDepth();
+      sendPropertyViewEnd();
+    };
+  }, [property?.id, user?.id, user?.email, user?.name, user?.role, consentRevision]);
 
   useEffect(() => {
     const onConsentUpdated = () => setConsentRevision((prev) => prev + 1);
@@ -2955,6 +3075,7 @@ out body 40;
   // Handle share functionality
   const handleShare = async () => {
     if (property && hasTrackingConsent()) {
+      const trackingChannel = deriveTrackingChannelFromSearch(window.location.search);
       void trackPublicClientInteraction({
         type: 'partage',
         bienId: String(property.id),
@@ -2964,6 +3085,22 @@ out body 40;
         clientName: user?.role === 'user' ? user.name : undefined,
         sessionId: getOrCreateTrackingSessionId(),
         path: window.location.pathname + window.location.search,
+        channel: trackingChannel,
+        referrerSource: document.referrer || undefined,
+        metadata: { channel: trackingChannel },
+      }).catch(() => {});
+      void trackPublicClientInteraction({
+        type: 'property_cta_clicked',
+        bienId: String(property.id),
+        propertyTitle: property.title,
+        clientUserId: user?.role === 'user' ? user.id : undefined,
+        clientEmail: user?.role === 'user' ? user.email : undefined,
+        clientName: user?.role === 'user' ? user.name : undefined,
+        sessionId: getOrCreateTrackingSessionId(),
+        path: window.location.pathname + window.location.search,
+        channel: trackingChannel,
+        referrerSource: document.referrer || undefined,
+        metadata: { ctaKind: 'share', channel: trackingChannel },
       }).catch(() => {});
     }
     const shareRelativeUrl = `${location.pathname}${location.search}`;
@@ -3017,6 +3154,7 @@ out body 40;
       localStorage.setItem('savedProperties', JSON.stringify(savedProperties));
       setIsSaved(true);
       if (hasTrackingConsent()) {
+        const trackingChannel = deriveTrackingChannelFromSearch(window.location.search);
         void trackPublicClientInteraction({
           type: 'like',
           bienId: String(property.id),
@@ -3026,6 +3164,22 @@ out body 40;
           clientName: user?.role === 'user' ? user.name : undefined,
           sessionId: getOrCreateTrackingSessionId(),
           path: window.location.pathname + window.location.search,
+          channel: trackingChannel,
+          referrerSource: document.referrer || undefined,
+          metadata: { channel: trackingChannel },
+        }).catch(() => {});
+        void trackPublicClientInteraction({
+          type: 'property_cta_clicked',
+          bienId: String(property.id),
+          propertyTitle: property.title,
+          clientUserId: user?.role === 'user' ? user.id : undefined,
+          clientEmail: user?.role === 'user' ? user.email : undefined,
+          clientName: user?.role === 'user' ? user.name : undefined,
+          sessionId: getOrCreateTrackingSessionId(),
+          path: window.location.pathname + window.location.search,
+          channel: trackingChannel,
+          referrerSource: document.referrer || undefined,
+          metadata: { ctaKind: 'favorite', channel: trackingChannel },
         }).catch(() => {});
       }
       toast.success("Ajouté aux favoris");
@@ -3126,6 +3280,25 @@ out body 40;
     };
 
     if (hasTrackingConsent()) {
+      const trackingChannel = deriveTrackingChannelFromSearch(window.location.search);
+      void trackPublicClientInteraction({
+        type: 'property_cta_clicked',
+        bienId: String(property.id),
+        propertyTitle: property.title,
+        clientUserId: user?.role === 'user' ? user.id : undefined,
+        clientEmail: user?.role === 'user' ? user.email : undefined,
+        clientName: user?.role === 'user' ? user.name : undefined,
+        sessionId: getOrCreateTrackingSessionId(),
+        path: window.location.pathname + window.location.search,
+        channel: trackingChannel,
+        referrerSource: document.referrer || undefined,
+        metadata: {
+          ctaKind: isSaleProperty ? 'visit_request' : 'reservation_request',
+          startDate,
+          endDate,
+          channel: trackingChannel,
+        },
+      }).catch(() => {});
       void trackPublicClientInteraction({
         type: 'reservation_attempt',
         bienId: String(property.id),
@@ -3135,11 +3308,16 @@ out body 40;
         clientName: user?.role === 'user' ? user.name : undefined,
         sessionId: getOrCreateTrackingSessionId(),
         path: window.location.pathname + window.location.search,
+        channel: trackingChannel,
+        referrerSource: document.referrer || undefined,
         metadata: {
           requestType: isSaleProperty ? 'visite' : 'reservation',
           paymentMode,
           propertyCategory: String(property.category || '').trim() || null,
           bedrooms: Number(property.bedrooms || 0),
+          startDate,
+          endDate,
+          channel: trackingChannel,
         },
       }).catch(() => {});
     }

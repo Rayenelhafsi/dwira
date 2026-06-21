@@ -71,6 +71,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
   const [importantAlertCount, setImportantAlertCount] = useState(0);
   const hasLoadedAlertsRef = useRef(false);
   const isFetchingAlertsRef = useRef(false);
+  const authExpiredRef = useRef(false);
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(`${path}/`);
 
@@ -97,7 +98,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
   };
 
   const fetchNotificationAlerts = useCallback(async () => {
-    if (isFetchingAlertsRef.current) return;
+    if (isFetchingAlertsRef.current || authExpiredRef.current) return;
     isFetchingAlertsRef.current = true;
     try {
       const [notificationsResponse, demandsResponse, pendingCalendarRequestsResponse] = await Promise.all([
@@ -105,6 +106,13 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
         fetch(`${API_URL}/reservation-demands`, { credentials: 'include' }),
         fetch(`${API_URL}/mobile/admin/calendar-requests?statuses=pending`, { credentials: 'include' }),
       ]);
+      if ([notificationsResponse, demandsResponse, pendingCalendarRequestsResponse].some((response) => response.status === 401)) {
+        authExpiredRef.current = true;
+        setNotificationAlertCount(0);
+        setImportantAlertCount(0);
+        navigate('/connexion-admin-interne', { replace: true });
+        return;
+      }
       if (!notificationsResponse.ok || !demandsResponse.ok || !pendingCalendarRequestsResponse.ok) {
         return;
       }

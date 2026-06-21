@@ -135,8 +135,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       propertyTitle: 'Ouverture site',
       sessionId: getOrCreateTrackingSessionId(),
       path: window.location.pathname + window.location.search,
+      channel: 'direct',
+      referrerSource: document.referrer || undefined,
       metadata: {
         referrer: document.referrer || null,
+        channel: 'direct',
       },
     }).catch(() => {});
   }, [user, consentRevision]);
@@ -154,8 +157,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       propertyTitle: 'Session anonyme',
       sessionId,
       path,
+      channel: 'direct',
+      referrerSource: document.referrer || undefined,
       metadata: {
         referrer: document.referrer || null,
+        channel: 'direct',
       },
     }).catch(() => {});
     void trackPublicClientInteraction({
@@ -163,8 +169,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       propertyTitle: 'Ouverture site anonyme',
       sessionId,
       path,
+      channel: 'direct',
+      referrerSource: document.referrer || undefined,
       metadata: {
         referrer: document.referrer || null,
+        channel: 'direct',
       },
     }).catch(() => {});
   }, [user, consentRevision]);
