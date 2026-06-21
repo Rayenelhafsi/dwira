@@ -85,7 +85,14 @@ export default function AmicaleLandingPage() {
   }
 
   if (resolution.kind === "amicale") {
-    return <HomePage forcedAmicaleId={resolution.item.id} publicPartnerSlug={normalizedSlug} />;
+    return (
+      <HomePage
+        forcedAmicaleId={resolution.item.id}
+        publicPartnerSlug={normalizedSlug}
+        partnerBrandName={resolution.item.name}
+        partnerBrandLogoUrl={resolution.item.logoUrl || null}
+      />
+    );
   }
 
   return (
@@ -93,6 +100,8 @@ export default function AmicaleLandingPage() {
       forcedPartnerAgencyId={resolution.item.id}
       forcedPartnerAgencyMarginMultiplier={resolution.item.marginMultiplier}
       publicPartnerSlug={normalizedSlug}
+      partnerBrandName={resolution.item.name}
+      partnerBrandLogoUrl={resolution.item.logoUrl || null}
     />
   );
 }

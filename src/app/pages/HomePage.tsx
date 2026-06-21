@@ -1025,6 +1025,8 @@ type HomePageProps = {
   forcedPartnerAgencyId?: string | null;
   forcedPartnerAgencyMarginMultiplier?: number | null;
   publicPartnerSlug?: string | null;
+  partnerBrandName?: string | null;
+  partnerBrandLogoUrl?: string | null;
 };
 
 export default function HomePage({
@@ -1032,6 +1034,8 @@ export default function HomePage({
   forcedPartnerAgencyId,
   forcedPartnerAgencyMarginMultiplier,
   publicPartnerSlug,
+  partnerBrandName,
+  partnerBrandLogoUrl,
 }: HomePageProps = {}) {
   const INITIAL_VISIBLE_PROPERTIES = 10;
   const hotelDefaults = useMemo(() => buildDefaultHotelSearch(), []);
@@ -1316,6 +1320,10 @@ export default function HomePage({
     const raw = forcedPartnerAgencyMarginMultiplier ?? Number(searchParams.get("partnerMargin") || 0);
     return Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
   })();
+  const activePartnerBrandName = String(partnerBrandName || "").trim() || null;
+  const activePartnerBrandLogoUrl = String(partnerBrandLogoUrl || "").trim()
+    ? resolveMediaUrl(String(partnerBrandLogoUrl || "").trim())
+    : null;
   const publicPartnerQueryString = useMemo(() => {
     const params = new URLSearchParams(searchParams);
     params.delete("amicale");
@@ -1400,6 +1408,7 @@ export default function HomePage({
   );
   const isFlashLanding = routerLocation.pathname === "/ventes_flash";
   const isHotelMode = selectedMode === "hotellerie";
+  const showPartnerHeroBranding = Boolean(activePublicPartnerSlug && activePartnerBrandLogoUrl && !isHotelMode);
   const selectedHotelCity = useMemo(
     () => hotelCities.find((item) => Number(item.Id) === Number(hotelCityId)) || null,
     [hotelCities, hotelCityId]
@@ -4291,6 +4300,19 @@ export default function HomePage({
                      <img src={titaTravelLogo} alt="Logo Tita Travel" className="h-full w-full rounded-full object-cover" />
                    </div>
                  </div>
+               ) : showPartnerHeroBranding ? (
+                 <div className="flex items-center gap-3">
+                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                     <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
+                   </div>
+                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                     <img
+                       src={activePartnerBrandLogoUrl}
+                       alt={`Logo ${activePartnerBrandName || "partenaire"}`}
+                       className="h-full w-full rounded-full bg-white object-contain p-1.5"
+                     />
+                   </div>
+                 </div>
                ) : (
                  <div className="h-24 w-24 overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-28 md:w-28">
                    <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-contain" />
@@ -4301,7 +4323,11 @@ export default function HomePage({
                Dwira <span className="text-amber-400">Immobilier</span>
              </h1>
              <p className="text-xl md:text-2xl font-light tracking-wide text-emerald-50">
-               {isHotelMode ? "Dwira Immobilier x Tita Travel, en partenariat pour vos séjours" : "Votre partenaire de confiance à Kélibia"}
+               {isHotelMode
+                 ? "Dwira Immobilier x Tita Travel, en partenariat pour vos séjours"
+                 : showPartnerHeroBranding
+                   ? `Dwira Immobilier x ${activePartnerBrandName || "Agence partenaire"}`
+                   : "Votre partenaire de confiance à Kélibia"}
              </p>
           </div>
           

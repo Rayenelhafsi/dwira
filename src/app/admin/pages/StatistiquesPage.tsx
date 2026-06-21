@@ -26,6 +26,7 @@ import {
   YAxis,
 } from 'recharts';
 import { getOptimizedMediaUrl, resolveMediaUrl } from '../../utils/media';
+import { buildPropertyDetailsPath } from '../../utils/propertyRouting';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -233,6 +234,14 @@ function getChartMinWidth(points: number, min = 720, perPoint = 56, max = 2200) 
 function getPropertyCardImage(item?: PropertyPerformanceItem | null) {
   const resolved = resolveMediaUrl(item?.coverImageUrl || '');
   return resolved ? getOptimizedMediaUrl(resolved, { width: 720, quality: 72 }) : PROPERTY_PLACEHOLDER;
+}
+
+function buildPropertyStatsHref(item: PropertyPerformanceItem) {
+  return buildPropertyDetailsPath({
+    id: item.bienId,
+    reference: item.propertyReference || item.bienId,
+    slug: item.bienId,
+  });
 }
 
 function KpiCard({
@@ -550,7 +559,7 @@ export default function StatistiquesPage() {
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr]">
-        <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+        <article className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">Trafic et tendances</h2>
             <p className="text-sm text-slate-500">Sessions, visites, tentatives et reservations par periode.</p>
@@ -559,8 +568,8 @@ export default function StatistiquesPage() {
             <EmptyChart message="Aucune donnee disponible pour cette plage." />
           ) : (
             <div className="space-y-3">
-              <div className="overflow-x-auto pb-2">
-                <div className="h-[320px]" style={{ minWidth: `${trendChartMinWidth}px` }}>
+              <div className="overflow-x-auto pb-2 [scrollbar-gutter:stable]">
+                <div className="h-[320px] min-w-full" style={{ width: `${trendChartMinWidth}px` }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={series} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -576,12 +585,12 @@ export default function StatistiquesPage() {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <p className="text-xs text-slate-500">Les courbes restent scrollables horizontalement quand la plage contient beaucoup de points.</p>
+              <p className="text-xs text-slate-500">Les courbes restent scrollables horizontalement sur desktop et mobile quand la plage contient beaucoup de points.</p>
             </div>
           )}
         </article>
 
-        <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+        <article className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">Conversion et engagement</h2>
             <p className="text-sm text-slate-500">Lecture moyenne et conversion par periode.</p>
@@ -589,8 +598,8 @@ export default function StatistiquesPage() {
           {loading ? <EmptyChart message="Chargement de l'engagement..." /> : series.length === 0 ? (
             <EmptyChart message="Aucune donnee disponible." />
           ) : (
-            <div className="overflow-x-auto pb-2">
-              <div className="h-[320px]" style={{ minWidth: `${conversionChartMinWidth}px` }}>
+            <div className="overflow-x-auto pb-2 [scrollbar-gutter:stable]">
+              <div className="h-[320px] min-w-full" style={{ width: `${conversionChartMinWidth}px` }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={series} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -610,7 +619,7 @@ export default function StatistiquesPage() {
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_1fr]">
-        <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+        <article className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">Biens et performance</h2>
             <p className="text-sm text-slate-500">Top biens par visites avec funnel, image de couverture et canal dominant.</p>
@@ -649,7 +658,7 @@ export default function StatistiquesPage() {
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-[11px] text-slate-500">Derniere activite: {formatDateTime(item.lastActivityAt)}</p>
                           <a
-                            href={`/biens/${encodeURIComponent(item.bienId)}`}
+                            href={buildPropertyStatsHref(item)}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800"
@@ -667,7 +676,7 @@ export default function StatistiquesPage() {
           )}
         </article>
 
-        <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+        <article className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">Demande de sejour</h2>
             <p className="text-sm text-slate-500">Periodes et mois les plus selectionnes.</p>
@@ -680,8 +689,8 @@ export default function StatistiquesPage() {
             <EmptyChart message="Aucune periode recherchee sur cette plage." />
           ) : (
             <>
-              <div className="overflow-x-auto pb-2">
-                <div className="h-[220px]" style={{ minWidth: `${stayChartMinWidth}px` }}>
+              <div className="overflow-x-auto pb-2 [scrollbar-gutter:stable]">
+                <div className="h-[220px] min-w-full" style={{ width: `${stayChartMinWidth}px` }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={stayDemand?.topMonths || []}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />

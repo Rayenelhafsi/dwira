@@ -11,6 +11,8 @@ import { getReservationsFromCache } from "../utils/reservations";
 import { buildTelLink, getPublicContactForMode, openPhoneApp } from "../utils/deepLinks";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { getSessionUser } from "../services/auth";
+import { resolvePublicPartnerBySlug } from "../utils/publicPartnerResolver";
+import { resolveMediaUrl } from "../utils/media";
 
 // Custom TikTok Icon
 const TikTokIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
@@ -52,6 +54,33 @@ function resolveRouteMode(pathname: string, search: string) {
 
 function isPropertyDetailsPath(pathname: string) {
   return pathname.startsWith("/properties/") || pathname.startsWith("/ventes_flash/properties/");
+}
+
+const NON_PARTNER_SINGLE_SEGMENT_PATHS = new Set([
+  "hotels",
+  "logements",
+  "ventes_flash",
+  "packs",
+  "ventes",
+  "contact",
+  "cgv",
+  "mentions-legales",
+  "deploy-mobile",
+  "login",
+  "connexion-admin-interne",
+  "mes-reservations",
+  "reservation",
+  "agent-amicale",
+  "partner-agency",
+  "admin",
+]);
+
+function getPublicPartnerSlugFromPath(pathname: string) {
+  const segments = String(pathname || "").split("/").filter(Boolean);
+  if (segments.length !== 1) return null;
+  const slug = String(segments[0] || "").trim().toLowerCase();
+  if (!slug || NON_PARTNER_SINGLE_SEGMENT_PATHS.has(slug)) return null;
+  return slug;
 }
 
 const ACTIONABLE_STATUS_PRIORITY: Record<string, number> = {
@@ -104,8 +133,14 @@ export function Header() {
   const [actionableDemand, setActionableDemand] = useState<ReservationDemand | null>(null);
   const [showActionableNotice, setShowActionableNotice] = useState(false);
   const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
+  const [publicPartnerBrand, setPublicPartnerBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
   const lastScrollYRef = useRef(0);
-  const isHomePage = location.pathname === "/";
+  const partnerParams = new URLSearchParams(location.search);
+  const activePublicPartnerSlug = String(partnerParams.get("publicPartnerSlug") || "").trim()
+    || getPublicPartnerSlugFromPath(location.pathname)
+    || null;
+  const isPublicPartnerLanding = Boolean(activePublicPartnerSlug);
+  const isHomePage = location.pathname === "/" || isPublicPartnerLanding;
   const isAgentAmicaleDashboard = location.pathname.startsWith("/agent-amicale/dashboard");
   const isReservationConfirmationPage = location.pathname.startsWith("/reservation/confirmation/");
   const isClientFinalizationFlowPage =
@@ -115,13 +150,14 @@ export function Header() {
   const isPropertyTopHidden = isPropertyDetailsPage && !isOpen && !isScrolled;
   const useLightText = isHomePage && !isScrolled && !isOpen;
   const useSolidHeader = !isHomePage || isScrolled || isOpen;
-  const partnerParams = new URLSearchParams(location.search);
   const isPublicAmicaleFlow = (Boolean(partnerParams.get("amicale")) || Boolean(partnerParams.get("partner")))
     && !location.pathname.startsWith("/agent-amicale")
     && !location.pathname.startsWith("/partner-agency");
   const routeMode = resolveRouteMode(location.pathname, location.search);
   const headerContact = getPublicContactForMode(routeMode);
   const facebookUrl = `https://www.facebook.com/${encodeURIComponent(headerContact.messengerPage)}`;
+  const partnerBrandLogoUrl = publicPartnerBrand?.logoUrl ? resolveMediaUrl(publicPartnerBrand.logoUrl) : null;
+  const showPartnerBranding = Boolean(isPublicPartnerLanding && partnerBrandLogoUrl && routeMode !== "hotellerie");
 
   const handleLogout = () => {
     logout();
@@ -140,6 +176,33 @@ export function Header() {
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (!activePublicPartnerSlug) {
+      setPublicPartnerBrand(null);
+      return;
+    }
+
+    let cancelled = false;
+    void resolvePublicPartnerBySlug(activePublicPartnerSlug)
+      .then((match) => {
+        if (cancelled || !match) {
+          if (!cancelled) setPublicPartnerBrand(null);
+          return;
+        }
+        setPublicPartnerBrand({
+          name: String(match.item?.name || "").trim() || "Agence partenaire",
+          logoUrl: String(match.item?.logoUrl || "").trim() || null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setPublicPartnerBrand(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activePublicPartnerSlug]);
 
   useEffect(() => {
     if (isOpen) {
@@ -408,20 +471,28 @@ export function Header() {
     >
       <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
         <Link to="/" className="flex items-center gap-3 z-50">
-           <span className={`flex items-center ${routeMode === "hotellerie" ? "gap-2" : ""}`}>
+           <span className={`flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-2" : ""}`}>
              <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm md:h-12 md:w-12">
                <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
              </span>
-             {routeMode === "hotellerie" && (
+             {routeMode === "hotellerie" ? (
                <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm md:h-12 md:w-12">
                  <img src={titaTravelLogo} alt="Tita Travel" className="h-full w-full object-contain p-1" />
                </span>
-             )}
+             ) : showPartnerBranding ? (
+               <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm md:h-12 md:w-12">
+                 <img src={partnerBrandLogoUrl || ""} alt={publicPartnerBrand?.name || "Agence partenaire"} className="h-full w-full object-contain p-1" />
+               </span>
+             ) : null}
            </span>
            <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-emerald-900"}`}>
              <span className="block text-lg">Dwira</span>
              <span className="block text-xs uppercase tracking-widest text-amber-500">
-               {routeMode === "hotellerie" ? "Immobilier x Tita Travel" : "Immobilier"}
+               {routeMode === "hotellerie"
+                 ? "Immobilier x Tita Travel"
+                 : showPartnerBranding
+                   ? `Immobilier x ${String(publicPartnerBrand?.name || "Agence partenaire").toUpperCase()}`
+                   : "Immobilier"}
              </span>
            </div>
         </Link>
@@ -571,20 +642,26 @@ export function Header() {
             >
               <div className="relative z-10 flex h-full flex-col overflow-y-auto px-6 pb-10 pt-28">
                 <div className="mb-8 flex flex-col items-center border-b border-gray-100 pb-6">
-                  <div className={`mb-4 flex items-center ${routeMode === "hotellerie" ? "gap-3" : ""}`}>
+                  <div className={`mb-4 flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-3" : ""}`}>
                     <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
                       <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
                     </span>
-                    {routeMode === "hotellerie" && (
+                    {routeMode === "hotellerie" ? (
                       <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm">
                         <img src={titaTravelLogo} alt="Tita Travel" className="h-full w-full object-contain p-1" />
                       </span>
-                    )}
+                    ) : showPartnerBranding ? (
+                      <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-sky-100 bg-white shadow-sm">
+                        <img src={partnerBrandLogoUrl || ""} alt={publicPartnerBrand?.name || "Agence partenaire"} className="h-full w-full object-contain p-1" />
+                      </span>
+                    ) : null}
                   </div>
                   <h2 className="text-2xl font-bold text-emerald-900">Dwira Immobilier</h2>
-                  {routeMode === "hotellerie" && (
+                  {routeMode === "hotellerie" ? (
                     <p className="mt-2 text-sm font-medium text-sky-700">En partenariat avec Tita Travel</p>
-                  )}
+                  ) : showPartnerBranding ? (
+                    <p className="mt-2 text-sm font-medium text-sky-700">{`En partenariat avec ${publicPartnerBrand?.name || "l'agence partenaire"}`}</p>
+                  ) : null}
                 </div>
               
                 <div className="flex flex-col gap-5 py-8">
