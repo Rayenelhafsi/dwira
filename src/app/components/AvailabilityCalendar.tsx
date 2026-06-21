@@ -227,13 +227,32 @@ export default function AvailabilityCalendar({
       return { enabled: false, leftClass: "", rightClass: "" };
     }
 
-    const blocking = getBlockingStatusForDay(date);
-    const blockedClass = blocking === "booked" ? "bg-red-500" : blockedDayClass;
+    const dayKey = toDayKey(date);
+    const allowedStart = isAllowedRangeStart(dayKey);
+    const allowedEnd = isAllowedRangeEnd(dayKey);
+    const availableClass = flashLocked ? "bg-emerald-50" : "bg-green-100";
+    const blockedHalfClass = flashLocked ? "bg-white" : "bg-slate-100";
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
-    const dayKey = toDayKey(date);
     const selectedClass = "bg-emerald-600";
-    const availableClass = flashLocked ? "bg-emerald-50" : "bg-green-100";
+
+    if (flashLocked) {
+      if (isEnd && allowedEnd) {
+        return { enabled: true, leftClass: selectedClass, rightClass: blockedHalfClass };
+      }
+      if (isStart && allowedStart) {
+        return { enabled: true, leftClass: blockedHalfClass, rightClass: selectedClass };
+      }
+      if (allowedStart && !allowedEnd) {
+        return { enabled: true, leftClass: blockedHalfClass, rightClass: availableClass };
+      }
+      if (allowedEnd && !allowedStart) {
+        return { enabled: true, leftClass: availableClass, rightClass: blockedHalfClass };
+      }
+    }
+
+    const blocking = getBlockingStatusForDay(date);
+    const blockedClass = blocking === "booked" ? "bg-red-500" : blockedDayClass;
 
     if (isEnd) {
       if (blocking && canUseAsCheckoutBoundary(date)) {

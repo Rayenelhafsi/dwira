@@ -5,7 +5,7 @@ import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, cloneElement } from "react";
 import { createPortal } from "react-dom";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
-import { format, differenceInDays, isWithinInterval, parseISO } from "date-fns";
+import { format, differenceInDays, isWithinInterval, parseISO, addDays } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
@@ -2823,11 +2823,70 @@ out body 40;
       fallbackTotal: accommodationPricing.accommodationTotal,
     });
     const accommodationTotal = sitepEquivalentAccommodationTotal;
-    const discountedAccommodationTotal = activeLockedFlashOffer
-      ? (activeLockedFlashOffer.mode === "fixed_amount" && Number(activeLockedFlashOffer.fixedNightlyAmount || 0) > 0
-          ? Math.round(Number(activeLockedFlashOffer.fixedNightlyAmount || 0) * nights * 100) / 100
-          : getFlashNightlyAmount(accommodationPricing.averageNightlyPrice, activeLockedFlashOffer) * nights)
-      : accommodationTotal;
+    const nightlyPriceByDay = new Map<string, number>();
+    accommodationPricing.segments.forEach((segment) => {
+      const segmentStart = parseISO(`${segment.startDate}T00:00:00`);
+      for (let offset = 0; offset < segment.nights; offset += 1) {
+        nightlyPriceByDay.set(format(addDays(segmentStart, offset), "yyyy-MM-dd"), Number(segment.nightlyPrice || 0));
+      }
+    });
+    const flashPriceSegments: Array<{
+      key: string;
+      label: string;
+      nights: number;
+      nightlyPrice: number;
+      subtotal: number;
+      startDate: string;
+      endDate: string;
+    }> = [];
+    let discountedAccommodationTotal = accommodationTotal;
+    if (flashOfferEnabled && effectiveLockedFlashRanges.length > 0) {
+      const reservationStart = selectedStart < selectedEnd ? selectedStart : selectedEnd;
+      let activeSegment: null | {
+        key: string;
+        label: string;
+        nightlyPrice: number;
+        subtotal: number;
+        nights: number;
+        startDate: string;
+        endDate: string;
+      } = null;
+      let flashTotal = 0;
+      for (let offset = 0; offset < nights; offset += 1) {
+        const nightDate = addDays(reservationStart, offset);
+        const nightKey = format(nightDate, "yyyy-MM-dd");
+        const matchingRange = effectiveLockedFlashRanges.find((item) => nightKey >= item.start && nightKey < item.end) || null;
+        const baseNightly = Number(nightlyPriceByDay.get(nightKey) || accommodationPricing.averageNightlyPrice || property!.pricePerNight || 0);
+        const computedNightly = matchingRange?.offer
+          ? getFlashNightlyAmount(baseNightly, matchingRange.offer)
+          : baseNightly;
+        flashTotal += computedNightly;
+        const segmentKey = matchingRange?.offer
+          ? String(matchingRange.offer.id || `${matchingRange.start}-${matchingRange.end}`)
+          : `base-${nightKey}`;
+        const segmentLabel = matchingRange?.offer
+          ? `${format(new Date(`${matchingRange.start}T00:00:00`), "dd/MM/yyyy")} - ${format(new Date(`${matchingRange.end}T00:00:00`), "dd/MM/yyyy")}`
+          : nightKey;
+        if (!activeSegment || activeSegment.key !== segmentKey || activeSegment.nightlyPrice !== computedNightly) {
+          if (activeSegment) flashPriceSegments.push(activeSegment);
+          activeSegment = {
+            key: segmentKey,
+            label: segmentLabel,
+            nightlyPrice: computedNightly,
+            subtotal: computedNightly,
+            nights: 1,
+            startDate: nightKey,
+            endDate: nightKey,
+          };
+        } else {
+          activeSegment.nights += 1;
+          activeSegment.subtotal += computedNightly;
+          activeSegment.endDate = nightKey;
+        }
+      }
+      if (activeSegment) flashPriceSegments.push(activeSegment);
+      discountedAccommodationTotal = Math.round(flashTotal * 100) / 100;
+    }
     const cleaningFee = (hasCleaningFee && includeCleaningFee && property?.cleaningFee) ? property.cleaningFee : 0;
     const serviceFee = (hasServiceFee && includeServiceFee && property?.serviceFee) ? property.serviceFee : 0;
     const extraMattressTotal = extraMattresses * extraMattressPrice;
@@ -2847,6 +2906,12 @@ out body 40;
       productsAccueilFee: applyAmicaleTtc(productsAccueilFee, isAmicalePricingActive),
       extrasTotal: applyAmicaleTtc(extrasTotal, isAmicalePricingActive),
       total: applyAmicaleTtc(total, isAmicalePricingActive)
+      ,
+      flashPriceSegments: flashPriceSegments.map((segment) => ({
+        ...segment,
+        subtotal: applyAmicaleTtc(segment.subtotal, isAmicalePricingActive),
+        nightlyPrice: applyAmicaleTtc(segment.nightlyPrice, isAmicalePricingActive),
+      }))
     };
   };
 
@@ -4906,16 +4971,27 @@ out body 40;
                 <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite" : "Aucun montant ne vous sera debite pour le moment"}</p>
 
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
-                   <div className="flex justify-between">
-                     <span className="underline">
-                       {activeLockedFlashOffer
-                         ? `${formatTnd(applyAmicaleTtc(pricing.averageNightlyPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${pricing.nights} nuits`
-                         : (isAmicalePricingActive
-                             ? `${formatTnd(applyAmicaleTtc(pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight, true))} TND TTC (forfaitaire) x ${pricing.nights} nuits`
-                             : (pricing.hasPeriodOverride ? `${formatTnd(pricing.averageNightlyPrice)} TND (moyenne) x ${pricing.nights} nuits` : `${formatTnd(property.pricePerNight)} TND x ${pricing.nights} nuits`))}
-                     </span>
-                     <span>{formatTnd(pricing.accommodationTotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
-                   </div>
+                   {Array.isArray(pricing.flashPriceSegments) && pricing.flashPriceSegments.length > 1 ? (
+                     pricing.flashPriceSegments.map((segment) => (
+                       <div key={`${segment.key}-${segment.startDate}-${segment.endDate}`} className="flex justify-between">
+                         <span className="underline">
+                           {`${segment.label} : ${formatTnd(segment.nightlyPrice)} TND${isAmicalePricingActive ? ' TTC' : ''} x ${segment.nights} nuit${segment.nights > 1 ? 's' : ''}`}
+                         </span>
+                         <span>{formatTnd(segment.subtotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
+                       </div>
+                     ))
+                   ) : (
+                     <div className="flex justify-between">
+                       <span className="underline">
+                         {activeLockedFlashOffer
+                           ? `${formatTnd(applyAmicaleTtc(pricing.averageNightlyPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${pricing.nights} nuits`
+                           : (isAmicalePricingActive
+                               ? `${formatTnd(applyAmicaleTtc(pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight, true))} TND TTC (forfaitaire) x ${pricing.nights} nuits`
+                               : (pricing.hasPeriodOverride ? `${formatTnd(pricing.averageNightlyPrice)} TND (moyenne) x ${pricing.nights} nuits` : `${formatTnd(property.pricePerNight)} TND x ${pricing.nights} nuits`))}
+                       </span>
+                       <span>{formatTnd(pricing.accommodationTotal)} TND{isAmicalePricingActive ? ' (TTC)' : ''}</span>
+                     </div>
+                   )}
                    {pricing.cleaningFee > 0 && (
                      <div className="flex justify-between">
                        <span className="underline">Frais de ménage</span>
