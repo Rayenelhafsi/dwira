@@ -29,7 +29,7 @@ import logo from "../../../logo dwira.jpg";
 import { buildPropertyDetailsPath, buildReservationConfirmationPath, getPropertyRouteToken, propertyMatchesRouteToken } from "../utils/propertyRouting";
 import { applyAmicaleTtc, applySitepAccommodationRule, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
-import { getFlashNightlyAmount, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
+import { getFlashNightlyAmount, getPropertyFlashOffers, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
 import { aggregateUnavailableDatesByUnitCalendars, normalizeUnavailableDateRanges } from "../utils/availability";
 import {
   clearAuthPendingLogin,
@@ -873,6 +873,7 @@ export default function PropertyDetailsPage() {
   const maxPrice = maxPriceParam ? parseInt(maxPriceParam, 10) : Number.POSITIVE_INFINITY;
   const filterMode = (searchParams.get("mode") || property?.mode || "location_saisonniere").trim();
   const flashOfferEnabled = searchParams.get("flashOffer") === "1";
+  const flashIdParam = String(searchParams.get("flashId") || "").trim();
   const flashStartParam = String(searchParams.get("flashStart") || searchParams.get("checkIn") || "").trim();
   const flashEndParam = String(searchParams.get("flashEnd") || searchParams.get("checkOut") || "").trim();
   const flashModeParam = String(searchParams.get("flashMode") || "").trim() === "fixed_amount" ? "fixed_amount" : "percentage";
@@ -895,19 +896,45 @@ export default function PropertyDetailsPage() {
         minimumNights: flashMinNightsParam,
       }
     : null;
-  const effectiveLockedFlashStart = lockedFlashOffer
-    ? (lockedFlashOffer.start < todayDateKey ? todayDateKey : lockedFlashOffer.start)
-    : null;
-  const effectiveLockedFlashRange = lockedFlashOffer && effectiveLockedFlashStart && effectiveLockedFlashStart <= lockedFlashOffer.end
-    ? { start: effectiveLockedFlashStart, end: lockedFlashOffer.end }
-    : null;
-
+  const availableLockedFlashOffers = useMemo(() => {
+    if (!flashOfferEnabled) return [] as PropertyFlashOffer[];
+    const propertyOffers = getPropertyFlashOffers(property);
+    if (propertyOffers.length > 0) return propertyOffers;
+    return lockedFlashOffer ? [lockedFlashOffer] : [];
+  }, [flashOfferEnabled, lockedFlashOffer, property]);
+  const effectiveLockedFlashRanges = useMemo(() => (
+    availableLockedFlashOffers
+      .map((offer) => {
+        const start = offer.start < todayDateKey ? todayDateKey : offer.start;
+        if (start > offer.end) return null;
+        return { offer, start, end: offer.end };
+      })
+      .filter((item): item is { offer: PropertyFlashOffer; start: string; end: string } => Boolean(item))
+  ), [availableLockedFlashOffers, todayDateKey]);
+  const preferredLockedFlashRange = useMemo(() => {
+    const exactIdMatch = effectiveLockedFlashRanges.find((item) => flashIdParam && String(item.offer.id || "").trim() === flashIdParam);
+    if (exactIdMatch) return exactIdMatch;
+    const exactDateMatch = effectiveLockedFlashRanges.find((item) => item.offer.start === flashStartParam && item.offer.end === flashEndParam);
+    if (exactDateMatch) return exactDateMatch;
+    return effectiveLockedFlashRanges[0] || null;
+  }, [effectiveLockedFlashRanges, flashEndParam, flashIdParam, flashStartParam]);
+  const findMatchingLockedFlashRange = useCallback((startDate: string, endDate: string) => (
+    effectiveLockedFlashRanges.find((item) => startDate >= item.start && endDate <= item.end) || null
+  ), [effectiveLockedFlashRanges]);
   // Build query string for "Voir tout" link
   const filterQueryString = searchParams.toString();
   const backToListUrl = filterQueryString ? `/logements?${filterQueryString}` : "/logements";
 
   const [selectedStart, setSelectedStart] = useState<Date | null>(null);
   const [selectedEnd, setSelectedEnd] = useState<Date | null>(null);
+  const selectedLockedFlashRange = useMemo(() => {
+    if (!selectedStart || !selectedEnd) return null;
+    const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
+    const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
+    return findMatchingLockedFlashRange(format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"));
+  }, [findMatchingLockedFlashRange, selectedEnd, selectedStart]);
+  const activeLockedFlashRange = selectedLockedFlashRange || preferredLockedFlashRange;
+  const activeLockedFlashOffer = activeLockedFlashRange?.offer || null;
   const [adultGuests, setAdultGuests] = useState(1);
   const [childGuests, setChildGuests] = useState(0);
   const [includeCleaningFee, setIncludeCleaningFee] = useState(false);
@@ -1454,10 +1481,11 @@ out body 40;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
 
-    if (effectiveLockedFlashRange && (startDate < effectiveLockedFlashRange.start || endDate > effectiveLockedFlashRange.end)) {
+    const matchingLockedFlashRange = findMatchingLockedFlashRange(startDate, endDate);
+    if (flashOfferEnabled && effectiveLockedFlashRanges.length > 0 && !matchingLockedFlashRange) {
       return {
         valid: false,
-        message: `Cette vente flash permet uniquement une reservation incluse entre le ${format(new Date(`${effectiveLockedFlashRange.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${effectiveLockedFlashRange.end}T00:00:00`), "dd/MM/yyyy")}.`,
+        message: "Cette vente flash permet uniquement une reservation incluse dans l'une des periodes flash disponibles.",
       };
     }
 
@@ -1466,8 +1494,8 @@ out body 40;
     }
 
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
-    const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
-    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(lockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+    const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
+    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
@@ -1503,7 +1531,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRange, isSaleProperty, lockedFlashOffer, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [activeLockedFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, findMatchingLockedFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -1537,11 +1565,11 @@ out body 40;
     applyAmicaleTtc(Number(currentDisplayPricing.weeklyPrice || 0), isAmicalePricingActive),
     partnerAgencyMarginMultiplier
   );
-  const effectiveNightlyPrice = lockedFlashOffer ? getFlashNightlyAmount(displayedNightlyPrice, lockedFlashOffer) : displayedNightlyPrice;
-  const effectiveWeeklyPrice = lockedFlashOffer
-    ? (lockedFlashOffer.mode === "fixed_amount" && Number(lockedFlashOffer.fixedNightlyAmount || 0) > 0
-        ? Math.round(Number(lockedFlashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
-        : getFlashNightlyAmount(displayedWeeklyPrice, lockedFlashOffer))
+  const effectiveNightlyPrice = activeLockedFlashOffer ? getFlashNightlyAmount(displayedNightlyPrice, activeLockedFlashOffer) : displayedNightlyPrice;
+  const effectiveWeeklyPrice = activeLockedFlashOffer
+    ? (activeLockedFlashOffer.mode === "fixed_amount" && Number(activeLockedFlashOffer.fixedNightlyAmount || 0) > 0
+        ? Math.round(Number(activeLockedFlashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
+        : getFlashNightlyAmount(displayedWeeklyPrice, activeLockedFlashOffer))
     : displayedWeeklyPrice;
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
@@ -2571,7 +2599,7 @@ out body 40;
       setSelectedEnd(null);
     };
 
-    if (!isSaleProperty && start && !end && !lockedFlashOffer) {
+    if (!isSaleProperty && start && !end && !activeLockedFlashOffer) {
       const startDate = format(start, 'yyyy-MM-dd');
       const weekdayRuleCheck = validateCheckinWeekdayRule({
         startDate,
@@ -2631,8 +2659,9 @@ out body 40;
       }
       const nights = Math.max(0, Math.abs(differenceInDays(orderedEnd, orderedStart)));
 
-      const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
-      const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(lockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+      const matchingLockedFlashRange = findMatchingLockedFlashRange(startDate, endDate);
+      const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
+      const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
@@ -2712,11 +2741,11 @@ out body 40;
     if (!parsedStart || !parsedEnd || Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) return;
     const candidateStartKey = format(parsedStart, "yyyy-MM-dd");
     const candidateEndKey = format(parsedEnd, "yyyy-MM-dd");
-    const normalizedDraftStartKey = effectiveLockedFlashRange
-      ? (candidateStartKey < effectiveLockedFlashRange.start ? effectiveLockedFlashRange.start : candidateStartKey)
+    const normalizedDraftStartKey = preferredLockedFlashRange
+      ? (candidateStartKey < preferredLockedFlashRange.start ? preferredLockedFlashRange.start : candidateStartKey)
       : (candidateStartKey < todayDateKey ? todayDateKey : candidateStartKey);
     const normalizedDraftEndKey = candidateEndKey;
-    if (effectiveLockedFlashRange && normalizedDraftEndKey > effectiveLockedFlashRange.end) return;
+    if (flashOfferEnabled && effectiveLockedFlashRanges.length > 0 && !findMatchingLockedFlashRange(normalizedDraftStartKey, normalizedDraftEndKey)) return;
     if (normalizedDraftEndKey <= normalizedDraftStartKey) return;
     draftHydratedRef.current = true;
     setSelectedStart(new Date(`${normalizedDraftStartKey}T00:00:00`));
@@ -2740,7 +2769,7 @@ out body 40;
     setAmicaleCode(String(candidate.amicaleCode || ""));
     setReservationNote(String(candidate.reservationNote || ""));
     setPendingDraft(candidate);
-  }, [effectiveLockedFlashRange, location.state, maxAdultGuests, maxChildGuests, maxGuests, property, todayDateKey]);
+  }, [effectiveLockedFlashRanges, findMatchingLockedFlashRange, flashOfferEnabled, location.state, maxAdultGuests, maxChildGuests, maxGuests, preferredLockedFlashRange, property, todayDateKey]);
 
   // Calculate total price
   const calculateTotal = () => {
@@ -2794,10 +2823,10 @@ out body 40;
       fallbackTotal: accommodationPricing.accommodationTotal,
     });
     const accommodationTotal = sitepEquivalentAccommodationTotal;
-    const discountedAccommodationTotal = lockedFlashOffer
-      ? (lockedFlashOffer.mode === "fixed_amount" && Number(lockedFlashOffer.fixedNightlyAmount || 0) > 0
-          ? Math.round(Number(lockedFlashOffer.fixedNightlyAmount || 0) * nights * 100) / 100
-          : getFlashNightlyAmount(accommodationPricing.averageNightlyPrice, lockedFlashOffer) * nights)
+    const discountedAccommodationTotal = activeLockedFlashOffer
+      ? (activeLockedFlashOffer.mode === "fixed_amount" && Number(activeLockedFlashOffer.fixedNightlyAmount || 0) > 0
+          ? Math.round(Number(activeLockedFlashOffer.fixedNightlyAmount || 0) * nights * 100) / 100
+          : getFlashNightlyAmount(accommodationPricing.averageNightlyPrice, activeLockedFlashOffer) * nights)
       : accommodationTotal;
     const cleaningFee = (hasCleaningFee && includeCleaningFee && property?.cleaningFee) ? property.cleaningFee : 0;
     const serviceFee = (hasServiceFee && includeServiceFee && property?.serviceFee) ? property.serviceFee : 0;
@@ -2956,8 +2985,9 @@ out body 40;
     const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
-    if (effectiveLockedFlashRange && (startDate < effectiveLockedFlashRange.start || endDate > effectiveLockedFlashRange.end)) {
-      failRule(`Cette vente flash accepte uniquement une reservation comprise entre le ${format(new Date(`${effectiveLockedFlashRange.start}T00:00:00`), "dd/MM/yyyy")} et le ${format(new Date(`${effectiveLockedFlashRange.end}T00:00:00`), "dd/MM/yyyy")}.`);
+    const matchingLockedFlashRange = findMatchingLockedFlashRange(startDate, endDate);
+    if (flashOfferEnabled && effectiveLockedFlashRanges.length > 0 && !matchingLockedFlashRange) {
+      failRule("Cette vente flash accepte uniquement une reservation comprise dans l'une des periodes flash disponibles.");
       return;
     }
     if (startDate === endDate) {
@@ -2965,8 +2995,8 @@ out body 40;
       return;
     }
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
-    const skipLockedFlashStayRules = Boolean(lockedFlashOffer);
-    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(lockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+    const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
+    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
@@ -3008,14 +3038,14 @@ out body 40;
       includeServiceFee,
       extraMattresses,
       selectedPaidServiceIds,
-      flashOffer: lockedFlashOffer ? {
-        title: lockedFlashOffer.title,
-        start: lockedFlashOffer.start,
-        end: lockedFlashOffer.end,
-        mode: lockedFlashOffer.mode,
-        discountPercent: lockedFlashOffer.discountPercent,
-        fixedNightlyAmount: lockedFlashOffer.fixedNightlyAmount,
-        minimumNights: lockedFlashOffer.minimumNights,
+      flashOffer: activeLockedFlashOffer ? {
+        title: activeLockedFlashOffer.title,
+        start: activeLockedFlashOffer.start,
+        end: activeLockedFlashOffer.end,
+        mode: activeLockedFlashOffer.mode,
+        discountPercent: activeLockedFlashOffer.discountPercent,
+        fixedNightlyAmount: activeLockedFlashOffer.fixedNightlyAmount,
+        minimumNights: activeLockedFlashOffer.minimumNights,
       } : null,
       paymentMode,
       partnerAgencyId: partnerAgencyId || undefined,
@@ -4381,25 +4411,30 @@ out body 40;
               <p className="text-gray-600 mb-6">
                 Sélectionnez vos dates pour voir les disponibilités et réserver votre séjour.
               </p>
-              {!isSaleProperty && !lockedFlashOffer && (
+              {!isSaleProperty && !activeLockedFlashOffer && (
                 <p className="text-sm text-emerald-700 mb-2">
                   {selectedStart
                     ? `Duree autorisee pour la periode ${activeStayRuleLabel || 'selectionnee'}: minimum ${displayedMinStay} nuit(s), maximum ${maxStay} nuit(s).`
                     : 'Selectionnez une date de sejour pour que vous puissiez voir le minimum de nuitees pour la periode.'}
                 </p>
               )}
-              {!isSaleProperty && !lockedFlashOffer && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
+              {!isSaleProperty && !activeLockedFlashOffer && (activeWeekdayRule.requiredCheckinDay || activeWeekdayRule.requiredCheckoutDay) && (
                 <p className="text-sm text-emerald-700 mb-4">
                   Regle periode: check-in {activeWeekdayRule.requiredCheckinDay || 'libre'} | check-out {activeWeekdayRule.requiredCheckoutDay || 'libre'}.
                 </p>
               )}
-              {lockedFlashOffer ? (
+              {effectiveLockedFlashRanges.length > 0 ? (
                 <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700 shadow-[0_12px_28px_rgba(239,68,68,0.08)]">
                   <p className="font-semibold">Vente flash active</p>
-                  <p className="mt-1">
-                    Cette offre est disponible du {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}
-                    {" "}avec {lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`} et un minimum de {Math.max(1, Number(lockedFlashOffer.minimumNights || 1))} nuit(s).
-                  </p>
+                  <div className="mt-1 space-y-1">
+                    {effectiveLockedFlashRanges.map((item) => (
+                      <p key={String(item.offer.id || `${item.start}-${item.end}`)}>
+                        Du {format(new Date(`${item.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${item.end}T00:00:00`), "dd/MM/yyyy")}
+                        {" "}avec {item.offer.mode === "fixed_amount" ? `${formatTnd(item.offer.fixedNightlyAmount || 0)} TND / nuit` : `-${item.offer.discountPercent}%`}
+                        {" "}et un minimum de {Math.max(1, Number(item.offer.minimumNights || 1))} nuit(s).
+                      </p>
+                    ))}
+                  </div>
                 </div>
               ) : null}
               <AvailabilityCalendar
@@ -4407,7 +4442,7 @@ out body 40;
                 onDateRangeSelect={handleDateRangeSelect}
                 selectedStart={selectedStart}
                 selectedEnd={selectedEnd}
-                allowedRange={effectiveLockedFlashRange}
+                allowedRanges={effectiveLockedFlashRanges.map((item) => ({ start: item.start, end: item.end }))}
               />
             </div>
           </div>
@@ -4417,14 +4452,14 @@ out body 40;
             <div ref={priceSectionRef} className="sticky top-24 bg-white rounded-xl shadow-xl border border-gray-100 p-6">
               <div className="flex justify-between items-baseline mb-6">
                 <div>
-                  {lockedFlashOffer && displayedNightlyPrice > effectiveNightlyPrice ? (
+                  {activeLockedFlashOffer && displayedNightlyPrice > effectiveNightlyPrice ? (
                     <p className="mb-1 text-sm font-semibold text-slate-400 line-through">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
                   ) : null}
-                  <span className={`text-2xl font-bold ${lockedFlashOffer ? "text-red-600" : "text-gray-900"}`}>{formatTnd(effectiveNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
+                  <span className={`text-2xl font-bold ${activeLockedFlashOffer ? "text-red-600" : "text-gray-900"}`}>{formatTnd(effectiveNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
                   {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
                   {property.priceContext !== 'sale' && effectiveWeeklyPrice > 0 ? (
                     <p className="mt-1 text-xs text-gray-500">
-                      {lockedFlashOffer && displayedWeeklyPrice > effectiveWeeklyPrice ? <span className="mr-1 line-through text-slate-400">{formatTnd(displayedWeeklyPrice)} TND</span> : null}
+                      {activeLockedFlashOffer && displayedWeeklyPrice > effectiveWeeklyPrice ? <span className="mr-1 line-through text-slate-400">{formatTnd(displayedWeeklyPrice)} TND</span> : null}
                       {formatTnd(effectiveWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""} / semaine
                     </p>
                   ) : null}
@@ -4435,10 +4470,10 @@ out body 40;
                 </div>
               </div>
 
-              {lockedFlashOffer ? (
+              {activeLockedFlashOffer ? (
                 <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700">
                   <p className="font-semibold">Periode flash flexible</p>
-                  <p className="mt-1">Reservation possible sur toute plage incluse entre le {format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le {format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}, avec minimum {Math.max(1, Number(lockedFlashOffer.minimumNights || 1))} nuit(s).</p>
+                  <p className="mt-1">Reservation possible sur toute plage incluse entre le {format(new Date(`${activeLockedFlashRange?.start || activeLockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le {format(new Date(`${activeLockedFlashRange?.end || activeLockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}, avec minimum {Math.max(1, Number(activeLockedFlashOffer.minimumNights || 1))} nuit(s).</p>
                 </div>
               ) : null}
 
@@ -4873,7 +4908,7 @@ out body 40;
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    <div className="flex justify-between">
                      <span className="underline">
-                       {lockedFlashOffer
+                       {activeLockedFlashOffer
                          ? `${formatTnd(applyAmicaleTtc(pricing.averageNightlyPrice, isAmicalePricingActive))} TND${isAmicalePricingActive ? ' TTC' : ''} x ${pricing.nights} nuits`
                          : (isAmicalePricingActive
                              ? `${formatTnd(applyAmicaleTtc(pricing.hasPeriodOverride ? pricing.averageNightlyPrice : property.pricePerNight, true))} TND TTC (forfaitaire) x ${pricing.nights} nuits`
@@ -4967,8 +5002,8 @@ out body 40;
           <div className="max-h-[calc(86vh-92px)] overflow-y-auto px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6 sm:pt-4">
             {!isSaleProperty && (
               <p className="mb-2 text-xs text-emerald-700 sm:mb-3 sm:text-sm">
-                {lockedFlashOffer
-                  ? `Periode flash flexible du ${format(new Date(`${lockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${lockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")} avec ${lockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(lockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${lockedFlashOffer.discountPercent}%`} et minimum ${Math.max(1, Number(lockedFlashOffer.minimumNights || 1))} nuit(s).`
+                {activeLockedFlashOffer
+                  ? `Periode flash flexible du ${format(new Date(`${activeLockedFlashRange?.start || activeLockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au ${format(new Date(`${activeLockedFlashRange?.end || activeLockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")} avec ${activeLockedFlashOffer.mode === "fixed_amount" ? `${formatTnd(activeLockedFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${activeLockedFlashOffer.discountPercent}%`} et minimum ${Math.max(1, Number(activeLockedFlashOffer.minimumNights || 1))} nuit(s).`
                   : selectedStart
                   ? `Duree autorisee pour la periode ${activeStayRuleLabel || 'selectionnee'}: minimum ${displayedMinStay} nuit(s), maximum ${maxStay} nuit(s).`
                   : 'Selectionnez une date de sejour pour que vous puissiez voir le minimum de nuitees pour la periode.'}
@@ -4984,7 +5019,7 @@ out body 40;
               onDateRangeSelect={handleBookingDateRangeSelect}
               selectedStart={selectedStart}
               selectedEnd={selectedEnd}
-              allowedRange={effectiveLockedFlashRange}
+              allowedRanges={effectiveLockedFlashRanges.map((item) => ({ start: item.start, end: item.end }))}
             />
           </div>
         </DialogContent>

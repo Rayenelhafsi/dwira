@@ -32,6 +32,7 @@ interface AvailabilityCalendarProps {
   selectedStart: Date | null;
   selectedEnd: Date | null;
   allowedRange?: { start: string; end: string } | null;
+  allowedRanges?: Array<{ start: string; end: string }>;
   showAdminBlockedStatus?: boolean;
 }
 
@@ -41,6 +42,7 @@ export default function AvailabilityCalendar({
   selectedStart,
   selectedEnd,
   allowedRange = null,
+  allowedRanges = [],
   showAdminBlockedStatus = false,
 }: AvailabilityCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -54,19 +56,23 @@ export default function AvailabilityCalendar({
 
   const toDayKey = (date: Date) => format(date, "yyyy-MM-dd");
   const normalizeKey = (value: string) => String(value || "").slice(0, 10);
-  const normalizedAllowedRange =
-    allowedRange && isValidDateOnly(allowedRange.start) && isValidDateOnly(allowedRange.end)
-      ? { start: allowedRange.start, end: allowedRange.end }
-      : null;
+  const normalizedAllowedRanges = [
+    ...(allowedRange && isValidDateOnly(allowedRange.start) && isValidDateOnly(allowedRange.end)
+      ? [{ start: allowedRange.start, end: allowedRange.end }]
+      : []),
+    ...allowedRanges.filter((range) => isValidDateOnly(range.start) && isValidDateOnly(range.end)),
+  ];
 
   const isOutsideAllowedRange = (date: Date) => {
-    if (!normalizedAllowedRange) return false;
+    if (normalizedAllowedRanges.length === 0) return false;
     const key = toDayKey(date);
-    return key < normalizedAllowedRange.start || key > normalizedAllowedRange.end;
+    return !normalizedAllowedRanges.some((range) => key >= range.start && key <= range.end);
   };
 
-  const flashLocked = Boolean(normalizedAllowedRange);
+  const flashLocked = normalizedAllowedRanges.length > 0;
   const blockedDayClass = showAdminBlockedStatus ? "bg-gray-900" : "bg-red-500";
+  const isAllowedRangeStart = (key: string) => normalizedAllowedRanges.some((range) => key === range.start);
+  const isAllowedRangeEnd = (key: string) => normalizedAllowedRanges.some((range) => key === range.end);
 
   const getBlockingStatusForDay = (day: Date): "blocked" | "booked" | null => {
     const key = toDayKey(day);
@@ -227,13 +233,13 @@ export default function AvailabilityCalendar({
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
     const dayKey = toDayKey(date);
     const selectedClass = "bg-emerald-600";
-    const availableClass = normalizedAllowedRange ? "bg-emerald-50" : "bg-green-100";
+    const availableClass = flashLocked ? "bg-emerald-50" : "bg-green-100";
 
     if (isEnd) {
       if (blocking && canUseAsCheckoutBoundary(date)) {
         return { enabled: true, leftClass: selectedClass, rightClass: blockedClass };
       }
-      if (normalizedAllowedRange && dayKey === normalizedAllowedRange.end) {
+      if (isAllowedRangeEnd(dayKey)) {
         return { enabled: false, leftClass: "", rightClass: "" };
       }
       return { enabled: true, leftClass: selectedClass, rightClass: availableClass };
@@ -243,7 +249,7 @@ export default function AvailabilityCalendar({
       if (blocking && canUseAsCheckinBoundary(date)) {
         return { enabled: true, leftClass: blockedClass, rightClass: selectedClass };
       }
-      if (normalizedAllowedRange && dayKey === normalizedAllowedRange.start) {
+      if (isAllowedRangeStart(dayKey)) {
         return { enabled: false, leftClass: "", rightClass: "" };
       }
       return { enabled: true, leftClass: availableClass, rightClass: selectedClass };
