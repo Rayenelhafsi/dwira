@@ -8,6 +8,7 @@ import { getSiteMaintenanceStatus, readCachedSiteMaintenanceStatus, type SiteMai
 import { useAuth } from "./context/AuthContext";
 import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
 import { trackGaPageView } from "./utils/analytics";
+import { hasTrackingConsent } from "./utils/consent";
 
 const LazyPartnersLogoMarquee = lazy(() =>
   import("./components/PartnersLogoMarquee").then((module) => ({ default: module.PartnersLogoMarquee }))
@@ -18,7 +19,19 @@ export function Layout() {
   const { user, isLoading: authLoading } = useAuth();
   const [maintenance, setMaintenance] = useState<SiteMaintenanceStatus | null>(() => readCachedSiteMaintenanceStatus());
   const [showPartnersLogoMarquee, setShowPartnersLogoMarquee] = useState(false);
+  const [consentRevision, setConsentRevision] = useState(0);
   const hidePublicChrome = location.pathname.startsWith("/partner-agency/dashboard");
+
+  useEffect(() => {
+    const handleConsentUpdated = () => {
+      setConsentRevision((current) => current + 1);
+    };
+
+    window.addEventListener("dwira-consent-updated", handleConsentUpdated);
+    return () => {
+      window.removeEventListener("dwira-consent-updated", handleConsentUpdated);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,9 +106,10 @@ export function Layout() {
 
   useEffect(() => {
     if (hidePublicChrome) return;
+    if (!hasTrackingConsent()) return;
     const fullPath = `${location.pathname}${location.search}${location.hash}`;
     void trackGaPageView(fullPath).catch(() => {});
-  }, [hidePublicChrome, location.hash, location.pathname, location.search]);
+  }, [consentRevision, hidePublicChrome, location.hash, location.pathname, location.search]);
 
   useEffect(() => {
     if (showPartnersLogoMarquee) return;
