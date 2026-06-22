@@ -903,6 +903,8 @@ export default function PropertiesPage() {
   );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAllResults, setShowAllResults] = useState(false);
+  const resultsAutoLoadTriggerRef = useRef<HTMLDivElement | null>(null);
+  const lastAutoLoadedResultsCountRef = useRef(0);
   const isAnnualComingSoon = PUBLIC_COMING_SOON.locationAnnuelle && selectedMode === "location_annuelle";
   const primaryStayRange = stayRanges[0] || { start: "", end: "" };
   const checkIn = primaryStayRange.start;
@@ -3003,6 +3005,11 @@ export default function PropertiesPage() {
     [regularDisplayResults, showAllResults, visibleCount]
   );
   const hasMoreResults = !showAllResults && regularDisplayResults.length > visibleCount;
+  const loadNextResultsPage = useCallback(() => {
+    setVisibleCount((prev) => (
+      regularDisplayResults.length > prev ? prev + PAGE_SIZE : prev
+    ));
+  }, [regularDisplayResults.length]);
   const isLoadingInitialResults = loading && properties.length === 0 && biens.length === 0;
 
   useEffect(() => {
@@ -3052,6 +3059,7 @@ export default function PropertiesPage() {
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
     setShowAllResults(false);
+    lastAutoLoadedResultsCountRef.current = 0;
   }, [
     selectedMode,
     query,
@@ -3075,6 +3083,29 @@ export default function PropertiesPage() {
     smartTolerance,
     sortMode,
   ]);
+
+  useEffect(() => {
+    if (!hasMoreResults || showAllResults) return;
+    const trigger = resultsAutoLoadTriggerRef.current;
+    if (!trigger || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (lastAutoLoadedResultsCountRef.current === visibleCount) return;
+        lastAutoLoadedResultsCountRef.current = visibleCount;
+        loadNextResultsPage();
+      },
+      {
+        rootMargin: "0px 0px 220px 0px",
+        threshold: 0.05,
+      }
+    );
+
+    observer.observe(trigger);
+    return () => observer.disconnect();
+  }, [hasMoreResults, showAllResults, visibleCount, loadNextResultsPage]);
   useEffect(() => {
     if (hasStrictStaySearch && sortedScoredResults.length === 0 && alternativeScoredResults.length > 0) {
       setTimeout(() => {
@@ -3934,6 +3965,9 @@ export default function PropertiesPage() {
                     ))}
                   </div>
                 ) : null}
+                {hasMoreResults && (
+                  <div ref={resultsAutoLoadTriggerRef} className="h-1 w-full" aria-hidden="true" />
+                )}
               </div>
             ) : (
               <div className="rounded-2xl border border-gray-100 bg-white py-20 text-center shadow-sm">
@@ -3957,7 +3991,7 @@ export default function PropertiesPage() {
                 {hasMoreResults && (
                   <button
                     type="button"
-                    onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+                    onClick={loadNextResultsPage}
                     className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
                   >
                     Suivant

@@ -1115,6 +1115,8 @@ export default function HomePage({
   const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
   const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
   const [showAllProperties, setShowAllProperties] = useState(false);
+  const propertiesAutoLoadTriggerRef = useRef<HTMLDivElement | null>(null);
+  const lastAutoLoadedPropertiesCountRef = useRef(0);
   const hotelInitialSearchDoneRef = useRef(false);
   const hotelDirectoryLoadedCityIdRef = useRef<number | null>(null);
   const hotelShouldAutoSearchFromUrlRef = useRef(
@@ -4154,6 +4156,11 @@ export default function HomePage({
     [regularPropertyCards, showAllProperties, visiblePropertiesCount]
   );
   const hasMoreFilteredProperties = !showAllProperties && regularPropertyCards.length > visiblePropertiesCount;
+  const loadNextRegularProperties = useCallback(() => {
+    setVisiblePropertiesCount((prev) => (
+      regularPropertyCards.length > prev ? prev + INITIAL_VISIBLE_PROPERTIES : prev
+    ));
+  }, [regularPropertyCards.length]);
 
   useEffect(() => {
     if (routerLocation.pathname !== "/ventes_flash") return;
@@ -4167,6 +4174,7 @@ export default function HomePage({
   useEffect(() => {
     setVisiblePropertiesCount(INITIAL_VISIBLE_PROPERTIES);
     setShowAllProperties(false);
+    lastAutoLoadedPropertiesCountRef.current = 0;
   }, [
     selectedMode,
     hasSearched,
@@ -4177,6 +4185,29 @@ export default function HomePage({
     selectedComfortOptions,
     selectedStayRanges,
   ]);
+
+  useEffect(() => {
+    if (!hasMoreFilteredProperties || showAllProperties) return;
+    const trigger = propertiesAutoLoadTriggerRef.current;
+    if (!trigger || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (lastAutoLoadedPropertiesCountRef.current === visiblePropertiesCount) return;
+        lastAutoLoadedPropertiesCountRef.current = visiblePropertiesCount;
+        loadNextRegularProperties();
+      },
+      {
+        rootMargin: "0px 0px 220px 0px",
+        threshold: 0.05,
+      }
+    );
+
+    observer.observe(trigger);
+    return () => observer.disconnect();
+  }, [hasMoreFilteredProperties, showAllProperties, visiblePropertiesCount, loadNextRegularProperties]);
 
   const dateRangeText = () => {
     if (selectedStayRanges.length > 1) {
@@ -6819,12 +6850,15 @@ export default function HomePage({
                 </div>
               ))}
             </div>
+            {hasMoreFilteredProperties && (
+              <div ref={propertiesAutoLoadTriggerRef} className="h-1 w-full" aria-hidden="true" />
+            )}
             {regularPropertyCards.length > INITIAL_VISIBLE_PROPERTIES && (
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 {hasMoreFilteredProperties && (
                   <button
                     type="button"
-                    onClick={() => setVisiblePropertiesCount((prev) => prev + INITIAL_VISIBLE_PROPERTIES)}
+                    onClick={loadNextRegularProperties}
                     className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
                   >
                     Suivant
