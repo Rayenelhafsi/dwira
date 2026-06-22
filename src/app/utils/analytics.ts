@@ -65,7 +65,9 @@ export async function ensureGaTrackingReady() {
       anonymize_ip: true,
     });
 
-    const existing = document.querySelector<HTMLScriptElement>(`script[data-ga-id="${GA_MEASUREMENT_ID}"]`);
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[data-ga-id="${GA_MEASUREMENT_ID}"], script[src*="googletagmanager.com/gtag/js?id=${encodeURIComponent(GA_MEASUREMENT_ID)}"]`
+    );
     if (existing) {
       resolve(true);
       return;
