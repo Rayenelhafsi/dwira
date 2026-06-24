@@ -7901,7 +7901,9 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                     {visibleFeatureTabs.map((tab) => (
                       <span key={tab.id} className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${(selectedFeatureTabId === tab.id) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-emerald-200 text-emerald-700'}`}>
                         <button type="button" onClick={() => setSelectedFeatureTabId(tab.id)}>{tab.nom}</button>
-                        <button type="button" onClick={() => void handleDeleteFeatureTab(tab)} className={`${selectedFeatureTabId === tab.id ? 'text-white' : 'text-red-500'}`}>x</button>
+                        {Number(tab.is_system || 0) !== 1 && (
+                          <button type="button" onClick={() => void handleDeleteFeatureTab(tab)} className={`${selectedFeatureTabId === tab.id ? 'text-white' : 'text-red-500'}`}>x</button>
+                        )}
                       </span>
                     ))}
                     {visibleFeatureTabs.length === 0 && <span className="text-xs text-gray-500">Aucun onglet disponible</span>}

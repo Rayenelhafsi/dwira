@@ -23187,6 +23187,9 @@ app.delete('/api/caracteristique-onglets/:id', requireAdminSession, async (req, 
     const [rows] = await pool.query('SELECT * FROM caracteristique_onglets WHERE id = ? LIMIT 1', [id]);
     const onglet = rows?.[0];
     if (!onglet) return res.status(404).json({ error: 'onglet introuvable' });
+    if (Number(onglet.is_system || 0) === 1) {
+      return res.status(403).json({ error: 'suppression interdite pour un onglet systeme' });
+    }
     await pool.query('UPDATE caracteristique_contextes SET onglet_id = NULL WHERE onglet_id = ?', [id]);
     await pool.query('DELETE FROM caracteristique_onglets WHERE id = ?', [id]);
     res.json({ message: 'Onglet supprime' });
